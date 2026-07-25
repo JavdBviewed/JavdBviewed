@@ -5,13 +5,9 @@
  *
  * 子设置面板仍由遗留 partial + settingsPanelManager 承载；本页只替换索引壳。
  */
-import { useMemo, useState } from 'react';
 import { Badge } from '../../../../ui/primitives/Badge/Badge';
-import { Input } from '../../../../ui/primitives/Input/Input';
-import { EmptyState } from '../../../../ui/patterns/EmptyState/EmptyState';
 import { PageHeader } from '../../../../ui/patterns/PageHeader/PageHeader';
 import {
-  filterSettingsNavItems,
   SETTINGS_NAV_ITEMS,
   settingsNavHref,
   type SettingsNavItem,
@@ -22,12 +18,6 @@ import './settingsIndexPage.css';
  * 设置中心首页
  */
 export function SettingsIndexPage() {
-  const [query, setQuery] = useState('');
-  const items = useMemo(
-    () => filterSettingsNavItems(SETTINGS_NAV_ITEMS, query),
-    [query],
-  );
-
   return (
     <div className="si-page" data-settings-stack="react">
       <PageHeader
@@ -42,27 +32,11 @@ export function SettingsIndexPage() {
         id="settings-index-search-host"
         data-settings-search-host="1"
       />
-
-      {/* 仅过滤入口卡片，与全站设置项搜索互补 */}
-      <div className="si-filter">
-        <Input
-          type="search"
-          value={query}
-          placeholder="筛选下方入口卡片…"
-          aria-label="筛选设置入口卡片"
-          onChange={(e) => setQuery(e.currentTarget.value)}
-        />
+      <div className="si-grid" role="navigation" aria-label="设置导航">
+        {SETTINGS_NAV_ITEMS.map((item) => (
+          <SettingsNavCard key={item.id} item={item} />
+        ))}
       </div>
-
-      {items.length === 0 ? (
-        <EmptyState className="si-empty" title="没有匹配的设置项" />
-      ) : (
-        <div className="si-grid" role="navigation" aria-label="设置导航">
-          {items.map((item) => (
-            <SettingsNavCard key={item.id} item={item} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }

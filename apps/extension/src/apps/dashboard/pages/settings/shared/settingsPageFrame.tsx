@@ -20,7 +20,7 @@ export type SettingsPageFrameProps = {
 /**
  * 全页 React 设置页外框
  * - 返回钮始终贴内容宿主左上，不随 max-w 居中栏漂移
- * - 标题与正文在 max-w-3xl 内居中
+ * - 标题与正文在 max-w-[1200px] 内居中，作为 React 设置子页统一宽容器
  */
 export function SettingsPageFrame({
   title,
@@ -40,7 +40,7 @@ export function SettingsPageFrame({
           ← 返回设置
         </button>
       </div>
-      <div className="mx-auto w-full max-w-3xl px-1">
+      <div className="mx-auto w-full max-w-[1200px] px-1">
         <PageHeader className="mb-5" align="center" title={title} description={description} />
         {children}
       </div>

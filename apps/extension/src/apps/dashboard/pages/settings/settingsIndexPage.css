@@ -28,16 +28,7 @@
   margin: 0 auto;
 }
 
-.si-filter {
-  max-width: 420px;
-  margin: 0 auto 22px;
-}
 
-/* EmptyState 在设置首页的轻量收窄 */
-.si-empty {
-  max-width: 480px;
-  margin: 0 auto;
-}
 
 .si-grid {
   display: grid;

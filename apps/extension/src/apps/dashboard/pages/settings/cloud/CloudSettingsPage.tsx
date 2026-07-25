@@ -76,8 +76,6 @@ export function CloudSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [syncReport, setSyncReport] = useState<SyncReport | null>(null);
-  const [showDeviceId, setShowDeviceId] = useState(false);
-  const [showScope, setShowScope] = useState(false);
   const [connDirty, setConnDirty] = useState(false);
   const [autoSync, setAutoSync] = useState<CloudAutoSyncSettings>({
     enabled: true,
@@ -462,7 +460,7 @@ export function CloudSettingsPage() {
       rootDataAttrs={{ 'data-cloud-settings-react': '1' }}
     >
       <div id="cloud-settings" className="cloud-settings">
-      {/* 总览条 */}
+        {/* 总览条 */}
       <div className="cloud-overview-grid">
         <OverviewCard
           label="服务"
@@ -650,23 +648,15 @@ export function CloudSettingsPage() {
         </div>
 
         <div className="px-2 pb-1">
-          <button
-            type="button"
-            className="text-[12.5px] font-semibold text-[var(--color-primary)] underline-offset-2 hover:underline"
-            onClick={() => setShowDeviceId((v) => !v)}
-          >
-            {showDeviceId ? '隐藏设备 ID' : '显示设备 ID'}
-          </button>
-          {showDeviceId ? (
-            <div className="mt-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-bg-muted,#f4f5f7)] px-3 py-2">
-              <p className="m-0 break-all font-mono text-[11.5px] text-[var(--color-fg)]">
-                {settings.deviceId}
-              </p>
-              <p className="mt-1 mb-0 text-[11.5px] leading-snug text-[var(--color-fg-muted)]">
-                与「关于」页 / WebDAV 的 Device ID 为同一本机身份。
-              </p>
-            </div>
-          ) : null}
+          <div className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-bg-muted,#f4f5f7)] px-3 py-2">
+            <div className="text-[12px] font-semibold text-[var(--color-fg-muted)]">设备 ID</div>
+            <p className="mt-1 mb-0 break-all font-mono text-[11.5px] text-[var(--color-fg)]">
+              {settings.deviceId}
+            </p>
+            <p className="mt-1 mb-0 text-[11.5px] leading-snug text-[var(--color-fg-muted)]">
+              与「关于」页 / WebDAV 的 Device ID 为同一本机身份。
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 px-2 py-2">
@@ -734,12 +724,6 @@ export function CloudSettingsPage() {
           </>
         ) : (
           <>
-            <Callout tone="neutral" title="默认引导账号" compact>
-              用户名 <code className="text-[var(--color-fg)]">admin</code> · 密码{' '}
-              <code className="text-[var(--color-fg)]">javdbviewed</code>
-              （与本机 Docker Compose / 未改 env 的 go run 一致）。若重建过数据卷或改过{' '}
-              <code className="text-[var(--color-fg)]">CLOUD_ADMIN_PASSWORD</code>，以实际为准。
-            </Callout>
             <div className="grid gap-0 sm:grid-cols-2">
               <SettingField id="cloud-identifier" label="账号">
                 <Input
@@ -752,7 +736,7 @@ export function CloudSettingsPage() {
                 />
               </SettingField>
               <SettingField id="cloud-password" label="密码">
-                <div className="flex gap-2">
+                <div className="relative">
                   <Input
                     id="cloud-password"
                     type={showPassword ? 'text' : 'password'}
@@ -761,21 +745,21 @@ export function CloudSettingsPage() {
                     placeholder="••••••••"
                     autoComplete="current-password"
                     disabled={busy}
-                    className="flex-1"
+                    className="pr-10"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') onLogin();
                     }}
                   />
-                  <Button
+                  <button
                     type="button"
-                    variant="secondary"
-                    size="sm"
                     disabled={busy}
+                    aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                    title={showPassword ? '隐藏密码' : '显示密码'}
                     onClick={() => setShowPassword((v) => !v)}
-                    className="shrink-0"
+                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-[var(--radius-2)] text-[var(--color-fg-muted)] transition-colors hover:text-[var(--color-fg)] focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {showPassword ? '隐藏' : '显示'}
-                  </Button>
+                    <i className={showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'} aria-hidden="true" />
+                  </button>
                 </div>
               </SettingField>
             </div>
@@ -880,38 +864,23 @@ export function CloudSettingsPage() {
         )}
       </SettingSection>
 
-      {/* 说明 */}
+      {/* 说明：常显，不折叠 */}
       <div className="cloud-scope-card">
-        <button
-          type="button"
-          className="flex w-full items-center justify-between gap-2 text-left text-[13px] font-bold text-[var(--color-fg)]"
-          onClick={() => setShowScope((v) => !v)}
-        >
-          <span>同步范围与说明</span>
-          <span className="text-[12px] font-semibold text-[var(--color-primary)]">
-            {showScope ? '收起' : '展开'}
-          </span>
-        </button>
-        {showScope ? (
-          <div className="mt-2 space-y-2 text-[12.5px] leading-relaxed text-[var(--color-fg-muted)]">
-            <p className="m-0">
-              <span className="font-semibold text-[var(--color-fg)]">会同步：</span>
-              视频状态、演员、清单、新作品与订阅、资料、搜索方案、部分显示/同步偏好。
-            </p>
-            <p className="m-0">
-              <span className="font-semibold text-[var(--color-fg)]">不会同步：</span>
-              运行/磁力日志、磁力缓存、Emby 本机库、遥测、会话与密钥明文。
-            </p>
-            <p className="m-0">
-              <span className="font-semibold text-[var(--color-fg)]">WebDAV：</span>
-              仍是冷备份兜底，与 Cloud live 同步并存。Device ID 与关于页一致。
-            </p>
-          </div>
-        ) : (
-          <p className="mt-1 mb-0 text-[12.5px] text-[var(--color-fg-muted)]">
-            日志与本机缓存不同步 · WebDAV 仍作冷备份
+        <div className="text-[13px] font-bold text-[var(--color-fg)]">同步范围与说明</div>
+        <div className="mt-2 space-y-2 text-[12.5px] leading-relaxed text-[var(--color-fg-muted)]">
+          <p className="m-0">
+            <span className="font-semibold text-[var(--color-fg)]">会同步：</span>
+            视频状态、演员、清单、新作品与订阅、资料、搜索方案、部分显示/同步偏好。
           </p>
-        )}
+          <p className="m-0">
+            <span className="font-semibold text-[var(--color-fg)]">不会同步：</span>
+            运行/磁力日志、磁力缓存、Emby 本机库、遥测、会话与密钥明文。
+          </p>
+          <p className="m-0">
+            <span className="font-semibold text-[var(--color-fg)]">WebDAV：</span>
+            仍是冷备份兜底，与 Cloud live 同步并存。Device ID 与关于页一致。
+          </p>
+        </div>
       </div>
       </div>
     </SettingsPageFrame>
