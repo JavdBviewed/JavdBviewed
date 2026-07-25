@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../../../../../ui/primitives/Button/Button';
+import { Modal } from '../../../../../ui/primitives/Modal/Modal';
 import { Input } from '../../../../../ui/primitives/Input/Input';
 import { SettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
 import { SettingField } from '../../../../../ui/patterns/SettingField/SettingField';
@@ -55,6 +56,7 @@ export function EmbySettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [serverDraft, setServerDraft] = useState<ServerDraft>(null);
+  const [editingServerIndex, setEditingServerIndex] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<LibrarySyncUiState>({ kind: 'idle' });
   const [checkCode, setCheckCode] = useState('');
@@ -121,6 +123,7 @@ export function EmbySettingsPage() {
 
   const enabled = form.enabled;
   const libraryEnabled = form.libraryStatusEnabled;
+  const editingServer = editingServerIndex == null ? null : form.mediaServers[editingServerIndex] ?? null;
 
   const focusCreateUrl = () => {
     window.setTimeout(() => {
@@ -315,38 +318,47 @@ export function EmbySettingsPage() {
           >
             <div
               id="emby-media-server-list"
-              className="flex flex-col gap-3 px-2 py-2"
+              className="flex flex-col gap-2 px-2 py-2"
               data-settings-search-keywords="媒体服务器 Emby Jellyfin API Key 登录 AccessToken"
             >
-              {form.mediaServers.length === 0 && !serverDraft ? (
+              {form.mediaServers.length === 0 ? (
                 <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">
                   尚未添加媒体服务器
                 </p>
               ) : null}
 
               {form.mediaServers.map((server, index) => (
-                <MediaServerRow
-                  key={server.id || `server-${index}`}
+                <MediaServerSummaryRow
+                  key={server.id || 'server-' + index}
                   server={server}
                   index={index}
                   disabled={!enabled}
-                  onChange={(patch) => onServerField(index, patch)}
-                  onRemove={() => onRemoveServer(index)}
-                  onLoginSuccess={(patch) => onServerLoginSuccess(index, patch)}
-                  onLogout={() => onServerLogout(index)}
+                  onEdit={() => setEditingServerIndex(index)}
                 />
               ))}
-
-              {serverDraft ? (
-                <MediaServerCreateRow
-                  draft={serverDraft}
-                  disabled={!enabled}
-                  onChange={setServerDraft}
-                  onConfirm={() => void onConfirmCreate()}
-                  onCancel={onCancelCreate}
-                />
-              ) : null}
             </div>
+
+            <MediaServerCreateDialog
+              draft={serverDraft}
+              disabled={!enabled}
+              onChange={setServerDraft}
+              onConfirm={() => void onConfirmCreate()}
+              onCancel={onCancelCreate}
+            />
+
+            <MediaServerEditDialog
+              server={editingServer}
+              index={editingServerIndex}
+              disabled={!enabled}
+              onClose={() => setEditingServerIndex(null)}
+              onChange={(index, patch) => onServerField(index, patch)}
+              onRemove={(index) => {
+                onRemoveServer(index);
+                setEditingServerIndex(null);
+              }}
+              onLoginSuccess={(index, patch) => onServerLoginSuccess(index, patch)}
+              onLogout={(index) => onServerLogout(index)}
+            />
 
             <div className="flex flex-wrap gap-2 px-2 py-2">
               <Button
@@ -602,6 +614,154 @@ type MediaServerRowProps = {
   onLoginSuccess: (patch: Partial<EmbyMediaServer>) => void;
   onLogout: () => void;
 };
+
+type MediaServerSummaryRowProps = {
+  server: EmbyMediaServer;
+  index: number;
+  disabled?: boolean;
+  onEdit: () => void;
+};
+
+type MediaServerCreateDialogProps = {
+  draft: EmbyMediaServer | null;
+  disabled?: boolean;
+  onChange: (draft: EmbyMediaServer) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+};
+
+type MediaServerEditDialogProps = {
+  server: EmbyMediaServer | null;
+  index: number | null;
+  disabled?: boolean;
+  onClose: () => void;
+  onChange: (index: number, patch: Partial<EmbyMediaServer>) => void;
+  onRemove: (index: number) => void;
+  onLoginSuccess: (index: number, patch: Partial<EmbyMediaServer>) => void;
+  onLogout: (index: number) => void;
+};
+
+function MediaServerSummaryRow({
+  server,
+  index,
+  disabled,
+  onEdit,
+}: MediaServerSummaryRowProps) {
+  const displayName = server.name.trim() || (server.type === 'jellyfin' ? 'Jellyfin' : 'Emby');
+  const serverType = server.type === 'jellyfin' ? 'Jellyfin' : 'Emby';
+  const urlLabel = server.url.trim() || '未填写服务器地址';
+  const hasApiKey = Boolean(server.apiKey.trim());
+  const userLoggedIn = Boolean(server.accessToken && server.userId);
+
+  return (
+    <div
+      className="emby-media-server-summary flex flex-col gap-3 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+      data-index={String(index)}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="truncate text-[13.5px] font-bold text-[var(--color-fg)]">
+            {displayName}
+          </span>
+          <span className="rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-fg-muted)]">
+            {serverType}
+          </span>
+          <span
+            className={
+              server.enabled
+                ? 'text-[12px] font-semibold text-[var(--color-success,#16a34a)]'
+                : 'text-[12px] font-semibold text-[var(--color-fg-muted)]'
+            }
+          >
+            {server.enabled ? '已启用' : '已停用'}
+          </span>
+        </div>
+        <div className="mt-1 truncate font-mono text-[12px] text-[var(--color-fg-muted)]">
+          {urlLabel}
+        </div>
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-[var(--color-fg-muted)]">
+          <span>{hasApiKey ? 'API Key 已配置' : 'API Key 未配置'}</span>
+          <span>
+            {userLoggedIn
+              ? '用户已登录：' + (server.userDisplayName || server.username || server.userId || '')
+              : '用户未登录'}
+          </span>
+        </div>
+      </div>
+      <Button variant="secondary" size="sm" disabled={disabled} onClick={onEdit}>
+        编辑
+      </Button>
+    </div>
+  );
+}
+
+function MediaServerCreateDialog({
+  draft,
+  disabled,
+  onChange,
+  onConfirm,
+  onCancel,
+}: MediaServerCreateDialogProps) {
+  return (
+    <Modal
+      open={Boolean(draft)}
+      title="添加媒体服务器"
+      onClose={onCancel}
+      className="emby-server-create-modal max-h-[calc(100vh-2rem)] max-w-3xl overflow-y-auto"
+    >
+      {draft ? (
+        <MediaServerCreateRow
+          draft={draft}
+          disabled={disabled}
+          onChange={onChange}
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
+      ) : null}
+    </Modal>
+  );
+}
+
+function MediaServerEditDialog({
+  server,
+  index,
+  disabled,
+  onClose,
+  onChange,
+  onRemove,
+  onLoginSuccess,
+  onLogout,
+}: MediaServerEditDialogProps) {
+  const title = server
+    ? '编辑 ' + (server.name || (server.type === 'jellyfin' ? 'Jellyfin' : 'Emby'))
+    : '编辑媒体服务器';
+
+  return (
+    <Modal
+      open={Boolean(server) && index != null}
+      title={title}
+      onClose={onClose}
+      className="emby-server-edit-modal max-h-[calc(100vh-2rem)] max-w-3xl overflow-y-auto"
+    >
+      {server && index != null ? (
+        <MediaServerRow
+          server={server}
+          index={index}
+          disabled={disabled}
+          onChange={(patch) => onChange(index, patch)}
+          onRemove={() => onRemove(index)}
+          onLoginSuccess={(patch) => onLoginSuccess(index, patch)}
+          onLogout={() => onLogout(index)}
+        />
+      ) : null}
+      <div className="mt-3 flex justify-end">
+        <Button variant="primary" onClick={onClose}>
+          完成
+        </Button>
+      </div>
+    </Modal>
+  );
+}
 
 function SecretField({
   id,
