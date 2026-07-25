@@ -71,10 +71,20 @@ export type Drive115IndexProgress = {
 
 export type Drive115IndexResult = {
   success: boolean;
-  /** 是否保留了旧索引（失败/熔断时） */
+  /** 是否完全沿用旧索引（失败且本轮 0 条新入库时） */
   keptPrevious: boolean;
+  /** 中断/失败时是否已将本轮已扫描条目合并进旧索引并落盘 */
+  partialMerged?: boolean;
+  /** 本轮中断前新入库条数（合并前） */
+  partialIndexed?: number;
   state: Drive115LibraryIndexState;
   message?: string;
+};
+
+/** 写入 storage 的索引进度快照，供设置页实时展示 */
+export type Drive115IndexProgressSnapshot = Drive115IndexProgress & {
+  running: boolean;
+  updatedAt: number;
 };
 
 export const DEFAULT_DRIVE115_LIBRARY_STATS: Drive115LibraryIndexStats = {

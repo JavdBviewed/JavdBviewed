@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file drive115SettingsModel.ts
  * @description 115 网盘设置纯数据模型：默认值、映射、校验
  * @module apps/dashboard/pages/settings/drive115
@@ -54,6 +54,37 @@ export type Drive115SettingsFormState = {
   v2UserInfoExpired: boolean;
 };
 
+export type Drive115IndexProgressView = {
+  running: boolean;
+  phase?: string;
+  message?: string;
+  rootsTotal: number;
+  rootsDone: number;
+  foldersSeen: number;
+  indexed: number;
+  skipped: number;
+  apiCalls: number;
+  updatedAt: number;
+};
+
+export function mapDrive115IndexProgressSnapshot(
+  raw: unknown,
+): Drive115IndexProgressView | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const data = raw as Record<string, unknown>;
+  return {
+    running: data.running === true,
+    phase: typeof data.phase === 'string' ? data.phase : undefined,
+    message: typeof data.message === 'string' ? data.message : undefined,
+    rootsTotal: Number(data.rootsTotal) || 0,
+    rootsDone: Number(data.rootsDone) || 0,
+    foldersSeen: Number(data.foldersSeen) || 0,
+    indexed: Number(data.indexed) || 0,
+    skipped: Number(data.skipped) || 0,
+    apiCalls: Number(data.apiCalls) || 0,
+    updatedAt: Number(data.updatedAt) || 0,
+  };
+}
 export const DEFAULT_DRIVE115_SETTINGS_FORM: Drive115SettingsFormState = {
   enabled: false,
   v2AuthMode: 'openlist_manual',

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file drive115SettingsModel.test.ts
  * @description 115 网盘设置模型单测
  * @module apps/dashboard/pages/settings/drive115
@@ -19,6 +19,7 @@ import {
   getAccessTokenExpiryLabel,
   getAccessTokenStatusLabel,
   getRefreshTokenStatusLabel,
+  mapDrive115IndexProgressSnapshot,
   mapSettingsToDrive115Form,
   takeRecentDrive115Logs,
   validateDrive115Form,
@@ -36,6 +37,34 @@ describe('drive115SettingsModel', () => {
     expect(DEFAULT_DRIVE115_SETTINGS_FORM.maxFailures).toBe(5);
   });
 
+  it('maps index progress snapshots and preserves stopped state', () => {
+    expect(mapDrive115IndexProgressSnapshot(null)).toBeNull();
+    expect(
+      mapDrive115IndexProgressSnapshot({
+        running: false,
+        phase: 'done',
+        message: '索引完成',
+        rootsTotal: '2',
+        rootsDone: 2,
+        foldersSeen: 10,
+        indexed: 7,
+        skipped: 3,
+        apiCalls: 12,
+        updatedAt: 1_700_000_000,
+      }),
+    ).toEqual({
+      running: false,
+      phase: 'done',
+      message: '索引完成',
+      rootsTotal: 2,
+      rootsDone: 2,
+      foldersSeen: 10,
+      indexed: 7,
+      skipped: 3,
+      apiCalls: 12,
+      updatedAt: 1_700_000_000,
+    });
+  });
   it('maps empty settings to defaults', () => {
     expect(mapSettingsToDrive115Form(undefined)).toEqual(DEFAULT_DRIVE115_SETTINGS_FORM);
     expect(mapSettingsToDrive115Form({})).toEqual(DEFAULT_DRIVE115_SETTINGS_FORM);

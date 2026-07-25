@@ -289,24 +289,38 @@ export async function indexDrive115Roots(
     }
   }
 
-  // 熔断或硬错误：保留旧索引
+  // 熔断或硬错误：本轮已扫到的条目按 key 合并进旧索引后落盘；若本轮 0 条则完全保留旧索引
   if (hardError) {
-    const kept = previous && Array.isArray(previous.entries) && previous.entries.length > 0;
-    const state: Drive115LibraryIndexState = kept
-      ? {
-          ...previous!,
-          lastError: hardError,
-        }
-      : {
-          version: 1,
-          updatedAt: previous?.updatedAt || 0,
-          entries: previous?.entries || [],
-          stats: previous?.stats || stats,
-          lastError: hardError,
-        };
+    const prevEntries = previous && Array.isArray(previous.entries) ? previous.entries : [];
+    const partialIndexed = entries.length;
+    const partialMerged = partialIndexed > 0;
+    let mergedEntries = prevEntries;
+    if (partialMerged) {
+      const byKey = new Map<string, Drive115LibraryEntry>();
+      for (const e of prevEntries) {
+        if (e?.key) byKey.set(e.key, e);
+      }
+      for (const e of entries) {
+        if (e?.key) byKey.set(e.key, e);
+      }
+      mergedEntries = Array.from(byKey.values());
+    }
+    const keptPrevious = !partialMerged && prevEntries.length > 0;
+    const state: Drive115LibraryIndexState = {
+      version: 1,
+      updatedAt: partialMerged ? now() : previous?.updatedAt || 0,
+      entries: mergedEntries,
+      stats: partialMerged
+        ? { ...stats, indexed: mergedEntries.length }
+        : previous?.stats || { ...stats },
+      lastError: hardError,
+    };
+    const detail = partialMerged
+      ? `${hardError}（已合并保存本轮 ${partialIndexed} 条）`
+      : hardError;
     deps.onProgress?.({
       phase: 'error',
-      message: hardError,
+      message: detail,
       rootsTotal: enabledRoots.length,
       rootsDone,
       foldersSeen: stats.foldersSeen,
@@ -316,9 +330,11 @@ export async function indexDrive115Roots(
     });
     return {
       success: false,
-      keptPrevious: !!kept,
+      keptPrevious,
+      partialMerged,
+      partialIndexed,
       state,
-      message: hardError,
+      message: detail,
     };
   }
 

@@ -3,14 +3,42 @@
  * @description 115 媒体库索引 background / 消息处理
  * @module features/drive115/mediaLibrary
  */
-import { getSettings, saveSettings } from '../../../utils/storage';
+import { STORAGE_KEYS } from '../../../utils/config';
+import { getSettings, saveSettings, setValue } from '../../../utils/storage';
 import { mediaLog } from '../../embyLibrary/mediaLibraryLogger';
-import { getDrive115V2Service } from '../v2';
+import { getDrive115V2Service, type Drive115V2FileListResponse } from '../v2';
+import type { ExtensionSettings } from '../../../types';
 import { indexDrive115Roots } from './indexer';
 import { loadDrive115LibraryState, saveDrive115LibraryState } from './store';
-import type { Drive115IndexResult, Drive115MediaLibraryRoot } from './types';
+import type {
+  Drive115IndexProgressSnapshot,
+  Drive115IndexResult,
+  Drive115MediaLibraryRoot,
+} from './types';
 
-type SendResponse = (response: any) => void;
+type SendResponse = (response: unknown) => void;
+
+type Drive115SettingsRecord = Record<string, unknown> & {
+  mediaLibraryRoots?: unknown;
+};
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === 'object') {
+    const message = (error as Record<string, unknown>).message;
+    if (typeof message === 'string' && message) return message;
+  }
+  return String(error);
+}
+
+function readRawCode(raw: Drive115V2FileListResponse | undefined): number | undefined {
+  const code = Number(raw?.code);
+  return Number.isFinite(code) && code > 0 ? code : undefined;
+}
 
 let indexingPromise: Promise<Drive115IndexResult> | null = null;
 
@@ -20,6 +48,16 @@ function log115(level: 'info' | 'warn' | 'error' | 'debug', message: string, dat
   else if (level === 'warn') mediaLog.warn(text, data);
   else if (level === 'debug') mediaLog.debug(text, data);
   else mediaLog.info(text, data);
+}
+
+async function writeIndexProgress(
+  snapshot: Drive115IndexProgressSnapshot | null,
+): Promise<void> {
+  try {
+    await setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS, snapshot);
+  } catch (e) {
+    log115('debug', '写入索引进度失败', e);
+  }
 }
 
 /** 规范化片库根目录（不依赖 dashboard model，避免 features→apps） */
@@ -41,8 +79,8 @@ function normalizeRoots(raw: unknown): Drive115MediaLibraryRoot[] {
   return Array.from(byCid.values());
 }
 
-function readRootsFromSettings(settings: any): Drive115MediaLibraryRoot[] {
-  const drive115 = settings?.drive115 || {};
+function readRootsFromSettings(settings: ExtensionSettings): Drive115MediaLibraryRoot[] {
+  const drive115 = asRecord(settings.drive115) as Drive115SettingsRecord;
   return normalizeRoots(drive115.mediaLibraryRoots);
 }
 
@@ -52,7 +90,7 @@ async function patchDrive115IndexMeta(patch: {
 }): Promise<void> {
   try {
     const settings = await getSettings();
-    const prev = ((settings as any).drive115 || {}) as Record<string, unknown>;
+    const prev = asRecord(settings.drive115);
     const nextDrive115 = { ...prev };
     if ('mediaLibraryLastIndexAt' in patch) {
       nextDrive115.mediaLibraryLastIndexAt = patch.mediaLibraryLastIndexAt ?? null;
@@ -62,7 +100,7 @@ async function patchDrive115IndexMeta(patch: {
       if (err == null || err === '') delete nextDrive115.mediaLibraryLastIndexError;
       else nextDrive115.mediaLibraryLastIndexError = err;
     }
-    await saveSettings({ ...(settings as any), drive115: nextDrive115 } as any);
+    await saveSettings({ ...settings, drive115: nextDrive115 });
   } catch (e) {
     log115('warn', '写入索引元数据失败', e);
   }
@@ -90,13 +128,19 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
         await patchDrive115IndexMeta({
           mediaLibraryLastIndexError: result.message || null,
         });
+        await writeIndexProgress({
+          phase: 'error',
+          message: result.message || '未配置启用的片库根目录',
+          running: false,
+          updatedAt: Date.now(),
+        });
         return result;
       }
 
       const svc = getDrive115V2Service();
       const tokenRet = await svc.getValidAccessToken({ forceAutoRefresh: true });
-      if (!tokenRet.success || !('accessToken' in tokenRet) || !tokenRet.accessToken) {
-        const msg = (tokenRet as any).message || '无法获取 115 授权';
+      if (!tokenRet.success) {
+        const msg = tokenRet.message || '无法获取 115 授权';
         const result: Drive115IndexResult = {
           success: false,
           keptPrevious: previous.entries.length > 0,
@@ -104,12 +148,47 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
           message: msg,
         };
         await patchDrive115IndexMeta({ mediaLibraryLastIndexError: msg });
+        await writeIndexProgress({
+          phase: 'error',
+          message: msg,
+          running: false,
+          updatedAt: Date.now(),
+        });
+        return result;
+      }
+      if (!tokenRet.accessToken) {
+        const msg = '无法获取 115 授权';
+        const result: Drive115IndexResult = {
+          success: false,
+          keptPrevious: previous.entries.length > 0,
+          state: { ...previous, lastError: msg },
+          message: msg,
+        };
+        await patchDrive115IndexMeta({ mediaLibraryLastIndexError: msg });
+        await writeIndexProgress({
+          phase: 'error',
+          message: msg,
+          running: false,
+          updatedAt: Date.now(),
+        });
         return result;
       }
       const accessToken = tokenRet.accessToken;
 
       log115('info', `开始索引，根目录 ${enabled.length} 个`, {
         roots: enabled.map((r) => r.cid),
+      });
+      await writeIndexProgress({
+        phase: 'start',
+        message: `开始索引 ${enabled.length} 个片库根目录`,
+        rootsTotal: enabled.length,
+        rootsDone: 0,
+        foldersSeen: 0,
+        indexed: 0,
+        skipped: 0,
+        apiCalls: 0,
+        running: true,
+        updatedAt: Date.now(),
       });
 
       const result = await indexDrive115Roots({
@@ -129,13 +208,27 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
             success: !!ret.success,
             message: ret.message,
             data: (ret.data || []) as Array<Record<string, unknown>>,
-            code: Number((ret.raw as any)?.code) || undefined,
+            code: readRawCode(ret.raw),
           };
         },
         onProgress: (p) => {
-          if (p.phase === 'folder' && (p.foldersSeen || 0) % 20 === 0) {
-            log115('debug', p.message, {
+          const running = p.phase !== 'done' && p.phase !== 'error';
+          void writeIndexProgress({
+            ...p,
+            running,
+            updatedAt: Date.now(),
+          });
+          if (
+            p.phase === 'start' ||
+            p.phase === 'root' ||
+            p.phase === 'done' ||
+            p.phase === 'error' ||
+            (p.phase === 'folder' && (p.foldersSeen || 0) % 10 === 0)
+          ) {
+            log115(p.phase === 'error' ? 'warn' : 'debug', p.message, {
+              phase: p.phase,
               indexed: p.indexed,
+              foldersSeen: p.foldersSeen,
               apiCalls: p.apiCalls,
             });
           }
@@ -153,15 +246,21 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
         await saveDrive115LibraryState(result.state);
         await patchDrive115IndexMeta({
           mediaLibraryLastIndexError: result.message || '索引失败',
+          // 部分合并时也刷新 lastIndexAt，表示有可用索引更新
+          ...(result.partialMerged
+            ? { mediaLibraryLastIndexAt: result.state.updatedAt }
+            : {}),
         });
         log115('warn', result.message || '索引失败', {
           keptPrevious: result.keptPrevious,
+          partialMerged: result.partialMerged,
+          partialIndexed: result.partialIndexed,
           stats: result.state.stats,
         });
       }
       return result;
-    } catch (e: any) {
-      const msg = e?.message || String(e);
+    } catch (e: unknown) {
+      const msg = getErrorMessage(e);
       log115('error', `索引异常：${msg}`);
       const result: Drive115IndexResult = {
         success: false,
@@ -172,6 +271,12 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
       try {
         await saveDrive115LibraryState(result.state);
         await patchDrive115IndexMeta({ mediaLibraryLastIndexError: msg });
+        await writeIndexProgress({
+          phase: 'error',
+          message: msg,
+          running: false,
+          updatedAt: Date.now(),
+        });
       } catch {
         /* ignore */
       }
@@ -185,7 +290,7 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
 }
 
 export function handleDrive115MediaLibraryIndex(
-  _message: any,
+  _message: unknown,
   sendResponse: SendResponse,
 ): boolean {
   void (async () => {
@@ -194,27 +299,29 @@ export function handleDrive115MediaLibraryIndex(
       sendResponse({
         success: result.success,
         keptPrevious: result.keptPrevious,
+        partialMerged: result.partialMerged,
+        partialIndexed: result.partialIndexed,
         message: result.message,
         state: result.state,
         stats: result.state.stats,
       });
-    } catch (e: any) {
-      sendResponse({ success: false, message: e?.message || String(e) });
+    } catch (e: unknown) {
+      sendResponse({ success: false, message: getErrorMessage(e) });
     }
   })();
   return true;
 }
 
 export function handleDrive115MediaLibraryGetState(
-  _message: any,
+  _message: unknown,
   sendResponse: SendResponse,
 ): boolean {
   void (async () => {
     try {
       const state = await loadDrive115LibraryState();
       sendResponse({ success: true, state });
-    } catch (e: any) {
-      sendResponse({ success: false, message: e?.message || String(e) });
+    } catch (e: unknown) {
+      sendResponse({ success: false, message: getErrorMessage(e) });
     }
   })();
   return true;
