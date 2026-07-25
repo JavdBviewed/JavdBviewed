@@ -7,8 +7,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import '../settingsSubpageShell.css';
 import '../../../../../dashboard/styles/05-pages/settings/settings.css';
 import '../../../../../dashboard/styles/05-pages/settings/drive115.css';
+import { Badge } from '../../../../../ui/primitives/Badge/Badge';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
+import { STORAGE_KEYS } from '../../../../../utils/config';
+import { getValue } from '../../../../../utils/storage';
 import {
   getSettings,
   useDebouncedSettingsSave,
@@ -39,28 +42,35 @@ import {
   getAccessTokenExpiryLabel,
   getAccessTokenStatusLabel,
   getRefreshTokenStatusLabel,
+  mapDrive115IndexProgressSnapshot,
   mapSettingsToDrive115Form,
   OPENLIST_MANUAL_URL,
   type Drive115AuthMode,
+  type Drive115IndexProgressView,
   type Drive115SettingsFormState,
 } from './drive115SettingsModel';
 
 const AUTO_SAVE_MS = 1000;
+
 
 type Drive115GroupProps = {
   title: string;
   id?: string;
   children: ReactNode;
   className?: string;
+  beta?: boolean;
 };
 
 /**
  * legacy 风格设置分组：吃 drive115.css 的 .settings-group / h4
  */
-function Drive115Group({ title, id, children, className }: Drive115GroupProps) {
+function Drive115Group({ title, id, children, className, beta }: Drive115GroupProps) {
   return (
     <section className={['settings-card', 'settings-group', className].filter(Boolean).join(' ')} id={id}>
-      <h4>{title}</h4>
+      <h4 className="flex items-center gap-2">
+        <span>{title}</span>
+        {beta ? <Badge tone="warning" className="shrink-0">Beta</Badge> : null}
+      </h4>
       <div className="drive115-group-body">{children}</div>
     </section>
   );
@@ -199,6 +209,7 @@ export function Drive115SettingsPage() {
   const [authQrUrl, setAuthQrUrl] = useState('');
   const [indexingMediaLibrary, setIndexingMediaLibrary] = useState(false);
   const [indexProgressText, setIndexProgressText] = useState('');
+  const [indexProgress, setIndexProgress] = useState<Drive115IndexProgressView | null>(null);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [logStatsText, setLogStatsText] = useState('暂无日志');
   const [logsLoading, setLogsLoading] = useState(false);
@@ -211,6 +222,53 @@ export function Drive115SettingsPage() {
   const authSessionRef = useRef<AuthSession | null>(null);
   const authPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSaveToastAt = useRef(0);
+
+  const applyIndexProgressSnapshot = useCallback((raw: unknown) => {
+    const snap = mapDrive115IndexProgressSnapshot(raw);
+    if (!snap) {
+      setIndexProgress(null);
+      setIndexingMediaLibrary(false);
+      return;
+    }
+    setIndexProgress(snap);
+    if (snap.message) setIndexProgressText(snap.message);
+    setIndexingMediaLibrary(snap.running);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const snap = await getValue<unknown>(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS, null);
+        if (!cancelled) applyIndexProgressSnapshot(snap);
+      } catch {
+        /* ignore */
+      }
+    })();
+
+    const onChanged = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      area: string,
+    ) => {
+      if (area !== 'local' && area !== 'sync') return;
+      const key = STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS;
+      if (!changes[key]) return;
+      applyIndexProgressSnapshot(changes[key].newValue);
+    };
+    try {
+      chrome.storage?.onChanged?.addListener(onChanged);
+    } catch {
+      /* ignore */
+    }
+    return () => {
+      cancelled = true;
+      try {
+        chrome.storage?.onChanged?.removeListener(onChanged);
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [applyIndexProgressSnapshot]);
 
   const persist = useCallback(async (nextForm: Drive115SettingsFormState) => {
     try {
@@ -624,8 +682,12 @@ export function Drive115SettingsPage() {
       } else {
         const msg = resp?.message || '索引失败';
         setIndexProgressText(msg);
-        const kept = resp?.keptPrevious ? '（已保留上一份索引）' : '';
-        await toast(`${msg}${kept}`, 'error');
+        const extra = resp?.partialMerged
+          ? ''
+          : resp?.keptPrevious
+            ? '（已保留上一份索引）'
+            : '';
+        await toast(`${msg}${extra}`, 'error');
       }
     } catch (e: any) {
       const msg = e?.message || String(e);
@@ -868,21 +930,21 @@ export function Drive115SettingsPage() {
               </p>
 
               <div
-                id="drive115V2AuthPanel" className="drive115-auth-panel"
-                className="mx-2 mb-2 flex flex-wrap gap-4 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3"
+                id="drive115V2AuthPanel"
+                className="drive115-auth-panel mx-2 mb-2 flex flex-wrap gap-4 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3"
               >
                 <div className="flex h-[180px] w-[180px] items-center justify-center overflow-hidden rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)]">
                   {authQrUrl ? (
                     <img
-                      id="drive115V2QrImage" className="drive115-auth-qr-img"
+                      id="drive115V2QrImage"
                       src={authQrUrl}
                       alt="115 扫码授权二维码"
-                      className="h-full w-full object-contain"
+                      className="drive115-auth-qr-img h-full w-full object-contain"
                     />
                   ) : (
                     <div
-                      id="drive115V2QrPlaceholder" className="drive115-auth-placeholder"
-                      className="px-3 text-center text-[12px] text-[var(--color-fg-muted)]"
+                      id="drive115V2QrPlaceholder"
+                      className="drive115-auth-placeholder px-3 text-center text-[12px] text-[var(--color-fg-muted)]"
                     >
                       点击“生成二维码”开始授权
                     </div>
@@ -890,8 +952,8 @@ export function Drive115SettingsPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div
-                    id="drive115V2AuthStatus" className="drive115-auth-status"
-                    className={`mb-2 inline-block rounded-[var(--radius-2)] px-2 py-1 text-[12.5px] ${authKindClass(authStatus.kind)}`}
+                    id="drive115V2AuthStatus"
+                    className={`drive115-auth-status mb-2 inline-block rounded-[var(--radius-2)] px-2 py-1 text-[12.5px] ${authKindClass(authStatus.kind)}`}
                   >
                     {authStatus.message}
                   </div>
@@ -1161,24 +1223,38 @@ export function Drive115SettingsPage() {
           <Drive115Group title="下载设置">
             <Drive115Field
               id="drive115DownloadDir"
-              label="下载目录 ID"
-              description="离线下载保存目录。可与媒体库片库目录相同，但字段独立。"
+              label="下载目录"
+              description="离线下载保存目录。显示文件夹名称，可与媒体库片库目录相同，但字段独立。"
             >
               <div className="flex flex-wrap items-center gap-2">
-                <Input
+                <div
                   id="drive115DownloadDir"
-                  className="min-w-0 flex-1"
-                  disabled={disabled}
-                  placeholder="请输入目录 ID（cid），例如：123456789"
-                  value={form.downloadDir}
-                  onChange={(e) => {
-                    patchForm({
-                      downloadDir: e.currentTarget.value,
-                      downloadDirName: '',
-                      downloadDirPath: '',
-                    });
-                  }}
-                />
+                  className="min-w-0 flex-1 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-fg)]"
+                  title={form.downloadDirPath || form.downloadDirName || form.downloadDir || ''}
+                >
+                  {form.downloadDirName || form.downloadDirPath ? (
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">
+                        {form.downloadDirName || form.downloadDirPath}
+                      </div>
+                      {form.downloadDirPath &&
+                      form.downloadDirName &&
+                      form.downloadDirPath !== form.downloadDirName ? (
+                        <div className="mt-0.5 truncate text-[11.5px] text-[var(--color-fg-muted)]">
+                          {form.downloadDirPath}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : form.downloadDir ? (
+                    <div className="min-w-0">
+                      <div className="truncate text-[var(--color-fg-muted)]">
+                        已选目录（仅有 ID，建议重新选择以显示名称）
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-[var(--color-fg-subtle)]">未选择下载目录</span>
+                  )}
+                </div>
                 <Drive115Btn
                   id="drive115ChooseDownloadDir"
                   variant="secondary"
@@ -1188,18 +1264,15 @@ export function Drive115SettingsPage() {
                   选择文件夹
                 </Drive115Btn>
               </div>
-              {form.downloadDirName || form.downloadDirPath ? (
+              {form.downloadDir ? (
                 <div
                   id="drive115DownloadDirSummary"
-                  className="mt-2 flex flex-wrap items-center gap-2 text-[12.5px] text-[var(--color-fg-muted)]"
-                  title={form.downloadDirPath || form.downloadDirName}
+                  className="mt-2 flex flex-wrap items-center gap-2 text-[12px] text-[var(--color-fg-muted)]"
                 >
-                  <span>{form.downloadDirName || form.downloadDirPath}</span>
-                  {form.downloadDir ? (
-                    <code className="rounded bg-[var(--color-surface-2)] px-1.5 py-0.5 text-[11px]">
-                      {form.downloadDir}
-                    </code>
-                  ) : null}
+                  <span>目录 ID</span>
+                  <code className="rounded bg-[var(--color-surface-2)] px-1.5 py-0.5 text-[11px]">
+                    {form.downloadDir}
+                  </code>
                 </div>
               ) : null}
             </Drive115Field>
@@ -1245,7 +1318,7 @@ export function Drive115SettingsPage() {
             </div>
           </Drive115Group>
 
-          <Drive115Group title="媒体库">
+          <Drive115Group title="媒体库" beta>
             <p className="m-0 px-2 text-[12.5px] leading-relaxed text-[var(--color-fg-muted)]">
               配置你已自备刮削的片库根目录（典型：每部影片一个文件夹，内含视频 + 封面 + NFO）。
               扩展只做浅层限频索引，不会在线深刮章节/相似/海报。片库目录与上方「下载目录」独立，可以相同。
@@ -1331,24 +1404,63 @@ export function Drive115SettingsPage() {
                   {indexingMediaLibrary ? '索引中…' : '立即索引'}
                 </Drive115Btn>
                 <span className="text-[11.5px]">
-                  浅层限频：串行 list，单次最多 300 个影片文件夹；失败会保留上一份索引。
+                  浅层限频：串行 list，单次最多 300 个影片文件夹；中断会合并保存本轮已扫到的条目，若本轮 0 条则保留上一份索引。
                 </span>
               </div>
-              <div>
-                上次索引：
-                <span className="text-[var(--color-fg)]">{mediaLibraryLastIndexLabel}</span>
-              </div>
-              {form.mediaLibraryLastIndexError ? (
-                <div className="text-[var(--color-danger,#c0392b)]">
-                  上次错误：{form.mediaLibraryLastIndexError}
-                </div>
-              ) : null}
-              {indexProgressText ? (
-                <div className="text-[11.5px] text-[var(--color-fg)]">{indexProgressText}</div>
-              ) : null}
-            </div>
-          </Drive115Group>
 
+              <div
+                id="drive115IndexStatusPanel"
+                className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 space-y-1.5"
+              >
+                <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+                  <span className="font-medium text-[var(--color-fg)]">索引状态</span>
+                  <span
+                    className={
+                      indexingMediaLibrary || indexProgress?.running
+                        ? 'text-[var(--color-primary,#e67e22)]'
+                        : form.mediaLibraryLastIndexError
+                          ? 'text-[var(--color-danger,#c0392b)]'
+                          : 'text-[var(--color-fg-muted)]'
+                    }
+                  >
+                    {indexingMediaLibrary || indexProgress?.running
+                      ? '进行中'
+                      : form.mediaLibraryLastIndexError
+                        ? '上次失败/中断'
+                        : form.mediaLibraryLastIndexAt
+                          ? '空闲'
+                          : '尚未索引'}
+                  </span>
+                </div>
+                <div>
+                  上次索引：
+                  <span className="text-[var(--color-fg)]">{mediaLibraryLastIndexLabel}</span>
+                </div>
+                {(indexingMediaLibrary || indexProgress?.running) && indexProgress ? (
+                  <div className="space-y-1 text-[var(--color-fg)]">
+                    <div>{indexProgress.message || indexProgressText || '正在限频索引…'}</div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-[var(--color-fg-muted)]">
+                      <span>
+                        根目录 {indexProgress.rootsDone || 0}/{indexProgress.rootsTotal || 0}
+                      </span>
+                      <span>已扫描文件夹 {indexProgress.foldersSeen || 0}</span>
+                      <span>入库 {indexProgress.indexed || 0}</span>
+                      <span>跳过 {indexProgress.skipped || 0}</span>
+                      <span>API {indexProgress.apiCalls || 0}</span>
+                    </div>
+                  </div>
+                ) : indexProgressText ? (
+                  <div className="text-[11.5px] text-[var(--color-fg)]">{indexProgressText}</div>
+                ) : null}
+                {form.mediaLibraryLastIndexError ? (
+                  <div className="text-[var(--color-danger,#c0392b)]">
+                    上次错误：{form.mediaLibraryLastIndexError}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+          </Drive115Group>
           <Drive115Group title="115 网盘日志">
             <div className="action-buttons-top">
               <Drive115Btn

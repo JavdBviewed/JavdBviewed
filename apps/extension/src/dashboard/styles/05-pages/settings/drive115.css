@@ -1682,22 +1682,20 @@
     background: var(--bg-primary, var(--color-surface));
 }
 
-/* React 全页：标题用 h2 时也吃橙色主题标题色 */
+
+/* React 全页：标题与通用设置页一致（无云朵/橙色主题色） */
 #drive115-settings[data-drive115-settings-react='1'] .settings-page-header h2 {
-    color: var(--drive115-settings-title-color);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
+    color: var(--text-primary);
+    display: block;
     font-size: 28px;
     font-weight: 700;
-    margin-bottom: 12px;
+    margin: 0 0 10px 0;
+    text-align: center;
+    text-shadow: none;
 }
 
 #drive115-settings[data-drive115-settings-react='1'] .settings-page-header h2::before {
-    content: '☁️';
-    font-size: 1.3em;
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+    content: none;
 }
 
 /* 降低 Tailwind preflight 对 legacy 卡片的干扰（仅 React 标记根内） */
