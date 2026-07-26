@@ -60,6 +60,7 @@ describe('videoCodeExtractor', () => {
 
   it('提供单个候选标准化工具', () => {
     expect(normalizeVideoCodeCandidate('abc_001')).toBe('ABC-001');
+    expect(normalizeVideoCodeCandidate('390JNT-076')).toBe('390JNT-076');
     expect(normalizeVideoCodeCandidate('FC2PPV4903984')).toBe('FC2-PPV-4903984');
     expect(normalizeVideoCodeCandidate('no code title')).toBeNull();
   });

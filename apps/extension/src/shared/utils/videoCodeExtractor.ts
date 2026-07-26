@@ -138,6 +138,26 @@ function addStandardCandidates(text: string, candidates: Candidate[]): void {
       priority: 40,
     });
   }
+
+  const mixedPrefixPattern = /(?<![A-Z0-9])([A-Z0-9]{2,10})[-_](\d{2,6})([A-Z]{0,3})(?![-_A-Z0-9])/gi;
+  for (const match of text.matchAll(mixedPrefixPattern)) {
+    const raw = match[0];
+    const prefix = match[1];
+    const number = match[2];
+    const suffix = match[3] || '';
+    if (!prefix || !number || match.index === undefined || !/[A-Z]/i.test(prefix) || !/\d/.test(prefix)) continue;
+    const normalized = normalizeStandardCode(prefix, number, suffix);
+    if (!normalized) continue;
+    pushCandidate(candidates, {
+      raw,
+      normalized,
+      display: normalized,
+      kind: 'jav',
+      index: match.index,
+      end: match.index + raw.length,
+      priority: 39,
+    });
+  }
 }
 
 function addStandaloneFc2NumberCandidates(text: string, candidates: Candidate[]): void {
