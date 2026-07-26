@@ -205,6 +205,14 @@
                             尚未配置片库目录。请添加你已整理好的影片文件夹根目录。
                         </div>
                         <ul id="drive115MediaLibraryRootsList" class="drive115-media-library-roots"></ul>
+                        <div class="drive115-media-library-depth" style="margin-top:10px;">
+                            <label for="drive115MediaLibraryScanDepth">索引深度</label>
+                            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px;">
+                                <input type="number" id="drive115MediaLibraryScanDepth" class="number-input" min="1" max="8" step="1" value="2">
+                                <span id="drive115MediaLibraryScanDepthHint" class="input-description" style="margin:0;">当前会向下扫描 2 层目录。</span>
+                            </div>
+                            <p class="input-description">默认 2 层，适合“演员/番号/视频”结构；如果根目录下直接就是影片文件夹可选 1 层，最多 8 层；层数越大越可能误扫整盘，请谨慎使用。</p>
+                        </div>
                         <div class="action-buttons-top" style="margin-top:10px;">
                             <button type="button" id="drive115AddMediaLibraryRoot" class="button-like secondary">
                                 <i class="fas fa-folder-plus"></i>
@@ -214,9 +222,13 @@
                                 <i class="fas fa-sync"></i>
                                 立即索引
                             </button>
+                            <button type="button" id="drive115CancelMediaLibraryIndex" class="button-like secondary" style="display:none;">
+                                <i class="fas fa-stop-circle"></i>
+                                取消索引
+                            </button>
                         </div>
                         <p class="input-description" style="margin-top:8px;">
-                            浅层限频：串行 list，单次最多 300 个影片文件夹；失败会保留上一份索引。
+                            串行限频：按上方深度扫描，单次最多 300 个影片文件夹；中断会合并保存本轮已扫到的条目，若本轮 0 条则保留上一份索引。
                         </p>
                         <p id="drive115MediaLibraryLastIndex" class="input-description">上次索引：尚未索引</p>
                         <p id="drive115MediaLibraryLastError" class="input-error" style="display:none;"></p>

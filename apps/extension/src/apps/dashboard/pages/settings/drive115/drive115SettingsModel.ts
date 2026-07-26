@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file drive115SettingsModel.ts
  * @description 115 网盘设置纯数据模型：默认值、映射、校验
  * @module apps/dashboard/pages/settings/drive115
@@ -44,6 +44,8 @@ export type Drive115SettingsFormState = {
   maxFailures: number;
   /** 媒体库片库根目录列表（多根） */
   mediaLibraryRoots: Drive115MediaLibraryRoot[];
+  /** 媒体库索引扫描深度：1=根下影片文件夹，2=分类/番号（默认），3=多一层分类 */
+  mediaLibraryScanDepth: number;
   /** 上次手动索引时间（ms） */
   mediaLibraryLastIndexAt: number | null;
   mediaLibraryLastIndexError?: string;
@@ -111,6 +113,7 @@ export const DEFAULT_DRIVE115_SETTINGS_FORM: Drive115SettingsFormState = {
   verifyCount: 5,
   maxFailures: 5,
   mediaLibraryRoots: [],
+  mediaLibraryScanDepth: 2,
   mediaLibraryLastIndexAt: null,
   mediaLibraryLastIndexError: undefined,
   mediaLibraryAutoIndexEnabled: false,
@@ -143,6 +146,16 @@ function normalizeTokenStatus(raw: unknown): Drive115TokenStatus {
   }
   return 'unknown';
 }
+
+/**
+ * 规范化媒体库索引深度：UI 和 background 都按 1-8 层处理。
+ */
+export function normalizeMediaLibraryScanDepth(raw: unknown): number {
+  const n = parseIntSafe(raw, DEFAULT_DRIVE115_SETTINGS_FORM.mediaLibraryScanDepth);
+  if (!Number.isFinite(n)) return DEFAULT_DRIVE115_SETTINGS_FORM.mediaLibraryScanDepth;
+  return Math.min(8, Math.max(1, Math.floor(n)));
+}
+
 
 /**
  * 规范化媒体库根目录列表：去空 cid、按 cid 去重（后写覆盖前写）
@@ -250,6 +263,7 @@ export function mapSettingsToDrive115Form(
       parseIntSafe(raw.maxFailures, DEFAULT_DRIVE115_SETTINGS_FORM.maxFailures),
     ),
     mediaLibraryRoots: normalizeMediaLibraryRoots(raw.mediaLibraryRoots),
+    mediaLibraryScanDepth: normalizeMediaLibraryScanDepth(raw.mediaLibraryScanDepth),
     mediaLibraryLastIndexAt: (() => {
       const n = Number(raw.mediaLibraryLastIndexAt);
       return Number.isFinite(n) && n > 0 ? n : null;
@@ -302,6 +316,7 @@ export function formToDrive115Patch(
     verifyCount: Math.max(1, Math.floor(form.verifyCount) || 1),
     maxFailures: Math.max(0, Math.floor(form.maxFailures) || 0),
     mediaLibraryRoots: normalizeMediaLibraryRoots(form.mediaLibraryRoots),
+    mediaLibraryScanDepth: normalizeMediaLibraryScanDepth(form.mediaLibraryScanDepth),
     mediaLibraryLastIndexAt: form.mediaLibraryLastIndexAt,
     mediaLibraryLastIndexError: form.mediaLibraryLastIndexError,
     mediaLibraryAutoIndexEnabled: form.mediaLibraryAutoIndexEnabled === true,
@@ -379,6 +394,14 @@ export function validateDrive115Form(form: Drive115SettingsFormState): {
     form.v2MinRefreshIntervalMin > 120
   ) {
     errors.push('最小自动刷新间隔必须在 60-120 分钟之间');
+  }
+
+  if (
+    !Number.isFinite(form.mediaLibraryScanDepth) ||
+    form.mediaLibraryScanDepth < 1 ||
+    form.mediaLibraryScanDepth > 8
+  ) {
+    errors.push('片库索引深度必须在 1-8 层之间');
   }
 
   if (form.v2AuthMode === 'self_app' && !form.v2ClientId.trim()) {

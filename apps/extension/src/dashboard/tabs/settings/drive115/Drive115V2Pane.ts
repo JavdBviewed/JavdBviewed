@@ -9,6 +9,7 @@ import { getDrive115V2Service, type Drive115V2UserInfo } from '../../../../featu
 import { getSettings, saveSettings } from '../../../../utils/storage';
 import { describe115Error } from '../../../../features/drive115/v2/errorCodes';
 import { showToast } from '../../../../platform/browser/toast';
+import { sendRuntimeMessage } from '../../../../platform/browser/runtimeMessages';
 import { addLogV2 } from '../../../../features/drive115/v2/logs';
 import { openDrive115FolderPicker } from '../../../components/drive115FolderPicker';
 import {
@@ -422,6 +423,36 @@ export class Drive115V2Pane implements IDrive115Pane {
     await saveSettings(ns);
   }
 
+  private normalizeMediaLibraryScanDepth(raw: unknown): number {
+    const parsed = Math.floor(Number(raw));
+    if (!Number.isFinite(parsed)) return 2;
+    return Math.min(8, Math.max(1, parsed));
+  }
+
+  private async loadMediaLibraryScanDepth(): Promise<number> {
+    try {
+      const settings: any = await getSettings();
+      return this.normalizeMediaLibraryScanDepth(settings?.drive115?.mediaLibraryScanDepth ?? 2);
+    } catch {
+      return 2;
+    }
+  }
+
+  private async saveMediaLibraryScanDepth(depth: number): Promise<void> {
+    const settings: any = await getSettings();
+    const ns: any = { ...settings };
+    ns.drive115 = { ...(settings?.drive115 || {}), mediaLibraryScanDepth: this.normalizeMediaLibraryScanDepth(depth) };
+    await saveSettings(ns);
+  }
+
+  private syncMediaLibraryScanDepthUi(depth: number): void {
+    const normalized = this.normalizeMediaLibraryScanDepth(depth);
+    const input = document.getElementById('drive115MediaLibraryScanDepth') as HTMLInputElement | null;
+    const hint = document.getElementById('drive115MediaLibraryScanDepthHint');
+    if (input) input.value = String(normalized);
+    if (hint) hint.textContent = `当前会向下扫描 ${normalized} 层目录。`;
+  }
+
   private async renderMediaLibraryMeta(): Promise<void> {
     const lastEl = document.getElementById('drive115MediaLibraryLastIndex');
     const errEl = document.getElementById('drive115MediaLibraryLastError') as HTMLElement | null;
@@ -550,8 +581,66 @@ export class Drive115V2Pane implements IDrive115Pane {
       await this.saveMediaLibraryRoots(next);
     });
 
+    const scanDepthInput = document.getElementById('drive115MediaLibraryScanDepth') as HTMLInputElement | null;
+    const persistScanDepth = async (forceBackfill = false): Promise<void> => {
+      if (!scanDepthInput) return;
+      const raw = (scanDepthInput.value || '').trim();
+      if (!forceBackfill && raw === '') return;
+      const depth = this.normalizeMediaLibraryScanDepth(raw || 2);
+      this.syncMediaLibraryScanDepthUi(depth);
+      await this.saveMediaLibraryScanDepth(depth);
+    };
+    scanDepthInput?.addEventListener('input', () => {
+      persistScanDepth(false).catch(() => {});
+    });
+    scanDepthInput?.addEventListener('change', () => {
+      persistScanDepth(true).catch(() => {});
+    });
+
     const indexBtn = document.getElementById('drive115IndexMediaLibrary') as HTMLButtonElement | null;
+    const cancelBtn = document.getElementById('drive115CancelMediaLibraryIndex') as HTMLButtonElement | null;
     const progressEl = document.getElementById('drive115MediaLibraryProgress') as HTMLElement | null;
+    const originalIndexHtml = indexBtn?.innerHTML || '<i class="fas fa-sync"></i> 立即索引';
+    const setIndexingUi = (running: boolean): void => {
+      if (indexBtn) {
+        indexBtn.disabled = running;
+        indexBtn.innerHTML = running ? '<i class="fas fa-spinner fa-spin"></i> 索引中…' : originalIndexHtml;
+      }
+      if (cancelBtn) {
+        cancelBtn.style.display = running ? '' : 'none';
+        cancelBtn.disabled = false;
+      }
+      if (scanDepthInput) scanDepthInput.disabled = running;
+    };
+
+    cancelBtn?.addEventListener('click', async () => {
+      if (!cancelBtn || cancelBtn.disabled) return;
+      cancelBtn.disabled = true;
+      if (progressEl) {
+        progressEl.style.display = '';
+        progressEl.textContent = '正在取消索引…';
+      }
+      try {
+        const resp: any = await sendRuntimeMessage({ type: 'DRIVE115_MEDIA_LIBRARY_CANCEL_INDEX' });
+        if (resp?.success) {
+          const msg = resp.message || '已请求取消索引，正在保存已扫结果…';
+          if (progressEl) progressEl.textContent = msg;
+          if (resp.running === false) setIndexingUi(false);
+          showToast(msg, resp.running === false ? 'info' : 'success');
+        } else {
+          const msg = resp?.message || '取消索引失败';
+          if (progressEl) progressEl.textContent = msg;
+          showToast(msg, 'error');
+          cancelBtn.disabled = false;
+        }
+      } catch (e: any) {
+        const msg = e?.message || String(e) || '取消索引失败';
+        if (progressEl) progressEl.textContent = msg;
+        showToast(msg, 'error');
+        cancelBtn.disabled = false;
+      }
+    });
+
     indexBtn?.addEventListener('click', async () => {
       if (!indexBtn || indexBtn.disabled) return;
       const roots = (await this.loadMediaLibraryRoots()).filter((r) => r.enabled !== false);
@@ -559,29 +648,23 @@ export class Drive115V2Pane implements IDrive115Pane {
         showToast('请先添加并启用至少一个片库根目录', 'error');
         return;
       }
-      indexBtn.disabled = true;
-      const original = indexBtn.innerHTML;
-      indexBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 索引中…';
+      await persistScanDepth(true);
+      setIndexingUi(true);
       if (progressEl) {
         progressEl.style.display = '';
-        progressEl.textContent = '正在限频索引…';
+        progressEl.textContent = `正在按 ${this.normalizeMediaLibraryScanDepth(scanDepthInput?.value || 2)} 层深度限频索引…`;
       }
       try {
-        const resp: any = await new Promise((resolve) => {
-          try {
-            chrome.runtime.sendMessage({ type: 'DRIVE115_MEDIA_LIBRARY_INDEX' }, (r) => {
-              if (chrome.runtime.lastError) {
-                resolve({ success: false, message: chrome.runtime.lastError.message });
-                return;
-              }
-              resolve(r);
-            });
-          } catch (e: any) {
-            resolve({ success: false, message: e?.message || String(e) });
-          }
-        });
+        const resp: any = await sendRuntimeMessage({ type: 'DRIVE115_MEDIA_LIBRARY_INDEX' }).catch((e: any) => ({
+          success: false,
+          message: e?.message || String(e),
+        }));
         await this.renderMediaLibraryMeta();
-        if (resp?.success) {
+        if (resp?.cancelled) {
+          const msg = resp.message || '索引已取消';
+          if (progressEl) progressEl.textContent = msg;
+          showToast(msg, 'info');
+        } else if (resp?.success) {
           const stats = resp.stats || resp.state?.stats;
           const detail = stats
             ? `入库 ${stats.indexed || 0}，跳过 ${stats.skipped || 0}，API ${stats.apiCalls || 0}`
@@ -595,11 +678,11 @@ export class Drive115V2Pane implements IDrive115Pane {
           showToast(`${msg}${kept}`, 'error');
         }
       } finally {
-        indexBtn.disabled = false;
-        indexBtn.innerHTML = original;
+        setIndexingUi(false);
       }
     });
 
+    void this.loadMediaLibraryScanDepth().then((depth) => this.syncMediaLibraryScanDepthUi(depth));
     void this.renderMediaLibraryRoots();
     void this.renderMediaLibraryMeta();
   }

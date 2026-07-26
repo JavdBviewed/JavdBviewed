@@ -10,8 +10,14 @@ import '../../../../../dashboard/styles/05-pages/settings/drive115.css';
 import { Badge } from '../../../../../ui/primitives/Badge/Badge';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
+import { Modal } from '../../../../../ui/primitives/Modal/Modal';
+import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 import { STORAGE_KEYS } from '../../../../../utils/config';
 import { getValue } from '../../../../../utils/storage';
+import type {
+  Drive115IndexReport,
+  Drive115IndexSkipReason,
+} from '../../../../../features/drive115/mediaLibrary/types';
 import {
   getSettings,
   useDebouncedSettingsSave,
@@ -51,6 +57,119 @@ import {
 } from './drive115SettingsModel';
 
 const AUTO_SAVE_MS = 1000;
+
+const SKIP_REASON_LABELS: Record<Drive115IndexSkipReason, string> = {
+  no_video: '无视频文件',
+  no_pickcode: '有视频但缺 pick_code',
+  unrecognized_code: '番号未识别',
+  list_failed: '列目录失败',
+  max_folders: '达影片文件夹上限（截断）',
+  container_cap: '达分类目录上限（截断）',
+};
+
+function formatReportDuration(startedAt: number, finishedAt: number): number {
+  if (!startedAt || !finishedAt || finishedAt < startedAt) return 0;
+  return Math.max(0, Math.round((finishedAt - startedAt) / 1000));
+}
+
+/** 索引结果详情窗口：概览 + 跳过原因分组 + 入库/跳过明细 */
+function Drive115IndexReportModal({
+  open,
+  report,
+  onClose,
+}: {
+  open: boolean;
+  report: Drive115IndexReport | null;
+  onClose: () => void;
+}) {
+  if (!report) return null;
+  const durationSec = formatReportDuration(report.startedAt, report.finishedAt);
+  const reasonRows = (Object.keys(report.skipReasonCounts) as Drive115IndexSkipReason[])
+    .map((reason) => ({ reason, count: report.skipReasonCounts[reason] || 0 }))
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count);
+
+  return (
+    <Modal open={open} title="索引结果详情" onClose={onClose}>
+      <div className="space-y-3 text-[12.5px]">
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          <span>
+            入库 <b className="text-[var(--color-fg)]">{report.indexedTotal}</b>
+          </span>
+          <span>
+            跳过 <b className="text-[var(--color-fg)]">{report.skippedTotal}</b>
+          </span>
+          <span>截断 {report.truncatedFolders}</span>
+          <span>
+            根目录 {report.rootsDone}/{report.rootsTotal}
+          </span>
+          <span>API {report.apiCalls}</span>
+          <span>耗时 {durationSec}s</span>
+          {report.cancelled ? <span className="text-[var(--color-fg-muted)]">（已取消）</span> : null}
+        </div>
+        {report.error ? (
+          <div className="text-[var(--color-danger,#c0392b)]">错误：{report.error}</div>
+        ) : null}
+        {reasonRows.length ? (
+          <div>
+            <div className="font-medium text-[var(--color-fg)]">跳过原因</div>
+            <ul className="mt-1 space-y-0.5">
+              {reasonRows.map((row) => (
+                <li key={row.reason} className="flex justify-between gap-3">
+                  <span>{SKIP_REASON_LABELS[row.reason] || row.reason}</span>
+                  <span>{row.count}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {report.indexed.length ? (
+          <div>
+            <div className="font-medium text-[var(--color-fg)]">
+              入库明细（
+              {report.indexedTotal > report.indexed.length
+                ? `${report.indexed.length} / 共 ${report.indexedTotal}`
+                : report.indexed.length}
+              ）
+            </div>
+            <ul className="mt-1 max-h-40 space-y-0.5 overflow-auto">
+              {report.indexed.map((item, i) => (
+                <li key={`indexed-${i}`} className="truncate">
+                  <span className="text-[var(--color-fg)]">{item.code || '(未识别)'}</span>
+                  <span className="text-[var(--color-fg-muted)]"> · {item.title || item.folderName}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {report.skipped.length ? (
+          <div>
+            <div className="font-medium text-[var(--color-fg)]">
+              跳过明细（
+              {report.skippedTotal > report.skipped.length
+                ? `${report.skipped.length} / 共 ${report.skippedTotal}`
+                : report.skipped.length}
+              ）
+            </div>
+            <ul className="mt-1 max-h-40 space-y-0.5 overflow-auto">
+              {report.skipped.map((item, i) => (
+                <li key={`skipped-${i}`} className="flex justify-between gap-3">
+                  <span className="truncate">{item.folderName}</span>
+                  <span className="shrink-0 text-[var(--color-fg-muted)]">
+                    {SKIP_REASON_LABELS[item.reason] || item.reason}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {report.truncatedList ? (
+          <div className="text-[11.5px] text-[var(--color-fg-muted)]">明细过多，仅显示前若干条。</div>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
 
 
 type Drive115GroupProps = {
@@ -210,6 +329,8 @@ export function Drive115SettingsPage() {
   const [indexingMediaLibrary, setIndexingMediaLibrary] = useState(false);
   const [indexProgressText, setIndexProgressText] = useState('');
   const [indexProgress, setIndexProgress] = useState<Drive115IndexProgressView | null>(null);
+  const [indexReport, setIndexReport] = useState<Drive115IndexReport | null>(null);
+  const [showIndexReport, setShowIndexReport] = useState(false);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [logStatsText, setLogStatsText] = useState('暂无日志');
   const [logsLoading, setLogsLoading] = useState(false);
@@ -244,6 +365,15 @@ export function Drive115SettingsPage() {
       } catch {
         /* ignore */
       }
+      try {
+        const rep = await getValue<Drive115IndexReport | null>(
+          STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_REPORT,
+          null,
+        );
+        if (!cancelled) setIndexReport(rep && typeof rep === 'object' ? rep : null);
+      } catch {
+        /* ignore */
+      }
     })();
 
     const onChanged = (
@@ -251,9 +381,15 @@ export function Drive115SettingsPage() {
       area: string,
     ) => {
       if (area !== 'local' && area !== 'sync') return;
-      const key = STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS;
-      if (!changes[key]) return;
-      applyIndexProgressSnapshot(changes[key].newValue);
+      const progressKey = STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS;
+      if (changes[progressKey]) {
+        applyIndexProgressSnapshot(changes[progressKey].newValue);
+      }
+      const reportKey = STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_REPORT;
+      if (changes[reportKey]) {
+        const next = changes[reportKey].newValue as Drive115IndexReport | undefined;
+        setIndexReport(next && typeof next === 'object' ? next : null);
+      }
     };
     try {
       chrome.storage?.onChanged?.addListener(onChanged);
@@ -637,7 +773,7 @@ export function Drive115SettingsPage() {
 
   
   const onIndexMediaLibrary = async () => {
-    if (indexingMediaLibrary) return;
+    if (indexingMediaLibrary || indexProgress?.running) return;
     const roots = (formRef.current.mediaLibraryRoots || []).filter((r) => r.enabled !== false);
     if (!roots.length) {
       await toast('请先添加并启用至少一个片库根目录', 'error');
@@ -652,19 +788,7 @@ export function Drive115SettingsPage() {
     setIndexingMediaLibrary(true);
     setIndexProgressText('正在限频索引…');
     try {
-      const resp: any = await new Promise((resolve) => {
-        try {
-          chrome.runtime.sendMessage({ type: 'DRIVE115_MEDIA_LIBRARY_INDEX' }, (r) => {
-            if (chrome.runtime.lastError) {
-              resolve({ success: false, message: chrome.runtime.lastError.message });
-              return;
-            }
-            resolve(r);
-          });
-        } catch (e: any) {
-          resolve({ success: false, message: e?.message || String(e) });
-        }
-      });
+      const resp: any = await sendRuntimeMessage({ type: 'DRIVE115_MEDIA_LIBRARY_INDEX' });
       // 刷新表单中的 lastIndex 元数据
       try {
         const settings = await getSettings();
@@ -672,7 +796,11 @@ export function Drive115SettingsPage() {
       } catch {
         /* ignore */
       }
-      if (resp?.success) {
+      if (resp?.cancelled) {
+        const msg = resp.message || '索引已取消';
+        setIndexProgressText(msg);
+        await toast(msg, 'success');
+      } else if (resp?.success) {
         const stats = resp.stats || resp.state?.stats;
         const detail = stats
           ? `入库 ${stats.indexed || 0}，跳过 ${stats.skipped || 0}，API ${stats.apiCalls || 0}`
@@ -698,6 +826,24 @@ export function Drive115SettingsPage() {
     }
   };
   
+
+  const onCancelMediaLibraryIndex = async () => {
+    try {
+      const resp: any = await sendRuntimeMessage({ type: 'DRIVE115_MEDIA_LIBRARY_CANCEL_INDEX' });
+      const msg = resp?.message || (resp?.success ? '正在取消索引…' : '取消索引失败');
+      setIndexProgressText(msg);
+      if (resp?.success && resp.running === false) {
+        setIndexingMediaLibrary(false);
+        setIndexProgress((prev) => (prev ? { ...prev, running: false, phase: 'error', message: msg } : null));
+      }
+      await toast(msg, resp?.success ? 'success' : 'error');
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      setIndexProgressText(msg);
+      await toast(msg, 'error');
+    }
+  };
+
   const mediaLibraryLastIndexLabel = useMemo(() => {
     const ts = form.mediaLibraryLastIndexAt;
     if (!ts) return '尚未索引';
@@ -1389,6 +1535,33 @@ export function Drive115SettingsPage() {
               </div>
             </Drive115Field>
 
+            <Drive115Field
+              id="drive115MediaLibraryScanDepth"
+              label="索引深度"
+              description="默认 2 层，适合“演员/番号/视频”结构；如果根目录下直接就是影片文件夹可选 1 层，最多 8 层；层数越大越可能误扫整盘，请配合上限保护谨慎使用。"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  id="drive115MediaLibraryScanDepth"
+                  type="number"
+                  min={1}
+                  max={8}
+                  step={1}
+                  className="w-28"
+                  disabled={disabled || indexingMediaLibrary || indexProgress?.running}
+                  value={form.mediaLibraryScanDepth}
+                  onChange={(e) => {
+                    const n = Math.floor(Number(e.currentTarget.value));
+                    const depth = Number.isFinite(n) ? Math.min(8, Math.max(1, n)) : 2;
+                    update('mediaLibraryScanDepth', depth);
+                  }}
+                />
+                <span className="text-[11.5px] text-[var(--color-fg-muted)]">
+                  当前会向下扫描 {form.mediaLibraryScanDepth || 2} 层目录。
+                </span>
+              </div>
+            </Drive115Field>
+
             <div className="mx-2 mb-1 space-y-2 text-[12px] text-[var(--color-fg-muted)]">
               <div className="flex flex-wrap items-center gap-2">
                 <Drive115Btn
@@ -1396,15 +1569,25 @@ export function Drive115SettingsPage() {
                   variant="primary"
                   disabled={
                     disabled ||
-                    indexingMediaLibrary ||
+                    (indexingMediaLibrary || indexProgress?.running) ||
                     (form.mediaLibraryRoots || []).filter((r) => r.enabled !== false).length === 0
                   }
                   onClick={() => void onIndexMediaLibrary()}
                 >
-                  {indexingMediaLibrary ? '索引中…' : '立即索引'}
+                  {indexingMediaLibrary || indexProgress?.running ? '索引中…' : '立即索引'}
                 </Drive115Btn>
+                {indexingMediaLibrary || indexProgress?.running ? (
+                  <Drive115Btn
+                    id="drive115CancelMediaLibraryIndex"
+                    variant="danger"
+                    disabled={disabled}
+                    onClick={() => void onCancelMediaLibraryIndex()}
+                  >
+                    取消索引
+                  </Drive115Btn>
+                ) : null}
                 <span className="text-[11.5px]">
-                  浅层限频：串行 list，单次最多 300 个影片文件夹；中断会合并保存本轮已扫到的条目，若本轮 0 条则保留上一份索引。
+                  串行限频：按上方深度扫描，单次最多 300 个影片文件夹；中断会合并保存本轮已扫到的条目，若本轮 0 条则保留上一份索引。
                 </span>
               </div>
 
@@ -1457,8 +1640,32 @@ export function Drive115SettingsPage() {
                     上次错误：{form.mediaLibraryLastIndexError}
                   </div>
                 ) : null}
+                {indexReport ? (
+                  <div className="flex flex-wrap items-center gap-2 pt-1 text-[11.5px] text-[var(--color-fg-muted)]">
+                    <span>
+                      本轮结果：入库 {indexReport.indexedTotal}，跳过 {indexReport.skippedTotal}
+                      {indexReport.truncatedFolders
+                        ? `，截断 ${indexReport.truncatedFolders}`
+                        : ''}
+                    </span>
+                    <button
+                      type="button"
+                      id="drive115ViewIndexReport"
+                      className="font-semibold text-[var(--color-primary)] underline-offset-2 hover:underline"
+                      onClick={() => setShowIndexReport(true)}
+                    >
+                      查看详情
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
+
+            <Drive115IndexReportModal
+              open={showIndexReport}
+              report={indexReport}
+              onClose={() => setShowIndexReport(false)}
+            />
 
           </Drive115Group>
           <Drive115Group title="115 网盘日志">

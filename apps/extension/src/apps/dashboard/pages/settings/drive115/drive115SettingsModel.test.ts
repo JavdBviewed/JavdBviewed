@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file drive115SettingsModel.test.ts
  * @description 115 网盘设置模型单测
  * @module apps/dashboard/pages/settings/drive115
@@ -35,6 +35,7 @@ describe('drive115SettingsModel', () => {
     expect(DEFAULT_DRIVE115_SETTINGS_FORM.v2MinRefreshIntervalMin).toBe(60);
     expect(DEFAULT_DRIVE115_SETTINGS_FORM.verifyCount).toBe(5);
     expect(DEFAULT_DRIVE115_SETTINGS_FORM.maxFailures).toBe(5);
+    expect(DEFAULT_DRIVE115_SETTINGS_FORM.mediaLibraryScanDepth).toBe(2);
   });
 
   it('maps index progress snapshots and preserves stopped state', () => {
@@ -95,6 +96,7 @@ describe('drive115SettingsModel', () => {
           { cid: '  ', name: 'empty', enabled: true },
           { cid: 'lib-1', name: '覆盖', path: '/Lib2', enabled: false },
         ],
+        mediaLibraryScanDepth: 3,
         mediaLibraryLastIndexAt: 1_700_000_111,
         mediaLibraryLastIndexError: 'rate limited',
         mediaLibraryAutoIndexEnabled: true,
@@ -118,6 +120,7 @@ describe('drive115SettingsModel', () => {
     expect(form.mediaLibraryRoots).toEqual([
       { cid: 'lib-1', name: '覆盖', path: '/Lib2', enabled: false },
     ]);
+    expect(form.mediaLibraryScanDepth).toBe(3);
     expect(form.mediaLibraryLastIndexAt).toBe(1_700_000_111);
     expect(form.mediaLibraryLastIndexError).toBe('rate limited');
     expect(form.mediaLibraryAutoIndexEnabled).toBe(true);
@@ -132,6 +135,7 @@ describe('drive115SettingsModel', () => {
         { cid: 'lib-a', name: 'A', path: '/A', enabled: true },
         { cid: 'lib-b', enabled: false },
       ],
+      mediaLibraryScanDepth: 3,
       mediaLibraryLastIndexAt: 42,
       mediaLibraryAutoIndexEnabled: false,
     });
@@ -140,6 +144,7 @@ describe('drive115SettingsModel', () => {
       { cid: 'lib-a', name: 'A', path: '/A', enabled: true },
       { cid: 'lib-b', name: undefined, path: undefined, enabled: false },
     ]);
+    expect(patch.mediaLibraryScanDepth).toBe(3);
     expect(patch.mediaLibraryLastIndexAt).toBe(42);
     expect(patch.mediaLibraryAutoIndexEnabled).toBe(false);
   });
@@ -161,6 +166,18 @@ describe('drive115SettingsModel', () => {
     expect(low.v2MinRefreshIntervalMin).toBe(60);
     expect(high.v2MinRefreshIntervalMin).toBe(120);
   });
+
+  it('normalizes media library scan depth to 1-8', () => {
+    expect(mapSettingsToDrive115Form({ mediaLibraryScanDepth: 0 }).mediaLibraryScanDepth).toBe(1);
+    expect(mapSettingsToDrive115Form({ mediaLibraryScanDepth: 2 }).mediaLibraryScanDepth).toBe(2);
+    expect(mapSettingsToDrive115Form({ mediaLibraryScanDepth: 8 }).mediaLibraryScanDepth).toBe(8);
+    expect(mapSettingsToDrive115Form({ mediaLibraryScanDepth: 9 }).mediaLibraryScanDepth).toBe(8);
+    expect(formToDrive115Patch({
+      ...DEFAULT_DRIVE115_SETTINGS_FORM,
+      mediaLibraryScanDepth: 12,
+    }).mediaLibraryScanDepth).toBe(8);
+  });
+
 
   it('formToDrive115Patch trims tokens and strips trailing slash on api url', () => {
     const patch = formToDrive115Patch({
@@ -213,6 +230,7 @@ describe('drive115SettingsModel', () => {
       verifyCount: 0,
       maxFailures: 99,
       v2MinRefreshIntervalMin: 10,
+      mediaLibraryScanDepth: 4,
     });
     expect(bad.isValid).toBe(false);
     expect(bad.errors.length).toBeGreaterThanOrEqual(4);
