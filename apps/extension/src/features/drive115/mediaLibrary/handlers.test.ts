@@ -10,6 +10,7 @@ import { getDrive115V2Service } from '../v2';
 import {
   handleDrive115MediaLibraryCancelIndex,
   handleDrive115MediaLibraryIndex,
+  handleDrive115MediaLibraryResolveCoverUrl,
   handleDrive115MediaLibraryResolveNfo,
 } from './handlers';
 import { indexDrive115Roots } from './indexer';
@@ -299,5 +300,37 @@ describe('handleDrive115MediaLibraryResolveNfo', () => {
 
     expect(resp.success).toBe(false);
     expect(saveDrive115LibraryState).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleDrive115MediaLibraryResolveCoverUrl', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('resolves a short-lived cover download url by pick code', async () => {
+    const getFileDownloadUrl = vi.fn(async () => ({ success: true, url: 'https://cdn/cover.jpg' }));
+    vi.mocked(getDrive115V2Service).mockReturnValue({
+      getValidAccessToken: vi.fn(async () => ({ success: true, accessToken: 'token' })),
+      getFileDownloadUrl,
+    } as any);
+
+    const resp = await new Promise<any>((resolve) => {
+      const handled = handleDrive115MediaLibraryResolveCoverUrl(
+        { type: 'DRIVE115_MEDIA_LIBRARY_RESOLVE_COVER_URL', pickCode: 'cover-pick' },
+        resolve,
+      );
+      expect(handled).toBe(true);
+    });
+
+    expect(getFileDownloadUrl).toHaveBeenCalledWith({ accessToken: 'token', pickCode: 'cover-pick' });
+    expect(resp).toMatchObject({ success: true, url: 'https://cdn/cover.jpg' });
+  });
+
+  it('fails when pick code is missing', async () => {
+    const resp = await new Promise<any>((resolve) => {
+      handleDrive115MediaLibraryResolveCoverUrl({ type: 'x' }, resolve);
+    });
+    expect(resp.success).toBe(false);
   });
 });

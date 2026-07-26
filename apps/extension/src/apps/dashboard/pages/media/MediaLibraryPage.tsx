@@ -12,6 +12,7 @@ import { EmptyState } from '../../../../ui/patterns/EmptyState/EmptyState';
 import { MediaPlayer } from '../../../../ui/patterns/MediaPlayer/MediaPlayer';
 import { OverlayShell } from '../../../../ui/patterns/OverlayShell/OverlayShell';
 import { LazyRemoteImage } from '../../../../ui/patterns/LazyRemoteImage/LazyRemoteImage';
+import { useDrive115Cover } from './useDrive115Cover';
 import { resolveDashboardNavState } from '../../../../dashboard/tabs/navModel';
 import type { EmbyLibraryState } from '../../../../features/embyLibrary/types';
 import { STORAGE_KEYS } from '../../../../utils/config';
@@ -1101,6 +1102,7 @@ function MediaCard({
           : { tone: 'success' as const, text: '已入库' };
 
   const coverResolved = resolveCoverImage(item, coverView);
+  const { ref: d115CoverRef, coverUrl: d115Cover } = useDrive115Cover(item);
   const canTogglePlayed = Boolean(item.itemId && item.serverUrl && !usingPreview);
   const isWatched = watchState === 'watched';
 
@@ -1150,7 +1152,13 @@ function MediaCard({
   };
 
   return (
-    <article className="ml-card" data-code={item.code} data-layout-card="1" data-watch-state={watchState || 'none'}>
+    <article
+      ref={d115CoverRef}
+      className="ml-card"
+      data-code={item.code}
+      data-layout-card="1"
+      data-watch-state={watchState || 'none'}
+    >
       <div className="ml-card-cover">
         {/* 点封面 → 详情外链；点播放钮 → 扩展内取流（互不抢事件） */}
         <button
@@ -1162,7 +1170,7 @@ function MediaCard({
           <MediaCover
             // 列表统一 cover 铺满，避免框内黑边；框比仍由 data-cover-view 控制
             fit="cover"
-            imageUrl={coverResolved.url}
+            imageUrl={item.source === '115' && d115Cover ? d115Cover : coverResolved.url}
             fallbackImageUrl={coverResolved.fallbackUrl}
             artStyle={coverArtStyle(item, coverView)}
             alt={item.code}

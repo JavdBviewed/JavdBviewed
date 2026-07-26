@@ -160,7 +160,22 @@ export function mapDrive115LibraryStateToBrowseItems(
     folderCid?: string;
     rootCid?: string;
     nfoPickCode?: string;
-    nfoSummary?: { year?: string; title?: string; plot?: string };
+    coverPickCode?: string;
+    nfoSummary?: {
+      year?: string;
+      title?: string;
+      plot?: string;
+      num?: string;
+      actors?: string[];
+      studio?: string;
+      releaseDate?: string;
+      genres?: string[];
+      rating?: string;
+      runtime?: string;
+      director?: string;
+      series?: string;
+      posterRef?: string;
+    };
     updatedAt?: number;
   }> } | null | undefined,
 ): MediaBrowseItem[] {
@@ -188,6 +203,7 @@ export function mapDrive115LibraryStateToBrowseItems(
       serverName: '115 片库',
       watchState: 'in_library',
       libraryKey: entry.key,
+      coverPickCode: entry.coverPickCode,
       nfoSummary: entry.nfoSummary,
     });
   }

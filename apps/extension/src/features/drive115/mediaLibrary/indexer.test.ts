@@ -492,6 +492,39 @@ describe('indexDrive115Roots', () => {
     expect(report?.apiCalls).toBe(result.state.stats.apiCalls);
   });
 
+  it('flushes live report snapshots during indexing', async () => {
+    // 造 12 个叶子目录（10 无视频 + 2 有视频），触发至少一次 REPORT_FLUSH_EVERY=10 的快照
+    const leaves = Array.from({ length: 12 }, (_, i) => ({
+      fc: '0',
+      cid: `f${i}`,
+      fn: i < 2 ? `SSIS-00${i + 1}` : `misc-${i}`,
+    }));
+    const listFiles = vi.fn(async ({ cid }: { cid: string }) => {
+      if (cid === 'root') return { success: true, data: leaves };
+      const idx = Number(String(cid).replace('f', ''));
+      if (idx < 2) {
+        return { success: true, data: [{ fc: '1', fid: `v${idx}`, fn: `SSIS-00${idx + 1}.mp4`, fs: 10, pc: `p${idx}` }] };
+      }
+      return { success: true, data: [{ fc: '1', fid: `x${idx}`, fn: 'note.txt', fs: 1, pc: 'px' }] };
+    });
+
+    const snapshots: number[] = [];
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles,
+      onReport: (rep) => snapshots.push(rep.skippedTotal + rep.indexedTotal),
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+      now: () => 1_700_000_000_000,
+    });
+
+    expect(result.success).toBe(true);
+    // 至少收到一次进行中快照，且快照未标记完成
+    expect(snapshots.length).toBeGreaterThanOrEqual(1);
+    expect(snapshots.at(-1)).toBeGreaterThanOrEqual(10);
+  });
+
   it('returns empty success when no roots', async () => {
     const result = await indexDrive115Roots({
       roots: [],

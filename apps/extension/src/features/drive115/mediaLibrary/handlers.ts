@@ -234,6 +234,14 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
           .catch((err) => log115('debug', '媒体库索引增量落盘失败', err));
         return saveChain;
       };
+      // 结果报告串行写链：进行中实时更新 + 收尾最终写，最终态最后入队。
+      let reportChain: Promise<void> = Promise.resolve();
+      const enqueueReport = (rep: unknown): Promise<void> => {
+        reportChain = reportChain
+          .then(() => setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_REPORT, rep))
+          .catch((err) => log115('debug', '媒体库索引报告落盘失败', err));
+        return reportChain;
+      };
 
       const result = await indexDrive115Roots({
         roots: enabled,
@@ -243,6 +251,9 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
         signal: indexAbortController.signal,
         onPartialState: (state) => {
           void enqueueSave(state);
+        },
+        onReport: (rep) => {
+          void enqueueReport(rep);
         },
         listFiles: async ({ cid, limit, offset, signal }) => {
           const ret = await svc.listFiles({
@@ -324,9 +335,9 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
           stats: result.state.stats,
         });
       }
-      // 落盘本轮结果明细报告，供设置页详情窗口下钻
+      // 落盘本轮结果明细报告（走同一条链，最终态覆盖进行中快照），供设置页详情窗口下钻
       if (result.report) {
-        await setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_REPORT, result.report);
+        await enqueueReport(result.report);
       }
       return result;
     } catch (e: unknown) {
@@ -412,6 +423,40 @@ export function handleDrive115MediaLibraryCancelIndex(
         updatedAt: Date.now(),
       });
       sendResponse({ success: true, running: true, message: '正在取消索引…' });
+    } catch (e: unknown) {
+      sendResponse({ success: false, message: getErrorMessage(e) });
+    }
+  })();
+  return true;
+}
+
+/**
+ * 按 coverPickCode 解析封面下载直链（短时有效，不持久化）。
+ * 前端在可视区懒加载时调用，配合内存短 TTL 缓存复用。
+ */
+export function handleDrive115MediaLibraryResolveCoverUrl(
+  message: unknown,
+  sendResponse: SendResponse,
+): boolean {
+  void (async () => {
+    try {
+      const pickCode = String(asRecord(message).pickCode ?? '').trim();
+      if (!pickCode) {
+        sendResponse({ success: false, message: '缺少 pick_code' });
+        return;
+      }
+      const svc = getDrive115V2Service();
+      const tokenRet = await svc.getValidAccessToken({ forceAutoRefresh: true });
+      if (!tokenRet.success || !tokenRet.accessToken) {
+        sendResponse({ success: false, message: tokenRet.success ? '无法获取 115 授权' : tokenRet.message });
+        return;
+      }
+      const urlRet = await svc.getFileDownloadUrl({ accessToken: tokenRet.accessToken, pickCode });
+      if (!urlRet.success || !urlRet.url) {
+        sendResponse({ success: false, message: urlRet.message || '获取封面地址失败' });
+        return;
+      }
+      sendResponse({ success: true, url: urlRet.url });
     } catch (e: unknown) {
       sendResponse({ success: false, message: getErrorMessage(e) });
     }

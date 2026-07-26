@@ -3,6 +3,7 @@
  * @description 115 媒体库轻量索引类型
  * @module features/drive115/mediaLibrary
  */
+import type { ParsedNfoSummary } from './parseEntryMeta';
 
 /** 片库根目录（与设置 mediaLibraryRoots 对齐） */
 export type Drive115MediaLibraryRoot = {
@@ -32,11 +33,10 @@ export type Drive115LibraryEntry = {
   nfoFileName?: string;
   /** NFO 文件 pick_code，供懒下载解析正文 */
   nfoPickCode?: string;
-  nfoSummary?: {
-    title?: string;
-    plot?: string;
-    year?: string;
-  };
+  /** 封面文件 pick_code，供按需取封面直链 */
+  coverPickCode?: string;
+  /** NFO 解析摘要（标题/简介/年份 + 番号/演员/制作商/日期/类别/评分/时长/系列） */
+  nfoSummary?: ParsedNfoSummary;
   updatedAt: number;
 };
 

@@ -5,6 +5,7 @@
  */
 import type { EmbyWatchUserData } from '../../../../features/embyLibrary/types';
 import type { MediaWatchState } from '../../../../features/embyLibrary/domain/watchState';
+import type { ParsedNfoSummary as Drive115ParsedNfoSummary } from '../../../../features/drive115/mediaLibrary/parseEntryMeta';
 
 export type MediaBrowseSource = 'all' | 'emby' | 'jellyfin' | '115';
 
@@ -47,8 +48,10 @@ export type MediaBrowseItem = {
   folderPath?: string;
   /** 115 索引：条目稳定 key，供懒解析 NFO 定位 */
   libraryKey?: string;
-  /** 115 索引：NFO 解析摘要（标题/简介/年份），懒加载填充 */
-  nfoSummary?: { title?: string; plot?: string; year?: string };
+  /** 115 索引：封面文件 pick_code，供按需取封面直链 */
+  coverPickCode?: string;
+  /** 115 索引：NFO 解析摘要（标题/简介/年份 + JAV 富字段），懒加载填充 */
+  nfoSummary?: Drive115ParsedNfoSummary;
 };
 
 export const MEDIA_PREVIEW_ITEMS: MediaBrowseItem[] = [

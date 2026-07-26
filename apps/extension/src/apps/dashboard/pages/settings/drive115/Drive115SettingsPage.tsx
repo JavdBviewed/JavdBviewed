@@ -89,82 +89,138 @@ function Drive115IndexReportModal({
     .filter((row) => row.count > 0)
     .sort((a, b) => b.count - a.count);
 
+  const stats: Array<{ label: string; value: string | number; accent?: 'ok' | 'skip' }> = [
+    { label: '入库', value: report.indexedTotal, accent: 'ok' },
+    { label: '跳过', value: report.skippedTotal, accent: 'skip' },
+    { label: '截断', value: report.truncatedFolders },
+    { label: '根目录', value: `${report.rootsDone}/${report.rootsTotal}` },
+    { label: 'API', value: report.apiCalls },
+    { label: '耗时', value: `${durationSec}s` },
+  ];
+
   return (
-    <Modal open={open} title="索引结果详情" onClose={onClose}>
-      <div className="space-y-3 text-[12.5px]">
-        <div className="flex flex-wrap gap-x-4 gap-y-1">
-          <span>
-            入库 <b className="text-[var(--color-fg)]">{report.indexedTotal}</b>
-          </span>
-          <span>
-            跳过 <b className="text-[var(--color-fg)]">{report.skippedTotal}</b>
-          </span>
-          <span>截断 {report.truncatedFolders}</span>
-          <span>
-            根目录 {report.rootsDone}/{report.rootsTotal}
-          </span>
-          <span>API {report.apiCalls}</span>
-          <span>耗时 {durationSec}s</span>
-          {report.cancelled ? <span className="text-[var(--color-fg-muted)]">（已取消）</span> : null}
+    <Modal open={open} title="索引结果详情" onClose={onClose} className="!max-w-3xl">
+      <div className="space-y-5 text-[13px] text-[var(--color-fg)]">
+        {/* 概览统计块 */}
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+          {stats.map((s) => (
+            <div
+              key={s.label}
+              className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-2"
+            >
+              <div className="text-[11px] text-[var(--color-fg-muted)]">{s.label}</div>
+              <div
+                className={
+                  's-value text-[16px] font-bold ' +
+                  (s.accent === 'ok'
+                    ? 'text-[var(--color-success,#16a34a)]'
+                    : s.accent === 'skip'
+                      ? 'text-[var(--color-warning,#d97706)]'
+                      : 'text-[var(--color-fg)]')
+                }
+              >
+                {s.value}
+              </div>
+            </div>
+          ))}
         </div>
+
+        {report.cancelled ? (
+          <div className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[var(--color-fg-muted)]">
+            本轮索引已被取消。
+          </div>
+        ) : null}
         {report.error ? (
-          <div className="text-[var(--color-danger,#c0392b)]">错误：{report.error}</div>
+          <div className="rounded-[var(--radius-2)] border border-[var(--color-danger,#c0392b)] bg-[var(--color-surface-2)] px-3 py-2 text-[var(--color-danger,#c0392b)]">
+            错误：{report.error}
+          </div>
         ) : null}
+
+        {/* 跳过原因分组 */}
         {reasonRows.length ? (
-          <div>
-            <div className="font-medium text-[var(--color-fg)]">跳过原因</div>
-            <ul className="mt-1 space-y-0.5">
-              {reasonRows.map((row) => (
-                <li key={row.reason} className="flex justify-between gap-3">
-                  <span>{SKIP_REASON_LABELS[row.reason] || row.reason}</span>
-                  <span>{row.count}</span>
-                </li>
+          <section className="space-y-2">
+            <h3 className="text-[13px] font-semibold">跳过原因</h3>
+            <div className="overflow-hidden rounded-[var(--radius-2)] border border-[var(--color-border)]">
+              {reasonRows.map((row, i) => (
+                <div
+                  key={row.reason}
+                  className={
+                    'flex items-center justify-between px-3 py-2 ' +
+                    (i > 0 ? 'border-t border-[var(--color-border)]' : '')
+                  }
+                >
+                  <span className="text-[var(--color-fg-muted)]">
+                    {SKIP_REASON_LABELS[row.reason] || row.reason}
+                  </span>
+                  <span className="font-semibold tabular-nums">{row.count}</span>
+                </div>
               ))}
-            </ul>
-          </div>
+            </div>
+          </section>
         ) : null}
+
+        {/* 入库明细 */}
         {report.indexed.length ? (
-          <div>
-            <div className="font-medium text-[var(--color-fg)]">
-              入库明细（
-              {report.indexedTotal > report.indexed.length
-                ? `${report.indexed.length} / 共 ${report.indexedTotal}`
-                : report.indexed.length}
-              ）
-            </div>
-            <ul className="mt-1 max-h-40 space-y-0.5 overflow-auto">
+          <section className="space-y-2">
+            <h3 className="flex items-baseline justify-between text-[13px] font-semibold">
+              <span>入库明细</span>
+              <span className="text-[11px] font-normal text-[var(--color-fg-muted)]">
+                {report.indexedTotal > report.indexed.length
+                  ? `显示 ${report.indexed.length} / 共 ${report.indexedTotal}`
+                  : `共 ${report.indexed.length}`}
+              </span>
+            </h3>
+            <div className="max-h-56 overflow-auto rounded-[var(--radius-2)] border border-[var(--color-border)]">
               {report.indexed.map((item, i) => (
-                <li key={`indexed-${i}`} className="truncate">
-                  <span className="text-[var(--color-fg)]">{item.code || '(未识别)'}</span>
-                  <span className="text-[var(--color-fg-muted)]"> · {item.title || item.folderName}</span>
-                </li>
+                <div
+                  key={`indexed-${i}`}
+                  className={
+                    'flex items-baseline gap-2 px-3 py-1.5 ' +
+                    (i > 0 ? 'border-t border-[var(--color-border)]' : '')
+                  }
+                >
+                  <span className="shrink-0 font-medium">{item.code || '(未识别)'}</span>
+                  <span className="truncate text-[var(--color-fg-muted)]">
+                    {item.title || item.folderName}
+                  </span>
+                </div>
               ))}
-            </ul>
-          </div>
-        ) : null}
-        {report.skipped.length ? (
-          <div>
-            <div className="font-medium text-[var(--color-fg)]">
-              跳过明细（
-              {report.skippedTotal > report.skipped.length
-                ? `${report.skipped.length} / 共 ${report.skippedTotal}`
-                : report.skipped.length}
-              ）
             </div>
-            <ul className="mt-1 max-h-40 space-y-0.5 overflow-auto">
+          </section>
+        ) : null}
+
+        {/* 跳过明细 */}
+        {report.skipped.length ? (
+          <section className="space-y-2">
+            <h3 className="flex items-baseline justify-between text-[13px] font-semibold">
+              <span>跳过明细</span>
+              <span className="text-[11px] font-normal text-[var(--color-fg-muted)]">
+                {report.skippedTotal > report.skipped.length
+                  ? `显示 ${report.skipped.length} / 共 ${report.skippedTotal}`
+                  : `共 ${report.skipped.length}`}
+              </span>
+            </h3>
+            <div className="max-h-56 overflow-auto rounded-[var(--radius-2)] border border-[var(--color-border)]">
               {report.skipped.map((item, i) => (
-                <li key={`skipped-${i}`} className="flex justify-between gap-3">
+                <div
+                  key={`skipped-${i}`}
+                  className={
+                    'flex items-center justify-between gap-2 px-3 py-1.5 ' +
+                    (i > 0 ? 'border-t border-[var(--color-border)]' : '')
+                  }
+                >
                   <span className="truncate">{item.folderName}</span>
-                  <span className="shrink-0 text-[var(--color-fg-muted)]">
+                  <span className="shrink-0 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-0.5 text-[11px] text-[var(--color-fg-muted)]">
                     {SKIP_REASON_LABELS[item.reason] || item.reason}
                   </span>
-                </li>
+                </div>
               ))}
-            </ul>
-          </div>
+            </div>
+          </section>
         ) : null}
+
         {report.truncatedList ? (
-          <div className="text-[11.5px] text-[var(--color-fg-muted)]">明细过多，仅显示前若干条。</div>
+          <p className="text-[11px] text-[var(--color-fg-muted)]">明细过多，仅显示前若干条。</p>
         ) : null}
       </div>
     </Modal>
@@ -1631,6 +1687,17 @@ export function Drive115SettingsPage() {
                       <span>跳过 {indexProgress.skipped || 0}</span>
                       <span>API {indexProgress.apiCalls || 0}</span>
                     </div>
+                    {indexReport && indexReport.skippedTotal > 0 ? (
+                      <div className="text-[11.5px] text-[var(--color-fg-muted)]">
+                        跳过原因：
+                        {(Object.keys(indexReport.skipReasonCounts) as Drive115IndexSkipReason[])
+                          .map((reason) => ({ reason, count: indexReport.skipReasonCounts[reason] || 0 }))
+                          .filter((row) => row.count > 0)
+                          .sort((a, b) => b.count - a.count)
+                          .map((row) => `${SKIP_REASON_LABELS[row.reason] || row.reason} ${row.count}`)
+                          .join(' · ')}
+                      </div>
+                    ) : null}
                   </div>
                 ) : indexProgressText ? (
                   <div className="text-[11.5px] text-[var(--color-fg)]">{indexProgressText}</div>
@@ -1648,14 +1715,15 @@ export function Drive115SettingsPage() {
                         ? `，截断 ${indexReport.truncatedFolders}`
                         : ''}
                     </span>
-                    <button
-                      type="button"
+                    <Button
                       id="drive115ViewIndexReport"
-                      className="font-semibold text-[var(--color-primary)] underline-offset-2 hover:underline"
+                      type="button"
+                      variant="secondary"
+                      size="sm"
                       onClick={() => setShowIndexReport(true)}
                     >
                       查看详情
-                    </button>
+                    </Button>
                   </div>
                 ) : null}
               </div>

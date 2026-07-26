@@ -43,6 +43,7 @@ import {
   handleDrive115MediaLibraryCancelIndex,
   handleDrive115MediaLibraryGetState,
   handleDrive115MediaLibraryIndex,
+  handleDrive115MediaLibraryResolveCoverUrl,
   handleDrive115MediaLibraryResolveNfo,
 } from '../../features/drive115/mediaLibrary/handlers';
 import {
@@ -191,6 +192,9 @@ export function registerMiscRouter(): void {
         }
         case 'DRIVE115_MEDIA_LIBRARY_RESOLVE_NFO': {
           return handleDrive115MediaLibraryResolveNfo(message, sendResponse);
+        }
+        case 'DRIVE115_MEDIA_LIBRARY_RESOLVE_COVER_URL': {
+          return handleDrive115MediaLibraryResolveCoverUrl(message, sendResponse);
         }
         case 'DRIVE115_MEDIA_LIBRARY_GET_STATE': {
           return handleDrive115MediaLibraryGetState(message, sendResponse);

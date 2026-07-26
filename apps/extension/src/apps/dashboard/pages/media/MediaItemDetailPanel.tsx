@@ -16,6 +16,7 @@ import {
 } from '../../../../features/embyLibrary/domain/embyItemDetail';
 import { LazyRemoteImage } from '../../../../ui/patterns/LazyRemoteImage/LazyRemoteImage';
 import { sendRuntimeMessage } from '../../../../platform/browser/runtimeMessages';
+import { resolveDrive115CoverUrl } from './drive115CoverCache';
 import type { MediaBrowseItem } from './mediaBrowseModel';
 import { resolveCoverImage, sourceLabel } from './mediaBrowseModel';
 import { formatWatchPercent, watchStateLabel } from './mediaLibraryIndexAdapter';
@@ -50,10 +51,11 @@ export function MediaItemDetailPanel({
   const [detail, setDetail] = useState<EmbyItemDetailView | null>(null);
   const [playedBusy, setPlayedBusy] = useState(false);
   const [playedLocal, setPlayedLocal] = useState<boolean | null>(null);
-  const [nfo115, setNfo115] = useState<{ title?: string; plot?: string; year?: string } | null>(
+  const [nfo115, setNfo115] = useState<MediaBrowseItem['nfoSummary'] | null>(
     item.nfoSummary ?? null,
   );
   const [nfo115Loading, setNfo115Loading] = useState(false);
+  const [d115Cover, setD115Cover] = useState('');
 
   const fallbackCover = resolveCoverImage(item, 'poster');
   const effectivePlayed =
@@ -131,8 +133,21 @@ export function MediaItemDetailPanel({
     };
   }, [item.source, item.libraryKey, item.nfoSummary]);
 
+  // 115 详情封面：现取直链（缓存复用），失败回退色块
+  useEffect(() => {
+    let cancelled = false;
+    setD115Cover('');
+    if (item.source !== '115' || !item.coverPickCode) return undefined;
+    void resolveDrive115CoverUrl(item.coverPickCode).then((url) => {
+      if (!cancelled && url) setD115Cover(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.source, item.coverPickCode]);
+
   const title = detail?.name || nfo115?.title || item.title;
-  const primary = detail?.primaryImageUrl || fallbackCover.url;
+  const primary = detail?.primaryImageUrl || d115Cover || fallbackCover.url;
   const backdrop = detail?.backdropImageUrl;
   const people = detail?.people || [];
   const chapters = detail?.chapters || [];
@@ -277,6 +292,21 @@ export function MediaItemDetailPanel({
                 目录 {item.folderPath}
               </span>
             ) : null}
+            {item.source === '115' && nfo115?.num ? (
+              <span className="ml-detail-pill">番号 {nfo115.num}</span>
+            ) : null}
+            {item.source === '115' && nfo115?.rating ? (
+              <span className="ml-detail-pill">★ {nfo115.rating}</span>
+            ) : null}
+            {item.source === '115' && nfo115?.runtime ? (
+              <span className="ml-detail-pill">{nfo115.runtime} 分钟</span>
+            ) : null}
+            {item.source === '115' && nfo115?.releaseDate ? (
+              <span className="ml-detail-pill">{nfo115.releaseDate}</span>
+            ) : null}
+            {item.source === '115' && nfo115?.studio ? (
+              <span className="ml-detail-pill">{nfo115.studio}</span>
+            ) : null}
             <span className="ml-detail-pill">
               {watchLabel}
               {pct ? ` · ${pct}` : ''}
@@ -321,6 +351,31 @@ export function MediaItemDetailPanel({
           <p className="ml-detail-overview">{detail?.overview || nfo115?.plot}</p>
         ) : item.source === '115' && nfo115Loading ? (
           <p className="ml-detail-overview">正在解析 NFO…</p>
+        ) : null}
+
+        {item.source === '115' && nfo115?.actors?.length ? (
+          <p className="ml-detail-line">
+            <span className="ml-detail-k">演员</span>
+            {nfo115.actors.join('、')}
+          </p>
+        ) : null}
+        {item.source === '115' && nfo115?.genres?.length ? (
+          <p className="ml-detail-line">
+            <span className="ml-detail-k">类别</span>
+            {nfo115.genres.join('、')}
+          </p>
+        ) : null}
+        {item.source === '115' && nfo115?.director ? (
+          <p className="ml-detail-line">
+            <span className="ml-detail-k">导演</span>
+            {nfo115.director}
+          </p>
+        ) : null}
+        {item.source === '115' && nfo115?.series ? (
+          <p className="ml-detail-line">
+            <span className="ml-detail-k">系列</span>
+            {nfo115.series}
+          </p>
         ) : null}
 
         {people.filter((p) => /director/i.test(p.type || '')).length > 0 ? (

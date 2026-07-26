@@ -4,6 +4,7 @@
  * @module ui/primitives
  */
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../../lib/cn';
 import { Button } from '../Button/Button';
 
@@ -18,11 +19,12 @@ export type ModalProps = {
 
 /**
  * 自研弹窗（对齐 Dashboard 浮层层级 token）
+ * 通过 Portal 挂到 document.body，避免被祖先的 transform/overflow/层叠上下文困住或被页面局部 CSS 污染。
  */
 export function Modal({ open, title, children, onClose, footer, className }: ModalProps) {
   if (!open) return null;
 
-  return (
+  const overlay = (
     <div
       className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-4"
       role="presentation"
@@ -58,4 +60,8 @@ export function Modal({ open, title, children, onClose, footer, className }: Mod
       </div>
     </div>
   );
+
+  // SSR / 测试（无 document）时内联渲染；浏览器中挂到 body，避免祖先 transform/overflow 困住浮层。
+  if (typeof document === 'undefined') return overlay;
+  return createPortal(overlay, document.body);
 }

@@ -5,12 +5,45 @@
  */
 import { STORAGE_KEYS } from '../../../utils/config';
 import { getValue, setValue } from '../../../utils/storage';
+import type { ParsedNfoSummary } from './parseEntryMeta';
 import {
   DEFAULT_DRIVE115_LIBRARY_STATE,
   type Drive115LibraryEntry,
   type Drive115LibraryIndexState,
   type Drive115LibraryIndexStats,
 } from './types';
+
+/** 规范化 NFO 摘要（含 JAV 富字段）；脏数据丢弃，空则返回 undefined */
+function normalizeNfoSummary(raw: unknown): ParsedNfoSummary | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const str = (k: string): string | undefined => {
+    const v = r[k];
+    return typeof v === 'string' && v.trim() ? v.trim() : undefined;
+  };
+  const strArr = (k: string): string[] | undefined => {
+    const v = r[k];
+    if (!Array.isArray(v)) return undefined;
+    const out = v.map((x) => String(x || '').trim()).filter(Boolean);
+    return out.length ? out : undefined;
+  };
+  const summary: ParsedNfoSummary = {
+    title: str('title'),
+    plot: str('plot'),
+    year: str('year'),
+    num: str('num'),
+    actors: strArr('actors'),
+    studio: str('studio'),
+    releaseDate: str('releaseDate'),
+    genres: strArr('genres'),
+    rating: str('rating'),
+    runtime: str('runtime'),
+    director: str('director'),
+    series: str('series'),
+    posterRef: str('posterRef'),
+  };
+  return Object.values(summary).some((v) => v != null) ? summary : undefined;
+}
 
 function normalizeStats(raw: unknown): Drive115LibraryIndexStats {
   const s = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
@@ -37,23 +70,7 @@ function normalizeEntry(raw: unknown): Drive115LibraryEntry | null {
   const pickCode = String(r.pickCode ?? '').trim();
   if (!folderCid || !videoFileId || !pickCode) return null;
   const key = String(r.key || `${folderCid}:${videoFileId}`).trim();
-  const nfoSummary =
-    r.nfoSummary && typeof r.nfoSummary === 'object'
-      ? {
-          title:
-            typeof (r.nfoSummary as any).title === 'string'
-              ? (r.nfoSummary as any).title
-              : undefined,
-          plot:
-            typeof (r.nfoSummary as any).plot === 'string'
-              ? (r.nfoSummary as any).plot
-              : undefined,
-          year:
-            typeof (r.nfoSummary as any).year === 'string'
-              ? (r.nfoSummary as any).year
-              : undefined,
-        }
-      : undefined;
+  const nfoSummary = normalizeNfoSummary(r.nfoSummary);
 
   return {
     key,
@@ -71,6 +88,7 @@ function normalizeEntry(raw: unknown): Drive115LibraryEntry | null {
     nfoFileId: r.nfoFileId ? String(r.nfoFileId) : undefined,
     nfoFileName: r.nfoFileName ? String(r.nfoFileName) : undefined,
     nfoPickCode: r.nfoPickCode ? String(r.nfoPickCode) : undefined,
+    coverPickCode: r.coverPickCode ? String(r.coverPickCode) : undefined,
     nfoSummary,
     updatedAt: Number(r.updatedAt) || 0,
   };

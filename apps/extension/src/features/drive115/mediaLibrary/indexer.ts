@@ -45,6 +45,8 @@ export type IndexDrive115RootsDeps = {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   onProgress?: (p: Drive115IndexProgress) => void;
+  /** 进行中推送结果报告快照（分原因跳过、入库/跳过明细），供设置页实时下钻。 */
+  onReport?: (report: Drive115IndexReport) => void;
   /** Check between API calls so a user cancel can stop the run quickly. */
   shouldCancel?: () => boolean;
   /** Abort signal used to cancel in-flight fetches where the Drive115 adapter supports it. */
@@ -136,6 +138,7 @@ function buildEntry(params: {
       fileSize: video.fileSize,
       coverFileId: cover?.fileId,
       coverFileName: cover?.fileName,
+      coverPickCode: cover?.pickCode,
       nfoFileId: nfo?.fileId,
       nfoFileName: nfo?.fileName,
       nfoPickCode: nfo?.pickCode,
@@ -250,15 +253,32 @@ export async function indexDrive115Roots(
       report.truncatedList = true;
     }
   };
-  /** 收尾：把运行态汇总进 report 并返回其引用。 */
-  const finalizeReport = (): Drive115IndexReport => {
+  /** 汇总运行态并返回报告快照（数组浅拷贝，避免调用方读到后续 mutate）。final 时标记完成态。 */
+  const snapshotReport = (final: boolean): Drive115IndexReport => {
     report.rootsDone = rootsDone;
     report.apiCalls = stats.apiCalls;
     report.truncatedFolders = stats.truncatedFolders;
-    report.finishedAt = now();
-    report.cancelled = cancelled;
-    report.error = hardError;
-    return report;
+    if (final) {
+      report.finishedAt = now();
+      report.cancelled = cancelled;
+      report.error = hardError;
+    }
+    return {
+      ...report,
+      indexed: [...report.indexed],
+      skipped: [...report.skipped],
+      skipReasonCounts: { ...report.skipReasonCounts },
+    };
+  };
+  const finalizeReport = (): Drive115IndexReport => snapshotReport(true);
+
+  // 进行中每处理若干个文件夹就推一次报告快照，供设置页实时下钻
+  const REPORT_FLUSH_EVERY = 10;
+  const maybeFlushReport = (): void => {
+    if (!deps.onReport) return;
+    const processed = stats.indexed + stats.skipped;
+    if (processed === 0 || processed % REPORT_FLUSH_EVERY !== 0) return;
+    deps.onReport(snapshotReport(false));
   };
 
   /** 构建「本轮已入库合并进旧索引」的完整快照，供增量落盘。 */
@@ -303,6 +323,7 @@ export async function indexDrive115Roots(
       skipped: stats.skipped,
       apiCalls: stats.apiCalls,
     });
+    maybeFlushReport();
   };
 
   const listRoot = async (cid: string): Promise<Array<Record<string, unknown>> | null> => {

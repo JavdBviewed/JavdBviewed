@@ -14,6 +14,7 @@ export {
   handleDrive115MediaLibraryCancelIndex,
   handleDrive115MediaLibraryGetState,
   handleDrive115MediaLibraryIndex,
+  handleDrive115MediaLibraryResolveCoverUrl,
   handleDrive115MediaLibraryResolveNfo,
   runDrive115MediaLibraryIndex,
 } from './handlers';
