@@ -63,6 +63,7 @@ describe('assetMatrix', () => {
         'new_works_daily_stats',
         'storage_items',
         'emby_library_state',
+        'drive115_library_state',
         'media_watch_evidence',
         'dashboard_last_page',
         'restore_backup',
@@ -77,6 +78,7 @@ describe('assetMatrix', () => {
     expect(localAssets.has('logs')).toBe(false);
     expect(localAssets.has('cloud_device_tokens')).toBe(true);
     expect(localAssets.has('cloud_runtime_queue')).toBe(true);
+    expect(localAssets.has('drive115_library_index_progress')).toBe(true);
     expect(localAssets.has('idb_migration_flags')).toBe(true);
   });
 });

@@ -302,6 +302,22 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
     '媒体库命中状态是用户跨端可恢复资产，不属于本地运行态。',
   ),
   chromeStorage(
+    'storage.drive115LibraryState',
+    STORAGE_KEYS.DRIVE115_LIBRARY_STATE,
+    'account',
+    { backup: true, restore: true, restoreMode: 'replace' },
+    { full: true, incremental: true, entityType: 'storage_item', allowDelete: true },
+    '115 片库浅层索引是跨端可恢复资产，与 settings.drive115 凭据分离。',
+  ),
+  chromeStorage(
+    'storage.drive115LibraryIndexProgress',
+    STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS,
+    'runtime',
+    { backup: false, restore: false, restoreMode: 'skip' },
+    { full: false, incremental: false },
+    '115 片库索引进行中进度只服务当前设备 Dashboard 实时展示。',
+  ),
+  chromeStorage(
     'storage.media115CleanupList',
     STORAGE_KEYS.MEDIA_115_CLEANUP_LIST,
     'account',

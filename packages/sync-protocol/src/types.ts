@@ -167,8 +167,14 @@ export interface SyncSessionStats {
   downloaded: number;
   merged: number;
   rejected: number;
-  /** Counts of apply entities by type. */
+  /** Counts of apply/download entities by type; kept for existing clients. */
   byType: Record<string, number>;
+  /** Counts of accepted + merged upload results by entity type. */
+  uploadedByType?: Record<string, number>;
+  /** Counts of apply/download entities by type; mirrors byType in current Cloud. */
+  downloadedByType?: Record<string, number>;
+  /** Counts of rejected upload results by entity type. */
+  rejectedByType?: Record<string, number>;
 }
 
 /** Stable machine codes; `message` is server Chinese summary for UI. */

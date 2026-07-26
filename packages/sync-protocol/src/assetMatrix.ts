@@ -148,6 +148,15 @@ export const ASSET_MATRIX: readonly AssetMatrixRow[] = [
     webdavAlign: false,
   },
   {
+    asset: 'drive115_library_state',
+    storage: 'drive115_library_state',
+    cloudClass: 'account',
+    entityType: 'storage_item',
+    conflict: 'LWW-record',
+    webdavAlign: true,
+    notes: '115 library shallow index; credentials remain in settings/vault policy, not this asset',
+  },
+  {
     asset: 'media_watch_evidence',
     storage: 'media_watch_evidence',
     cloudClass: 'account',
@@ -319,6 +328,15 @@ export const ASSET_MATRIX: readonly AssetMatrixRow[] = [
     conflict: 'n/a',
     webdavAlign: false,
     notes: 'device runtime sync state; never sync',
+  },
+  {
+    asset: 'drive115_library_index_progress',
+    storage: 'drive115_library_index_progress',
+    cloudClass: 'local',
+    entityType: '-',
+    conflict: 'n/a',
+    webdavAlign: false,
+    notes: 'in-progress indexing snapshot for current-device dashboard runtime only',
   },
   {
     asset: 'webdav_local_client_identity',

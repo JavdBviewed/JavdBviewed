@@ -26,12 +26,15 @@ Header optional: `X-Protocol-Version: 1`
 |--------|------|------|----------|
 | POST | `/sync/pull` | `SyncPullRequest` | `SyncPullResponse` |
 | POST | `/sync/push` | `SyncPushRequest` | `SyncPushResponse` |
+| POST | `/sync/session` | `SyncSessionRequest` | `SyncSessionResponse` |
 
 Rules:
 
 - `protocolVersion` must match server support; reject higher major.
 - Entity `type` must be one of `SYNC_ENTITY_TYPES` for account payloads.
 - Conflict on push: server applies record LWW (+ soft-delete); may return `merged` with server entity.
+- `/sync/session` is the preferred server-authoritative one-shot endpoint: push pending changes, pull `apply`, and return UI-facing `stats/code/message`.
+- `SyncSessionStats.byType` means downloaded/apply counts; Cloud may also return `uploadedByType`, `downloadedByType`, and `rejectedByType`.
 
 ## Vault
 

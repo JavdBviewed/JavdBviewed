@@ -126,6 +126,8 @@ describe('Cloud 全量资产同步', () => {
       [STORAGE_KEYS.PRIVACY_SESSION]: { unlocked: true },
       [STORAGE_KEYS.PRIVACY_STATE]: { screenshotMode: true },
       [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { items: [{ code: 'ABC-001' }] },
+      [STORAGE_KEYS.DRIVE115_LIBRARY_STATE]: { items: [{ code: 'ABC-001', pickCode: 'pick-1' }] },
+      [STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS]: { phase: 'scan', current: 12, total: 50 },
       [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'ABC-001': { progress: 80 } },
       [STORAGE_KEYS.DASHBOARD_LAST_PAGE]: '#/records',
       restore_backup_2026: { records: 1 },
@@ -156,6 +158,7 @@ describe('Cloud 全量资产同步', () => {
         'storage_item/cloud_sync_settings_v1',
         'storage_item/cloud_auto_sync_settings_v1',
         `storage_item/${STORAGE_KEYS.EMBY_LIBRARY_STATE}`,
+        `storage_item/${STORAGE_KEYS.DRIVE115_LIBRARY_STATE}`,
         `storage_item/${STORAGE_KEYS.MEDIA_WATCH_EVIDENCE}`,
         `storage_item/${STORAGE_KEYS.DASHBOARD_LAST_PAGE}`,
         'storage_item/restore_backup_2026',
@@ -168,6 +171,7 @@ describe('Cloud 全量资产同步', () => {
     expect(keys.has('storage_item/idb_magnet_push_logs_migrated')).toBe(false);
     expect(keys.has('storage_item/telemetry_client_state')).toBe(false);
     expect(keys.has(`storage_item/${STORAGE_KEYS.PRIVACY_SESSION}`)).toBe(false);
+    expect(keys.has(`storage_item/${STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS}`)).toBe(false);
     expect(keys.has('preference/display')).toBe(false);
     expect(keys.has('preference/dataSync')).toBe(false);
     expect(keys.has('preference/actorLibrary')).toBe(false);

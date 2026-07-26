@@ -55,12 +55,15 @@ describe('data asset registry guard', () => {
   it('exposes channel policy lists from one registry source', () => {
     expect(getCloudStorageAssetPolicy(STORAGE_KEYS.SETTINGS)?.cloud.full).toBe(true);
     expect(getCloudStorageAssetPolicy('cloud_sync_settings_v1')?.cloud.full).toBe(true);
+    expect(getCloudStorageAssetPolicy(STORAGE_KEYS.DRIVE115_LIBRARY_STATE)?.cloud.full).toBe(true);
+    expect(getCloudStorageAssetPolicy(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS)).toBeUndefined();
     expect(getCloudStorageAssetPolicy('cloud_sync_session_v1')).toBeUndefined();
 
     expect(getWebDAVRestorableStorageKeys()).toEqual(
       expect.arrayContaining([
         STORAGE_KEYS.PRIVACY_STATE,
         STORAGE_KEYS.EMBY_LIBRARY_STATE,
+        STORAGE_KEYS.DRIVE115_LIBRARY_STATE,
         STORAGE_KEYS.MEDIA_WATCH_EVIDENCE,
         STORAGE_KEYS.MEDIA_115_CLEANUP_LIST,
         STORAGE_KEYS.DASHBOARD_LAST_PAGE,
