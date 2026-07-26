@@ -40,8 +40,10 @@ import {
   handleEmbyUserLogin,
 } from '../../features/embyLibrary/background/handlers';
 import {
+  handleDrive115MediaLibraryCancelIndex,
   handleDrive115MediaLibraryGetState,
   handleDrive115MediaLibraryIndex,
+  handleDrive115MediaLibraryResolveNfo,
 } from '../../features/drive115/mediaLibrary/handlers';
 import {
   handleExternalDataFetch,
@@ -183,6 +185,12 @@ export function registerMiscRouter(): void {
         }
         case 'DRIVE115_MEDIA_LIBRARY_INDEX': {
           return handleDrive115MediaLibraryIndex(message, sendResponse);
+        }
+        case 'DRIVE115_MEDIA_LIBRARY_CANCEL_INDEX': {
+          return handleDrive115MediaLibraryCancelIndex(message, sendResponse);
+        }
+        case 'DRIVE115_MEDIA_LIBRARY_RESOLVE_NFO': {
+          return handleDrive115MediaLibraryResolveNfo(message, sendResponse);
         }
         case 'DRIVE115_MEDIA_LIBRARY_GET_STATE': {
           return handleDrive115MediaLibraryGetState(message, sendResponse);

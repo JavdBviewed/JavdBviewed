@@ -987,6 +987,9 @@ class Drive115V2Service {
     cur?: 0 | 1;
     o?: string;
     asc?: 0 | 1;
+    signal?: AbortSignal;
+    /** Background callers can skip the runtime proxy so AbortSignal can cancel the fetch directly. */
+    skipBackgroundProxy?: boolean;
   }): Promise<
     { success: boolean; message?: string; raw?: Drive115V2FileListResponse } &
     { count?: number; data?: Drive115V2FileListItem[]; path?: Drive115V2PathItem[]; limit?: number; offset?: number; cid?: string | number }
@@ -1011,7 +1014,7 @@ class Drive115V2Service {
       await addLogV2({ timestamp: Date.now(), level: 'debug', message: `开始获取文件列表（v2）：cid=${cid || 'root'}` });
       let json: Drive115V2FileListResponse | undefined;
       try {
-        if (typeof chrome !== 'undefined' && chrome.runtime?.id && typeof chrome.runtime.sendMessage === 'function') {
+        if (!params.skipBackgroundProxy && typeof chrome !== 'undefined' && chrome.runtime?.id && typeof chrome.runtime.sendMessage === 'function') {
           const bgResp: any = await new Promise((resolve) => {
             try {
               chrome.runtime.sendMessage(
@@ -1044,7 +1047,8 @@ class Drive115V2Service {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Accept': 'application/json'
-          }
+          },
+          signal: params.signal,
         });
 
         if (!res.ok) {
@@ -1596,6 +1600,46 @@ class Drive115V2Service {
       }
     }
     return { success: false, message: lastMsg };
+  }
+
+  /**
+   * 按 pick_code 获取任意文件的下载直链（用于下载 NFO 正文等非视频文件）。
+   * 与 getVideoPlayInfo 区别：不假设是视频取流，直接走 downurl 端点取下载 URL。
+   */
+  async getFileDownloadUrl(params: {
+    accessToken: string;
+    pickCode: string;
+  }): Promise<{ success: boolean; url?: string; message?: string; raw?: any }> {
+    const token = (params.accessToken || '').trim();
+    const pickCode = String(params.pickCode || '').trim();
+    if (!token) return { success: false, message: '缺少 access_token' };
+    if (!pickCode) return { success: false, message: '缺少 pick_code' };
+
+    const base = await this.getBaseURL();
+    const url = `${base}/open/ufile/downurl?pick_code=${encodeURIComponent(pickCode)}`;
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+      const json: any = await res.json().catch(() => ({} as any));
+      const ok = typeof json.state === 'boolean' ? json.state : res.ok;
+      if (!ok || !res.ok) {
+        return {
+          success: false,
+          message: describe115Error(json) || json.message || json.error || `获取下载地址失败 (${res.status})`,
+          raw: json,
+        };
+      }
+      const downloadUrl = extractStreamUrlFromPlayResponse(json);
+      if (!downloadUrl) return { success: false, message: '响应中无可用下载地址', raw: json };
+      return { success: true, url: downloadUrl, raw: json };
+    } catch (e: any) {
+      return { success: false, message: describe115Error(e) || e?.message || '获取下载地址异常' };
+    }
   }
 }
 

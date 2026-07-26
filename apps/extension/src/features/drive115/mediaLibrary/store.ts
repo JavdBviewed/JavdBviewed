@@ -70,6 +70,7 @@ function normalizeEntry(raw: unknown): Drive115LibraryEntry | null {
     coverFileName: r.coverFileName ? String(r.coverFileName) : undefined,
     nfoFileId: r.nfoFileId ? String(r.nfoFileId) : undefined,
     nfoFileName: r.nfoFileName ? String(r.nfoFileName) : undefined,
+    nfoPickCode: r.nfoPickCode ? String(r.nfoPickCode) : undefined,
     nfoSummary,
     updatedAt: Number(r.updatedAt) || 0,
   };
