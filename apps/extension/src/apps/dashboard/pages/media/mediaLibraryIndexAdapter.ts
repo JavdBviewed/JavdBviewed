@@ -159,7 +159,8 @@ export function mapDrive115LibraryStateToBrowseItems(
     folderName?: string;
     folderCid?: string;
     rootCid?: string;
-    nfoSummary?: { year?: string; title?: string };
+    nfoPickCode?: string;
+    nfoSummary?: { year?: string; title?: string; plot?: string };
     updatedAt?: number;
   }> } | null | undefined,
 ): MediaBrowseItem[] {
@@ -186,6 +187,8 @@ export function mapDrive115LibraryStateToBrowseItems(
       folderPath: entry.folderName,
       serverName: '115 片库',
       watchState: 'in_library',
+      libraryKey: entry.key,
+      nfoSummary: entry.nfoSummary,
     });
   }
   items.sort((a, b) => a.code.localeCompare(b.code));

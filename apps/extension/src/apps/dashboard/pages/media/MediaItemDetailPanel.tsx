@@ -15,6 +15,7 @@ import {
   formatRuntime,
 } from '../../../../features/embyLibrary/domain/embyItemDetail';
 import { LazyRemoteImage } from '../../../../ui/patterns/LazyRemoteImage/LazyRemoteImage';
+import { sendRuntimeMessage } from '../../../../platform/browser/runtimeMessages';
 import type { MediaBrowseItem } from './mediaBrowseModel';
 import { resolveCoverImage, sourceLabel } from './mediaBrowseModel';
 import { formatWatchPercent, watchStateLabel } from './mediaLibraryIndexAdapter';
@@ -49,6 +50,10 @@ export function MediaItemDetailPanel({
   const [detail, setDetail] = useState<EmbyItemDetailView | null>(null);
   const [playedBusy, setPlayedBusy] = useState(false);
   const [playedLocal, setPlayedLocal] = useState<boolean | null>(null);
+  const [nfo115, setNfo115] = useState<{ title?: string; plot?: string; year?: string } | null>(
+    item.nfoSummary ?? null,
+  );
+  const [nfo115Loading, setNfo115Loading] = useState(false);
 
   const fallbackCover = resolveCoverImage(item, 'poster');
   const effectivePlayed =
@@ -100,7 +105,33 @@ export function MediaItemDetailPanel({
     };
   }, [item.itemId, item.serverUrl, item.serverId, item.source]);
 
-  const title = detail?.name || item.title;
+  // 115 条目：懒下载解析 NFO 正文，填充标题/年份/简介（Emby 详情走服务器，115 需自行解析）
+  useEffect(() => {
+    let cancelled = false;
+    setNfo115(item.nfoSummary ?? null);
+    setNfo115Loading(false);
+    if (item.source !== '115') return undefined;
+    if (item.nfoSummary || !item.libraryKey) return undefined;
+    setNfo115Loading(true);
+    void sendRuntimeMessage({
+      type: 'DRIVE115_MEDIA_LIBRARY_RESOLVE_NFO',
+      key: item.libraryKey,
+    })
+      .then((resp: unknown) => {
+        if (cancelled) return;
+        const r = resp as { success?: boolean; summary?: typeof nfo115 } | undefined;
+        if (r?.success && r.summary) setNfo115(r.summary);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setNfo115Loading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.source, item.libraryKey, item.nfoSummary]);
+
+  const title = detail?.name || nfo115?.title || item.title;
   const primary = detail?.primaryImageUrl || fallbackCover.url;
   const backdrop = detail?.backdropImageUrl;
   const people = detail?.people || [];
@@ -223,8 +254,8 @@ export function MediaItemDetailPanel({
             {detail?.criticRating != null ? (
               <span className="ml-detail-pill">Critics {detail.criticRating}</span>
             ) : null}
-            {detail?.year || item.year ? (
-              <span className="ml-detail-pill">{detail?.year || item.year}</span>
+            {detail?.year || nfo115?.year || item.year ? (
+              <span className="ml-detail-pill">{detail?.year || nfo115?.year || item.year}</span>
             ) : null}
             {formatRuntime(detail?.runtimeTicks) ? (
               <span className="ml-detail-pill">{formatRuntime(detail?.runtimeTicks)}</span>
@@ -286,7 +317,11 @@ export function MediaItemDetailPanel({
 
       {/* 下方区块使用完整弹窗宽度 */}
       <div className="ml-detail-content">
-        {detail?.overview ? <p className="ml-detail-overview">{detail.overview}</p> : null}
+        {detail?.overview || nfo115?.plot ? (
+          <p className="ml-detail-overview">{detail?.overview || nfo115?.plot}</p>
+        ) : item.source === '115' && nfo115Loading ? (
+          <p className="ml-detail-overview">正在解析 NFO…</p>
+        ) : null}
 
         {people.filter((p) => /director/i.test(p.type || '')).length > 0 ? (
           <p className="ml-detail-line">

@@ -184,6 +184,32 @@ export function MediaLibraryPage() {
     void reloadCatalogFromStorage();
   }, []);
 
+  // 索引写入后实时刷新目录：115 增量入库 / Emby 同步都会更新本地库，无需重进页面
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return;
+    const watchedKeys = [STORAGE_KEYS.DRIVE115_LIBRARY_STATE, STORAGE_KEYS.EMBY_LIBRARY_STATE];
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const onChanged = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ) => {
+      if (areaName !== 'local') return;
+      if (!watchedKeys.some((key) => key in changes)) return;
+      // 防抖：增量入库会连续触发多次变更，合并为一次刷新，避免抖动
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        void reloadCatalogFromStorage();
+      }, 400);
+    };
+    chrome.storage.onChanged.addListener(onChanged);
+    return () => {
+      if (timer) clearTimeout(timer);
+      chrome.storage.onChanged.removeListener(onChanged);
+    };
+    // reloadCatalogFromStorage 只读 storage + 调用稳定 setState，捕获首个闭包即可
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 卡片/工具栏打开 115 播放面板
   useEffect(() => {
     const onOpen = (ev: Event) => {

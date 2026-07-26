@@ -45,6 +45,10 @@ export type MediaBrowseItem = {
   fileName?: string;
   /** 115 索引：文件夹路径/名 */
   folderPath?: string;
+  /** 115 索引：条目稳定 key，供懒解析 NFO 定位 */
+  libraryKey?: string;
+  /** 115 索引：NFO 解析摘要（标题/简介/年份），懒加载填充 */
+  nfoSummary?: { title?: string; plot?: string; year?: string };
 };
 
 export const MEDIA_PREVIEW_ITEMS: MediaBrowseItem[] = [

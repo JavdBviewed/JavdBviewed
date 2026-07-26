@@ -154,7 +154,30 @@ describe('mediaLibraryIndexAdapter', () => {
     expect(items[0].source).toBe('115');
     expect(items[0].pickCode).toBe('pick1');
     expect(items[0].itemId).toBe('v1');
+    expect(items[0].libraryKey).toBe('f1:v1');
     expect(hasDrive115LibraryIndex({ entries: items as any })).toBe(true);
+  });
+
+  it('prefers parsed NFO summary for 115 title and year', () => {
+    const items = mapDrive115LibraryStateToBrowseItems({
+      entries: [
+        {
+          key: 'f9:v9',
+          code: 'ABP-999',
+          title: 'ABP-999',
+          videoFileId: 'v9',
+          pickCode: 'pick9',
+          fileName: 'ABP-999.mp4',
+          folderName: 'ABP-999',
+          nfoSummary: { title: '真实标题', year: '2021', plot: '简介文本' },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe('真实标题');
+    expect(items[0].year).toBe('2021');
+    expect(items[0].nfoSummary?.plot).toBe('简介文本');
+    expect(items[0].libraryKey).toBe('f9:v9');
   });
 
   it('merges emby and 115 catalogs without dropping 115-only', () => {
