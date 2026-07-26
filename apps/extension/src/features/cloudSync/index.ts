@@ -17,14 +17,29 @@ export {
   loadCloudSession,
   type CloudSessionRecord,
 } from './chromeTokenStore';
-export { createExtensionCloudClient } from './createExtensionCloudClient';
+export {
+  createExtensionCloudClient,
+  type ExtensionCloudClientOptions,
+} from './createExtensionCloudClient';
 export { createChromeCursorStore, CLOUD_CURSORS_STORAGE_KEY } from './chromeCursorStore';
 export {
   createExtensionEntityStore,
   collectLocalSyncEntities,
   preparePushQueueStats,
+  assertExtensionCloudAdapterCoverage,
+  EXTENSION_SYNC_ENTITY_TYPES,
 } from './extensionEntityStore';
 export { runCloudSyncNow, type CloudSyncNowResult } from './runCloudSyncNow';
+export {
+  createExtensionCloudFacade,
+  extensionCloudFacade,
+  type CloudFacadeState,
+  type CloudHealthResult,
+  type CloudLoginInput,
+  type CloudConnectionInput,
+  type ExtensionCloudFacade,
+  type ExtensionCloudFacadeOptions,
+} from './extensionCloudFacade';
 export {
   countByType,
   formatTypeCounts,

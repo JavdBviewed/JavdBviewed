@@ -14,16 +14,10 @@ import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingS
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import {
-  createExtensionCloudClient,
+  createExtensionCloudFacade,
   formatTypeCounts,
   humanizeCloudError,
-  loadCloudAutoSyncSettings,
-  loadCloudSession,
-  loadCloudSettings,
   normalizeCloudBaseUrl,
-  runCloudSyncNow,
-  saveCloudAutoSyncSettings,
-  saveCloudSettings,
   type CloudAutoSyncSettings,
   type CloudConnectionSettings,
   type CloudSessionRecord,
@@ -83,6 +77,7 @@ export function CloudSettingsPage() {
     updatedAt: 0,
   });
 
+  const facade = useMemo(() => createExtensionCloudFacade(), []);
   const busy = busyAction != null;
   const loggedIn = Boolean(session?.accessToken);
   const normalizedDraft = useMemo(
@@ -111,30 +106,30 @@ export function CloudSettingsPage() {
       return;
     }
     try {
-      const { api } = await createExtensionCloudClient();
-      setDevices(await api.listDevices());
+      setDevices(await facade.listDevices());
     } catch {
       // token 可能过期
     }
-  }, [loggedIn]);
+  }, [facade, loggedIn]);
 
   const persistConnection = useCallback(async () => {
-    const baseUrl = normalizeCloudBaseUrl(baseUrlDraft);
-    if (!baseUrl) {
-      setStatus('请填写有效的 Cloud 地址，例如 http://127.0.0.1:18080', 'err');
+    try {
+      const next = await facade.saveConnection({
+        baseUrl: baseUrlDraft,
+        deviceLabel: deviceLabelDraft,
+      });
+      setSettings(next);
+      setBaseUrlDraft(next.baseUrl);
+      setDeviceLabelDraft(next.deviceLabel);
+      setConnDirty(false);
+      return next;
+    } catch (e) {
+      const msg = humanizeCloudError(e);
+      setStatus(msg, 'err');
       await toast('请填写有效的 Cloud 地址', 'warning');
       return null;
     }
-    const next = await saveCloudSettings({
-      baseUrl,
-      deviceLabel: deviceLabelDraft.trim() || '浏览器扩展',
-    });
-    setSettings(next);
-    setBaseUrlDraft(next.baseUrl);
-    setDeviceLabelDraft(next.deviceLabel);
-    setConnDirty(false);
-    return next;
-  }, [baseUrlDraft, deviceLabelDraft, setStatus]);
+  }, [baseUrlDraft, deviceLabelDraft, facade, setStatus]);
 
   const probeHealthUrl = useCallback(
     async (baseUrl: string, opts?: { silent?: boolean }) => {
@@ -151,22 +146,18 @@ export function CloudSettingsPage() {
       }
       if (!silent) setHealthState('checking');
       try {
-        const res = await fetch(`${root}/health`);
-        const data = (await res.json().catch(() => ({}))) as {
-          ok?: boolean;
-          protocolVersion?: number;
-        };
-        if (!res.ok || !data.ok) {
+        const result = await facade.checkHealth(root);
+        if (!result.ok) {
           setHealthState('err');
-          setHealthDetail(`异常 · HTTP ${res.status}`);
+          setHealthDetail(result.detail);
           if (!silent) {
             setStatus('健康检查失败：请确认 Cloud 服务已启动且地址端口正确', 'err');
-            await toast('连接失败', 'error');
+            await toast(result.detail === '地址无效' ? '地址无效' : '连接失败', 'error');
           }
           return false;
         }
         setHealthState('ok');
-        setHealthDetail(`在线 · 协议 v${data.protocolVersion ?? '?'}`);
+        setHealthDetail(result.detail);
         if (!silent) {
           setStatus('已连通 Cloud 服务', 'ok');
           await toast('✓ 连接正常', 'success');
@@ -183,43 +174,36 @@ export function CloudSettingsPage() {
         return false;
       }
     },
-    [setStatus],
+    [facade, setStatus],
   );
 
   // 仅挂载加载一次，避免输入被 effect 覆盖
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      let loadedSettings: CloudConnectionSettings | null = null;
       try {
-        const [s, auto, sess] = await Promise.all([
-          loadCloudSettings(),
-          loadCloudAutoSyncSettings(),
-          loadCloudSession(),
-        ]);
+        const state = await facade.loadState();
         if (cancelled) return;
-        setSettings(s);
-        setBaseUrlDraft(s.baseUrl);
-        setDeviceLabelDraft(s.deviceLabel);
-        setAutoSync(auto);
-        setSession(sess);
+        loadedSettings = state.settings;
+        setSettings(state.settings);
+        setBaseUrlDraft(state.settings.baseUrl);
+        setDeviceLabelDraft(state.settings.deviceLabel);
+        setAutoSync(state.autoSync);
+        setSession(state.session);
+        setDevices(state.devices);
       } finally {
         if (!cancelled) setLoading(false);
       }
-      if (cancelled) return;
-      try {
-        const s = await loadCloudSettings();
-        if (cancelled) return;
-        if (normalizeCloudBaseUrl(s.baseUrl)) {
-          void probeHealthUrl(s.baseUrl, { silent: true });
-        }
-      } catch {
-        // ignore
+      if (cancelled || !loadedSettings) return;
+      if (normalizeCloudBaseUrl(loadedSettings.baseUrl)) {
+        void probeHealthUrl(loadedSettings.baseUrl, { silent: true });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [probeHealthUrl]);
+  }, [facade, probeHealthUrl]);
 
   useEffect(() => {
     if (loading || !loggedIn) return;
@@ -259,8 +243,7 @@ export function CloudSettingsPage() {
           await toast('请先测试连接成功再注册', 'warning');
           return;
         }
-        const { api } = await createExtensionCloudClient(saved);
-        await api.register({ identifier: identifier.trim(), password });
+        await facade.register({ identifier: identifier.trim(), password });
         setStatus('注册成功，请点击登录', 'ok');
         await toast('✓ 注册成功，请登录', 'success');
       } catch (e) {
@@ -286,27 +269,15 @@ export function CloudSettingsPage() {
           await toast('请先测试连接成功再登录', 'warning');
           return;
         }
-        const { api } = await createExtensionCloudClient(saved);
-        await api.login({
-          identifier: identifier.trim(),
-          password,
-          device: {
-            id: saved.deviceId,
-            label: saved.deviceLabel,
-            clientType: 'extension',
-            platform: navigator.userAgent.slice(0, 120),
-          },
-        });
-        setSession(await loadCloudSession());
+        const state = await facade.login({ identifier: identifier.trim(), password });
+        setSettings(state.settings);
+        setAutoSync(state.autoSync);
+        setSession(state.session);
+        setDevices(state.devices);
         setPassword('');
         setShowPassword(false);
         setStatus('登录成功，可以开始同步', 'ok');
         await toast('✓ 登录成功', 'success');
-        try {
-          setDevices(await api.listDevices());
-        } catch {
-          setDevices([]);
-        }
       } catch (e) {
         const msg = humanizeCloudError(e);
         setStatus(msg, 'err');
@@ -317,29 +288,25 @@ export function CloudSettingsPage() {
   const onLogout = () =>
     void withBusy('logout', async () => {
       try {
-        const saved = settings ?? (await loadCloudSettings());
-        const { api } = await createExtensionCloudClient(saved);
-        await api.logout();
-      } catch {
-        try {
-          const { api } = await createExtensionCloudClient();
-          await api.tokens.clear();
-        } catch {
-          // ignore
-        }
+        const state = await facade.logout();
+        setSettings(state.settings);
+        setAutoSync(state.autoSync);
+        setSession(state.session);
+        setDevices(state.devices);
+        setSyncReport(null);
+        setStatus('已退出本机 Cloud 会话', 'ok');
+        await toast('已退出登录', 'info');
+      } catch (e) {
+        const msg = humanizeCloudError(e);
+        setStatus(msg, 'err');
+        await toast(msg, 'error');
       }
-      setSession(await loadCloudSession());
-      setDevices([]);
-      setSyncReport(null);
-      setStatus('已退出本机 Cloud 会话', 'ok');
-      await toast('已退出登录', 'info');
     });
 
   const onRefreshDevices = () =>
     void withBusy('devices', async () => {
       try {
-        const { api } = await createExtensionCloudClient();
-        const list = await api.listDevices();
+        const list = await facade.listDevices();
         setDevices(list);
         setStatus(`设备列表已更新（${list.length} 台）`, 'ok');
         await toast(`✓ 已刷新 ${list.length} 台设备`, 'success');
@@ -363,9 +330,7 @@ export function CloudSettingsPage() {
     }
     void withBusy(`revoke:${device.id}`, async () => {
       try {
-        const { api } = await createExtensionCloudClient();
-        await api.revokeDevice(device.id);
-        setDevices(await api.listDevices());
+        setDevices(await facade.revokeDevice(device.id));
         setStatus(`已踢出「${label}」`, 'ok');
         await toast(`✓ 已踢出 ${label}`, 'success');
       } catch (e) {
@@ -379,7 +344,7 @@ export function CloudSettingsPage() {
   const onSyncNow = () =>
     void withBusy('sync', async () => {
       try {
-        const result = await runCloudSyncNow();
+        const result = await facade.syncNow();
         const report: SyncReport = { ...result, finishedAt: Date.now() };
         setSyncReport(report);
         const tone: StatusTone =
@@ -390,8 +355,7 @@ export function CloudSettingsPage() {
           result.code === 'SYNC_PARTIAL' ? 'warning' : 'success',
         );
         try {
-          const { api } = await createExtensionCloudClient();
-          setDevices(await api.listDevices());
+          setDevices(await facade.listDevices());
         } catch {
           // ignore
         }
@@ -404,13 +368,8 @@ export function CloudSettingsPage() {
 
   const onToggleAutoSync = (enabled: boolean) =>
     void withBusy('auto', async () => {
-      const next = await saveCloudAutoSyncSettings({ enabled });
+      const next = await facade.setAutoSync({ enabled });
       setAutoSync(next);
-      try {
-        await chrome.runtime.sendMessage({ type: 'CLOUD_SYNC_SETUP_ALARM' });
-      } catch {
-        // ignore
-      }
       setStatus(enabled ? '已开启后台自动同步' : '已关闭后台自动同步', 'ok');
       await toast(enabled ? '✓ 已开启自动同步' : '已关闭自动同步', 'info');
     });
@@ -418,13 +377,8 @@ export function CloudSettingsPage() {
   const onChangeInterval = (value: string) =>
     void withBusy('auto', async () => {
       const minutes = Number(value);
-      const next = await saveCloudAutoSyncSettings({ intervalMinutes: minutes });
+      const next = await facade.setAutoSync({ intervalMinutes: minutes });
       setAutoSync(next);
-      try {
-        await chrome.runtime.sendMessage({ type: 'CLOUD_SYNC_SETUP_ALARM' });
-      } catch {
-        // ignore
-      }
       setStatus(`自动同步间隔：${next.intervalMinutes} 分钟`, 'ok');
       await toast(`✓ 间隔已设为 ${next.intervalMinutes} 分钟`, 'success');
     });

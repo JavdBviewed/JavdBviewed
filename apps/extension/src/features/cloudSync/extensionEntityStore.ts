@@ -4,7 +4,11 @@
  * @module features/cloudSync
  */
 import type { LocalEntityStore } from '@javdb/sync-client';
-import type { SyncEntity } from '@javdb/sync-protocol';
+import {
+  accountEntityTypesFromMatrix,
+  type SyncEntity,
+  type SyncEntityType,
+} from '@javdb/sync-protocol';
 import type { ActorRecord, ListRecord, NewWorkRecord, VideoRecord } from '../../types';
 import type { ReportMonthly, ViewsDaily } from '../../types/insights';
 import { STORAGE_KEYS } from '../../utils/config';
@@ -34,6 +38,42 @@ import {
 import { markCloudStorageWrite } from './storageChangeGate';
 import { shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
 import { resolveLogEntityId } from './toSyncEntity';
+
+export const EXTENSION_SYNC_ENTITY_TYPES: readonly SyncEntityType[] = [
+  'video',
+  'actor',
+  'list',
+  'new_work',
+  'new_work_subscription',
+  'user_profile',
+  'preference',
+  'search_preset',
+  'magnet',
+  'insights_view',
+  'insights_report',
+  'new_work_daily_stat',
+  'storage_item',
+  'log',
+  'magnet_push_log',
+] as const;
+
+/**
+ * 启动期契约断言：扩展 adapter 必须覆盖协议矩阵的全部账号实体类型。
+ */
+export function assertExtensionCloudAdapterCoverage(): void {
+  const expected = new Set(accountEntityTypesFromMatrix());
+  const actual = new Set(EXTENSION_SYNC_ENTITY_TYPES);
+  for (const type of expected) {
+    if (!actual.has(type)) {
+      throw new Error(`extension cloud adapter missing entity type: ${type}`);
+    }
+  }
+  for (const type of actual) {
+    if (!expected.has(type)) {
+      throw new Error(`extension cloud adapter has undeclared entity type: ${type}`);
+    }
+  }
+}
 
 function asRecord(payload: unknown): Record<string, unknown> {
   return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
@@ -468,6 +508,7 @@ async function applyOne(entity: SyncEntity): Promise<void> {
  * Dashboard / 扩展页可用的 LocalEntityStore（直接 IDB，不经 background 消息）。
  */
 export function createExtensionEntityStore(): LocalEntityStore {
+  assertExtensionCloudAdapterCoverage();
   return {
     async listAll() {
       return collectLocalSyncEntities();
