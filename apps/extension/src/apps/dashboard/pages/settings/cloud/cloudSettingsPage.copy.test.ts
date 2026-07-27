@@ -39,6 +39,17 @@ describe('CloudSettingsPage copy', () => {
     expect(styleSource).not.toContain('[data-cloud-settings-react] > .mx-auto');
   });
 
+  it('uses the shared section navigation with stable Cloud anchors', () => {
+    expect(pageSource).toContain('CLOUD_SECTION_NAV_ITEMS');
+    expect(pageSource).toContain('sectionNavItems={CLOUD_SECTION_NAV_ITEMS}');
+    expect(pageSource).toContain('cloud-section-overview');
+    expect(pageSource).toContain('cloud-section-sync');
+    expect(pageSource).toContain('cloud-section-connection');
+    expect(pageSource).toContain('cloud-section-account');
+    expect(pageSource).toContain('cloud-section-devices');
+    expect(pageSource).toContain('cloud-section-scope');
+  });
+
   it('does not add a separate beta notice block above the Cloud content', () => {
     expect(pageSource).not.toContain('cloud-beta-notice');
     expect(styleSource).not.toContain('cloud-beta-notice');

@@ -1767,7 +1767,7 @@
 }
 
 #drive115-settings[data-drive115-settings-react='1'] .ssp-back-bar {
-    padding: 8px 12px 0;
+    padding: 0 4px;
 }
 
 
@@ -1775,13 +1775,18 @@
 /* === React full-page width parity === */
 #drive115-settings[data-drive115-settings-react='1'].settings-page {
     width: 100%;
-    max-width: 1200px; /* 对齐 settings.css .settings-page */
+    max-width: 1200px; /* 对齐 SettingsPageFrame 内容容器 */
     margin-left: auto;
     margin-right: auto;
+    padding: 0 4px 32px;
     box-sizing: border-box;
 }
 
 #drive115-settings[data-drive115-settings-react='1'] .drive115-settings-container {
     width: 100%;
     max-width: none;
+}
+
+#drive115-settings[data-drive115-settings-react='1'] .settings-section-nav {
+    --settings-section-nav-accent: var(--drive115-settings-primary, var(--primary));
 }

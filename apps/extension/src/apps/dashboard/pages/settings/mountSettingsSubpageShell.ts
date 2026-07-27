@@ -14,6 +14,7 @@ import {
   clearSettingsReactRoot,
   setSettingsReactRoot,
 } from './settingsReactRoots';
+import { prepareLegacySettingsSectionNav } from './shared/legacySettingsSectionNav';
 import './settingsSubpageShell.css';
 
 export type MountSettingsSubpageOptions = {
@@ -47,6 +48,10 @@ export function mountSettingsSubpageShell(options: MountSettingsSubpageOptions):
   host.appendChild(mount);
 
   const bodyHostId = 'settings-panel-body-host';
+  const prepared = prepareLegacySettingsSectionNav(
+    options.panelHtml,
+    options.panelRootId || 'settings',
+  );
   const root = createRoot(mount);
   setSettingsReactRoot(host, 'subpage', root, mount);
 
@@ -56,8 +61,9 @@ export function mountSettingsSubpageShell(options: MountSettingsSubpageOptions):
       createElement(SettingsSubpageShell, {
         title: options.title,
         description: options.description,
-        panelHtml: options.panelHtml,
+        panelHtml: prepared.panelHtml,
         bodyHostId,
+        sectionNavItems: prepared.items.length > 0 ? prepared.items : undefined,
       }),
     );
   });

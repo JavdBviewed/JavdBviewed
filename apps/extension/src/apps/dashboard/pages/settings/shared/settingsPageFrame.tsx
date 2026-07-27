@@ -6,6 +6,7 @@
 import type { ReactNode } from 'react';
 import { PageHeader } from '../../../../../ui/patterns/PageHeader/PageHeader';
 import { cn } from '../../../../../ui/lib/cn';
+import { SettingsSectionNavLayout, type SettingsSectionNavItem } from './SettingsSectionNav';
 import '../settingsSubpageShell.css';
 
 export type SettingsPageFrameProps = {
@@ -15,6 +16,8 @@ export type SettingsPageFrameProps = {
   className?: string;
   /** 根节点额外 data 属性（如 data-display-settings-react） */
   rootDataAttrs?: Record<string, string>;
+  /** 页面内分组快捷导航；为空时不渲染导航布局 */
+  sectionNavItems?: SettingsSectionNavItem[];
 };
 
 /**
@@ -28,6 +31,7 @@ export function SettingsPageFrame({
   children,
   className,
   rootDataAttrs,
+  sectionNavItems,
 }: SettingsPageFrameProps) {
   return (
     <div
@@ -42,7 +46,11 @@ export function SettingsPageFrame({
       </div>
       <div className="mx-auto w-full max-w-[1200px] px-1">
         <PageHeader className="mb-5" align="center" title={title} description={description} />
-        {children}
+        {sectionNavItems ? (
+          <SettingsSectionNavLayout items={sectionNavItems}>{children}</SettingsSectionNavLayout>
+        ) : (
+          children
+        )}
       </div>
     </div>
   );

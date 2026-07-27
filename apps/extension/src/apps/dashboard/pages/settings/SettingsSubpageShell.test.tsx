@@ -7,6 +7,13 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SettingsSubpageShell } from './SettingsSubpageShell';
+import type { SettingsSectionNavItem } from './shared/SettingsSectionNav';
+
+const sectionNavItems: SettingsSectionNavItem[] = [
+  { id: 'legacy-section-basic', label: '????' },
+  { id: 'legacy-section-advanced', label: '????' },
+  { id: 'legacy-section-log', label: '????' },
+];
 
 const PANEL_HTML = `
 <div class="settings-page" id="enhancement-settings">
@@ -28,6 +35,7 @@ describe('SettingsSubpageShell', () => {
         description: 'desc',
         panelHtml: PANEL_HTML,
         bodyHostId: 'settings-panel-body-host',
+        sectionNavItems,
       }),
     );
     expect(html).toContain('id="settings-panel-body-host"');
@@ -35,6 +43,8 @@ describe('SettingsSubpageShell', () => {
     expect(html).toContain('id="hideViewed"');
     expect(html).toContain('data-action="back-to-settings"');
     expect(html).toContain('ssp-back-bar');
+    expect(html).toContain('settings-section-nav-layout');
+    expect(html).toContain('data-section-nav-target="legacy-section-basic"');
     // 原 partial 标题保留在正文里（不再被壳替换）
     expect(html).toContain('功能增强');
   });

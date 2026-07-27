@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import '../settingsSubpageShell.css';
+import { SettingsSectionNavLayout, type SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import '../../../../../dashboard/styles/05-pages/settings/settings.css';
 import '../../../../../dashboard/styles/05-pages/settings/drive115.css';
 import { Badge } from '../../../../../ui/primitives/Badge/Badge';
@@ -57,6 +58,16 @@ import {
 } from './drive115SettingsModel';
 
 const AUTO_SAVE_MS = 1000;
+
+const DRIVE115_SECTION_IDS = {
+  mode: 'drive115-section-mode',
+  openlistManual: 'drive115-section-openlist-manual',
+  pkce: 'drive115-section-pkce',
+  credentials: 'drive115-section-credentials',
+  download: 'drive115-section-download',
+  mediaLibrary: 'drive115-section-media-library',
+  logs: 'drive115-section-logs',
+} as const;
 
 const SKIP_REASON_LABELS: Record<Drive115IndexSkipReason, string> = {
   no_video: '无视频文件',
@@ -231,6 +242,7 @@ function Drive115IndexReportModal({
 type Drive115GroupProps = {
   title: string;
   id?: string;
+  navId?: string;
   children: ReactNode;
   className?: string;
   beta?: boolean;
@@ -239,9 +251,10 @@ type Drive115GroupProps = {
 /**
  * legacy 风格设置分组：吃 drive115.css 的 .settings-group / h4
  */
-function Drive115Group({ title, id, children, className, beta }: Drive115GroupProps) {
+function Drive115Group({ title, id, navId, children, className, beta }: Drive115GroupProps) {
   return (
     <section className={['settings-card', 'settings-group', className].filter(Boolean).join(' ')} id={id}>
+      {navId ? <span id={navId} className="settings-section-anchor" aria-hidden="true" /> : null}
       <h4 className="flex items-center gap-2">
         <span>{title}</span>
         {beta ? <Badge tone="warning" className="shrink-0">Beta</Badge> : null}
@@ -935,6 +948,31 @@ export function Drive115SettingsPage() {
   const showClientId = form.v2AuthMode === 'self_app';
   const showOpenlistScanHint = form.v2AuthMode === 'openlist_scan';
 
+  const sectionNavItems = useMemo<SettingsSectionNavItem[]>(() => [
+    { id: DRIVE115_SECTION_IDS.mode, label: '模式与接口', shortLabel: '模式' },
+    {
+      id: DRIVE115_SECTION_IDS.openlistManual,
+      label: 'OpenList 手动获取',
+      shortLabel: 'OpenList',
+      hidden: !showOpenlistManual,
+    },
+    {
+      id: DRIVE115_SECTION_IDS.pkce,
+      label: '扫码授权（PKCE）',
+      shortLabel: '扫码',
+      hidden: !showScanPanel,
+    },
+    { id: DRIVE115_SECTION_IDS.credentials, label: '凭据与状态', shortLabel: '凭据' },
+    { id: DRIVE115_SECTION_IDS.download, label: '下载设置', shortLabel: '下载' },
+    {
+      id: DRIVE115_SECTION_IDS.mediaLibrary,
+      label: '媒体库',
+      shortLabel: '媒体库',
+      badge: 'Beta',
+    },
+    { id: DRIVE115_SECTION_IDS.logs, label: '115 网盘日志', shortLabel: '日志' },
+  ], [showOpenlistManual, showScanPanel]);
+
   return (
     <div
       className="settings-page w-full min-w-0"
@@ -964,7 +1002,8 @@ export function Drive115SettingsPage() {
             </p>
           ) : null}
 
-          <Drive115Group title="模式与接口">
+          <SettingsSectionNavLayout items={sectionNavItems}>
+            <Drive115Group title="模式与接口" navId={DRIVE115_SECTION_IDS.mode}>
             <Drive115LegacyToggle
               id="drive115Enabled"
               label="启用 115 网盘"
@@ -1009,7 +1048,7 @@ export function Drive115SettingsPage() {
           </Drive115Group>
 
           {showOpenlistManual ? (
-            <Drive115Group title="OpenList 手动获取" id="drive115V2OpenlistPanel">
+            <Drive115Group title="OpenList 手动获取" id="drive115V2OpenlistPanel" navId={DRIVE115_SECTION_IDS.openlistManual}>
               <div className="flex flex-col gap-3 px-2 py-2 text-[13px] text-[var(--color-fg)]">
                 <p className="m-0 text-[12.5px] text-[var(--color-fg-muted)]">
                   适合没有自有 115 开放平台应用的用户。先通过 OpenList 的相关工具拿到
@@ -1064,7 +1103,7 @@ export function Drive115SettingsPage() {
           ) : null}
 
           {showScanPanel ? (
-            <Drive115Group title="扫码授权（PKCE）" id="drive115V2SelfAppPanel">
+            <Drive115Group title="扫码授权（PKCE）" id="drive115V2SelfAppPanel" navId={DRIVE115_SECTION_IDS.pkce}>
               {showClientId ? (
                 <Drive115Field id="drive115V2ClientId" label="APP ID">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1175,7 +1214,7 @@ export function Drive115SettingsPage() {
             </Drive115Group>
           ) : null}
 
-          <Drive115Group title="凭据与状态">
+          <Drive115Group title="凭据与状态" navId={DRIVE115_SECTION_IDS.credentials}>
             <Drive115Field id="drive115V2RefreshToken" label="refresh_token">
               <p
                 id="drive115V2RefreshTokenStatusRow"
@@ -1422,7 +1461,7 @@ export function Drive115SettingsPage() {
             </div>
           </Drive115Group>
 
-          <Drive115Group title="下载设置">
+          <Drive115Group title="下载设置" navId={DRIVE115_SECTION_IDS.download}>
             <Drive115Field
               id="drive115DownloadDir"
               label="下载目录"
@@ -1520,7 +1559,7 @@ export function Drive115SettingsPage() {
             </div>
           </Drive115Group>
 
-          <Drive115Group title="媒体库" beta>
+          <Drive115Group title="媒体库" navId={DRIVE115_SECTION_IDS.mediaLibrary} beta>
             <p className="m-0 px-2 text-[12.5px] leading-relaxed text-[var(--color-fg-muted)]">
               配置你已自备刮削的片库根目录（典型：每部影片一个文件夹，内含视频 + 封面 + NFO）。
               扩展只做浅层限频索引，不会在线深刮章节/相似/海报。片库目录与上方「下载目录」独立，可以相同。
@@ -1736,7 +1775,7 @@ export function Drive115SettingsPage() {
             />
 
           </Drive115Group>
-          <Drive115Group title="115 网盘日志">
+          <Drive115Group title="115 网盘日志" navId={DRIVE115_SECTION_IDS.logs}>
             <div className="action-buttons-top">
               <Drive115Btn
                 id="refreshDrive115Logs"
@@ -1789,6 +1828,7 @@ export function Drive115SettingsPage() {
             </div>
           </Drive115Group>
 
+          </SettingsSectionNavLayout>
         </div>
       )}
       </div>

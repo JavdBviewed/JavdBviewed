@@ -1,0 +1,213 @@
+/**
+ * @file settingsSectionNav.css
+ * @description Shared section navigation styles for React settings subpages
+ * @module apps/dashboard/pages/settings/shared
+ */
+
+.settings-section-nav-layout {
+  width: 100%;
+}
+
+.settings-section-nav-content {
+  min-width: 0;
+  width: 100%;
+}
+
+.settings-section-nav-aside {
+  min-width: 0;
+}
+
+.settings-section-nav-layout .settings-section-nav {
+  position: fixed;
+  top: 50%;
+  right: max(var(--settings-section-nav-floating-edge, 50px), env(safe-area-inset-right, 0px));
+  left: auto;
+  z-index: var(--settings-section-nav-z-index, 30);
+  width: var(--settings-section-nav-width, 180px);
+  transform: translateY(-50%);
+}
+
+.settings-section-nav {
+  color: var(--text-primary, var(--color-fg, #1f2328));
+}
+
+.settings-section-nav__desktop {
+  display: block;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--border-primary, var(--color-border, #d0d7de));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-secondary, var(--color-surface-2, #f6f8fa)) 92%, transparent);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.settings-section-nav__title {
+  margin: 0 0 8px;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid var(--border-primary, var(--color-border, #d0d7de));
+  color: var(--text-secondary, var(--color-fg-muted, #57606a));
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.settings-section-nav__list,
+.settings-section-nav__chips {
+  display: flex;
+  gap: 6px;
+}
+
+.settings-section-nav__list {
+  flex-direction: column;
+}
+
+.settings-section-nav__item,
+.settings-section-nav__chip {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary, var(--color-fg-muted, #57606a));
+  cursor: pointer;
+  font: inherit;
+  transition: color 0.12s ease;
+}
+
+.settings-section-nav__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  width: 100%;
+  padding: 6px 8px 6px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.settings-section-nav__item::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 4px;
+  width: 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.settings-section-nav__item:hover,
+.settings-section-nav__chip:hover {
+  background: var(--bg-hover, var(--color-surface-3, rgba(99, 110, 123, 0.08)));
+  color: var(--text-primary, var(--color-fg, #1f2328));
+}
+
+.settings-section-nav__item.is-active {
+  border-color: color-mix(in srgb, var(--settings-section-nav-accent, var(--primary, #ff6b35)) 30%, transparent);
+  background: color-mix(in srgb, var(--settings-section-nav-accent, var(--primary, #ff6b35)) 10%, transparent);
+  color: var(--text-primary, var(--color-fg, #1f2328));
+  font-weight: 700;
+}
+
+.settings-section-nav__item.is-active::before {
+  background: var(--settings-section-nav-accent, var(--primary, #ff6b35));
+}
+
+.settings-section-nav__item:focus-visible,
+.settings-section-nav__chip:focus-visible {
+  outline: 2px solid var(--settings-section-nav-accent, var(--primary, #ff6b35));
+  outline-offset: 2px;
+}
+
+.settings-section-nav__item-label,
+.settings-section-nav__chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-section-nav__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--settings-section-nav-accent, var(--primary, #ff6b35)) 14%, transparent);
+  color: var(--settings-section-nav-accent, var(--primary, #ff6b35));
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.settings-section-nav__mobile {
+  display: none;
+  margin: 0 0 14px;
+}
+
+.settings-section-nav__chips {
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  scrollbar-width: thin;
+}
+
+.settings-section-nav__chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border-color: var(--border-primary, var(--color-border, #d0d7de));
+  border-radius: 999px;
+  background: var(--bg-secondary, var(--color-surface-2, #f6f8fa));
+  font-size: 12px;
+}
+
+.settings-section-nav__chip.is-active {
+  border-color: color-mix(in srgb, var(--settings-section-nav-accent, var(--primary, #ff6b35)) 40%, transparent);
+  background: color-mix(in srgb, var(--settings-section-nav-accent, var(--primary, #ff6b35)) 12%, transparent);
+  color: var(--text-primary, var(--color-fg, #1f2328));
+  font-weight: 700;
+}
+
+.settings-section-anchor {
+  display: block;
+  height: 1px;
+  margin-top: -1px;
+  scroll-margin-top: 18px;
+}
+
+@media (max-width: 1100px) {
+  .settings-section-nav-layout .settings-section-nav {
+    position: sticky;
+    top: var(--settings-section-nav-mobile-top, 8px);
+    left: auto;
+    right: auto;
+    width: auto;
+    z-index: var(--settings-section-nav-z-index, 30);
+    transform: none;
+  }
+
+  .settings-section-nav-aside {
+    margin-bottom: 12px;
+  }
+
+  .settings-section-nav__desktop {
+    display: none;
+  }
+
+  .settings-section-nav__mobile {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-section-nav__item,
+  .settings-section-nav__chip {
+    transition: none;
+  }
+}

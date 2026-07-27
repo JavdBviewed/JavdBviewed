@@ -13,6 +13,7 @@ import { SettingField } from '../../../../../ui/patterns/SettingField/SettingFie
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import type { SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import {
   createExtensionCloudFacade,
   formatTypeCounts,
@@ -38,6 +39,24 @@ const INTERVAL_OPTIONS = [
   { value: '30', label: '30 分钟' },
   { value: '60', label: '1 小时' },
   { value: '180', label: '3 小时' },
+];
+
+const CLOUD_SECTION_IDS = {
+  overview: 'cloud-section-overview',
+  sync: 'cloud-section-sync',
+  connection: 'cloud-section-connection',
+  account: 'cloud-section-account',
+  devices: 'cloud-section-devices',
+  scope: 'cloud-section-scope',
+} as const;
+
+const CLOUD_SECTION_NAV_ITEMS: SettingsSectionNavItem[] = [
+  { id: CLOUD_SECTION_IDS.overview, label: '状态总览', shortLabel: '总览' },
+  { id: CLOUD_SECTION_IDS.sync, label: '同步', shortLabel: '同步' },
+  { id: CLOUD_SECTION_IDS.connection, label: '连接服务', shortLabel: '连接' },
+  { id: CLOUD_SECTION_IDS.account, label: '账号', shortLabel: '账号' },
+  { id: CLOUD_SECTION_IDS.devices, label: '已登录设备', shortLabel: '设备' },
+  { id: CLOUD_SECTION_IDS.scope, label: '同步范围与说明', shortLabel: '范围' },
 ];
 
 async function toast(
@@ -412,10 +431,11 @@ export function CloudSettingsPage() {
       title="Cloud 多端同步"
       description="多浏览器 / 多端共用的账号数据中枢。与 WebDAV 冷备份并存，互不替代。"
       rootDataAttrs={{ 'data-cloud-settings-react': '1' }}
+      sectionNavItems={CLOUD_SECTION_NAV_ITEMS}
     >
       <div id="cloud-settings" className="cloud-settings">
         {/* 总览条 */}
-      <div className="cloud-overview-grid">
+      <div id={CLOUD_SECTION_IDS.overview} className="cloud-overview-grid">
         <OverviewCard
           label="服务"
           badge={healthBadge(healthState)}
@@ -501,6 +521,7 @@ export function CloudSettingsPage() {
       {/* 已登录：同步主路径置顶 */}
       {loggedIn ? (
         <SettingSection
+          id={CLOUD_SECTION_IDS.sync}
           title="同步"
           description="本地改动会自动入队；空云首传不会清空本地。结果以服务端返回为准。"
           contentClassName="gap-1"
@@ -553,6 +574,7 @@ export function CloudSettingsPage() {
 
       {/* 连接 */}
       <SettingSection
+        id={CLOUD_SECTION_IDS.connection}
         title="连接服务"
         description="自建实例 Base URL。改地址后请保存或测试连接。"
       >
@@ -638,6 +660,7 @@ export function CloudSettingsPage() {
 
       {/* 账号 */}
       <SettingSection
+        id={CLOUD_SECTION_IDS.account}
         title="账号"
         description={
           loggedIn
@@ -735,7 +758,11 @@ export function CloudSettingsPage() {
       </SettingSection>
 
       {!loggedIn ? (
-        <SettingSection title="同步" description="登录后可立即同步并开启后台自动同步">
+        <SettingSection
+          id={CLOUD_SECTION_IDS.sync}
+          title="同步"
+          description="登录后可立即同步并开启后台自动同步"
+        >
           <div className="flex flex-wrap items-center gap-2 px-2 py-2">
             <Button type="button" variant="primary" disabled>
               立即同步
@@ -750,6 +777,7 @@ export function CloudSettingsPage() {
 
       {/* 设备 */}
       <SettingSection
+        id={CLOUD_SECTION_IDS.devices}
         title="已登录设备"
         description="同一 Cloud 账号下的客户端。可踢出其它设备（本机请用退出登录）。"
       >
@@ -819,7 +847,7 @@ export function CloudSettingsPage() {
       </SettingSection>
 
       {/* 说明：常显，不折叠 */}
-      <div className="cloud-scope-card">
+      <div id={CLOUD_SECTION_IDS.scope} className="cloud-scope-card">
         <div className="text-[13px] font-bold text-[var(--color-fg)]">同步范围与说明</div>
         <div className="mt-2 space-y-2 text-[12.5px] leading-relaxed text-[var(--color-fg-muted)]">
           <p className="m-0">
