@@ -1679,11 +1679,33 @@ async function extractVideoData(videoId: string, options: { light?: boolean } = 
             }
         }
 
-        // 获取标签（类别）
-        const tagElements = document.querySelectorAll<HTMLAnchorElement>(SELECTORS.VIDEO_DETAIL_TAGS);
-        const tags = Array.from(tagElements)
-            .map(tag => tag.innerText.trim())
-            .filter(Boolean);
+        // 获取标签（类别）：只保留 JavDB 原生的类别链接，避免误收拓展注入的外部来源入口
+        const isNativeCategoryLink = (link: HTMLAnchorElement): boolean => {
+            const rawHref = link.getAttribute('href')?.trim();
+            if (!rawHref) return false;
+
+            try {
+                const url = new URL(rawHref, window.location.href);
+                const isSameOrigin = url.origin === window.location.origin;
+                return isSameOrigin && (url.pathname.startsWith('/tags') || url.pathname.startsWith('/genres'));
+            } catch {
+                return rawHref.startsWith('/tags') || rawHref.startsWith('/genres');
+            }
+        };
+
+        const collectTagsFromSelector = (selector: string): string[] => {
+            try {
+                return Array.from(document.querySelectorAll<HTMLAnchorElement>(selector))
+                    .filter(isNativeCategoryLink)
+                    .map(tag => (tag.textContent || '').trim())
+                    .filter(Boolean);
+            } catch (error) {
+                log(`Error with tag selector ${selector}:`, error);
+                return [];
+            }
+        };
+
+        let tags = collectTagsFromSelector(SELECTORS.VIDEO_DETAIL_TAGS);
 
         // 如果没有找到标签，尝试备用选择器
         if (tags.length === 0) {
@@ -1697,31 +1719,23 @@ async function extractVideoData(videoId: string, options: { light?: boolean } = 
             ];
 
             for (const selector of altSelectors) {
-                try {
-                    const altTagElements = document.querySelectorAll<HTMLAnchorElement>(selector);
-                    if (altTagElements.length > 0) {
-                        const altTags = Array.from(altTagElements)
-                            .map(tag => tag.innerText.trim())
-                            .filter(Boolean);
-                        if (altTags.length > 0) {
-                            tags.push(...altTags);
-                            break;
-                        }
-                    }
-                } catch (error) {
-                    log(`Error with alternative selector ${selector}:`, error);
+                const altTags = collectTagsFromSelector(selector);
+                if (altTags.length > 0) {
+                    tags.push(...altTags);
+                    break;
                 }
             }
         }
 
-        // 🆕 提取类别标签（从"類別"字段）
+        // 提取类别标签（从"類別"字段）
         const categories: string[] = [];
         for (const block of panelBlocks) {
             const strongElement = block.querySelector('strong');
             const label = strongElement?.textContent?.trim() || '';
             if (label.includes('類別') || label.includes('类别') || label.includes('Category')) {
-                const categoryLinks = block.querySelectorAll<HTMLAnchorElement>('a[href*="/tags"]');
+                const categoryLinks = block.querySelectorAll<HTMLAnchorElement>('a');
                 categoryLinks.forEach(link => {
+                    if (!isNativeCategoryLink(link)) return;
                     const categoryName = link.textContent?.trim();
                     if (categoryName) {
                         categories.push(categoryName);
