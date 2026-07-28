@@ -15,6 +15,7 @@ describe('detail search links', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('builds links from configured search engines and removes duplicate templates', () => {
@@ -198,6 +199,183 @@ describe('detail search links', () => {
     expect(document.getElementById('jdb-subtitle-search-panel')?.textContent).toContain('SubTitleCat');
   });
 
+  it('opens SubTitleCat through native fetched results instead of embedding the site page', async () => {
+    const searchDoc = new DOMParser().parseFromString(`
+      <table class="table sub-table">
+        <tbody>
+          <tr>
+            <td><a href="subs/1072/SSIS%20-%20795.html">SSIS - 795</a> (translated from Chinese)</td>
+            <td><i>👍</i></td>
+            <td class="sub-table__size-cell"><span class="sub-table__metric-value">63 KB</span></td>
+            <td>9 downloads</td>
+            <td>9 languages</td>
+          </tr>
+          <tr>
+            <td><a href="subs/999/DLDSS-063.html">DLDSS-063</a> (translated from English)</td>
+            <td><i>👎</i></td>
+            <td class="sub-table__size-cell"><span class="sub-table__metric-value">33 KB</span></td>
+            <td>7 downloads</td>
+            <td>7 languages</td>
+          </tr>
+        </tbody>
+      </table>
+    `, 'text/html');
+    vi.spyOn(defaultHttpClient, 'getDocument').mockResolvedValue(searchDoc);
+    document.body.innerHTML = `
+      <nav class="panel movie-panel-info">
+        <div class="panel-block first-block">SSIS-795</div>
+      </nav>
+    `;
+
+    renderDetailSearchLinks('SSIS-795', [
+      { id: 'subtitlecat', name: 'SubTitleCat', urlTemplate: 'https://subtitlecat.com/index.php?search={{ID}}', icon: 'assets/subtitlecat.ico', category: 'subtitle', contexts: ['detail'] },
+    ]);
+
+    document.querySelector<HTMLAnchorElement>('#jdb-subtitle-search-panel a')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const modal = document.querySelector('.jdb-subtitlecat-subtitle-modal');
+    const rows = modal?.querySelectorAll('.jdb-subtitlecat-subtitle-row');
+
+    expect(defaultHttpClient.getDocument).toHaveBeenCalledWith(
+      'https://subtitlecat.com/index.php?search=SSIS-795',
+      expect.objectContaining({ responseType: 'document' }),
+    );
+    expect(modal?.querySelector('#jdb-subtitlecat-subtitle-title')?.textContent).toBe('SubTitleCat · SSIS-795 · 1 条');
+    expect(rows).toHaveLength(1);
+    expect(modal?.textContent).toContain('SSIS - 795');
+    expect(modal?.textContent).toContain('Chinese');
+    expect(modal?.textContent).toContain('63 KB');
+    expect(modal?.querySelector('iframe')).toBeNull();
+  });
+
+  it('loads SubTitleCat detail languages and suggests Emby-friendly filenames', async () => {
+    const searchDoc = new DOMParser().parseFromString(`
+      <table class="table sub-table">
+        <tbody>
+          <tr>
+            <td><a href="subs/1072/SSIS%20-%20795.html">SSIS - 795</a> (translated from Chinese)</td>
+            <td>&nbsp;</td>
+            <td class="sub-table__size-cell"><span class="sub-table__metric-value">63 KB</span></td>
+            <td>9 downloads</td>
+            <td>9 languages</td>
+          </tr>
+        </tbody>
+      </table>
+    `, 'text/html');
+    const detailDoc = new DOMParser().parseFromString(`
+      <div class="sub-single">
+        <span><img src="/assets/flags/cn.png" alt="zh-CN" class="flag"></span>
+        <span>Chinese (Simplified)</span>
+        <span><a id="download_zh-CN" href="/subs/1072/SSIS%20-%20795-zh-CN.srt" class="green-link">Download</a></span>
+      </div>
+      <div class="sub-single">
+        <span><img src="/assets/flags/jp.png" alt="ja" class="flag"></span>
+        <span>Japanese</span>
+        <span><button id="ja" onclick="translate_from_server_folder('ja', 'SSIS - 795-orig.srt', '/subs/1072/')" class="yellow-link">Translate</button></span>
+      </div>
+    `, 'text/html');
+    vi.spyOn(defaultHttpClient, 'getDocument')
+      .mockResolvedValueOnce(searchDoc)
+      .mockResolvedValueOnce(detailDoc);
+    document.body.innerHTML = `
+      <nav class="panel movie-panel-info">
+        <div class="panel-block first-block">SSIS-795</div>
+      </nav>
+    `;
+
+    renderDetailSearchLinks('SSIS-795', [
+      { id: 'subtitlecat', name: 'SubTitleCat', urlTemplate: 'https://subtitlecat.com/index.php?search={{ID}}', icon: 'assets/subtitlecat.ico', category: 'subtitle', contexts: ['detail'] },
+    ]);
+
+    document.querySelector<HTMLAnchorElement>('#jdb-subtitle-search-panel a')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const loadButton = document.querySelector<HTMLButtonElement>('.jdb-subtitlecat-load-downloads');
+    expect(loadButton?.textContent).toBe('获取下载');
+    expect(loadButton?.disabled).toBe(false);
+    loadButton?.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const downloadLink = document.querySelector<HTMLAnchorElement>('.jdb-subtitlecat-language-download');
+    const previewButton = document.querySelector<HTMLButtonElement>('.jdb-subtitlecat-language-preview');
+
+    expect(defaultHttpClient.getDocument).toHaveBeenCalledWith(
+      'https://subtitlecat.com/subs/1072/SSIS%20-%20795.html',
+      expect.objectContaining({ responseType: 'document' }),
+    );
+    expect(document.querySelector('.jdb-subtitlecat-subtitle-modal')?.textContent).toContain('Chinese (Simplified)');
+    expect(document.querySelector('.jdb-subtitlecat-subtitle-modal')?.textContent).not.toContain('Japanese');
+    expect(downloadLink?.href).toBe('https://subtitlecat.com/subs/1072/SSIS%20-%20795-zh-CN.srt');
+    expect(downloadLink?.download).toBe('SSIS-795.zh-CN.srt');
+    expect(previewButton?.textContent).toBe('预览');
+  });
+  it('previews the selected SubTitleCat subtitle in a separate modal', async () => {
+    const searchDoc = new DOMParser().parseFromString(`
+      <table class="table sub-table">
+        <tbody>
+          <tr>
+            <td><a href="subs/1072/SSIS%20-%20795.html">SSIS - 795</a> (translated from Chinese)</td>
+            <td>&nbsp;</td>
+            <td><span class="sub-table__metric-value">63 KB</span></td>
+            <td>9 downloads</td>
+            <td>9 languages</td>
+          </tr>
+        </tbody>
+      </table>
+    `, 'text/html');
+    const detailDoc = new DOMParser().parseFromString(`
+      <div class="sub-single">
+        <span><img src="/assets/flags/cn.png" alt="zh-CN" class="flag"></span>
+        <span>Chinese (Simplified)</span>
+        <span><a id="download_zh-CN" href="/subs/1072/SSIS%20-%20795-zh-CN.srt" class="green-link">Download</a></span>
+      </div>
+    `, 'text/html');
+    vi.spyOn(defaultHttpClient, 'getDocument')
+      .mockResolvedValueOnce(searchDoc)
+      .mockResolvedValueOnce(detailDoc);
+    const fetchSubtitle = vi.spyOn(defaultHttpClient, 'get').mockResolvedValue('1\n00:00:01,000 --> 00:00:02,000\n正常中文字幕');
+    document.body.innerHTML = `
+      <nav class="panel movie-panel-info">
+        <div class="panel-block first-block">SSIS-795</div>
+      </nav>
+    `;
+
+    renderDetailSearchLinks('SSIS-795', [
+      { id: 'subtitlecat', name: 'SubTitleCat', urlTemplate: 'https://subtitlecat.com/index.php?search={{ID}}', icon: 'assets/subtitlecat.ico', category: 'subtitle', contexts: ['detail'] },
+    ]);
+
+    document.querySelector<HTMLAnchorElement>('#jdb-subtitle-search-panel a')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    document.querySelector<HTMLButtonElement>('.jdb-subtitlecat-load-downloads')?.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    document.querySelector<HTMLButtonElement>('.jdb-subtitlecat-language-preview')?.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const previewModal = document.querySelector<HTMLElement>('.jdb-subtitlecat-preview-modal');
+    const previewContent = previewModal?.querySelector<HTMLElement>('.jdb-subtitlecat-preview-content');
+    const previewDownload = previewModal?.querySelector<HTMLButtonElement>('.jdb-subtitlecat-preview-download');
+
+    expect(fetchSubtitle).toHaveBeenCalledWith(
+      'https://subtitlecat.com/subs/1072/SSIS%20-%20795-zh-CN.srt',
+      expect.objectContaining({ responseType: 'text' }),
+    );
+    expect(previewModal?.textContent).toContain('字幕预览 · SSIS-795.zh-CN.srt');
+    expect(previewModal?.textContent).toContain('原字幕：SSIS - 795 / Chinese (Simplified)');
+    expect(previewContent?.textContent).toContain('正常中文字幕');
+    expect(previewDownload?.textContent).toContain('下载此字幕');
+    expect(document.querySelector('.jdb-subtitlecat-preview-panel')).toBeNull();
+  });
+
   it('opens 迅雷字幕 in a detail-page modal instead of navigating to the API URL', async () => {
     vi.spyOn(defaultHttpClient, 'getJson').mockResolvedValue({
       data: [
@@ -232,6 +410,135 @@ describe('detail search links', () => {
     expect(modal?.textContent).toContain('迅雷字幕');
     expect(modal?.textContent).toContain('SSIS-795.zh.srt');
     expect(downloadLink?.textContent).toContain('下载');
+  });
+
+  it('uses the detail video id as the suggested subtitle download filename', async () => {
+    vi.spyOn(defaultHttpClient, 'getJson').mockResolvedValue({
+      data: [
+        {
+          gcid: '7172AEEC50DD7ACBACC6D0EBEA4EB1734629AB91',
+          url: 'https://subtitle.v.geilijiasu.com/71/72/7172AEEC50DD7ACBACC6D0EBEA4EB1734629AB91.srt',
+          ext: 'srt',
+          name: 'VOAY44lUVFzs56Arorr06Ia2A1_MKMP-577^.srt',
+        },
+      ],
+    });
+    document.body.innerHTML = `
+      <nav class="panel movie-panel-info">
+        <div class="panel-block first-block">MKMP-577</div>
+      </nav>
+    `;
+
+    renderDetailSearchLinks('MKMP-577', [
+      { id: 'xunlei-subtitle', name: '迅雷字幕', urlTemplate: 'https://api-shoulei-ssl.xunlei.com/oracle/subtitle?gcid=&cid=&name={{ID}}', icon: 'assets/xunlei.png', category: 'subtitle', contexts: ['detail'] },
+    ]);
+
+    document.querySelector<HTMLAnchorElement>('#jdb-subtitle-search-panel a')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const downloadLink = document.querySelector<HTMLAnchorElement>('.jdb-xunlei-subtitle-download');
+
+    expect(downloadLink?.download).toBe('MKMP-577.srt');
+    expect(downloadLink?.title).toContain('MKMP-577.srt');
+  });
+
+  it('downloads 迅雷字幕 through a blob URL with the video-id filename', async () => {
+    vi.spyOn(defaultHttpClient, 'getJson').mockResolvedValue({
+      data: [
+        {
+          url: 'https://subtitle.v.geilijiasu.com/71/72/7172AEEC50DD7ACBACC6D0EBEA4EB1734629AB91.srt',
+          ext: 'srt',
+          name: '7172AEEC50DD7ACBACC6D0EBEA4EB1734629AB91.srt',
+        },
+      ],
+    });
+    const fetchSubtitle = vi.spyOn(defaultHttpClient, 'get').mockResolvedValue('1\n00:00:00,000 --> 00:00:01,000\n字幕');
+    const createObjectURL = vi.fn(() => 'blob:subtitle-download');
+    const revokeObjectURL = vi.fn(() => undefined);
+    const StubURL = Object.assign(class extends URL {}, { createObjectURL, revokeObjectURL });
+    vi.stubGlobal('URL', StubURL);
+    const clickedDownloads: string[] = [];
+    const clickedHrefs: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function click(this: HTMLAnchorElement) {
+      clickedDownloads.push(this.download);
+      clickedHrefs.push(this.href);
+    });
+    document.body.innerHTML = `
+      <nav class="panel movie-panel-info">
+        <div class="panel-block first-block">MKMP-577</div>
+      </nav>
+    `;
+
+    renderDetailSearchLinks('MKMP-577', [
+      { id: 'xunlei-subtitle', name: '迅雷字幕', urlTemplate: 'https://api-shoulei-ssl.xunlei.com/oracle/subtitle?gcid=&cid=&name={{ID}}', icon: 'assets/xunlei.png', category: 'subtitle', contexts: ['detail'] },
+    ]);
+
+    document.querySelector<HTMLAnchorElement>('#jdb-subtitle-search-panel a')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    document.querySelector<HTMLAnchorElement>('.jdb-xunlei-subtitle-download')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(fetchSubtitle).toHaveBeenCalledWith(
+      'https://subtitle.v.geilijiasu.com/71/72/7172AEEC50DD7ACBACC6D0EBEA4EB1734629AB91.srt',
+      expect.objectContaining({ responseType: 'text' }),
+    );
+    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(clickedDownloads).toContain('MKMP-577.srt');
+    expect(clickedHrefs).toContain('blob:subtitle-download');
+  });
+
+  it('以独立弹窗预览点击的 迅雷字幕内容', async () => {
+    vi.spyOn(defaultHttpClient, 'getJson').mockResolvedValue({
+      data: [
+        {
+          url: 'https://subtitle.v.geilijiasu.com/71/72/first.srt',
+          ext: 'srt',
+          name: 'first.srt',
+        },
+        {
+          url: 'https://subtitle.v.geilijiasu.com/A2/F7/second.ass',
+          ext: 'ass',
+          name: 'second.ass',
+        },
+      ],
+    });
+    const fetchSubtitle = vi.spyOn(defaultHttpClient, 'get').mockResolvedValue('Dialogue: 正常中文字幕');
+    document.body.innerHTML = `
+      <nav class="panel movie-panel-info">
+        <div class="panel-block first-block">MKMP-577</div>
+      </nav>
+    `;
+
+    renderDetailSearchLinks('MKMP-577', [
+      { id: 'xunlei-subtitle', name: '迅雷字幕', urlTemplate: 'https://api-shoulei-ssl.xunlei.com/oracle/subtitle?gcid=&cid=&name={{ID}}', icon: 'assets/xunlei.png', category: 'subtitle', contexts: ['detail'] },
+    ]);
+
+    document.querySelector<HTMLAnchorElement>('#jdb-subtitle-search-panel a')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const previewButtons = document.querySelectorAll<HTMLButtonElement>('.jdb-xunlei-subtitle-preview');
+    expect(previewButtons).toHaveLength(2);
+    previewButtons[1]?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const previewModal = document.querySelector<HTMLElement>('.jdb-xunlei-subtitle-preview-modal');
+    const previewContent = previewModal?.querySelector<HTMLElement>('.jdb-xunlei-subtitle-preview-content');
+    const previewDownload = previewModal?.querySelector<HTMLButtonElement>('.jdb-xunlei-subtitle-preview-download');
+
+    expect(fetchSubtitle).toHaveBeenCalledWith(
+      'https://subtitle.v.geilijiasu.com/A2/F7/second.ass',
+      expect.objectContaining({ responseType: 'text' }),
+    );
+    expect(previewModal?.textContent).toContain('字幕预览 · MKMP-577.ass');
+    expect(previewContent?.textContent).toContain('正常中文字幕');
+    expect(previewModal?.textContent).toContain('原字幕：second.ass');
+    expect(previewDownload?.textContent).toContain('下载此字幕');
+    expect(document.querySelector('.jdb-xunlei-subtitle-preview-panel')).toBeNull();
   });
 
   it('renders real 迅雷字幕 API result fields for MKMP-577', async () => {
@@ -383,7 +690,44 @@ describe('detail search links', () => {
     const modal = document.querySelector('.jdb-xunlei-subtitle-modal');
 
     expect(modal?.querySelector('#jdb-xunlei-subtitle-title')?.textContent).toBe('迅雷字幕 · MKMP-577 · 0 条');
-    expect(modal?.textContent).toContain('暂无字幕');
+    expect(modal?.textContent).toContain('迅雷接口未返回 MKMP-577 的字幕');
+  });
+
+  it('distinguishes fuzzy 迅雷字幕 results from exact empty results', async () => {
+    vi.spyOn(defaultHttpClient, 'getJson')
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            url: 'https://subtitle.v.geilijiasu.com/08/D8/08D812AD45E61162DB94BF9B6F7DA40AD9A01796.srt',
+            ext: 'srt',
+            name: 'DLDSS-063 ノルハドック-en.srt',
+          },
+        ],
+      });
+    document.body.innerHTML = `
+      <nav class="panel movie-panel-info">
+        <div class="panel-block first-block">DLDSS-523</div>
+      </nav>
+    `;
+
+    renderDetailSearchLinks('DLDSS-523', [
+      { id: 'xunlei-subtitle', name: '迅雷字幕', urlTemplate: 'https://api-shoulei-ssl.xunlei.com/oracle/subtitle?gcid=&cid=&name={{ID}}', icon: 'assets/xunlei.png', category: 'subtitle', contexts: ['detail'] },
+    ]);
+
+    document.querySelector<HTMLAnchorElement>('#jdb-subtitle-search-panel a')!
+      .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const modal = document.querySelector('.jdb-xunlei-subtitle-modal');
+
+    expect(defaultHttpClient.getJson).toHaveBeenCalledWith(
+      'https://api-shoulei-ssl.xunlei.com/oracle/subtitle?gcid=&cid=&name=DLDSS523',
+      expect.objectContaining({ responseType: 'json' }),
+    );
+    expect(modal?.textContent).toContain('迅雷接口未返回 DLDSS-523 的字幕');
+    expect(modal?.textContent).toContain('备用模糊查询 DLDSS523 返回 1 条，但没有精确匹配 DLDSS-523');
+    expect(modal?.textContent).not.toContain('DLDSS-063 ノルハドック-en.srt');
   });
 
   it('renders an error state when 迅雷字幕 request fails', async () => {
@@ -487,3 +831,8 @@ describe('detail search links', () => {
     expect(icon.src).toBe('chrome-extension://test-runtime/assets/alternate-search.png');
   });
 });
+
+
+
+
+

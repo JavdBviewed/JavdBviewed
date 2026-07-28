@@ -13,3 +13,11 @@ export async function fetchXunleiSubtitleResponse(apiUrl: string): Promise<Xunle
     responseType: 'json',
   });
 }
+
+export async function fetchXunleiSubtitleText(subtitleUrl: string): Promise<string> {
+  return defaultHttpClient.get<string>(subtitleUrl, {
+    timeout: 20000,
+    retries: 0,
+    responseType: 'text',
+  });
+}

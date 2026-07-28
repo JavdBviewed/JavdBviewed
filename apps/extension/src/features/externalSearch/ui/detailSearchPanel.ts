@@ -3,7 +3,7 @@
  * @description detailSearchPanel
  * @module features/externalSearch
  */
-import { isXunleiSubtitleLink, openXunleiSubtitleModal } from '../../subtitles';
+import { isSubtitleCatLink, isXunleiSubtitleLink, openSubtitleCatModal, openXunleiSubtitleModal } from '../../subtitles';
 import { buildDetailSearchLinks } from '../application/buildDetailSearchLinks';
 import type { DetailSearchInsertionTarget, DetailSearchLink, RenderDetailSearchLinksOptions } from '../domain/types';
 import { injectDetailSearchStyles } from './detailSearchStyles';
@@ -102,6 +102,12 @@ function createDetailSearchPanel(id: string, labelText: string, links: DetailSea
       link.addEventListener('click', (event) => {
         event.preventDefault();
         openXunleiSubtitleModal(videoId, item.url);
+      });
+    } else if (isSubtitleCatLink(item)) {
+      link.classList.add('jdb-subtitlecat-subtitle-trigger');
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        openSubtitleCatModal(videoId, item.url);
       });
     }
 

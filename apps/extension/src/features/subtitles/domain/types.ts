@@ -23,3 +23,22 @@ export interface XunleiSubtitleResponse {
   data?: unknown;
   subtitles?: unknown;
 }
+/** SubTitleCat 搜索结果条目 */
+export interface SubtitleCatSearchItem {
+  name: string;
+  pageUrl: string;
+  translatedFrom?: string;
+  rating?: string;
+  size?: string;
+  downloads?: string;
+  languageCount?: string;
+}
+
+/** SubTitleCat 详情页可直接下载的语言字幕 */
+export interface SubtitleCatLanguageDownload {
+  code: string;
+  language: string;
+  downloadUrl: string;
+  ext: string;
+}
+
