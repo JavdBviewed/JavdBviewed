@@ -2,12 +2,12 @@
  * 数据同步工具函数模块
  */
 
-import { getValue } from '../../utils/storage';
-import { STORAGE_KEYS, VIDEO_STATUS } from '../../utils/config';
-import type { VideoRecord } from '../../types';
-import type { SyncStats } from './types';
-import type { SyncType, SyncConfig } from '../config/syncConfig';
-import { DEFAULT_SYNC_CONFIG, getSyncConfig, isSyncTypeSupported, getSyncTypeDisplayName } from '../config/syncConfig';
+import { getValue } from '../../../utils/storage';
+import { STORAGE_KEYS, VIDEO_STATUS } from '../../../utils/config';
+import type { VideoRecord } from '../../../types';
+import type { SyncStats } from '../types';
+import type { SyncType, SyncConfig } from '../../config/syncConfig';
+import { DEFAULT_SYNC_CONFIG, getSyncConfig, isSyncTypeSupported, getSyncTypeDisplayName } from '../../config/syncConfig';
 
 /**
  * 根据同步类型过滤数据

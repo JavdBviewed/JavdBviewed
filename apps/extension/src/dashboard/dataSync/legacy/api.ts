@@ -2,19 +2,20 @@
  * 数据同步API调用模块
  */
 
-import { logAsync } from '../logger';
-import type { VideoRecord, UserProfile } from '../../types';
+import { logAsync } from '../../logger';
+import type { VideoRecord, UserProfile } from '../../../types';
+import { extractDetailCategoryTagsFromHTML } from '../detailCategoryTags';
 import type {
     SyncType,
     SyncRequestData,
     SyncResponseData,
     ApiResponse,
     SyncConfig
-} from './types';
-import { SyncCancelledError } from './types';
+} from '../types';
+import { SyncCancelledError } from '../types';
 import { retry, delay, checkNetworkStatus } from './utils';
-import { getSettings, getValue } from '../../utils/storage';
-import { STORAGE_KEYS } from '../../utils/config';
+import { getSettings, getValue } from '../../../utils/storage';
+import { STORAGE_KEYS } from '../../../utils/config';
 
 /**
  * 视频数据接口
@@ -1133,16 +1134,8 @@ export class SyncApiClient {
                 }
             }
 
-            // 解析标签
-            const tags: string[] = [];
-            const tagRegex = /<a[^>]*href="\/tags\/[^"]*"[^>]*>([^<]+)<\/a>/g;
-            let tagMatch;
-            while ((tagMatch = tagRegex.exec(html)) !== null) {
-                const tag = tagMatch[1].trim();
-                if (tag && !tags.includes(tag)) {
-                    tags.push(tag);
-                }
-            }
+            // 解析标签：只读取详情页“類別/类别/Category”区块，避免把列表页默认导航标签写入记录。
+            const tags = extractDetailCategoryTagsFromHTML(html);
 
             // 解析封面图片
             let javdbImage: string | undefined;
@@ -1195,8 +1188,8 @@ export class SyncApiClient {
         urlVideoId?: string
     ): Promise<void> {
         try {
-            const { getValue, setValue } = await import('../../utils/storage');
-            const { STORAGE_KEYS } = await import('../../utils/config');
+            const { getValue, setValue } = await import('../../../utils/storage');
+            const { STORAGE_KEYS } = await import('../../../utils/config');
 
             // 获取现有记录
             const existingRecords = await getValue<Record<string, VideoRecord>>(STORAGE_KEYS.VIEWED_RECORDS, {});

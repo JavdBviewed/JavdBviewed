@@ -2,21 +2,21 @@
  * 数据同步核心逻辑模块
  */
 
-import { getValue } from '../../utils/storage';
-import { STORAGE_KEYS } from '../../utils/config';
-import { logAsync } from '../logger';
-import { showMessage } from '../ui/toast';
-import { userService } from '../services/userService';
-import type { VideoRecord, UserProfile } from '../../types';
-import { SyncStatus } from './types';
+import { getValue } from '../../../utils/storage';
+import { STORAGE_KEYS } from '../../../utils/config';
+import { logAsync } from '../../logger';
+import { showMessage } from '../../ui/toast';
+import { userService } from '../../services/userService';
+import type { VideoRecord, UserProfile } from '../../../types';
+import { SyncStatus } from '../types';
 import type {
     SyncType,
     SyncContext,
     SyncProgress,
     SyncResult,
     SyncConfig
-} from './types';
-import { SyncCancelledError } from './types';
+} from '../types';
+import { SyncCancelledError } from '../types';
 import {
     filterDataByType,
     getSyncStats,
@@ -30,7 +30,7 @@ import {
     getSyncConfig,
     isSyncTypeSupported,
     getSyncTypeDisplayName
-} from '../config/syncConfig';
+} from '../../config/syncConfig';
 import { getApiClient } from './api';
 
 /**

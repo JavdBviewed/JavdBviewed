@@ -18,6 +18,7 @@ import { getSettings, getValue, setValue } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../utils/config';
 import { dbViewedPut } from '../dbClient';
 import { isCloudflareChallenge, handleCloudflareVerification } from './cloudflareVerification';
+import { extractDetailCategoryTagsFromHTML } from './detailCategoryTags';
 import { saveSyncProgress, getSavedSyncProgress, clearSyncProgress } from './progressManager';
 import type { SavedSyncProgress } from '../config/syncConfig';
 import { getJavDBRoute } from '../../features/routeManagement';
@@ -1005,7 +1006,7 @@ export class ApiClient {
             }
 
             // 解析标签：只读取详情页“類別/类别/Category”区块，避免把列表页默认导航标签写入记录。
-            const tags = this.extractDetailCategoryTags(html);
+            const tags = extractDetailCategoryTagsFromHTML(html);
 
             if (tags.length === 0) {
                 logAsync('WARN', `未找到任何标签: ${urlVideoId}`);
@@ -1101,65 +1102,6 @@ export class ApiClient {
             logAsync('ERROR', `解析视频详情HTML失败: ${urlVideoId}`, { error: error.message });
             return null;
         }
-    }
-
-    private extractDetailCategoryTags(html: string): string[] {
-        const tags: string[] = [];
-        const panelBlockRegex = /<div\b([^>]*)class=["'][^"']*panel-block[^"']*["']([^>]*)>([\s\S]*?)<\/div>/gi;
-        let blockMatch: RegExpExecArray | null;
-
-        while ((blockMatch = panelBlockRegex.exec(html)) !== null) {
-            const blockAttrs = `${blockMatch[1] || ''} ${blockMatch[2] || ''}`;
-            const blockHtml = blockMatch[3] || '';
-            const isGenreBlock = /class=["'][^"']*genre[^"']*["']/i.test(blockAttrs);
-            const labelText = this.stripHtmlTags(blockHtml.match(/<strong\b[^>]*>([\s\S]*?)<\/strong>/i)?.[1] || '');
-            const isCategoryLabel = /類別|类别|Category/i.test(labelText);
-
-            if (!isGenreBlock && !isCategoryLabel) continue;
-
-            const valueHtml = blockHtml.match(/<span\b[^>]*class=["'][^"']*value[^"']*["'][^>]*>([\s\S]*?)<\/span>/i)?.[1] || blockHtml;
-            const links = valueHtml.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi);
-            for (const linkMatch of links) {
-                const href = linkMatch[1] || '';
-                if (!this.isNativeCategoryHref(href)) continue;
-                const tag = this.stripHtmlTags(linkMatch[2] || '').trim();
-                if (tag && !tags.includes(tag)) {
-                    tags.push(tag);
-                    logAsync('INFO', `找到标签: ${tag}`);
-                }
-            }
-
-            if (tags.length > 0) {
-                logAsync('INFO', `详情类别区块解析成功，找到${tags.length}个标签`);
-                return tags;
-            }
-        }
-
-        return tags;
-    }
-
-    private isNativeCategoryHref(href: string): boolean {
-        const rawHref = String(href || '').trim();
-        if (!rawHref) return false;
-
-        try {
-            const url = new URL(rawHref, 'https://javdb.com');
-            return url.pathname.startsWith('/tags') || url.pathname.startsWith('/genres');
-        } catch {
-            return rawHref.startsWith('/tags') || rawHref.startsWith('/genres');
-        }
-    }
-
-    private stripHtmlTags(html: string): string {
-        return String(html || '')
-            .replace(/<[^>]*>/g, '')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
-            .trim();
     }
 
     /**
