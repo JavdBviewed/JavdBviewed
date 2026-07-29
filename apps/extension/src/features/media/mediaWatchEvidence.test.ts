@@ -16,7 +16,7 @@ vi.mock('../../utils/storage', () => ({
   }),
 }));
 
-import { getWatchEvidence, reportWatchProgress } from './mediaWatchEvidence';
+import { getWatchEvidence, loadMediaPlaybackProgressList, reportWatchProgress } from './mediaWatchEvidence';
 
 describe('mediaWatchEvidence', () => {
   beforeEach(() => {
@@ -41,4 +41,54 @@ describe('mediaWatchEvidence', () => {
     const e = await getWatchEvidence('X-1');
     expect(e?.percent).toBe(80);
   });
+
+  it('stores 115 playback resume position and keeps progress monotonic', async () => {
+    await reportWatchProgress({
+      code: 'D115-1',
+      source: 'drive115',
+      positionSec: 300,
+      durationSec: 1000,
+      pickCode: 'p1',
+      fileName: 'D115-1.mp4',
+    });
+    await reportWatchProgress({
+      code: 'D115-1',
+      source: 'drive115',
+      positionSec: 120,
+      durationSec: 1000,
+    });
+    const e = await getWatchEvidence('d115-1');
+    expect(e?.percent).toBe(30);
+    expect(e?.positionSec).toBe(300);
+    expect(e?.durationSec).toBe(1000);
+    expect(e?.pickCode).toBe('p1');
+    expect(e?.fileName).toBe('D115-1.mp4');
+  });
+
+  it('exposes 115 watch evidence as unified playback progress for cloud restore', async () => {
+    await reportWatchProgress({
+      code: 'D115-2',
+      source: 'drive115',
+      positionSec: 180,
+      durationSec: 600,
+      pickCode: 'pick-2',
+      fileId: 'file-2',
+      fileName: 'D115-2.mp4',
+    });
+
+    const list = await loadMediaPlaybackProgressList();
+
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({
+      code: 'D115-2',
+      source: 'drive115',
+      sourceItemId: 'pick-2',
+      positionSeconds: 180,
+      durationSeconds: 600,
+      percent: 30,
+      completed: false,
+      fileName: 'D115-2.mp4',
+    });
+  });
+
 });

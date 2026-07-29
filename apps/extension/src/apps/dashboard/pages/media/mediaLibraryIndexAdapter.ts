@@ -13,6 +13,7 @@ import {
 } from '../../../../features/embyLibrary/domain/watchState';
 import type { EmbyLibraryIndexEntry, EmbyLibraryState, EmbyWatchUserData } from '../../../../features/embyLibrary/types';
 import type { MediaWatchEvidenceMap } from '../../../../features/media/mediaWatchEvidence';
+import type { ParsedNfoSummary } from '../../../../features/drive115/mediaLibrary/parseEntryMeta';
 import type { MediaBrowseItem, MediaBrowseSource } from './mediaBrowseModel';
 
 /**
@@ -71,6 +72,12 @@ export function resolveItemWatchState(entry: EmbyLibraryIndexEntry | null | unde
 export { formatWatchPercent, resolveWatchProgressPercent, watchStateLabel };
 export type { MediaWatchState };
 
+function secondsToTicks(seconds: number | undefined): number {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.round(value * 10_000_000);
+}
+
 /**
  * Emby 库状态 → 浏览列表（每个番号取第一条命中作为代表）
  */
@@ -125,17 +132,22 @@ export function mergeLocalWatchEvidence(
 
     const localUd: EmbyWatchUserData = {
       played: ev.watched === true,
-      positionTicks: 0,
-      runtimeTicks: 0,
+      positionTicks: secondsToTicks(ev.positionSec),
+      runtimeTicks: secondsToTicks(ev.durationSec),
       percent: ev.percent,
       lastPlayedAt: ev.lastPlayedAt,
     };
-    const mergedPercent = Math.max(item.userData?.percent || 0, localUd.percent);
+    const remotePercent = item.userData?.percent || 0;
+    const localPercent = localUd.percent || 0;
+    const mergedPercent = Math.max(remotePercent, localPercent);
+    const useLocalTicks = localPercent >= remotePercent;
     const mergedPlayed = Boolean(item.userData?.played || localUd.played || mergedPercent >= 90);
     const mergedUd: EmbyWatchUserData = {
       played: mergedPlayed,
-      positionTicks: item.userData?.positionTicks || 0,
-      runtimeTicks: item.userData?.runtimeTicks || 0,
+      positionTicks: useLocalTicks
+        ? (localUd.positionTicks || item.userData?.positionTicks || 0)
+        : (item.userData?.positionTicks || localUd.positionTicks || 0),
+      runtimeTicks: Math.max(item.userData?.runtimeTicks || 0, localUd.runtimeTicks || 0),
       percent: mergedPercent,
       lastPlayedAt: Math.max(item.userData?.lastPlayedAt || 0, localUd.lastPlayedAt || 0),
     };
@@ -161,21 +173,7 @@ export function mapDrive115LibraryStateToBrowseItems(
     rootCid?: string;
     nfoPickCode?: string;
     coverPickCode?: string;
-    nfoSummary?: {
-      year?: string;
-      title?: string;
-      plot?: string;
-      num?: string;
-      actors?: string[];
-      studio?: string;
-      releaseDate?: string;
-      genres?: string[];
-      rating?: string;
-      runtime?: string;
-      director?: string;
-      series?: string;
-      posterRef?: string;
-    };
+    nfoSummary?: ParsedNfoSummary;
     updatedAt?: number;
   }> } | null | undefined,
 ): MediaBrowseItem[] {
@@ -230,7 +228,8 @@ export function mergeBrowseCatalogs(
     const mapKey = key || `115:${item.itemId || item.pickCode || Math.random()}`;
     if (key && byCode.has(key)) {
       // Emby 已有同番号：附加 pickCode 便于 115 快捷播（不改 source）
-      const existing = byCode.get(key)!;
+      const existing = byCode.get(key);
+      if (!existing) continue;
       if (!existing.pickCode && item.pickCode) {
         byCode.set(key, { ...existing, pickCode: item.pickCode, fileName: item.fileName || existing.fileName });
       }
@@ -244,5 +243,5 @@ export function mergeBrowseCatalogs(
 export function hasDrive115LibraryIndex(
   state: { entries?: unknown[] } | null | undefined,
 ): boolean {
-  return Array.isArray(state?.entries) && state!.entries!.length > 0;
+  return Array.isArray(state?.entries) && state.entries.length > 0;
 }

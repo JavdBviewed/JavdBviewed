@@ -56,6 +56,9 @@ describe('data asset registry guard', () => {
     expect(getCloudStorageAssetPolicy(STORAGE_KEYS.SETTINGS)?.cloud.full).toBe(true);
     expect(getCloudStorageAssetPolicy('cloud_sync_settings_v1')?.cloud.full).toBe(true);
     expect(getCloudStorageAssetPolicy(STORAGE_KEYS.DRIVE115_LIBRARY_STATE)?.cloud.full).toBe(true);
+    expect(getCloudStorageAssetPolicy(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE)?.cloud.full).toBe(true);
+    expect(getCloudStorageAssetPolicy(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE)?.cloud.incremental).toBe(true);
+    expect(resolveChromeStorageAssetPolicy(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE)?.webdav.restoreMode).toBe('merge');
     expect(getCloudStorageAssetPolicy(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS)).toBeUndefined();
     expect(getCloudStorageAssetPolicy('cloud_sync_session_v1')).toBeUndefined();
 

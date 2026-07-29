@@ -318,6 +318,14 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
     '115 片库索引进行中进度只服务当前设备 Dashboard 实时展示。',
   ),
   chromeStorage(
+    'storage.drive115LibraryIndexReport',
+    STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_REPORT,
+    'diagnostic',
+    { backup: false, restore: false, restoreMode: 'skip' },
+    { full: false, incremental: false },
+    '115 片库上一轮索引报告用于本机排查，可重新索引生成。',
+  ),
+  chromeStorage(
     'storage.media115CleanupList',
     STORAGE_KEYS.MEDIA_115_CLEANUP_LIST,
     'account',

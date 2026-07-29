@@ -6,10 +6,11 @@
 import { STORAGE_KEYS } from '../../utils/config';
 import { getValue, setValue } from '../../utils/storage';
 
-export type MediaWatchEvidenceSource = 'drive115' | 'emby' | 'manual';
+export type MediaWatchEvidenceSource = 'drive115' | 'emby' | 'jellyfin' | 'manual';
 
 export type MediaWatchEvidence = {
   source: MediaWatchEvidenceSource;
+  sourceItemId?: string;
   /** 0–100 */
   percent: number;
   watched: boolean;
@@ -23,6 +24,21 @@ export type MediaWatchEvidence = {
 
 export type MediaWatchEvidenceMap = Record<string, MediaWatchEvidence>;
 
+export type MediaPlaybackProgress = {
+  source: MediaWatchEvidenceSource;
+  sourceItemId: string;
+  code: string;
+  positionSeconds: number;
+  durationSeconds: number;
+  percent: number;
+  completed: boolean;
+  lastPlayedAt: number;
+  updatedAt: number;
+  pickCode?: string;
+  fileId?: string;
+  fileName?: string;
+};
+
 const EMPTY: MediaWatchEvidenceMap = {};
 
 /** 真实已看阈值（与 Emby watchState 默认一致） */
@@ -32,7 +48,8 @@ export const LOCAL_WATCHED_PERCENT_THRESHOLD = 90;
  * 读取全部本地观看证据
  */
 export async function loadWatchEvidenceMap(): Promise<MediaWatchEvidenceMap> {
-  return getValue<MediaWatchEvidenceMap>(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE, EMPTY);
+  const map = await getValue<MediaWatchEvidenceMap>(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE, EMPTY);
+  return { ...map };
 }
 
 /**
@@ -46,11 +63,49 @@ export async function getWatchEvidence(code: string): Promise<MediaWatchEvidence
 }
 
 /**
+ * 将底层观看证据解释为统一播放进度列表，供继续观看、备份恢复和 Cloud 同步消费。
+ */
+export async function loadMediaPlaybackProgressList(): Promise<MediaPlaybackProgress[]> {
+  const map = await loadWatchEvidenceMap();
+  return Object.entries(map)
+    .map(([code, evidence]) => watchEvidenceToPlaybackProgress(code, evidence))
+    .filter((item): item is MediaPlaybackProgress => Boolean(item))
+    .sort((a, b) => b.lastPlayedAt - a.lastPlayedAt);
+}
+
+export function watchEvidenceToPlaybackProgress(
+  code: string,
+  evidence: MediaWatchEvidence | null | undefined,
+): MediaPlaybackProgress | null {
+  if (!evidence) return null;
+  const normalizedCode = normalizeCodeKey(code);
+  if (!normalizedCode) return null;
+  const positionSeconds = toNonNegativeNumber(evidence.positionSec) ?? 0;
+  const durationSeconds = toNonNegativeNumber(evidence.durationSec) ?? 0;
+  const percent = Math.max(0, Math.min(100, Number(evidence.percent) || 0));
+  return {
+    source: evidence.source,
+    sourceItemId: resolveSourceItemId(normalizedCode, evidence),
+    code: normalizedCode,
+    positionSeconds,
+    durationSeconds,
+    percent,
+    completed: evidence.watched === true || percent >= LOCAL_WATCHED_PERCENT_THRESHOLD,
+    lastPlayedAt: Number(evidence.lastPlayedAt) || 0,
+    updatedAt: Number(evidence.lastPlayedAt) || 0,
+    pickCode: evidence.pickCode,
+    fileId: evidence.fileId,
+    fileName: evidence.fileName,
+  };
+}
+
+/**
  * 上报/合并播放进度（取较高进度，不降级）
  */
 export async function reportWatchProgress(input: {
   code: string;
   source: MediaWatchEvidenceSource;
+  sourceItemId?: string;
   percent?: number;
   positionSec?: number;
   durationSec?: number;
@@ -87,21 +142,52 @@ export async function reportWatchProgress(input: {
     || nextPercent >= LOCAL_WATCHED_PERCENT_THRESHOLD
     || prev?.watched === true;
 
+  const incomingPosition = toNonNegativeNumber(input.positionSec);
+  const incomingDuration = toNonNegativeNumber(input.durationSec);
+  const prevPosition = toNonNegativeNumber(prev?.positionSec);
+  const prevDuration = toNonNegativeNumber(prev?.durationSec);
+
+  const nextPositionSec = input.forceWatched === true
+    ? (incomingDuration ?? incomingPosition ?? prevPosition)
+    : maxDefined(prevPosition, incomingPosition);
+  const nextDurationSec = maxDefined(prevDuration, incomingDuration);
+
   const next: MediaWatchEvidence = {
     source: input.source,
+    sourceItemId: input.sourceItemId || input.pickCode || input.fileId || prev?.sourceItemId,
     percent: nextPercent,
     watched,
     lastPlayedAt: now,
     pickCode: input.pickCode || prev?.pickCode,
     fileId: input.fileId || prev?.fileId,
     fileName: input.fileName || prev?.fileName,
-    positionSec: input.positionSec ?? prev?.positionSec,
-    durationSec: input.durationSec ?? prev?.durationSec,
+    positionSec: nextPositionSec,
+    durationSec: nextDurationSec,
   };
 
   map[key] = next;
   await setValue(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE, map);
   return next;
+}
+
+function resolveSourceItemId(code: string, evidence: MediaWatchEvidence): string {
+  return (
+    String(evidence.sourceItemId || '').trim()
+    || String(evidence.pickCode || '').trim()
+    || String(evidence.fileId || '').trim()
+    || code
+  );
+}
+
+function toNonNegativeNumber(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+function maxDefined(a: number | undefined, b: number | undefined): number | undefined {
+  if (a == null) return b;
+  if (b == null) return a;
+  return Math.max(a, b);
 }
 
 function normalizeCodeKey(code: string): string {
