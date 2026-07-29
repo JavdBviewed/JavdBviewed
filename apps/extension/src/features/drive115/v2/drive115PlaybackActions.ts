@@ -11,6 +11,7 @@ import {
   type Drive115PlayCandidate,
   type Drive115PlaySessionIntent,
 } from './drive115PlaybackModel';
+import type { Drive115StreamType } from './streamResponse';
 
 /**
  * 按番号/关键字在 115 搜索视频类文件
@@ -59,7 +60,7 @@ export function buildDrive115WebPlayUrl(candidate: Pick<Drive115PlayCandidate, '
  */
 export async function tryResolveDrive115StreamUrl(
   pickCode: string,
-): Promise<{ success: boolean; streamUrl?: string; message?: string }> {
+): Promise<{ success: boolean; streamUrl?: string; streamType?: Drive115StreamType; message?: string }> {
   const pick = String(pickCode || '').trim();
   if (!pick) return { success: false, message: '缺少 pick_code' };
   try {
@@ -73,7 +74,7 @@ export async function tryResolveDrive115StreamUrl(
       pickCode: pick,
     });
     if (ret.success && ret.streamUrl) {
-      return { success: true, streamUrl: ret.streamUrl };
+      return { success: true, streamUrl: ret.streamUrl, streamType: ret.streamType || 'auto' };
     }
     return { success: false, message: ret.message || '取流失败' };
   } catch (e) {
@@ -93,6 +94,7 @@ export async function resolveDrive115PlayTarget(
   defaultCandidate: Drive115PlayCandidate | null;
   webPlayUrl: string | null;
   streamUrl?: string;
+  streamType?: Drive115StreamType;
   message?: string;
 }> {
   if (preset?.pickCode) {
@@ -117,6 +119,7 @@ export async function resolveDrive115PlayTarget(
       defaultCandidate: candidate,
       webPlayUrl: buildDrive115WebPlayUrl(candidate),
       streamUrl: stream.streamUrl,
+      streamType: stream.streamType,
       message: stream.streamUrl ? '已获取播放地址' : stream.message,
     };
   }
@@ -124,9 +127,11 @@ export async function resolveDrive115PlayTarget(
   const session = await searchDrive115PlayCandidates(query);
   const def = pickDefaultPlayCandidate(session.candidates);
   let streamUrl: string | undefined;
+  let streamType: Drive115StreamType | undefined;
   if (def?.pickCode) {
     const stream = await tryResolveDrive115StreamUrl(def.pickCode);
     streamUrl = stream.streamUrl;
+    streamType = stream.streamType;
     if (streamUrl) {
       session.streamUrl = streamUrl;
       session.status = 'ready';
@@ -139,6 +144,7 @@ export async function resolveDrive115PlayTarget(
     defaultCandidate: def,
     webPlayUrl: def ? buildDrive115WebPlayUrl(def) : null,
     streamUrl,
+    streamType,
     message: session.message,
   };
 }

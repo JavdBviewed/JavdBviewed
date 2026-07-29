@@ -26,27 +26,49 @@ const NFO_EXT = /\.nfo$/i;
 const COVER_NAME_HINT =
   /^(poster|cover|folder|thumb|fanart)(\.|$)/i;
 
+function firstStringField(raw: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = raw[key];
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
 function itemName(raw: Record<string, unknown>): string {
-  return String(raw.fn ?? raw.file_name ?? raw.n ?? raw.name ?? '').trim();
+  return firstStringField(raw, ['fn', 'file_name', 'fileName', 'n', 'name']);
 }
 
 function itemFileId(raw: Record<string, unknown>): string {
-  return String(raw.fid ?? raw.file_id ?? '').trim();
+  // 115 的不同列表端点对非视频文件偶尔只给 cid；文件夹会先被 isFolderItem 跳过。
+  return firstStringField(raw, ['fid', 'file_id', 'fileId', 'id', 'cid']);
 }
 
 function itemPickCode(raw: Record<string, unknown>): string {
-  return String(raw.pc ?? raw.pick_code ?? '').trim();
+  return firstStringField(raw, ['pc', 'pick_code', 'pickcode', 'pickCode', 'pcd']);
 }
 
 function itemSize(raw: Record<string, unknown>): number {
-  const n = Number(raw.fs ?? raw.file_size ?? raw.s ?? 0);
+  const n = Number(raw.fs ?? raw.file_size ?? raw.fileSize ?? raw.size ?? raw.s ?? 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+function isTruthyFolderFlag(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  const text = String(value ?? '').trim().toLowerCase();
+  return text === '1' || text === 'true' || text === 'folder' || text === 'dir' || text === 'directory';
 }
 
 function isFolderItem(raw: Record<string, unknown>): boolean {
   const fc = String(raw.fc ?? raw.file_category ?? '').trim();
-  // 0 文件夹；1 文件（文档原文）
-  return fc === '0';
+  // 0 文件夹；1 文件（文档原文）。部分返回会给布尔/文本目录标记。
+  if (fc === '0') return true;
+  return isTruthyFolderFlag(raw.is_dir)
+    || isTruthyFolderFlag(raw.isDir)
+    || isTruthyFolderFlag(raw.is_directory)
+    || isTruthyFolderFlag(raw.isDirectory)
+    || isTruthyFolderFlag(raw.type);
 }
 
 /**

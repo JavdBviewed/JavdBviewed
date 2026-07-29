@@ -124,10 +124,14 @@ describe('mediaLibraryIndexAdapter', () => {
         percent: 95,
         watched: true,
         lastPlayedAt: 9,
+        positionSec: 60,
+        durationSec: 100,
       },
     });
     expect(merged[0].watchState).toBe('watched');
     expect(merged[0].userData?.percent).toBe(95);
+    expect(merged[0].userData?.positionTicks).toBe(600_000_000);
+    expect(merged[0].userData?.runtimeTicks).toBe(1_000_000_000);
   });
 
 

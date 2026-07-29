@@ -3,8 +3,14 @@
  * @description backgroundProxy
  * @module features/drive115
  */
-﻿// src/features/drive115/v2/backgroundProxy.ts
+// src/features/drive115/v2/backgroundProxy.ts
 // 抽离 115 v2 后台代理（解决内容脚本 CORS）
+import {
+  extractStreamUrlFromPlayResponse,
+  inferDrive115StreamType,
+  maskDrive115StreamUrlForLog,
+  type Drive115PlaybackEndpointKind,
+} from './streamResponse';
 
 function logDrive115Proxy(message: string, data?: any): void {
   try {
@@ -347,42 +353,48 @@ export function installDrive115V2Proxy(): void {
               sendResponse({ success: false, message: '缺少 accessToken 或 pickCode' });
               return false;
             }
-            const endpoints = [
-              `${base}/open/video/play?pick_code=${encodeURIComponent(pickCode)}`,
-              `${base}/open/video/play?pickcode=${encodeURIComponent(pickCode)}`,
-              `${base}/open/ufile/downurl?pick_code=${encodeURIComponent(pickCode)}`,
+            const endpoints: Array<{ url: string; kind: Drive115PlaybackEndpointKind; init: () => RequestInit }> = [
+              // ????????????? <video> ???????? CDN MP4?
+              // ?? /open/video/play ?? HLS ?? m3u8 ?? CORS/Referer ?????
+              {
+                url: `${base}/open/ufile/downurl`,
+                kind: 'downurl',
+                init: () => {
+                  const body = new FormData();
+                  body.set('pick_code', pickCode);
+                  return { method: 'POST', body };
+                },
+              },
+              {
+                url: `${base}/open/video/play?pick_code=${encodeURIComponent(pickCode)}`,
+                kind: 'video_play',
+                init: () => ({ method: 'GET' }),
+              },
+              {
+                url: `${base}/open/video/play?pickcode=${encodeURIComponent(pickCode)}`,
+                kind: 'video_play',
+                init: () => ({ method: 'GET' }),
+              },
+              {
+                url: `${base}/open/video/play`,
+                kind: 'video_play',
+                init: () => {
+                  const body = new FormData();
+                  body.set('pick_code', pickCode);
+                  return { method: 'POST', body };
+                },
+              },
             ];
-            const extractUrl = (json: any): string | undefined => {
-              try {
-                // 与 extractStreamUrlFromPlayResponse 保持简单一致
-                const data = json?.data ?? json?.result ?? json;
-                if (typeof data === 'string' && /^https?:\/\//i.test(data)) return data;
-                if (!data || typeof data !== 'object') return undefined;
-                for (const k of ['url', 'video_url', 'down_url', 'download_url', 'src', 'play_url', 'm3u8']) {
-                  const v = (data as any)[k];
-                  if (typeof v === 'string' && /^https?:\/\//i.test(v)) return v;
-                }
-                const vu = (data as any).video_url || (data as any).video_urls;
-                if (vu && typeof vu === 'object') {
-                  const vals = Array.isArray(vu) ? vu : Object.values(vu);
-                  for (const v of vals) {
-                    if (typeof v === 'string' && /^https?:\/\//i.test(v)) return v;
-                    if (v && typeof (v as any).url === 'string' && /^https?:\/\//i.test((v as any).url)) {
-                      return (v as any).url;
-                    }
-                  }
-                }
-              } catch { /* ignore */ }
-              return undefined;
-            };
+
+            const extractUrl = (json: unknown): string | undefined => extractStreamUrlFromPlayResponse(json);
             const tryNext = (idx: number) => {
               if (idx >= endpoints.length) {
                 sendResponse({ success: false, message: '取流接口均不可用' });
                 return;
               }
-              const url = endpoints[idx];
-              fetch(url, {
-                method: 'GET',
+              const endpoint = endpoints[idx];
+              fetch(endpoint.url, {
+                ...endpoint.init(),
                 headers: {
                   Authorization: `Bearer ${accessToken}`,
                   Accept: 'application/json',
@@ -393,7 +405,14 @@ export function installDrive115V2Proxy(): void {
                   const ok = (typeof raw.state === 'boolean' ? raw.state : res.ok) && res.ok;
                   const streamUrl = ok ? extractUrl(raw) : undefined;
                   if (streamUrl) {
-                    sendResponse({ success: true, streamUrl, raw, endpoint: url });
+                    const streamType = inferDrive115StreamType({
+                      url: streamUrl,
+                      raw,
+                      endpointKind: endpoint.kind,
+                      endpoint: endpoint.url,
+                    });
+                    const debugSafeUrl = maskDrive115StreamUrlForLog(streamUrl);
+                    sendResponse({ success: true, streamUrl, streamType, raw, endpoint: endpoint.url, debugSafeUrl });
                     return;
                   }
                   if (idx + 1 < endpoints.length) {
@@ -404,7 +423,7 @@ export function installDrive115V2Proxy(): void {
                     success: false,
                     message: raw?.message || raw?.error || '响应中无播放地址',
                     raw,
-                    endpoint: url,
+                    endpoint: endpoint.url,
                   });
                 })
                 .catch(() => {

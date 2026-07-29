@@ -28,12 +28,22 @@ function normalizeNfoSummary(raw: unknown): ParsedNfoSummary | undefined {
     return out.length ? out : undefined;
   };
   const summary: ParsedNfoSummary = {
+    schemaVersion: typeof r.schemaVersion === 'number' && Number.isFinite(r.schemaVersion)
+      ? Math.floor(r.schemaVersion)
+      : undefined,
     title: str('title'),
+    originalTitle: str('originalTitle'),
+    tagline: str('tagline'),
     plot: str('plot'),
     year: str('year'),
     num: str('num'),
     actors: strArr('actors'),
     studio: str('studio'),
+    publisher: str('publisher'),
+    countryCode: str('countryCode'),
+    contentRating: str('contentRating'),
+    website: str('website'),
+    coverUrl: str('coverUrl'),
     releaseDate: str('releaseDate'),
     genres: strArr('genres'),
     rating: str('rating'),
@@ -41,8 +51,14 @@ function normalizeNfoSummary(raw: unknown): ParsedNfoSummary | undefined {
     director: str('director'),
     series: str('series'),
     posterRef: str('posterRef'),
+    fanartRef: str('fanartRef'),
   };
-  return Object.values(summary).some((v) => v != null) ? summary : undefined;
+  const hasAny =
+    summary.title || summary.originalTitle || summary.tagline || summary.plot || summary.year || summary.num ||
+    summary.actors?.length || summary.studio || summary.publisher || summary.countryCode || summary.contentRating ||
+    summary.website || summary.coverUrl || summary.releaseDate || summary.genres?.length || summary.rating ||
+    summary.runtime || summary.director || summary.series || summary.posterRef || summary.fanartRef;
+  return hasAny ? summary : undefined;
 }
 
 function normalizeStats(raw: unknown): Drive115LibraryIndexStats {

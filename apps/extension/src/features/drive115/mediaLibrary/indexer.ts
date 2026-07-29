@@ -58,6 +58,10 @@ export type IndexDrive115RootsDeps = {
    * 调用方（background）负责串行/防抖写盘；不传则退回「仅收尾落盘」旧行为。
    */
   onPartialState?: (state: Drive115LibraryIndexState) => void | Promise<void>;
+  /** 单次 listFiles 遇到疑似限流时的重试次数（默认 2 次）。 */
+  maxListRetries?: number;
+  /** 限流重试基础等待毫秒数，按 1x/2x 指数退避（默认 1200ms）。 */
+  retryBaseMs?: number;
   /** Test-only rate limit overrides. */
   rootIntervalMs?: number;
   folderIntervalMs?: number;
@@ -66,6 +70,8 @@ export type IndexDrive115RootsDeps = {
 
 const CANCELLED_MESSAGE = '索引已取消';
 const DEFAULT_FLUSH_EVERY_N = 5;
+const DEFAULT_LIST_RETRIES = 2;
+const DEFAULT_RETRY_BASE_MS = 1200;
 const DEFAULT_SCAN_DEPTH = 2;
 const MIN_SCAN_DEPTH = 1;
 const MAX_SCAN_DEPTH = 8;
@@ -76,8 +82,20 @@ function clampScanDepth(raw: number | undefined): number {
   return Math.min(MAX_SCAN_DEPTH, Math.max(MIN_SCAN_DEPTH, parsed));
 }
 
+function isTruthyFolderFlag(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  const text = String(value ?? '').trim().toLowerCase();
+  return text === '1' || text === 'true' || text === 'folder' || text === 'dir' || text === 'directory';
+}
+
 function isFolderItem(raw: Record<string, unknown>): boolean {
-  return String(raw.fc ?? raw.file_category ?? '').trim() === '0';
+  const fc = String(raw.fc ?? raw.file_category ?? '').trim();
+  if (fc === '0') return true;
+  return isTruthyFolderFlag(raw.is_dir)
+    || isTruthyFolderFlag(raw.isDir)
+    || isTruthyFolderFlag(raw.is_directory)
+    || isTruthyFolderFlag(raw.isDirectory)
+    || isTruthyFolderFlag(raw.type);
 }
 
 function folderId(raw: Record<string, unknown>): string {
@@ -205,6 +223,9 @@ export async function indexDrive115Roots(
   });
 
   const flushEveryN = Math.max(1, Math.floor(deps.flushEveryN ?? DEFAULT_FLUSH_EVERY_N));
+  const maxListRetries = Math.max(0, Math.floor(deps.maxListRetries ?? DEFAULT_LIST_RETRIES));
+  const retryBaseMs = Math.max(0, Math.floor(deps.retryBaseMs ?? DEFAULT_RETRY_BASE_MS));
+  const retrySleep = deps.sleep || ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const stats = { ...DEFAULT_DRIVE115_LIBRARY_STATS, roots: enabledRoots.length };
   const entries: Drive115LibraryEntry[] = [];
   let hardError: string | undefined;
@@ -234,7 +255,15 @@ export async function indexDrive115Roots(
   const recordIndexed = (entry: Drive115LibraryEntry): void => {
     report.indexedTotal += 1;
     if (report.indexed.length < REPORT_LIST_CAP) {
-      report.indexed.push({ code: entry.code, title: entry.title, folderName: entry.folderName });
+      report.indexed.push({
+        code: entry.code,
+        title: entry.title,
+        folderName: entry.folderName,
+        coverFileName: entry.coverFileName,
+        nfoFileName: entry.nfoFileName,
+        hasCoverPickCode: Boolean(entry.coverPickCode),
+        hasNfoPickCode: Boolean(entry.nfoPickCode),
+      });
     } else {
       report.truncatedList = true;
     }
@@ -326,57 +355,91 @@ export async function indexDrive115Roots(
     maybeFlushReport();
   };
 
-  const listRoot = async (cid: string): Promise<Array<Record<string, unknown>> | null> => {
-    if (requestCancel()) return null;
-    await rate.beforeRootCall();
-    if (requestCancel()) return null;
-    stats.apiCalls += 1;
-    const rootList = await deps.listFiles({
-      cid,
-      limit: DRIVE115_INDEX_LIMITS.pageLimit,
-      offset: 0,
-      signal: deps.signal,
-    });
-    if (requestCancel()) return null;
-    if (!rootList.success) {
-      const msg = rootList.message || '列出根目录失败';
-      const limited = isLikelyRateLimitError(msg, rootList.code);
+  const listFilesWithRetry = async (params: {
+    cid: string;
+    name: string;
+    fallbackMessage: string;
+    beforeCall: () => Promise<void>;
+  }): Promise<Awaited<ReturnType<ListFilesFn>> | null> => {
+    for (let attempt = 0; ; attempt += 1) {
+      if (requestCancel()) return null;
+      await params.beforeCall();
+      if (requestCancel()) return null;
+      stats.apiCalls += 1;
+
+      let result: Awaited<ReturnType<ListFilesFn>>;
+      try {
+        result = await deps.listFiles({
+          cid: params.cid,
+          limit: DRIVE115_INDEX_LIMITS.pageLimit,
+          offset: 0,
+          signal: deps.signal,
+        });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const limited = isLikelyRateLimitError(msg);
+        if (rate.markFailure(msg, limited)) {
+          hardError = rate.getTripReason();
+          return null;
+        }
+        if (!limited || attempt >= maxListRetries) throw e;
+        const waitMs = retryBaseMs * (2 ** attempt);
+        emitProgress(`115 接口繁忙，${Math.ceil(waitMs / 1000)} 秒后重试：${params.name}`);
+        if (requestCancel()) return null;
+        if (waitMs > 0) await retrySleep(waitMs);
+        continue;
+      }
+
+      if (requestCancel()) return null;
+      if (result.success) {
+        rate.markSuccess();
+        return result;
+      }
+
+      const msg = result.message || params.fallbackMessage;
+      const limited = isLikelyRateLimitError(msg, result.code);
       if (rate.markFailure(msg, limited)) {
         hardError = rate.getTripReason();
         return null;
       }
+      if (!limited || attempt >= maxListRetries) return result;
+
+      const waitMs = retryBaseMs * (2 ** attempt);
+      emitProgress(`115 接口繁忙，${Math.ceil(waitMs / 1000)} 秒后重试：${params.name}`);
+      if (requestCancel()) return null;
+      if (waitMs > 0) await retrySleep(waitMs);
+    }
+  };
+
+  const listRoot = async (cid: string): Promise<Array<Record<string, unknown>> | null> => {
+    const rootList = await listFilesWithRetry({
+      cid,
+      name: `根目录 ${cid}`,
+      fallbackMessage: '列出根目录失败',
+      beforeCall: () => rate.beforeRootCall(),
+    });
+    if (!rootList || hardError) return null;
+    if (!rootList.success) {
       stats.skipped += 1;
       recordSkip(cid, cid, 'list_failed');
       return null;
     }
-    rate.markSuccess();
     return (rootList.data || []) as Array<Record<string, unknown>>;
   };
 
   const listFolder = async (cid: string, name: string): Promise<ListedFolder | null> => {
-    if (requestCancel()) return null;
-    await rate.beforeFolderCall();
-    if (requestCancel()) return null;
-    stats.apiCalls += 1;
-    const fileList = await deps.listFiles({
+    const fileList = await listFilesWithRetry({
       cid,
-      limit: DRIVE115_INDEX_LIMITS.pageLimit,
-      offset: 0,
-      signal: deps.signal,
+      name,
+      fallbackMessage: `列出文件夹失败：${name}`,
+      beforeCall: () => rate.beforeFolderCall(),
     });
-    if (requestCancel()) return null;
+    if (!fileList || hardError) return null;
     if (!fileList.success) {
-      const msg = fileList.message || `列出文件夹失败：${name}`;
-      const limited = isLikelyRateLimitError(msg, fileList.code);
-      if (rate.markFailure(msg, limited)) {
-        hardError = rate.getTripReason();
-        return null;
-      }
       stats.skipped += 1;
       recordSkip(name, cid, 'list_failed');
       return null;
     }
-    rate.markSuccess();
     return {
       cid,
       name,

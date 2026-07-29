@@ -20,6 +20,29 @@ describe('classifyFolderEntries', () => {
     expect(classifyFileKind('readme.txt')).toBe('other');
   });
 
+  it('maps alternate 115 list fields for cover and nfo files', () => {
+    const result = classifyFolderEntries([
+      { file_category: '1', fileId: 'v1', fileName: '736DW-278.mp4', file_size: '1000', pickCode: 'video-pick' },
+      { file_category: '1', id: 'c1', fileName: 'poster.jpg', size: '10', pickcode: 'cover-pick' },
+      { file_category: '1', file_id: 'n1', file_name: '736DW-278.nfo', file_size: '2', pcd: 'nfo-pick' },
+    ]);
+
+    expect(result.videos[0]).toMatchObject({
+      fileId: 'v1',
+      fileName: '736DW-278.mp4',
+      fileSize: 1000,
+      pickCode: 'video-pick',
+    });
+    expect(result.covers[0]).toMatchObject({
+      fileId: 'c1',
+      pickCode: 'cover-pick',
+    });
+    expect(result.nfos[0]).toMatchObject({
+      fileId: 'n1',
+      pickCode: 'nfo-pick',
+    });
+  });
+
   it('skips folders and maps list fields', () => {
     const result = classifyFolderEntries([
       { fc: '0', cid: 'dir1', fn: 'ABC-123' },
@@ -35,6 +58,17 @@ describe('classifyFolderEntries', () => {
     expect(result.videos[0].pickCode).toBe('p1');
   });
 
+  it('keeps metadata files when 115 only returns cid plus pick_code for file identity', () => {
+    const result = classifyFolderEntries([
+      { file_category: '1', fid: 'v1', fn: 'MAAN-879.mp4', fs: 1000, pc: 'video-pick' },
+      { file_category: '1', cid: 'cover-cid', fn: 'poster.jpg', s: 10, pick_code: 'cover-pick' },
+      { file_category: '1', cid: 'nfo-cid', fn: 'MAAN-879.nfo', s: 2, pick_code: 'nfo-pick' },
+    ]);
+
+    expect(result.videos[0]).toMatchObject({ fileId: 'v1', pickCode: 'video-pick' });
+    expect(result.covers[0]).toMatchObject({ fileId: 'cover-cid', pickCode: 'cover-pick' });
+    expect(result.nfos[0]).toMatchObject({ fileId: 'nfo-cid', pickCode: 'nfo-pick' });
+  });
   it('picks largest video and poster-named cover', () => {
     const videos = [
       { fileId: '1', fileName: 'a.mp4', fileSize: 100, pickCode: 'a', kind: 'video' as const },

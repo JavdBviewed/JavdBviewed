@@ -130,6 +130,9 @@ export async function getOrFetchSessionResult<T>(
     resolveRun = resolve;
     rejectRun = reject;
   });
+  // 占位 Promise 只用于其它并发调用复用结果；没有并发等待者时，
+  // fetcher 失败也不应在测试/页面里留下未处理 rejection?
+  run.catch(() => undefined);
   inflight.set(key, run);
 
   try {

@@ -9,7 +9,7 @@ import { mediaLog } from '../../embyLibrary/mediaLibraryLogger';
 import { getDrive115V2Service, type Drive115V2FileListResponse } from '../v2';
 import type { ExtensionSettings } from '../../../types';
 import { indexDrive115Roots } from './indexer';
-import { parseNfoSummary } from './parseEntryMeta';
+import { NFO_SUMMARY_SCHEMA_VERSION, parseNfoSummary } from './parseEntryMeta';
 import { loadDrive115LibraryState, saveDrive115LibraryState } from './store';
 import type {
   Drive115IndexProgressSnapshot,
@@ -503,7 +503,7 @@ export function handleDrive115MediaLibraryResolveNfo(
         sendResponse({ success: false, message: '未找到对应索引条目' });
         return;
       }
-      if (entry.nfoSummary) {
+      if ((entry.nfoSummary?.schemaVersion || 0) >= NFO_SUMMARY_SCHEMA_VERSION) {
         sendResponse({ success: true, summary: entry.nfoSummary, cached: true });
         return;
       }

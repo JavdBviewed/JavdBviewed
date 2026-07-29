@@ -6,6 +6,14 @@
 import { getSettings, saveSettings } from '../../../utils/storage';
 import { describe115Error } from './errorCodes';
 import { addLogV2 } from './logs';
+import {
+  extractStreamUrlFromPlayResponse as extractDrive115StreamUrlFromPlayResponse,
+  inferDrive115StreamType,
+  maskDrive115StreamUrlForLog,
+  type Drive115PlaybackEndpointKind,
+  type Drive115StreamType,
+} from './streamResponse';
+import { emitDrive115TokenRefreshEvent } from './tokenRefreshEvents';
 
 /**
  * drive115v2: 基于 access_token/refresh_token 的新版 115 服务骨架
@@ -248,7 +256,10 @@ class Drive115V2Service {
             try {
               chrome.runtime.sendMessage(
                 { type: 'drive115.get_quota_info_v2', payload: { accessToken: token, baseUrl: base } },
-                (resp) => resolve(resp)
+                (resp) => {
+                  const err = chrome.runtime?.lastError;
+                  resolve(err ? undefined : resp);
+                }
               );
             } catch { resolve(undefined); }
           });
@@ -442,7 +453,8 @@ class Drive115V2Service {
    * Headers: Content-Type: application/x-www-form-urlencoded
    * Body: refresh_token=<token>
    */
-  async refreshToken(refreshToken: string): Promise<{ success: boolean; message?: string; token?: TokenPair; raw?: any }> {
+  async refreshToken(refreshToken: string, opts?: { source?: 'auto' | 'manual' }): Promise<{ success: boolean; message?: string; token?: TokenPair; raw?: any }> {
+    const eventSource = opts?.source || 'manual';
     try {
       const rt = (refreshToken || '').trim();
       if (!rt) return { success: false, message: '缺少 refresh_token' };
@@ -456,10 +468,12 @@ class Drive115V2Service {
       if (rtStatus === 'invalid' || rtStatus === 'expired') {
         const lastError = drv.v2RefreshTokenLastError || 'refresh_token 已失效';
         await addLogV2({ timestamp: Date.now(), level: 'warn', message: `跳过刷新：${lastError}` });
+        emitDrive115TokenRefreshEvent({ phase: 'blocked', source: eventSource, message: `${lastError}，请重新授权` });
         return { success: false, message: `${lastError}，请重新授权` };
       }
 
       await addLogV2({ timestamp: Date.now(), level: 'info', message: '开始刷新 access_token（v2）' });
+      emitDrive115TokenRefreshEvent({ phase: 'start', source: eventSource });
 
       // 优先通过后台代理，避免内容脚本 CORS
       let json: any | undefined;
@@ -472,7 +486,10 @@ class Drive115V2Service {
                   type: 'drive115.refresh_token_v2',
                   payload: { refreshToken: rt },
                 },
-                (resp) => resolve(resp)
+                (resp) => {
+                  const err = chrome.runtime?.lastError;
+                  resolve(err ? undefined : resp);
+                }
               );
             } catch {
               resolve(undefined);
@@ -485,6 +502,7 @@ class Drive115V2Service {
 
               // 更新 refresh_token 状态
               await this.updateRefreshTokenStatus(bgResp.raw);
+              emitDrive115TokenRefreshEvent({ phase: 'error', source: eventSource, message: msg });
 
               return { success: false, message: msg, raw: bgResp.raw };
             }
@@ -510,6 +528,7 @@ class Drive115V2Service {
         if (!res.ok) {
           const msg = `刷新 access_token 网络错误: ${res.status} ${res.statusText}`;
           await addLogV2({ timestamp: Date.now(), level: 'warn', message: msg });
+          emitDrive115TokenRefreshEvent({ phase: 'error', source: eventSource, message: msg });
           return { success: false, message: msg };
         }
         json = await res.json().catch(() => ({} as any));
@@ -528,6 +547,7 @@ class Drive115V2Service {
 
         // 更新 refresh_token 状态
         await this.updateRefreshTokenStatus(json);
+        emitDrive115TokenRefreshEvent({ phase: 'error', source: eventSource, message: msg });
 
         return { success: false, message: msg, raw: json };
       }
@@ -560,10 +580,12 @@ class Drive115V2Service {
         await saveSettings(newSettings);
       } catch {}
       await addLogV2({ timestamp: Date.now(), level: 'info', message: `刷新 access_token 成功并已持久化（expires_in=${expiresIn ?? '未知'}）` });
+      emitDrive115TokenRefreshEvent({ phase: 'success', source: eventSource, expiresIn });
       return { success: true, token, raw: json };
     } catch (e: any) {
       const msg = describe115Error(e) || e?.message || '刷新失败';
       await addLogV2({ timestamp: Date.now(), level: 'error', message: `刷新 access_token 异常：${msg}` });
+      emitDrive115TokenRefreshEvent({ phase: 'error', source: eventSource, message: msg });
       return { success: false, message: msg };
     }
   }
@@ -674,15 +696,21 @@ class Drive115V2Service {
     if (!autoRefresh) {
       const msg = 'access_token 已过期且未开启自动刷新（v2）';
       await addLogV2({ timestamp: Date.now(), level: 'warn', message: msg });
+      emitDrive115TokenRefreshEvent({ phase: 'blocked', source: 'auto', message: msg });
       return { success: false, message: msg };
     }
 
-    if (!refreshToken) return { success: false, message: '缺少 refresh_token，无法自动刷新' };
+    if (!refreshToken) {
+      const msg = '缺少 refresh_token，无法自动刷新';
+      emitDrive115TokenRefreshEvent({ phase: 'blocked', source: 'auto', message: msg });
+      return { success: false, message: msg };
+    }
 
     // 检查 refresh_token 状态
     if (rtStatus === 'invalid' || rtStatus === 'expired') {
       const lastError = drv.v2RefreshTokenLastError || 'refresh_token 已失效';
       await addLogV2({ timestamp: Date.now(), level: 'warn', message: `无法自动刷新：${lastError}` });
+      emitDrive115TokenRefreshEvent({ phase: 'blocked', source: 'auto', message: `${lastError}，请重新授权` });
       return { success: false, message: `${lastError}，请重新授权` };
     }
 
@@ -698,6 +726,7 @@ class Drive115V2Service {
     if (count2h >= maxPer2h) {
       const msg = `2小时内自动刷新次数已达上限（${maxPer2h} 次），请稍后再试`;
       await addLogV2({ timestamp: Date.now(), level: 'warn', message: `自动刷新被2小时上限限制：${msg}` });
+      emitDrive115TokenRefreshEvent({ phase: 'blocked', source: 'auto', message: msg });
       return { success: false, message: msg };
     }
 
@@ -707,6 +736,7 @@ class Drive115V2Service {
       const mins = Math.ceil(remain / 60);
       const msg = `距离上次自动刷新不足最小间隔（${cfgMinMin}分钟），请稍后再试（剩余约 ${mins} 分钟）`;
       await addLogV2({ timestamp: Date.now(), level: 'warn', message: `自动刷新被限频：${msg}` });
+      emitDrive115TokenRefreshEvent({ phase: 'blocked', source: 'auto', message: msg });
       return { success: false, message: msg };
     }
 
@@ -714,6 +744,7 @@ class Drive115V2Service {
     let ret: { success: boolean; message?: string; token?: TokenPair; raw?: any };
     if (this.refreshingPromise) {
       await addLogV2({ timestamp: Date.now(), level: 'debug', message: '发现正在进行中的刷新任务，复用 Promise（v2）' });
+      emitDrive115TokenRefreshEvent({ phase: 'reuse', source: 'auto', reused: true });
       ret = await this.refreshingPromise;
     } else {
       await addLogV2({ timestamp: Date.now(), level: 'info', message: 'access_token 已过期，开始自动刷新（v2）' });
@@ -721,7 +752,7 @@ class Drive115V2Service {
       const latestSettings = await getSettings();
       const latestRt = ((latestSettings?.drive115 as any)?.v2RefreshToken || '').trim() || refreshToken;
 
-      this.refreshingPromise = this.refreshToken(latestRt);
+      this.refreshingPromise = this.refreshToken(latestRt, { source: 'auto' });
       try {
         ret = await this.refreshingPromise;
       } finally {
@@ -732,6 +763,7 @@ class Drive115V2Service {
     if (!ret.success || !ret.token) {
       const msg = ret.message || '刷新失败';
       await addLogV2({ timestamp: Date.now(), level: 'error', message: `自动刷新 access_token 失败：${msg}` });
+      emitDrive115TokenRefreshEvent({ phase: 'error', source: 'auto', message: msg });
       return { success: false, message: msg };
     }
 
@@ -1469,7 +1501,10 @@ class Drive115V2Service {
                 type: 'drive115.delete_files_v2',
                 payload: { accessToken: token, fileIds: ids, baseUrl: base },
               },
-              (resp) => resolve(resp),
+              (resp) => {
+                const err = chrome.runtime?.lastError;
+                resolve(err ? undefined : resp);
+              },
             );
           } catch {
             resolve(undefined);
@@ -1529,8 +1564,10 @@ class Drive115V2Service {
     success: boolean;
     message?: string;
     streamUrl?: string;
+    streamType?: Drive115StreamType;
     raw?: any;
     endpoint?: string;
+    debugSafeUrl?: string;
   }> {
     const token = (params.accessToken || '').trim();
     const pickCode = String(params.pickCode || '').trim();
@@ -1548,7 +1585,10 @@ class Drive115V2Service {
                 type: 'drive115.video_play_v2',
                 payload: { accessToken: token, pickCode, baseUrl: base },
               },
-              (resp) => resolve(resp),
+              (resp) => {
+                const err = chrome.runtime?.lastError;
+                resolve(err ? undefined : resp);
+              },
             );
           } catch {
             resolve(undefined);
@@ -1559,25 +1599,54 @@ class Drive115V2Service {
             success: !!bgResp.success,
             message: bgResp.message,
             streamUrl: bgResp.streamUrl,
+            streamType: bgResp.streamType,
             raw: bgResp.raw,
             endpoint: bgResp.endpoint,
+            debugSafeUrl: bgResp.debugSafeUrl,
           };
         }
       }
     } catch { /* fall through */ }
 
-    const endpoints = [
-      `${base}/open/video/play?pick_code=${encodeURIComponent(pickCode)}`,
-      `${base}/open/video/play?pickcode=${encodeURIComponent(pickCode)}`,
-      `${base}/open/ufile/downurl?pick_code=${encodeURIComponent(pickCode)}`,
+    const endpoints: Array<{ url: string; kind: Drive115PlaybackEndpointKind; init: () => RequestInit }> = [
+      // ????????????? <video> ???????? CDN MP4?
+      // ?? /open/video/play ?? HLS ?? m3u8 ?? CORS/Referer ?????
+      {
+        url: `${base}/open/ufile/downurl`,
+        kind: 'downurl',
+        init: () => {
+          const body = new FormData();
+          body.set('pick_code', pickCode);
+          return { method: 'POST', body };
+        },
+      },
+      {
+        url: `${base}/open/video/play?pick_code=${encodeURIComponent(pickCode)}`,
+        kind: 'video_play',
+        init: () => ({ method: 'GET' }),
+      },
+      {
+        url: `${base}/open/video/play?pickcode=${encodeURIComponent(pickCode)}`,
+        kind: 'video_play',
+        init: () => ({ method: 'GET' }),
+      },
+      {
+        url: `${base}/open/video/play`,
+        kind: 'video_play',
+        init: () => {
+          const body = new FormData();
+          body.set('pick_code', pickCode);
+          return { method: 'POST', body };
+        },
+      },
     ];
 
     let lastMsg = '获取播放地址失败';
-    for (const url of endpoints) {
+    for (const endpoint of endpoints) {
       try {
-        await addLogV2({ timestamp: Date.now(), level: 'debug', message: `尝试取流：${url.split('?')[0]}` });
-        const res = await fetch(url, {
-          method: 'GET',
+        await addLogV2({ timestamp: Date.now(), level: 'debug', message: `尝试取流：${endpoint.url.split('?')[0]}` });
+        const res = await fetch(endpoint.url, {
+          ...endpoint.init(),
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/json',
@@ -1591,8 +1660,19 @@ class Drive115V2Service {
         }
         const streamUrl = extractStreamUrlFromPlayResponse(json);
         if (streamUrl) {
-          await addLogV2({ timestamp: Date.now(), level: 'info', message: '获取播放地址成功' });
-          return { success: true, streamUrl, raw: json, endpoint: url };
+          const streamType = inferDrive115StreamType({
+            url: streamUrl,
+            raw: json,
+            endpointKind: endpoint.kind,
+            endpoint: endpoint.url,
+          });
+          const debugSafeUrl = maskDrive115StreamUrlForLog(streamUrl);
+          await addLogV2({
+            timestamp: Date.now(),
+            level: 'info',
+            message: `获取播放地址成功：endpoint=${endpoint.url.split('?')[0]}，type=${streamType}，url=${debugSafeUrl}`,
+          });
+          return { success: true, streamUrl, streamType, raw: json, endpoint: endpoint.url, debugSafeUrl };
         }
         lastMsg = '响应中无可用播放地址';
       } catch (e: any) {
@@ -1616,14 +1696,17 @@ class Drive115V2Service {
     if (!pickCode) return { success: false, message: '缺少 pick_code' };
 
     const base = await this.getBaseURL();
-    const url = `${base}/open/ufile/downurl?pick_code=${encodeURIComponent(pickCode)}`;
+    const url = `${base}/open/ufile/downurl`;
+    const body = new FormData();
+    body.set('pick_code', pickCode);
     try {
       const res = await fetch(url, {
-        method: 'GET',
+        method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
         },
+        body,
       });
       const json: any = await res.json().catch(() => ({} as any));
       const ok = typeof json.state === 'boolean' ? json.state : res.ok;
@@ -1644,38 +1727,14 @@ class Drive115V2Service {
 }
 
 /**
- * 从 115 播放/下载接口响应中尽量提取可播 URL
+ * 从 115 播放/下载接口响应中尽量提取可播 URL。
  */
-export function extractStreamUrlFromPlayResponse(json: any): string | undefined {
-  if (!json || typeof json !== 'object') return undefined;
-  const data = json.data ?? json.result ?? json;
-  if (typeof data === 'string' && /^https?:\/\//i.test(data)) return data;
-  if (!data || typeof data !== 'object') return undefined;
-
-  const directKeys = ['url', 'video_url', 'down_url', 'download_url', 'src', 'play_url', 'm3u8'];
-  for (const k of directKeys) {
-    const v = (data as any)[k];
-    if (typeof v === 'string' && /^https?:\/\//i.test(v)) return v;
-  }
-
-  // video_url 可能是对象 { "1": "https..." } 或数组
-  const vu = (data as any).video_url || (data as any).video_urls;
-  if (vu && typeof vu === 'object') {
-    if (Array.isArray(vu)) {
-      for (const item of vu) {
-        if (typeof item === 'string' && /^https?:\/\//i.test(item)) return item;
-        if (item && typeof item.url === 'string' && /^https?:\/\//i.test(item.url)) return item.url;
-      }
-    } else {
-      const vals = Object.values(vu);
-      for (const v of vals) {
-        if (typeof v === 'string' && /^https?:\/\//i.test(v)) return v;
-      }
-    }
-  }
-
-  return undefined;
+export function extractStreamUrlFromPlayResponse(json: unknown): string | undefined {
+  return extractDrive115StreamUrlFromPlayResponse(json);
 }
+
+export { inferDrive115StreamType, maskDrive115StreamUrlForLog };
+export type { Drive115StreamType, Drive115PlaybackEndpointKind };
 
 export function getDrive115V2Service(): Drive115V2Service {
   return Drive115V2Service.getInstance();

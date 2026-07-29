@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file indexer.test.ts
  * @description 浅层索引器单测
  * @module features/drive115/mediaLibrary
@@ -57,6 +57,73 @@ describe('indexDrive115Roots', () => {
     expect(listFiles).toHaveBeenCalled();
   });
 
+  it('persists cover and nfo pick codes from alternate 115 list fields', async () => {
+    const listFiles = vi.fn(async ({ cid }: { cid: string }) => {
+      if (cid === 'root') {
+        return { success: true, data: [{ fc: '0', cid: 'f1', fn: '736DW-278' }] };
+      }
+      return {
+        success: true,
+        data: [
+          { file_category: '1', fileId: 'v1', fileName: '736DW-278.mp4', file_size: '1000', pickCode: 'video-pick' },
+          { file_category: '1', id: 'c1', fileName: 'poster.jpg', size: '10', pickcode: 'cover-pick' },
+          { file_category: '1', file_id: 'n1', file_name: '736DW-278.nfo', file_size: '2', pcd: 'nfo-pick' },
+        ],
+      };
+    });
+
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles,
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+      now: () => 1_700_000_000_000,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.state.entries[0]).toMatchObject({
+      code: '736DW-278',
+      pickCode: 'video-pick',
+      coverFileId: 'c1',
+      coverPickCode: 'cover-pick',
+      nfoFileId: 'n1',
+      nfoPickCode: 'nfo-pick',
+    });
+  });
+
+  it('records cover and nfo names in the index report for diagnostics', async () => {
+    const listFiles = vi.fn(async ({ cid }: { cid: string }) => {
+      if (cid === 'root') {
+        return { success: true, data: [{ fc: '0', cid: 'movie', fn: 'MAAN-879' }] };
+      }
+      return {
+        success: true,
+        data: [
+          { fc: '1', fid: 'video', fn: 'MAAN-879.mp4', fs: 1000, pc: 'video-pick' },
+          { fc: '1', fid: 'poster', fn: 'poster.jpg', fs: 10, pc: 'cover-pick' },
+          { fc: '1', fid: 'nfo', fn: 'MAAN-879.nfo', fs: 2, pc: 'nfo-pick' },
+        ],
+      };
+    });
+
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles,
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+      now: () => 1_700_000_000_000,
+    });
+
+    expect(result.report?.indexed[0]).toMatchObject({
+      code: 'MAAN-879',
+      coverFileName: 'poster.jpg',
+      nfoFileName: 'MAAN-879.nfo',
+      hasCoverPickCode: true,
+      hasNfoPickCode: true,
+    });
+  });
   it('flushes partial state incrementally as entries are indexed', async () => {
     const listFiles = vi.fn(async ({ cid }: { cid: string }) => {
       if (cid === 'root') {
@@ -419,6 +486,44 @@ describe('indexDrive115Roots', () => {
     expect(calls).toBeGreaterThanOrEqual(3);
   });
 
+
+  it('retries rate-limited folder listing before skipping the movie folder', async () => {
+    const sleeps: number[] = [];
+    const progressMessages: string[] = [];
+    let folderAttempts = 0;
+    const listFiles = vi.fn(async ({ cid }: { cid: string }) => {
+      if (cid === 'root') return { success: true, data: [{ fc: '0', cid: 'movie', fn: 'SSIS-777' }] };
+      folderAttempts += 1;
+      if (folderAttempts < 3) {
+        return { success: false, code: 429, message: '请求过于频繁，请稍后再试' };
+      }
+      return { success: true, data: [{ fc: '1', fid: 'v1', fn: 'SSIS-777.mp4', fs: 10, pc: 'pick-video' }] };
+    });
+
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      onProgress: (p) => {
+        if (p.message) progressMessages.push(p.message);
+      },
+      maxListRetries: 2,
+      retryBaseMs: 100,
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+      now: () => 1_700_000_000_000,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.state.entries).toHaveLength(1);
+    expect(result.state.entries[0].code).toBe('SSIS-777');
+    expect(result.state.stats.skipped).toBe(0);
+    expect(folderAttempts).toBe(3);
+    expect(sleeps).toEqual([100, 200]);
+    expect(progressMessages.some((m) => m.includes('115 接口繁忙') && m.includes('重试'))).toBe(true);
+  });
 
   it('passes abort signal to list calls and treats signal abort as cancellation', async () => {
     const controller = new AbortController();

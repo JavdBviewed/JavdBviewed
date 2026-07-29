@@ -92,6 +92,14 @@ export type Drive115IndexIndexedItem = {
   code: string;
   title: string;
   folderName: string;
+  /** 索引时识别到的封面文件名；为空表示该目录未发现图片元数据 */
+  coverFileName?: string;
+  /** 索引时识别到的 NFO 文件名；为空表示该目录未发现 NFO */
+  nfoFileName?: string;
+  /** 封面文件是否带可下载 pick_code */
+  hasCoverPickCode?: boolean;
+  /** NFO 文件是否带可下载 pick_code */
+  hasNfoPickCode?: boolean;
 };
 
 /** 本轮索引结果明细报告（写入独立 storage，供设置页详情窗口下钻） */

@@ -1094,30 +1094,6 @@ button.ml-resume-card {
   color: var(--color-fg-muted, var(--text-secondary));
 }
 
-.ml-115-player {
-  margin-top: 10px;
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid var(--color-border, var(--border-primary));
-  background: #0b1220;
-}
-
-.ml-115-player-title {
-  padding: 8px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #e2e8f0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ml-115-video {
-  display: block;
-  width: 100%;
-  max-height: 360px;
-  background: #000;
-}
 
 /* 115 清理清单 */
 .ml-cleanup-panel {

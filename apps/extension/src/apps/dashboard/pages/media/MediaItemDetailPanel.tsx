@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file MediaItemDetailPanel.tsx
  * @description 扩展内媒体详情（Emby 风格完整布局：章节 / 合集 / 相似 / 媒体流）
  * @module apps/dashboard/pages/media
@@ -16,6 +16,7 @@ import {
 } from '../../../../features/embyLibrary/domain/embyItemDetail';
 import { LazyRemoteImage } from '../../../../ui/patterns/LazyRemoteImage/LazyRemoteImage';
 import { sendRuntimeMessage } from '../../../../platform/browser/runtimeMessages';
+import { NFO_SUMMARY_SCHEMA_VERSION } from '../../../../features/drive115/mediaLibrary/parseEntryMeta';
 import { resolveDrive115CoverUrl } from './drive115CoverCache';
 import type { MediaBrowseItem } from './mediaBrowseModel';
 import { resolveCoverImage, sourceLabel } from './mediaBrowseModel';
@@ -36,6 +37,32 @@ export type MediaItemDetailPanelProps = {
   onWatchChanged?: () => void;
 };
 
+type DetailInfoRow = readonly [string, string, 'normal' | 'wide'];
+
+function appendDetailInfoRow(
+  rows: DetailInfoRow[],
+  label: string,
+  value: string | undefined | null,
+  variant: 'normal' | 'wide' = 'normal',
+): void {
+  const text = String(value || '').trim();
+  if (!text) return;
+  rows.push([label, text, variant]);
+}
+
+function joinLimited(values: string[] | undefined, limit = 16): string {
+  if (!values?.length) return '';
+  const visible = values.map((item) => String(item || '').trim()).filter(Boolean);
+  if (!visible.length) return '';
+  return `${visible.slice(0, limit).join('\u3001')}${visible.length > limit ? '\u2026' : ''}`;
+}
+
+function formatMinutesText(value?: string): string {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return /\u5206\u949f|\u5206|minute|min/i.test(text) ? text : `${text} \u5206\u949f`;
+}
+
 /**
  * 本地详情弹窗内容：先用列表缓存，再拉 Emby 完整 Item 字段
  */
@@ -55,6 +82,7 @@ export function MediaItemDetailPanel({
     item.nfoSummary ?? null,
   );
   const [nfo115Loading, setNfo115Loading] = useState(false);
+  const [nfo115Error, setNfo115Error] = useState('');
   const [d115Cover, setD115Cover] = useState('');
 
   const fallbackCover = resolveCoverImage(item, 'poster');
@@ -112,8 +140,13 @@ export function MediaItemDetailPanel({
     let cancelled = false;
     setNfo115(item.nfoSummary ?? null);
     setNfo115Loading(false);
+    setNfo115Error('');
     if (item.source !== '115') return undefined;
-    if (item.nfoSummary || !item.libraryKey) return undefined;
+    if ((item.nfoSummary?.schemaVersion || 0) >= NFO_SUMMARY_SCHEMA_VERSION) return undefined;
+    if (!item.libraryKey) {
+      setNfo115Error('缺少索引 key，无法解析 NFO');
+      return undefined;
+    }
     setNfo115Loading(true);
     void sendRuntimeMessage({
       type: 'DRIVE115_MEDIA_LIBRARY_RESOLVE_NFO',
@@ -121,10 +154,22 @@ export function MediaItemDetailPanel({
     })
       .then((resp: unknown) => {
         if (cancelled) return;
-        const r = resp as { success?: boolean; summary?: typeof nfo115 } | undefined;
-        if (r?.success && r.summary) setNfo115(r.summary);
+        const r = resp as {
+          success?: boolean;
+          summary?: typeof nfo115;
+          message?: string;
+          error?: string;
+        } | undefined;
+        if (r?.success && r.summary) {
+          setNfo115(r.summary);
+          setNfo115Error('');
+          return;
+        }
+        setNfo115Error(r?.message || r?.error || '该条目没有可解析的 NFO');
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        if (!cancelled) setNfo115Error(e instanceof Error ? e.message : String(e || 'NFO 解析失败'));
+      })
       .finally(() => {
         if (!cancelled) setNfo115Loading(false);
       });
@@ -147,13 +192,46 @@ export function MediaItemDetailPanel({
   }, [item.source, item.coverPickCode]);
 
   const title = detail?.name || nfo115?.title || item.title;
+  const nfoOriginalTitle =
+    item.source === '115' && nfo115?.originalTitle && nfo115.originalTitle !== title
+      ? nfo115.originalTitle
+      : '';
   const primary = detail?.primaryImageUrl || d115Cover || fallbackCover.url;
-  const backdrop = detail?.backdropImageUrl;
+  const backdrop = detail?.backdropImageUrl || (item.source === '115' ? primary : undefined);
   const people = detail?.people || [];
   const chapters = detail?.chapters || [];
   const similar = detail?.similar || [];
   const collections = detail?.collections || [];
   const mediaStreams = detail?.mediaStreams || [];
+  const embyDirectors = people
+    .filter((p) => /director/i.test(p.type || ''))
+    .map((d) => d.name)
+    .filter(Boolean)
+    .join('、');
+  const detailTags = joinLimited(detail?.tags);
+  const infoRows: DetailInfoRow[] = [];
+  if (item.source === '115') {
+    appendDetailInfoRow(infoRows, '\u539f\u540d', nfoOriginalTitle, 'wide');
+    appendDetailInfoRow(infoRows, '\u756a\u53f7', nfo115?.num);
+    appendDetailInfoRow(infoRows, '\u6f14\u5458', joinLimited(nfo115?.actors), 'wide');
+    appendDetailInfoRow(infoRows, '\u7c7b\u522b', joinLimited(nfo115?.genres), 'wide');
+    appendDetailInfoRow(infoRows, '\u5bfc\u6f14', nfo115?.director);
+    appendDetailInfoRow(infoRows, '\u7cfb\u5217', nfo115?.series);
+    appendDetailInfoRow(infoRows, '\u7247\u5546', nfo115?.studio);
+    appendDetailInfoRow(infoRows, '\u53d1\u884c', nfo115?.publisher);
+    appendDetailInfoRow(infoRows, '\u53d1\u884c\u65e5\u671f', nfo115?.releaseDate);
+    appendDetailInfoRow(infoRows, '\u5e74\u4efd', nfo115?.year);
+    appendDetailInfoRow(infoRows, '\u65f6\u957f', formatMinutesText(nfo115?.runtime));
+    appendDetailInfoRow(infoRows, '\u8bc4\u5206', nfo115?.rating ? `\u2605 ${nfo115.rating}` : '');
+    appendDetailInfoRow(infoRows, '\u5206\u7ea7', nfo115?.contentRating);
+    appendDetailInfoRow(infoRows, '\u5730\u533a', nfo115?.countryCode);
+    appendDetailInfoRow(infoRows, '\u7ad9\u70b9', nfo115?.website, 'wide');
+  } else {
+    appendDetailInfoRow(infoRows, '\u5bfc\u6f14', embyDirectors);
+    appendDetailInfoRow(infoRows, '\u7c7b\u578b', joinLimited(detail?.genres), 'wide');
+    appendDetailInfoRow(infoRows, '\u7247\u5546', joinLimited(detail?.studios));
+    appendDetailInfoRow(infoRows, '\u6807\u7b7e', detailTags, 'wide');
+  }
 
   const togglePlayed = async () => {
     if (!item.itemId || !item.serverUrl || playedBusy) return;
@@ -307,6 +385,9 @@ export function MediaItemDetailPanel({
             {item.source === '115' && nfo115?.studio ? (
               <span className="ml-detail-pill">{nfo115.studio}</span>
             ) : null}
+            {item.source === '115' && nfo115?.publisher && nfo115.publisher !== nfo115.studio ? (
+              <span className="ml-detail-pill">发行 {nfo115.publisher}</span>
+            ) : null}
             <span className="ml-detail-pill">
               {watchLabel}
               {pct ? ` · ${pct}` : ''}
@@ -341,7 +422,9 @@ export function MediaItemDetailPanel({
           {loading ? <p className="ml-detail-status">正在从媒体服务器拉取详情…</p> : null}
           {error ? <p className="ml-detail-error">{error}（仍可播放）</p> : null}
 
-          {detail?.tagline ? <p className="ml-detail-tagline">{detail.tagline}</p> : null}
+          {detail?.tagline || nfo115?.tagline ? (
+            <p className="ml-detail-tagline">{detail?.tagline || nfo115?.tagline}</p>
+          ) : null}
         </div>
       </div>
 
@@ -351,63 +434,29 @@ export function MediaItemDetailPanel({
           <p className="ml-detail-overview">{detail?.overview || nfo115?.plot}</p>
         ) : item.source === '115' && nfo115Loading ? (
           <p className="ml-detail-overview">正在解析 NFO…</p>
+        ) : item.source === '115' && nfo115Error ? (
+          <p className="ml-detail-status">NFO 状态：{nfo115Error}</p>
         ) : null}
 
-        {item.source === '115' && nfo115?.actors?.length ? (
-          <p className="ml-detail-line">
-            <span className="ml-detail-k">演员</span>
-            {nfo115.actors.join('、')}
-          </p>
-        ) : null}
-        {item.source === '115' && nfo115?.genres?.length ? (
-          <p className="ml-detail-line">
-            <span className="ml-detail-k">类别</span>
-            {nfo115.genres.join('、')}
-          </p>
-        ) : null}
-        {item.source === '115' && nfo115?.director ? (
-          <p className="ml-detail-line">
-            <span className="ml-detail-k">导演</span>
-            {nfo115.director}
-          </p>
-        ) : null}
-        {item.source === '115' && nfo115?.series ? (
-          <p className="ml-detail-line">
-            <span className="ml-detail-k">系列</span>
-            {nfo115.series}
-          </p>
+        {item.source === '115' && !item.coverPickCode ? (
+          <p className="ml-detail-status">封面状态：索引中没有发现封面文件</p>
         ) : null}
 
-        {people.filter((p) => /director/i.test(p.type || '')).length > 0 ? (
-          <p className="ml-detail-line">
-            <span className="ml-detail-k">导演</span>
-            {people
-              .filter((p) => /director/i.test(p.type || ''))
-              .map((d) => d.name)
-              .join('、')}
-          </p>
-        ) : null}
-
-        {detail?.genres?.length ? (
-          <p className="ml-detail-line">
-            <span className="ml-detail-k">类型</span>
-            {detail.genres.join('、')}
-          </p>
-        ) : null}
-
-        {detail?.studios?.length ? (
-          <p className="ml-detail-line">
-            <span className="ml-detail-k">片商</span>
-            {detail.studios.join('、')}
-          </p>
-        ) : null}
-
-        {detail?.tags?.length ? (
-          <p className="ml-detail-line">
-            <span className="ml-detail-k">标签</span>
-            {detail.tags.slice(0, 16).join('、')}
-            {detail.tags.length > 16 ? '…' : ''}
-          </p>
+        {infoRows.length > 0 ? (
+          <div className="ml-detail-info-card" data-detail-info-card="1">
+            <h4>{item.source === '115' ? 'NFO 信息' : '基础信息'}</h4>
+            <dl className="ml-detail-info-grid">
+              {infoRows.map(([label, value, variant]) => (
+                <div
+                  key={`${label}:${value}`}
+                  className={`ml-detail-info-row${variant === 'wide' ? ' ml-detail-info-row-wide' : ''}`}
+                >
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         ) : null}
 
         {(mediaStreams.length > 0

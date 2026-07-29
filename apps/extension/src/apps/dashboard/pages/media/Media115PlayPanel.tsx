@@ -1,6 +1,6 @@
-﻿/**
+/**
  * @file Media115PlayPanel.tsx
- * @description 媒体库内 115 播放面板：搜索候选 + 扩展内 video 取流 + 进度写回本地证据
+ * @description 媒体库内 115 播放入口：搜索候选 + 取流后交给通用 MediaPlayer 弹窗播放
  * @module apps/dashboard/pages/media
  */
 import { useEffect, useRef, useState } from 'react';
@@ -12,30 +12,51 @@ import {
   buildDrive115WebPlayUrl,
 } from '../../../../features/drive115/v2/drive115PlaybackActions';
 import type { Drive115PlayCandidate } from '../../../../features/drive115/v2/drive115PlaybackModel';
+import type { Drive115StreamType } from '../../../../features/drive115/v2/streamResponse';
+
+export type Media115ResolvedStream = {
+  query: string;
+  streamUrl: string;
+  streamType?: Drive115StreamType;
+  candidate: Drive115PlayCandidate;
+  webPlayUrl: string | null;
+  message?: string;
+};
 
 export type Media115PlayPanelProps = {
   initialQuery?: string;
   /** 索引已有 pick_code 时优先直通取流，避免全站搜索 */
   initialPickCode?: string;
+  onStreamReady?: (stream: Media115ResolvedStream) => void;
   onClose?: () => void;
 };
 
-function reportEvidence(payload: Record<string, unknown>): void {
-  try {
-    chrome.runtime.sendMessage({ type: 'MEDIA_WATCH_EVIDENCE_REPORT', ...payload }, () => {
-      void chrome.runtime.lastError;
-    });
-  } catch {
-    /* ignore */
-  }
+function emitResolvedStream(params: {
+  query: string;
+  streamUrl: string;
+  candidate: Drive115PlayCandidate;
+  webPlayUrl: string | null;
+  message: string;
+  streamType?: Drive115StreamType;
+  onStreamReady?: (stream: Media115ResolvedStream) => void;
+}): void {
+  params.onStreamReady?.({
+    query: params.query,
+    streamUrl: params.streamUrl,
+    streamType: params.streamType || 'auto',
+    candidate: params.candidate,
+    webPlayUrl: params.webPlayUrl,
+    message: params.message,
+  });
 }
 
 /**
- * 115 播放：优先扩展内 <video>；取流失败回退 115 网页；播放进度写入本地真实观看证据
+ * 115 播放入口：面板只负责搜索/取流，实际视频统一交给 MediaPlayer 弹窗。
  */
 export function Media115PlayPanel({
   initialQuery = '',
   initialPickCode = '',
+  onStreamReady,
   onClose,
 }: Media115PlayPanelProps) {
   const [query, setQuery] = useState(initialQuery);
@@ -43,9 +64,7 @@ export function Media115PlayPanel({
   const [message, setMessage] = useState('');
   const [candidates, setCandidates] = useState<Drive115PlayCandidate[]>([]);
   const [webUrl, setWebUrl] = useState<string | null>(null);
-  const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [active, setActive] = useState<Drive115PlayCandidate | null>(null);
-  const lastReportAt = useRef(0);
   const autoPickRef = useRef('');
 
   useEffect(() => {
@@ -63,18 +82,27 @@ export function Media115PlayPanel({
       parentId: '',
       sha1: '',
     };
+    const nextWebUrl = buildDrive115WebPlayUrl(candidate);
     setActive(candidate);
     setCandidates([candidate]);
-    setWebUrl(buildDrive115WebPlayUrl(candidate));
+    setWebUrl(nextWebUrl);
     setLoading(true);
     setMessage('索引命中 pick_code，正在取流…');
     try {
       const stream = await tryResolveDrive115StreamUrl(code);
       if (stream.success && stream.streamUrl) {
-        setStreamUrl(stream.streamUrl);
-        setMessage('已通过索引 pick_code 获取播放地址');
+        const okMessage = '已通过索引 pick_code 获取播放地址，正在打开播放器…';
+        setMessage(okMessage);
+        emitResolvedStream({
+          query: query.trim() || candidate.fileName || code,
+          streamUrl: stream.streamUrl,
+          streamType: stream.streamType,
+          candidate,
+          webPlayUrl: nextWebUrl,
+          message: okMessage,
+          onStreamReady,
+        });
       } else {
-        setStreamUrl(null);
         setMessage(stream.message || '取流失败，可改用搜索或网页播放');
       }
     } finally {
@@ -95,19 +123,27 @@ export function Media115PlayPanel({
     setLoading(true);
     setMessage('正在 115 搜索…');
     setWebUrl(null);
-    setStreamUrl(null);
     setActive(null);
     try {
       const ret = await resolveDrive115PlayTarget(query.trim());
       setCandidates(ret.session.candidates);
       setWebUrl(ret.webPlayUrl);
-      setStreamUrl(ret.streamUrl || null);
       if (ret.defaultCandidate) setActive(ret.defaultCandidate);
-      setMessage(
-        ret.streamUrl
-          ? '已获取播放地址，可在下方扩展内播放'
-          : ret.message || ret.session.message || (ret.success ? '完成（可网页播放）' : '失败'),
-      );
+      if (ret.streamUrl && ret.defaultCandidate) {
+        const okMessage = '已获取播放地址，正在打开播放器…';
+        setMessage(okMessage);
+        emitResolvedStream({
+          query: query.trim(),
+          streamUrl: ret.streamUrl,
+          streamType: ret.streamType,
+          candidate: ret.defaultCandidate,
+          webPlayUrl: ret.webPlayUrl,
+          message: okMessage,
+          onStreamReady,
+        });
+        return;
+      }
+      setMessage(ret.message || ret.session.message || (ret.success ? '完成（可网页播放）' : '失败'));
     } catch (e) {
       setCandidates([]);
       setMessage(e instanceof Error ? e.message : String(e));
@@ -117,17 +153,26 @@ export function Media115PlayPanel({
   };
 
   const playCandidate = async (c: Drive115PlayCandidate) => {
+    const nextWebUrl = buildDrive115WebPlayUrl(c);
     setActive(c);
-    setWebUrl(buildDrive115WebPlayUrl(c));
+    setWebUrl(nextWebUrl);
     setLoading(true);
     setMessage('正在解析播放地址…');
     try {
       const stream = await tryResolveDrive115StreamUrl(c.pickCode);
       if (stream.success && stream.streamUrl) {
-        setStreamUrl(stream.streamUrl);
-        setMessage('已获取播放地址');
+        const okMessage = '已获取播放地址，正在打开播放器…';
+        setMessage(okMessage);
+        emitResolvedStream({
+          query: query.trim() || c.fileName || c.pickCode,
+          streamUrl: stream.streamUrl,
+          streamType: stream.streamType,
+          candidate: c,
+          webPlayUrl: nextWebUrl,
+          message: okMessage,
+          onStreamReady,
+        });
       } else {
-        setStreamUrl(null);
         setMessage(stream.message || '取流失败，请用网页播放');
       }
     } finally {
@@ -138,43 +183,6 @@ export function Media115PlayPanel({
   const openWeb = (url: string | null) => {
     if (!url) return;
     window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
-  const onTimeUpdate = (ev: React.SyntheticEvent<HTMLVideoElement>) => {
-    const video = ev.currentTarget;
-    const now = Date.now();
-    if (now - lastReportAt.current < 8000) return;
-    lastReportAt.current = now;
-    const duration = video.duration;
-    const current = video.currentTime;
-    if (!Number.isFinite(duration) || duration <= 0) return;
-    const percent = Math.min(100, (current / duration) * 100);
-    reportEvidence({
-      code: query.trim(),
-      source: 'drive115',
-      percent,
-      positionSec: current,
-      durationSec: duration,
-      pickCode: active?.pickCode,
-      fileId: active?.fileId,
-      fileName: active?.fileName,
-    });
-  };
-
-  const onEnded = (ev: React.SyntheticEvent<HTMLVideoElement>) => {
-    const video = ev.currentTarget;
-    reportEvidence({
-      code: query.trim(),
-      source: 'drive115',
-      percent: 100,
-      positionSec: video.duration,
-      durationSec: video.duration,
-      pickCode: active?.pickCode,
-      fileId: active?.fileId,
-      fileName: active?.fileName,
-      forceWatched: true,
-    });
-    setMessage('播放结束，已记录本地真实观看证据');
   };
 
   return (
@@ -188,7 +196,7 @@ export function Media115PlayPanel({
         ) : null}
       </div>
       <p className="ml-115-hint">
-        优先使用片库索引的 pick_code 直通取流；无索引时再搜索。进度写入本地「真实观看」证据（≠ 原站已看）。
+        优先使用片库索引的 pick_code 直通取流；无索引时再搜索。取流成功后使用媒体库通用播放器弹窗播放，进度写入本地「真实观看」证据（≠ 原站已看）。
       </p>
       <div className="ml-115-row">
         <Input
@@ -208,22 +216,6 @@ export function Media115PlayPanel({
       </div>
       {message ? <p className="ml-115-msg">{message}</p> : null}
 
-      {streamUrl ? (
-        <div className="ml-115-player">
-          <div className="ml-115-player-title">{active?.fileName || '正在播放'}</div>
-          <video
-            className="ml-115-video"
-            key={streamUrl}
-            src={streamUrl}
-            controls
-            playsInline
-            preload="metadata"
-            onTimeUpdate={onTimeUpdate}
-            onEnded={onEnded}
-          />
-        </div>
-      ) : null}
-
       {candidates.length > 0 ? (
         <ul className="ml-115-list">
           {candidates.map((c) => (
@@ -231,7 +223,8 @@ export function Media115PlayPanel({
               <button type="button" className="ml-115-file" onClick={() => void playCandidate(c)}>
                 <span className="ml-115-fname">{c.fileName || c.pickCode}</span>
                 <span className="ml-115-fmeta">
-                  {c.fileSize ? `${Math.round(c.fileSize / 1024 / 1024)} MB` : ''} · 取流 / 网页
+                  {c.fileSize ? `${Math.round(c.fileSize / 1024 / 1024)} MB` : ''}
+                  {active?.pickCode === c.pickCode ? ' · 当前候选' : ''} · 取流 / 网页
                 </span>
               </button>
             </li>

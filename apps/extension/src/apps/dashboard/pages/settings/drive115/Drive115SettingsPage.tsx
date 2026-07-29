@@ -194,6 +194,11 @@ function Drive115IndexReportModal({
                   <span className="truncate text-[var(--color-fg-muted)]">
                     {item.title || item.folderName}
                   </span>
+                  <span className="ml-auto shrink-0 text-[11px] text-[var(--color-fg-muted)]">
+                    封面 {item.coverFileName ? `${item.coverFileName}${item.hasCoverPickCode ? '' : '（无 pick_code）'}` : '未发现'}
+                    {' · '}
+                    NFO {item.nfoFileName ? `${item.nfoFileName}${item.hasNfoPickCode ? '' : '（无 pick_code）'}` : '未发现'}
+                  </span>
                 </div>
               ))}
             </div>
@@ -871,9 +876,11 @@ export function Drive115SettingsPage() {
         await toast(msg, 'success');
       } else if (resp?.success) {
         const stats = resp.stats || resp.state?.stats;
-        const detail = stats
-          ? `入库 ${stats.indexed || 0}，跳过 ${stats.skipped || 0}，API ${stats.apiCalls || 0}`
-          : resp.message || '完成';
+        const detail = resp?.keptPrevious
+          ? resp.message || '未发现可入库影片，已保留上一份索引'
+          : stats
+            ? `入库 ${stats.indexed || 0}，跳过 ${stats.skipped || 0}，API ${stats.apiCalls || 0}`
+            : resp.message || '完成';
         setIndexProgressText(detail);
         await toast(`115 索引完成：${detail}`, 'success');
       } else {

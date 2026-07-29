@@ -45,6 +45,8 @@ export type MediaPlayerProps = {
   /** 清晰度 / 源切换 */
   qualities?: MediaPlayerQuality[];
   className?: string;
+  /** video.crossOrigin：默认给 Emby 字幕用；115 CDN 直链传 null，避免 CORS 阻断播放。 */
+  crossOrigin?: 'anonymous' | 'use-credentials' | null;
   onClose?: () => void;
   onProgress?: (info: { currentTime: number; duration: number; ended: boolean }) => void;
 };
@@ -104,6 +106,7 @@ export function MediaPlayer({
   subtitles,
   qualities,
   className,
+  crossOrigin = 'anonymous',
   onClose,
   onProgress,
 }: MediaPlayerProps) {
@@ -118,6 +121,7 @@ export function MediaPlayer({
   const highlightsRef = useRef(highlights);
   const subtitlesRef = useRef(subtitles);
   const qualitiesRef = useRef(qualities);
+  const crossOriginRef = useRef(crossOrigin);
   const startAppliedRef = useRef(false);
   const [error, setError] = useState('');
 
@@ -130,6 +134,7 @@ export function MediaPlayer({
   highlightsRef.current = highlights;
   subtitlesRef.current = subtitles;
   qualitiesRef.current = qualities;
+  crossOriginRef.current = crossOrigin;
 
   // 字幕/清晰度列表变化时不整实例重建（避免进度丢失）；仅 src 变化重建
   // 但首次创建时要带上列表 —— 用 ref 在 mount 时读取
@@ -151,6 +156,10 @@ export function MediaPlayer({
     const subTracks = (subtitlesRef.current || []).filter((s) => s.url && s.label);
     const defaultSub = subTracks.find((s) => s.default) || subTracks[0];
     const qualityList = (qualitiesRef.current || []).filter((q) => q.url && q.html);
+    const videoAttrs: Partial<HTMLVideoElement> = { playsInline: true };
+    if (crossOriginRef.current) {
+      videoAttrs.crossOrigin = crossOriginRef.current;
+    }
 
     const art = new Artplayer({
       container: el,
@@ -186,11 +195,7 @@ export function MediaPlayer({
       lock: true,
       fastForward: true,
       autoOrientation: false,
-      moreVideoAttr: {
-        playsInline: true,
-        // 字幕跨域：Emby 字幕 URL 带 token，尽量允许 track
-        crossOrigin: 'anonymous',
-      } as Partial<HTMLVideoElement>,
+      moreVideoAttr: videoAttrs,
       lang: 'zh-cn',
       ...(hl.length ? { highlight: hl } : {}),
       ...(defaultSub
@@ -389,7 +394,7 @@ export function MediaPlayer({
       }
       artRef.current = null;
     };
-  }, [src, poster, streamType]);
+  }, [src, poster, streamType, crossOrigin]);
 
   useEffect(() => {
     const art = artRef.current;

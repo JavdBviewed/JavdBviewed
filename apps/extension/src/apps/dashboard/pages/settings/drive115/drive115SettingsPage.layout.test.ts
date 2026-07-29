@@ -1,4 +1,4 @@
-/**
+﻿/**
  * @file drive115SettingsPage.layout.test.ts
  * @description Drive115 settings page layout regression tests
  * @module apps/dashboard/pages/settings/drive115
@@ -80,4 +80,16 @@ describe('Drive115SettingsPage layout', () => {
     expect(pageSource).toContain('SKIP_REASON_LABELS');
   });
 
+  it('uses keptPrevious response message instead of previous stats in the final toast', () => {
+    expect(pageSource).toContain('resp?.keptPrevious');
+    expect(pageSource).toContain('未发现可入库影片，已保留上一份索引');
+    expect(pageSource).toMatch(/resp\?\.keptPrevious[\s\S]*resp\.message[\s\S]*stats/);
+  });
+});
+
+it('renders indexed metadata diagnostics in the report modal', () => {
+  expect(pageSource).toContain('封面');
+  expect(pageSource).toContain('NFO');
+  expect(pageSource).toContain('hasCoverPickCode');
+  expect(pageSource).toContain('hasNfoPickCode');
 });

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file MediaLibraryPage.tsx
  * @description 媒体库浏览页：筛选 + 堆叠轮播 + 网格；优先展示本地 Emby/Jellyfin 索引
  * @module apps/dashboard/pages/media
@@ -48,7 +48,7 @@ import {
   resolveWatchProgressPercent,
   watchStateLabel,
 } from './mediaLibraryIndexAdapter';
-import { Media115PlayPanel } from './Media115PlayPanel';
+import { Media115PlayPanel, type Media115ResolvedStream } from './Media115PlayPanel';
 import { Media115CleanupPanel } from './Media115CleanupPanel';
 import { MediaItemDetailPanel } from './MediaItemDetailPanel';
 import { enqueueWatchedForCleanup } from '../../../../features/drive115/v2/drive115CleanupActions';
@@ -70,6 +70,50 @@ const WATCH_FILTERS: { id: MediaWatchFilter; label: string }[] = [
 ];
 
 const EMPTY_STATE: EmbyLibraryState = { entries: {}, updatedAt: 0 };
+
+type Drive115PlayerStream = {
+  code: string;
+  title: string;
+  streamUrl: string;
+  streamType?: 'mp4' | 'm3u8' | 'auto';
+  pickCode?: string;
+  fileId?: string;
+  fileName?: string;
+  webPlayUrl?: string;
+  startTimeSeconds?: number;
+};
+
+function reportDrive115Evidence(payload: Record<string, unknown>): void {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
+    chrome.runtime.sendMessage({ type: 'MEDIA_WATCH_EVIDENCE_REPORT', ...payload }, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
+function reportDrive115StreamProgress(
+  stream: Drive115PlayerStream,
+  opts: { positionSeconds: number; durationSeconds?: number; forceWatched?: boolean },
+): void {
+  const duration = Math.max(0, Number(opts.durationSeconds) || 0);
+  const position = Math.max(0, Number(opts.positionSeconds) || 0);
+  if (duration <= 0) return;
+  const percent = opts.forceWatched ? 100 : Math.min(100, (position / duration) * 100);
+  reportDrive115Evidence({
+    code: stream.code,
+    source: 'drive115',
+    percent,
+    positionSec: opts.forceWatched ? duration : position,
+    durationSec: duration,
+    pickCode: stream.pickCode,
+    fileId: stream.fileId,
+    fileName: stream.fileName || stream.title,
+    forceWatched: Boolean(opts.forceWatched),
+  });
+}
 
 /**
  * 同步结果 toast（与设置页 embySettingsActions 同一套 dashboard showMessage）
@@ -100,10 +144,11 @@ export function MediaLibraryPage() {
   const [indexUpdatedAt, setIndexUpdatedAt] = useState(0);
   const [loadingIndex, setLoadingIndex] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState('');
+  const [librarySyncMessage, setLibrarySyncMessage] = useState('');
   const [show115Panel, setShow115Panel] = useState(false);
   const [play115Query, setPlay115Query] = useState('');
   const [play115PickCode, setPlay115PickCode] = useState('');
+  const play115StartTimeRef = useRef(0);
   const [showCleanupPanel, setShowCleanupPanel] = useState(false);
   const [cleanupRefreshKey, setCleanupRefreshKey] = useState(0);
   /** Emby/JF 扩展内播放：用设置里 token 取流，不依赖浏览器网页登录 */
@@ -124,8 +169,14 @@ export function MediaLibraryPage() {
   } | null>(null);
   const embyStreamRef = useRef(embyStream);
   embyStreamRef.current = embyStream;
+  const [drive115Stream, setDrive115Stream] = useState<Drive115PlayerStream | null>(null);
+  const drive115StreamRef = useRef(drive115Stream);
+  drive115StreamRef.current = drive115Stream;
   const lastProgressReportRef = useRef(0);
   const lastProgressPosRef = useRef(0);
+  const drive115LastProgressReportRef = useRef(0);
+  const drive115LastProgressPosRef = useRef(0);
+  const drive115LastProgressDurationRef = useRef(0);
   const [detailItem, setDetailItem] = useState<MediaBrowseItem | null>(null);
 
   // 兼容旧 hash 子路径
@@ -214,9 +265,10 @@ export function MediaLibraryPage() {
   // 卡片/工具栏打开 115 播放面板
   useEffect(() => {
     const onOpen = (ev: Event) => {
-      const detail = (ev as CustomEvent<{ query?: string; pickCode?: string }>).detail;
+      const detail = (ev as CustomEvent<{ query?: string; pickCode?: string; startTimeSeconds?: number }>).detail;
       setPlay115Query(String(detail?.query || query || '').trim());
       setPlay115PickCode(String(detail?.pickCode || '').trim());
+      play115StartTimeRef.current = Math.max(0, Number(detail?.startTimeSeconds) || 0);
       setShow115Panel(true);
     };
     window.addEventListener('media-open-115-play', onOpen as EventListener);
@@ -353,7 +405,7 @@ export function MediaLibraryPage() {
     },
   ) => {
     if (!it.itemId || !it.serverUrl) return;
-    setSyncMessage('正在解析播放地址…');
+    void toast('正在解析播放地址…', 'info');
     try {
       const resp = await new Promise<{
         success?: boolean;
@@ -387,7 +439,7 @@ export function MediaLibraryPage() {
         }
       });
       if (!resp.success || !resp.streamUrl) {
-        setSyncMessage(resp.error || '解析播放地址失败');
+        await toast(resp.error || '解析播放地址失败', 'error');
         return;
       }
       // 续看起点：显式 opts > 条目 resumePositionSeconds
@@ -423,11 +475,88 @@ export function MediaLibraryPage() {
         subCount ? `${subCount} 条字幕` : '',
         qCount > 1 ? `${qCount} 档清晰度` : '',
       ].filter(Boolean);
-      setSyncMessage(bits.length ? bits.join(' · ') : '');
+      if (bits.length) {
+        void toast(bits.join(' · '), 'info');
+      }
     } catch (e) {
-      setSyncMessage(e instanceof Error ? e.message : String(e));
+      await toast(e instanceof Error ? e.message : String(e), 'error');
     }
   };
+
+
+  const handleDrive115StreamReady = useCallback((stream: Media115ResolvedStream) => {
+    const candidate = stream.candidate;
+    const code = stream.query || candidate.fileName || candidate.pickCode;
+    const start = Math.max(0, Number(play115StartTimeRef.current) || 0);
+    drive115LastProgressReportRef.current = 0;
+    drive115LastProgressPosRef.current = start;
+    drive115LastProgressDurationRef.current = 0;
+    setShow115Panel(false);
+    setDrive115Stream({
+      code,
+      title: candidate.fileName || stream.query || candidate.pickCode,
+      streamUrl: stream.streamUrl,
+      streamType: stream.streamType || 'auto',
+      pickCode: candidate.pickCode,
+      fileId: candidate.fileId,
+      fileName: candidate.fileName,
+      ...(stream.webPlayUrl ? { webPlayUrl: stream.webPlayUrl } : {}),
+      ...(start > 2 ? { startTimeSeconds: start } : {}),
+    });
+    play115StartTimeRef.current = 0;
+    if (stream.message) {
+      void toast(stream.message, 'info');
+    }
+  }, []);
+
+  const reportDrive115PlayerProgress = useCallback((info: {
+    currentTime: number;
+    duration: number;
+    ended: boolean;
+  }) => {
+    const cur = drive115StreamRef.current;
+    if (!cur) return;
+    const position = Math.max(0, Number(info.currentTime) || 0);
+    const duration = Math.max(
+      0,
+      Number(info.duration) || drive115LastProgressDurationRef.current || 0,
+    );
+    drive115LastProgressPosRef.current = position;
+    if (duration > 0) drive115LastProgressDurationRef.current = duration;
+    if (duration <= 0) return;
+
+    if (info.ended) {
+      reportDrive115StreamProgress(cur, {
+        positionSeconds: duration,
+        durationSeconds: duration,
+        forceWatched: true,
+      });
+      void reloadCatalogFromStorage();
+      return;
+    }
+
+    const now = Date.now();
+    if (now - drive115LastProgressReportRef.current < 8000) return;
+    drive115LastProgressReportRef.current = now;
+    reportDrive115StreamProgress(cur, {
+      positionSeconds: position,
+      durationSeconds: duration,
+    });
+  }, []);
+
+  const closeDrive115Player = useCallback(() => {
+    const streamSnap = drive115StreamRef.current;
+    const position = drive115LastProgressPosRef.current;
+    const duration = drive115LastProgressDurationRef.current;
+    setDrive115Stream(null);
+    if (streamSnap && duration > 0) {
+      reportDrive115StreamProgress(streamSnap, {
+        positionSeconds: position,
+        durationSeconds: duration,
+      });
+    }
+    void reloadCatalogFromStorage();
+  }, []);
 
   /**
    * 触发后台媒体库同步后刷新本地目录
@@ -435,7 +564,7 @@ export function MediaLibraryPage() {
   const handleSyncLibrary = async () => {
     if (syncing) return;
     setSyncing(true);
-    setSyncMessage('正在同步媒体库…');
+    setLibrarySyncMessage('正在同步媒体库…');
     try {
       const response = await new Promise<{
         success?: boolean;
@@ -480,7 +609,7 @@ export function MediaLibraryPage() {
           .slice(0, 2)
           .join('；');
         const message = failDetail ? `${parts.join('，')}（${failDetail}）` : parts.join('，');
-        setSyncMessage(message);
+        setLibrarySyncMessage(message);
         // toast 类型：全成功 success；部分成功 warning；全失败 / 无可同步服务器 error|warning
         if (failed === 0) {
           if (synced === 0) {
@@ -503,13 +632,13 @@ export function MediaLibraryPage() {
           failDetail
           || response.error
           || '同步失败，请到「设置 → Emby/Jellyfin」查看诊断（常见：服务器 502/超时/Key 错误）';
-        setSyncMessage(message);
+        setLibrarySyncMessage(message);
         await toast(message, 'error');
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const full = `同步失败：${message}`;
-      setSyncMessage(full);
+      setLibrarySyncMessage(full);
       await toast(full, 'error');
     } finally {
       setSyncing(false);
@@ -796,6 +925,8 @@ export function MediaLibraryPage() {
               title="打开 115 播放面板"
               onClick={() => {
                 setPlay115Query(query.trim());
+                setPlay115PickCode('');
+                play115StartTimeRef.current = 0;
                 setShow115Panel(true);
               }}
             >
@@ -811,7 +942,7 @@ export function MediaLibraryPage() {
             </button>
           </div>
 
-          {syncMessage ? <span className="ml-sync-msg ml-sync-msg-inline">{syncMessage}</span> : null}
+          {librarySyncMessage ? <span className="ml-sync-msg ml-sync-msg-inline">{librarySyncMessage}</span> : null}
 
           <div className="ml-view-search">
             <Input
@@ -838,7 +969,9 @@ export function MediaLibraryPage() {
               const barPct = pctNum > 0 ? pctNum : 5;
               const pct = pctNum > 0 ? `${pctNum}%` : '';
               const resumeCover = resolveCoverImageUrl(item, 'thumb') || item.coverImageUrl;
-              const canPlay = Boolean(item.itemId && item.serverUrl);
+              const canPlay = item.source === '115'
+                ? Boolean(item.pickCode)
+                : Boolean(item.itemId && item.serverUrl);
               return (
                 <button
                   key={`resume-${item.code}`}
@@ -853,6 +986,13 @@ export function MediaLibraryPage() {
                       0,
                       (Number(item.userData?.positionTicks) || 0) / 10_000_000,
                     );
+                    if (item.source === '115') {
+                      setPlay115Query(item.code || item.title || '');
+                      setPlay115PickCode(item.pickCode || '');
+                      play115StartTimeRef.current = resumeSec > 2 ? resumeSec : 0;
+                      setShow115Panel(true);
+                      return;
+                    }
                     void playEmbyItem(
                       {
                         code: item.code,
@@ -904,13 +1044,22 @@ export function MediaLibraryPage() {
         </section>
       ) : null}
 
-      {show115Panel ? (
-        <Media115PlayPanel
-          initialQuery={play115Query}
-          initialPickCode={play115PickCode}
-          onClose={() => setShow115Panel(false)}
-        />
-      ) : null}
+      <OverlayShell
+        open={show115Panel}
+        title="115 播放"
+        size="xl"
+        windowControls
+        onClose={() => setShow115Panel(false)}
+      >
+        <div data-media-115-play-overlay="1">
+          <Media115PlayPanel
+            initialQuery={play115Query}
+            initialPickCode={play115PickCode}
+            onStreamReady={handleDrive115StreamReady}
+            onClose={() => setShow115Panel(false)}
+          />
+        </div>
+      </OverlayShell>
 
       {showCleanupPanel ? (
         <Media115CleanupPanel
@@ -962,6 +1111,28 @@ export function MediaLibraryPage() {
       </OverlayShell>
 
       <OverlayShell
+        open={Boolean(drive115Stream)}
+        title={drive115Stream ? `\u64ad\u653e \u00b7 ${drive115Stream.code}` : '\u64ad\u653e'}
+        size="full"
+        hideHeader
+        closeOnBackdrop={false}
+        onClose={closeDrive115Player}
+      >
+        {drive115Stream ? (
+          <MediaPlayer
+            title={drive115Stream.code}
+            subtitle={drive115Stream.title}
+            src={drive115Stream.streamUrl}
+            streamType={drive115Stream.streamType || 'auto'}
+            startTimeSeconds={drive115Stream.startTimeSeconds}
+            crossOrigin={null}
+            onClose={closeDrive115Player}
+            onProgress={reportDrive115PlayerProgress}
+          />
+        ) : null}
+      </OverlayShell>
+
+      <OverlayShell
         open={Boolean(detailItem)}
         title={detailItem ? `${detailItem.code} · 详情` : '详情'}
         size="xl"
@@ -978,6 +1149,11 @@ export function MediaLibraryPage() {
                 setDetailItem(null);
                 setPlay115Query(it.code || it.title || '');
                 setPlay115PickCode(it.pickCode || '');
+                play115StartTimeRef.current = Math.max(
+                  0,
+                  Number(opts?.startTimeSeconds)
+                    || (Number(it.userData?.positionTicks) || 0) / 10_000_000,
+                );
                 setShow115Panel(true);
                 return;
               }
