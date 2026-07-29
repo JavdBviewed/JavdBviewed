@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         JAV-JHS
 // @namespace    JAV-JHS
-// @version      3.3.6.025
+// @version      3.3.6.027
 // @author       JAV-JHS
 // @description  Jav-鉴黄师 收藏、屏蔽、标记已下载; 屏蔽标签、屏蔽演员、同步收藏演员、新作品检测; 免VIP查看热播、Top250排行榜、Fc2ppv、可查看所有评论信息、相关清单; 支持云盘备份; 以图识图; 字幕搜索; JavDb|JavBus
 // @license      MIT
@@ -1730,7 +1730,7 @@ window.ImageHoverPreview = class {
             header.className = "console-logger-header";
             const title = document.createElement("div");
             title.className = "console-logger-title";
-            title.textContent = "JHS V3.3.6.025";
+            title.textContent = "JHS V3.3.6.027";
             const controls = document.createElement("div");
             controls.className = "console-logger-controls";
             this.maximizeBtn = document.createElement("button");
@@ -2207,7 +2207,7 @@ class BasePlugin {
     getPageInfo() {
         let carNum2, url, actress, actors, publishTime, currentHref2 = window.location.href;
         if (isJavDb) {
-            carNum2 = $('a[title="複製番號"]').attr("data-clipboard-text");
+            carNum2 = $('a[title="複製番號"], a[title="复制番号"]').attr("data-clipboard-text");
             url = currentHref2.split("?")[0].split("#")[0];
             actress = $(".female").prev().map(((i, el) => $(el).text())).get().join(" ");
             actors = $(".male").prev().map(((i, el) => $(el).text())).get().join(" ");
@@ -3960,6 +3960,9 @@ class BusDetailPagePlugin extends BasePlugin {
             href2 && (href2.startsWith("http://") || href2.startsWith("https://") || href2.startsWith("/")) && $(this).attr("target", "_blank");
         }));
         this.addCopyCarNumBtn();
+        utils.loopDetector((() => void 0 !== window.clog), (() => {
+            this.replaceMgsImages();
+        }));
     }
     addCopyCarNumBtn() {
         let headerSpan = null;
@@ -3996,6 +3999,25 @@ class BusDetailPagePlugin extends BasePlugin {
                 targetSpan.parentNode.insertBefore(copyButton, targetSpan.nextSibling);
             }
         }
+    }
+    replaceMgsImages() {
+        if (!isDetailPage) return;
+        const $links = $("#sample-waterfall a.sample-box[href]");
+        if (0 === $links.length) {
+            clog.error("未找到需要修改 href 的 a.sample-box 元素");
+            return;
+        }
+        let updatedCount = 0;
+        $links.each(((index, element) => {
+            const $a = $(element), oldHref = $a.attr("href");
+            if (oldHref && oldHref.startsWith("https://www.prestige-av.com/images/corner/goods")) {
+                const newHref = oldHref.replace("https://www.prestige-av.com/images/corner/goods", "https://image.mgstage.com/images");
+                $a.attr("href", newHref);
+                clog.log(`成功将 href 从 ${oldHref} 修改为 ${newHref}`);
+                updatedCount++;
+            }
+        }));
+        updatedCount > 0 && show.ok("预览图源已失效, 已变更为Mgstage图源");
     }
 }
 
@@ -8397,18 +8419,16 @@ class Fc2By123AvPlugin extends BasePlugin {
                 $(".tool-box").hide();
             }
             const baseUrl = await this.getBaseUrl(), fetchPromises = pagesToFetch.map((page => {
-                let url = `${baseUrl}/tags/fc2?sort=${this.sortVal}&page=${page}`;
+                let url = `${baseUrl}/makers/fc2?sort=${this.sortVal}&page=${page}`;
                 this.keyword && (url = `${baseUrl}/search?keyword=${this.keyword}`);
                 return gmHttp.get(url);
             })), htmlResults = await Promise.all(fetchPromises);
             let dataList = [];
             for (const html of htmlResults) {
                 let $dom = $(html);
-                $dom.find(".box-item").each(((index, element) => {
-                    const $item = $(element), imgSrc = $item.find("img").attr("data-src");
-                    let carNum2 = $item.find("img").attr("title");
-                    const detailLink = $item.find(".detail a"), link = detailLink.attr("href"), href = baseUrl + (link.startsWith("/") ? link : "/" + link), title = detailLink.text().trim().replace(carNum2 + " - ", "");
-                    carNum2 = carNum2.replace("FC2-PPV", "FC2");
+                $dom.find("main .grid .card").each(((index, element) => {
+                    var _a2, _b, _c;
+                    const $item = $(element), imgSrc = $item.find(".card__img").attr("src"), $cardLink = $item.find(".card__link"), link = $cardLink.attr("href"), safeLink = link.startsWith("/ja") ? link.replace("/ja", "") : link, href = baseUrl + (safeLink.startsWith("/") ? safeLink : "/" + safeLink), carNum2 = null == (_b = null == (_a2 = $cardLink.text().trim().split(" — ")) ? void 0 : _a2[0]) ? void 0 : _b.replace("FC2-PPV", "FC2"), title = null == (_c = $cardLink.text().trim().split(" — ")) ? void 0 : _c[1];
                     dataList.push({
                         imgSrc: imgSrc,
                         carNum: carNum2,
@@ -8429,7 +8449,7 @@ class Fc2By123AvPlugin extends BasePlugin {
             if (0 === dataList.length) {
                 console.log(dataList);
                 show.error("无结果");
-                let errorUrl = `${baseUrl}/dm4/tags/fc2?sort=${this.sortVal}`;
+                let errorUrl = `${baseUrl}/makers/fc2?sort=${this.sortVal}`;
                 this.keyword && (errorUrl = `${baseUrl}/search?keyword=${this.keyword}`);
                 console.error("获取数据失败!", errorUrl);
             }
@@ -8445,7 +8465,7 @@ class Fc2By123AvPlugin extends BasePlugin {
     async open123AvFc2Dialog(carNum2, href) {
         let otherHtml = "";
         await storageManager.getSetting("enableLoadOtherSite", YES) === YES && (otherHtml = '<div class="movie-panel-info fc2-movie-panel-info" style="margin-top:20px"><strong>第三方站点: </strong></div>');
-        let pageHtml = `\n            <div class="movie-detail-container">\n               \x3c!-- <div class="movie-poster-container">\n                    <iframe class="movie-trailer" frameborder="0" allowfullscreen scrolling="no"></iframe>\n                </div>\n                <div class="right-box">--\x3e\n                    <div class="movie-info-container">\n                        <div class="search-loading">加载中...</div>\n                    </div>\n                    \n                    ${otherHtml}\n                    \n                    <div style="margin: 10px 0">\n                        <a id="filterBtn" class="menu-btn" style="background-color:#de3333"><span>🚫 屏蔽</span></a>\n                        <a id="favoriteBtn" class="menu-btn" style="background-color:#25b1dc"><span>⭐ 收藏</span></a>\n                        <a id="hasDownBtn" class="menu-btn" style="background-color:#7bc73b"><span>📥️ 已下载</span></a>\n                        <a id="hasWatchBtn" class="menu-btn" style="background-color:#d7a80c;"><span>🔍 已观看</span></a>\n                        \n                        <a id="search-subtitle-btn" class="menu-btn fr-btn" style="background:linear-gradient(to bottom, #8d5656, rgb(196,159,91))">\n                            <span>字幕 (SubTitleCat)</span>\n                        </a>\n                        <a id="xunLeiSubtitleBtn" class="menu-btn fr-btn" style="background:linear-gradient(to left, #375f7c, #2196F3)">\n                            <span>字幕 (迅雷)</span>\n                        </a>\n                    </div>\n                    <div class="message video-panel" style="margin-top:20px">\n                        <div id="magnets-content" class="magnet-links">\n                        </div>\n                    </div>\n                    <div id="reviews-content">\n                    </div>\n                    <div id="related-content">\n                    </div>\n                    <span id="data-actress" style="display: none"></span>\n               \x3c!-- </div>--\x3e\n            </div>\n        `;
+        let pageHtml = `\n            <div class="movie-detail-container">\n               \x3c!-- <div class="movie-poster-container">\n                    <iframe class="movie-trailer" frameborder="0" allowfullscreen scrolling="no"></iframe>\n                </div>\n                <div class="right-box">--\x3e\n                    <div class="movie-info-container">\n                        <div class="search-loading">加载中...</div>\n                    </div>\n                    \n                    ${otherHtml}\n                    \n                    <div style="margin: 10px 0">\n                        <a id="filterBtn" class="menu-btn" style="background-color:#de3333"><span>🚫 屏蔽</span></a>\n                        <a id="favoriteBtn" class="menu-btn" style="background-color:#25b1dc"><span>⭐ 收藏</span></a>\n                        <a id="hasDownBtn" class="menu-btn" style="background-color:#7bc73b"><span>📥️ 已下载</span></a>\n                        <a id="hasWatchBtn" class="menu-btn" style="background-color:#d7a80c;"><span>🔍 已观看</span></a>\n                        \n                        <a id="search-subtitle-btn" class="menu-btn fr-btn" style="background:linear-gradient(to bottom, #8d5656, rgb(196,159,91))">\n                            <span>字幕 (SubTitleCat)</span>\n                        </a>\n                        <a id="xunLeiSubtitleBtn" class="menu-btn fr-btn" style="background:linear-gradient(to left, #375f7c, #2196F3)">\n                            <span>字幕 (迅雷)</span>\n                        </a>\n                    </div>\n                    <div class="message video-panel" style="margin-top:20px">\n                        <div id="magnets-content" class="magnet-links">\n                        </div>\n                    </div>\n                    <div id="related-content">\n                    </div>\n                    <span id="data-actress" style="display: none"></span>\n               \x3c!-- </div>--\x3e\n            </div>\n        `;
         layer.open({
             type: 1,
             title: carNum2,
