@@ -3,6 +3,8 @@
  * 用于过滤掉没有价值的标签
  */
 
+import type { VideoRecord } from '../../types';
+
 // 无价值标签列表（可配置）
 const MEANINGLESS_TAGS = [
   '是',
@@ -58,4 +60,93 @@ export function filterValueableTags(tags: string[]): string[] {
 export function filterValueableTagStats<T extends { name: string }>(tagStats: T[]): T[] {
   if (!Array.isArray(tagStats)) return [];
   return tagStats.filter(item => isValueableTag(item.name));
+}
+/** 详情页增强来源入口曾被误写入标签，这里集中维护历史数据清理名单。 */
+export const INJECTED_DETAIL_SOURCE_TAGS = ['Wiki', 'xslist', '98堂', '迅雷字幕'] as const;
+
+export interface InjectedSourceTagCleanupResult {
+  record: VideoRecord;
+  changed: boolean;
+  tagsRemoved: number;
+  categoriesRemoved: number;
+  removedTagNames: string[];
+}
+
+function normalizeCleanupTagName(tagName: string): string {
+  return String(tagName || '').trim().toLowerCase();
+}
+
+function removeInjectedSourceNames(values: string[] | undefined, blockedNames: Set<string>): { values: string[] | undefined; removed: number; removedNames: string[] } {
+  if (!Array.isArray(values)) {
+    return { values, removed: 0, removedNames: [] };
+  }
+
+  const nextValues: string[] = [];
+  const removedNames: string[] = [];
+  let removed = 0;
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text && blockedNames.has(normalizeCleanupTagName(text))) {
+      removed += 1;
+      removedNames.push(text);
+      continue;
+    }
+    nextValues.push(value);
+  }
+
+  return { values: nextValues, removed, removedNames };
+}
+
+function uniqueRemovedTagNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const name of names) {
+    const key = normalizeCleanupTagName(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(name);
+  }
+  return result;
+}
+
+/**
+ * 清理单条视频记录中由详情页增强入口误写入的来源标签。
+ *
+ * @param record - 待检查的视频记录
+ * @param nowMs - 写入清理结果时使用的 Unix 毫秒时间戳
+ * @param injectedSourceTags - 允许覆盖的来源污染标签名单，测试或未来迁移可传入
+ * @returns 清理后的记录与移除统计；没有变化时返回原记录引用
+ */
+export function cleanVideoRecordInjectedSourceTags(
+  record: VideoRecord,
+  nowMs: number = Date.now(),
+  injectedSourceTags: readonly string[] = INJECTED_DETAIL_SOURCE_TAGS,
+): InjectedSourceTagCleanupResult {
+  const blockedNames = new Set(injectedSourceTags.map(normalizeCleanupTagName).filter(Boolean));
+  const tags = removeInjectedSourceNames(record.tags, blockedNames);
+  const categories = removeInjectedSourceNames(record.categories, blockedNames);
+  const changed = tags.removed > 0 || categories.removed > 0;
+
+  if (!changed) {
+    return {
+      record,
+      changed: false,
+      tagsRemoved: 0,
+      categoriesRemoved: 0,
+      removedTagNames: [],
+    };
+  }
+
+  return {
+    record: {
+      ...record,
+      tags: tags.values,
+      categories: categories.values,
+      updatedAt: nowMs,
+    },
+    changed: true,
+    tagsRemoved: tags.removed,
+    categoriesRemoved: categories.removed,
+    removedTagNames: uniqueRemovedTagNames([...tags.removedNames, ...categories.removedNames]),
+  };
 }

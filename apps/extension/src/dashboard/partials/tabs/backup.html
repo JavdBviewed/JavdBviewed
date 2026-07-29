@@ -83,5 +83,27 @@
         </div>
       </div>
     </section>
+
+    <section class="backup-section backup-section-maintenance">
+      <div class="backup-section-summary">
+        <div class="backup-section-icon">
+          <i class="fas fa-broom"></i>
+        </div>
+        <div>
+          <h4>数据维护</h4>
+          <p>修复历史版本可能写入的错误来源标签，清理前会先扫描受影响记录。</p>
+        </div>
+      </div>
+
+      <div class="backup-section-body">
+        <div class="backup-action-row">
+          <button id="cleanupInjectedSourceTags" type="button" class="backup-action-btn backup-action-btn-secondary">
+            <i class="fas fa-tags"></i>
+            <span>清理错误来源标签</span>
+          </button>
+        </div>
+        <p class="backup-section-note">会移除 Wiki、xslist、98堂、迅雷字幕等误写入的标签，不会删除番号记录。</p>
+      </div>
+    </section>
   </div>
 </section>

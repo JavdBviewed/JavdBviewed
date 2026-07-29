@@ -11,6 +11,8 @@ const actionMocks = vi.hoisted(() => ({
   showWebDAVRestoreModal: vi.fn(),
   getValue: vi.fn(() => Promise.resolve(0)),
   setValue: vi.fn(() => Promise.resolve()),
+  showConfirm: vi.fn(() => Promise.resolve(true)),
+  dbViewedCleanInjectedSourceTags: vi.fn(),
 }));
 
 vi.mock('../../apps/extension/src/dashboard/logger', () => ({
@@ -23,6 +25,14 @@ vi.mock('../../apps/extension/src/dashboard/ui/toast', () => ({
 
 vi.mock('../../apps/extension/src/dashboard/webdavRestore', () => ({
   showWebDAVRestoreModal: actionMocks.showWebDAVRestoreModal,
+}));
+
+vi.mock('../../apps/extension/src/dashboard/components/confirmModal', () => ({
+  showConfirm: actionMocks.showConfirm,
+}));
+
+vi.mock('../../apps/extension/src/dashboard/dbClient', () => ({
+  dbViewedCleanInjectedSourceTags: actionMocks.dbViewedCleanInjectedSourceTags,
 }));
 
 vi.mock('../../apps/extension/src/utils/storage', () => ({
@@ -130,6 +140,71 @@ describe('backup page actions', () => {
 
     expect(actionMocks.showWebDAVRestoreModal).toHaveBeenCalledTimes(1);
   });
+
+  it('scans and cleans injected source tags after confirmation', async () => {
+    actionMocks.dbViewedCleanInjectedSourceTags
+      .mockResolvedValueOnce({
+        success: true,
+        scannedCount: 10,
+        affectedCount: 2,
+        tagsRemoved: 3,
+        categoriesRemoved: 1,
+        removedTagNames: ['Wiki', 'xslist'],
+        dryRun: true,
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        scannedCount: 10,
+        affectedCount: 2,
+        tagsRemoved: 3,
+        categoriesRemoved: 1,
+        removedTagNames: ['Wiki', 'xslist'],
+        dryRun: false,
+      });
+    const { initBackupActions } = await import('../../apps/extension/src/dashboard/backup/actions');
+    const cleanupButton = document.getElementById('cleanupInjectedSourceTags') as HTMLButtonElement;
+    const originalHtml = cleanupButton.innerHTML;
+
+    initBackupActions(document);
+    cleanupButton.click();
+
+    expect(cleanupButton.disabled).toBe(true);
+    expect(cleanupButton.innerHTML).toContain('fa-spinner');
+
+    await flushAsyncAction();
+
+    expect(actionMocks.dbViewedCleanInjectedSourceTags).toHaveBeenNthCalledWith(1, { dryRun: true });
+    expect(actionMocks.showConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      title: '清理错误来源标签',
+      confirmText: '确认清理',
+      type: 'warning',
+    }));
+    expect(actionMocks.dbViewedCleanInjectedSourceTags).toHaveBeenNthCalledWith(2, { dryRun: false });
+    expect(cleanupButton.disabled).toBe(false);
+    expect(cleanupButton.innerHTML).toBe(originalHtml);
+    expect(actionMocks.showMessage).toHaveBeenCalledWith('已清理 2 条记录，移除 4 个错误标签', 'success');
+  });
+
+  it('does not ask for confirmation when no injected source tags are found', async () => {
+    actionMocks.dbViewedCleanInjectedSourceTags.mockResolvedValueOnce({
+      success: true,
+      scannedCount: 10,
+      affectedCount: 0,
+      tagsRemoved: 0,
+      categoriesRemoved: 0,
+      removedTagNames: [],
+      dryRun: true,
+    });
+    const { initBackupActions } = await import('../../apps/extension/src/dashboard/backup/actions');
+
+    initBackupActions(document);
+    document.getElementById('cleanupInjectedSourceTags')?.click();
+    await flushAsyncAction();
+
+    expect(actionMocks.showConfirm).not.toHaveBeenCalled();
+    expect(actionMocks.dbViewedCleanInjectedSourceTags).toHaveBeenCalledTimes(1);
+    expect(actionMocks.showMessage).toHaveBeenCalledWith('没有发现需要清理的错误来源标签', 'success');
+  });
 });
 
 function mountBackupActionDom(): void {
@@ -151,6 +226,10 @@ function mountBackupActionDom(): void {
       <button id="syncDown" type="button" class="backup-action-btn backup-action-btn-success">
         <i class="fas fa-cloud-download-alt"></i>
         <span>从云端恢复</span>
+      </button>
+      <button id="cleanupInjectedSourceTags" type="button" class="backup-action-btn backup-action-btn-secondary">
+        <i class="fas fa-tags"></i>
+        <span>清理错误来源标签</span>
       </button>
       <span id="lastSyncTime">从未</span>
       <div class="sync-indicator" id="syncIndicator">

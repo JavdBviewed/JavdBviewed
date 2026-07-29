@@ -228,6 +228,25 @@ export async function dbViewedExport(): Promise<string> {
   return resp.json || '[]';
 }
 
+export interface ViewedInjectedSourceTagCleanupReport {
+  scannedCount: number;
+  affectedCount: number;
+  tagsRemoved: number;
+  categoriesRemoved: number;
+  removedTagNames: string[];
+  dryRun: boolean;
+}
+
+export async function dbViewedCleanInjectedSourceTags(params?: { dryRun?: boolean }): Promise<ViewedInjectedSourceTagCleanupReport> {
+  const resp = await sendMessage<{ success: true } & ViewedInjectedSourceTagCleanupReport>(
+    'DB:VIEWED_CLEAN_INJECTED_SOURCE_TAGS',
+    params || {},
+    22000,
+  );
+  // @ts-ignore
+  return resp as ViewedInjectedSourceTagCleanupReport;
+}
+
 export async function dbListsGetAll(): Promise<ListRecord[]> {
   const resp = await sendMessage<{ success: true; records: ListRecord[] }>('DB:LISTS_GET_ALL');
   // @ts-ignore

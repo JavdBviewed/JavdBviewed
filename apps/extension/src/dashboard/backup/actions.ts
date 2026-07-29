@@ -7,6 +7,8 @@ import { STORAGE_KEYS } from '../../utils/config';
 import { showWebDAVRestoreModal } from '../webdavRestore';
 import { showImportModal } from '../import';
 import { sendRuntimeMessage } from '../../platform/browser/runtimeMessages';
+import { showConfirm } from '../components/confirmModal';
+import { dbViewedCleanInjectedSourceTags } from '../dbClient';
 
 type BackupActionResponse = {
   success?: boolean;
@@ -168,6 +170,7 @@ export function initBackupActions(root: ParentNode = document): void {
   const exportBtn = queryBackupElement<HTMLButtonElement>(root, '#exportBtn');
   const syncNowBtn = queryBackupElement<HTMLButtonElement>(root, '#syncNow');
   const syncDownBtn = queryBackupElement<HTMLButtonElement>(root, '#syncDown');
+  const cleanupInjectedSourceTagsBtn = queryBackupElement<HTMLButtonElement>(root, '#cleanupInjectedSourceTags');
   const importFileInput = queryBackupElement<HTMLInputElement>(root, '#importFile');
 
   if (exportBtn && markBackupActionBound(exportBtn, 'Export')) {
@@ -246,6 +249,52 @@ export function initBackupActions(root: ParentNode = document): void {
 
   if (syncDownBtn && markBackupActionBound(syncDownBtn, 'Restore')) {
     syncDownBtn.addEventListener('click', () => { logAsync('INFO', '用户点击“从云端恢复”，打开恢复弹窗'); showWebDAVRestoreModal(); });
+  }
+
+  if (cleanupInjectedSourceTagsBtn && markBackupActionBound(cleanupInjectedSourceTagsBtn, 'CleanupInjectedSourceTags')) {
+    cleanupInjectedSourceTagsBtn.addEventListener('click', async () => {
+      const originalHtml = cleanupInjectedSourceTagsBtn.innerHTML;
+      cleanupInjectedSourceTagsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>正在扫描...</span>';
+      cleanupInjectedSourceTagsBtn.disabled = true;
+      logAsync('INFO', '用户点击“清理错误来源标签”，开始扫描历史记录');
+      try {
+        const preview = await dbViewedCleanInjectedSourceTags({ dryRun: true });
+        if (!preview || preview.affectedCount <= 0) {
+          showMessage('没有发现需要清理的错误来源标签', 'success');
+          logAsync('INFO', '错误来源标签扫描完成，无需清理', { scannedCount: preview?.scannedCount || 0 });
+          return;
+        }
+
+        const removedNames = Array.isArray(preview.removedTagNames) && preview.removedTagNames.length > 0
+          ? preview.removedTagNames.join('、')
+          : '已知错误来源标签';
+        const totalRemoved = (preview.tagsRemoved || 0) + (preview.categoriesRemoved || 0);
+        const confirmed = await showConfirm({
+          title: '清理错误来源标签',
+          message: `扫描到 ${preview.affectedCount} 条记录包含错误来源标签（${removedNames}），预计移除 ${totalRemoved} 个标签。此操作不会删除番号记录，是否继续？`,
+          confirmText: '确认清理',
+          cancelText: '取消',
+          type: 'warning',
+        });
+        if (!confirmed) {
+          logAsync('INFO', '用户取消清理错误来源标签', { affectedCount: preview.affectedCount });
+          return;
+        }
+
+        cleanupInjectedSourceTagsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i><span>正在清理...</span>';
+        const result = await dbViewedCleanInjectedSourceTags({ dryRun: false });
+        const removed = (result.tagsRemoved || 0) + (result.categoriesRemoved || 0);
+        showMessage(`已清理 ${result.affectedCount || 0} 条记录，移除 ${removed} 个错误标签`, 'success');
+        logAsync('INFO', '错误来源标签清理完成', result);
+      } catch (error: unknown) {
+        const message = getBackupActionErrorMessage(error, '清理失败');
+        showMessage(`清理失败: ${message}`, 'error');
+        logAsync('ERROR', '错误来源标签清理失败', { error: message });
+      } finally {
+        cleanupInjectedSourceTagsBtn.innerHTML = originalHtml;
+        cleanupInjectedSourceTagsBtn.disabled = false;
+      }
+    });
   }
 
   updateSyncStatus();

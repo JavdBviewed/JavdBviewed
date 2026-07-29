@@ -10,6 +10,7 @@ import type { VideoRecord, ActorRecord, LogEntry, ListRecord, NewWorkRecord } fr
 import { buildNewWorksTrendPointsFromDailyMap, mergeNewWorksDailyStatForTrend } from './trendUtils';
 import { getSettings } from '../../utils/storage';
 import { normalizeListRecordForUse } from '../../shared/utils/listRecordHelpers';
+import { cleanVideoRecordInjectedSourceTags } from '../../shared/utils/tagFilter';
 import type { ViewsDaily, ReportMonthly } from '../../types/insights';
 import { initDB, resetDBConnection } from './indexedDbConnection';
 import { buildLogsIndexedCursorSource, deriveLogCategory, deriveLogSource } from './indexedDbLogFields';
@@ -749,6 +750,92 @@ export async function viewedBulkPut(records: VideoRecord[]): Promise<void> {
       scheduleEnqueue(() => enqueueVideoChanges(written));
     } catch { /* Cloud 可选 */ }
   }
+}
+
+export interface ViewedInjectedSourceTagCleanupReport {
+  scannedCount: number;
+  affectedCount: number;
+  tagsRemoved: number;
+  categoriesRemoved: number;
+  removedTagNames: string[];
+  dryRun: boolean;
+}
+
+export interface ViewedInjectedSourceTagCleanupOptions {
+  dryRun?: boolean;
+  nowMs?: number;
+}
+
+function mergeRemovedTagNames(target: string[], names: string[]): void {
+  const seen = new Set(target.map((name) => String(name || '').trim().toLowerCase()).filter(Boolean));
+  for (const name of names) {
+    const normalized = String(name || '').trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    target.push(name);
+  }
+}
+
+/**
+ * 清理历史记录里由详情页增强来源入口误写入的标签，并同步刷新标签二级索引。
+ */
+export async function viewedCleanInjectedSourceTags(
+  options: ViewedInjectedSourceTagCleanupOptions = {},
+): Promise<ViewedInjectedSourceTagCleanupReport> {
+  const dryRun = options.dryRun === true;
+  const nowMs = typeof options.nowMs === 'number' ? options.nowMs : Date.now();
+  const db = await initDB();
+  const allRecords = await db.getAll('viewedRecords') as VideoRecord[];
+  const activeRecords = allRecords.filter((record) => !record.deletedAt);
+  const changedPairs: Array<{ oldRecord: VideoRecord; newRecord: VideoRecord }> = [];
+  const removedTagNames: string[] = [];
+  let tagsRemoved = 0;
+  let categoriesRemoved = 0;
+
+  for (const record of activeRecords) {
+    const cleanup = cleanVideoRecordInjectedSourceTags(record, nowMs);
+    if (!cleanup.changed) continue;
+    changedPairs.push({ oldRecord: record, newRecord: cleanup.record });
+    tagsRemoved += cleanup.tagsRemoved;
+    categoriesRemoved += cleanup.categoriesRemoved;
+    mergeRemovedTagNames(removedTagNames, cleanup.removedTagNames);
+  }
+
+  if (!dryRun && changedPairs.length > 0) {
+    const tx = db.transaction(['viewedRecords', 'viewedByTag', 'viewedByList'], 'readwrite');
+    const viewedStore = tx.objectStore('viewedRecords');
+    const tagStore = tx.objectStore('viewedByTag');
+    const listStore = tx.objectStore('viewedByList');
+    const written: VideoRecord[] = [];
+    try {
+      for (const pair of changedPairs) {
+        const normalized = normalizeViewedRecord(pair.newRecord);
+        await viewedStore.put(normalized as any);
+        await syncViewedSecondaryIndexes(tagStore, listStore, pair.oldRecord, normalized);
+        written.push(normalized as VideoRecord);
+      }
+      await tx.done;
+    } catch (e) {
+      try { await tx.done; } catch {}
+      throw e;
+    }
+
+    if (written.length > 0) {
+      try {
+        const { scheduleEnqueue, enqueueVideoChanges } = await import('../../features/cloudSync/enqueueLocalChange');
+        scheduleEnqueue(() => enqueueVideoChanges(written));
+      } catch { /* Cloud 可选 */ }
+    }
+  }
+
+  return {
+    scannedCount: activeRecords.length,
+    affectedCount: changedPairs.length,
+    tagsRemoved,
+    categoriesRemoved,
+    removedTagNames,
+    dryRun,
+  };
 }
 
 export async function viewedReplaceAll(records: VideoRecord[]): Promise<number> {
