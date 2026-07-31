@@ -27,6 +27,9 @@ import {
   DEFAULT_MEDIA_VIEW_FIELDS,
   DEFAULT_MEDIA_VIEW_SETTINGS,
   filterMediaItems,
+  formatMediaSourceCopyLabel,
+  getMediaSourceCopyPlaybackStatus,
+  getMediaSourceLabels,
   heroItems,
   MEDIA_CARD_SIZE_OPTIONS,
   MEDIA_HERO_VISIBLE_RADIUS,
@@ -36,6 +39,7 @@ import {
   readMediaViewSettings,
   resolveCoverImage,
   resolveCoverImageUrl,
+  mediaCopyToBrowseItem,
   resolvePlaybackChoice,
   resumeMediaItems,
   type MediaBrowseItem,
@@ -1292,8 +1296,8 @@ export function MediaLibraryPage() {
       >
         <div className="ml-command-panel" data-media-tools-panel="1">
           <div className="ml-command-panel-head">
-            <h3>低频维护入口</h3>
-            <p>这里放不常用但需要保留的媒体库工具，避免误触影响日常浏览。</p>
+            <h3>媒体库工具</h3>
+            <p>需要时可在这里播放 115 文件或整理已看影片；删除前会再次请你确认。</p>
           </div>
           <div className="ml-command-panel-list">
             <button
@@ -1348,36 +1352,44 @@ export function MediaLibraryPage() {
         <div className="ml-command-panel" data-media-source-choice="1">
           <div className="ml-command-panel-head">
             <h3>选择播放来源</h3>
-            <p>该影片有多个可播放副本。请选择本次使用的服务器或网盘文件。</p>
+            <p>请选择本次播放使用的来源。不可播放的副本会保留在列表中，并说明原因。</p>
           </div>
           <div className="ml-command-panel-list">
-            {playbackChoice?.items.map((sourceItem) => (
-              <button
-                key={`${sourceItem.source}:${sourceItem.itemId || sourceItem.pickCode}`}
-                type="button"
-                className="ml-command-panel-item"
-                onClick={() => {
-                  const current = playbackChoice;
-                  setPlaybackChoice(null);
-                  playResolvedItem(sourceItem, {
-                    startTimeSeconds: current?.startTimeSeconds,
-                    highlights: current?.highlights,
-                  });
-                }}
-              >
-                <span className="ml-command-panel-icon" aria-hidden="true">
-                  {sourceItem.source === '115' ? '115' : sourceItem.source === 'jellyfin' ? 'JF' : 'E'}
-                </span>
-                <span>
-                  <strong>{sourceItem.serverName || sourceLabel(sourceItem.source)}</strong>
-                  <small>
-                    {sourceLabel(sourceItem.source)}
-                    {formatWatchPercent(sourceItem.userData) ? ` · 已播放 ${formatWatchPercent(sourceItem.userData)}` : ''}
-                    {sourceItem.fileName ? ` · ${sourceItem.fileName}` : ''}
-                  </small>
-                </span>
-              </button>
-            ))}
+            {playbackChoice?.items.map((sourceItem) => {
+              const copy = sourceItem.copies?.[0];
+              const status = getMediaSourceCopyPlaybackStatus(copy);
+              const label = formatMediaSourceCopyLabel(copy);
+              return (
+                <button
+                  key={copy?.copyId || `${sourceItem.source}:${sourceItem.itemId || sourceItem.pickCode}`}
+                  type="button"
+                  className="ml-command-panel-item"
+                  disabled={!status.playable}
+                  title={status.reason}
+                  onClick={() => {
+                    if (!status.playable) return;
+                    const current = playbackChoice;
+                    setPlaybackChoice(null);
+                    playResolvedItem(sourceItem, {
+                      startTimeSeconds: current?.startTimeSeconds,
+                      highlights: current?.highlights,
+                    });
+                  }}
+                >
+                  <span className="ml-command-panel-icon" aria-hidden="true">
+                    {sourceItem.source === '115' ? '115' : sourceItem.source === 'jellyfin' ? 'JF' : 'E'}
+                  </span>
+                  <span>
+                    <strong>{label}</strong>
+                    <small>
+                      {status.playable ? '可播放' : status.reason}
+                      {formatWatchPercent(sourceItem.userData) ? ` · 已播放 ${formatWatchPercent(sourceItem.userData)}` : ''}
+                      {sourceItem.fileName ? ` · ${sourceItem.fileName}` : ''}
+                    </small>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </OverlayShell>
@@ -1581,6 +1593,14 @@ export function MediaLibraryPage() {
               requestPlayback(it, {
                 startTimeSeconds: opts?.startTimeSeconds,
                 highlights,
+              });
+            }}
+            onPlayCopy={(copy, opts) => {
+              const it = detailItem;
+              if (!it) return;
+              playResolvedItem(mediaCopyToBrowseItem(it, copy), {
+                startTimeSeconds: opts?.startTimeSeconds,
+                highlights: opts?.highlights,
               });
             }}
             onOpenItem={(next) => setDetailItem(next)}
@@ -1880,7 +1900,10 @@ function MediaCard({
 
   const metaItems = buildCardMetaItems(item, viewSettings);
   const tagItems = buildCardTagItems(item, viewSettings);
+  const sourceLabels = getMediaSourceLabels(item);
   const titleText = item.title || item.code;
+  const sourceCopyCount = item.copies?.length ?? 0;
+  const hasMultipleSources = sourceCopyCount > 1;
 
   return (
     <article
@@ -1930,6 +1953,16 @@ function MediaCard({
             <Badge tone={item.source === 'emby' ? 'primary' : item.source === 'jellyfin' ? 'info' : 'neutral'}>
               {sourceLabel(item.source)}
             </Badge>
+            {hasMultipleSources ? (
+              <Badge
+                tone="neutral"
+                className="ml-card-copy-count"
+                data-media-copy-count={sourceCopyCount}
+                title={`同一影片有 ${sourceCopyCount} 个可用来源`}
+              >
+                {sourceCopyCount} 个来源
+              </Badge>
+            ) : null}
             <Badge tone={watchBadge.tone}>{watchBadge.text}</Badge>
             {coverView === 'thumb' && coverResolved.fellBack ? <Badge tone="neutral">无缩略图</Badge> : null}
           </div>
@@ -2032,6 +2065,11 @@ function MediaCard({
             ))}
           </div>
         ) : null}
+        <div className="ml-card-source-row" aria-label="影片来源">
+          {sourceLabels.map((label) => (
+            <span key={label} className="ml-card-source">{label}</span>
+          ))}
+        </div>
         {tagItems.length > 0 ? (
           <div className="ml-card-tag-row">
             {tagItems.map((tag) => (
@@ -2186,7 +2224,6 @@ function buildCardTagItems(item: MediaBrowseItem, settings: MediaViewSettings): 
     out.push(...nfo.genres.slice(0, 3).map((genre) => ({ key: `genre:${genre}`, text: genre })));
   }
   if (fields.director && nfo?.director) out.push({ key: 'director', text: nfo.director });
-  if (fields.tags && item.serverName) out.push({ key: 'source', text: item.serverName });
   return out.slice(0, 5);
 }
 

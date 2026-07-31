@@ -3,7 +3,7 @@
  * @description 扩展内媒体详情（Emby 风格完整布局：章节 / 合集 / 相似 / 媒体流）
  * @module apps/dashboard/pages/media
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   EmbyItemChapterView,
   EmbyItemDetailView,
@@ -18,8 +18,15 @@ import { LazyRemoteImage } from '../../../../ui/patterns/LazyRemoteImage/LazyRem
 import { sendRuntimeMessage } from '../../../../platform/browser/runtimeMessages';
 import { NFO_SUMMARY_SCHEMA_VERSION } from '../../../../features/drive115/mediaLibrary/parseEntryMeta';
 import { resolveDrive115CoverUrl } from './drive115CoverCache';
-import type { MediaBrowseItem } from './mediaBrowseModel';
-import { resolveCoverImage, sourceLabel } from './mediaBrowseModel';
+import type { MediaBrowseItem, MediaSourceCopy } from './mediaBrowseModel';
+import {
+  formatMediaSourceCopyLabel,
+  getMediaSourceCopies,
+  getMediaSourceCopyPlaybackStatus,
+  getPreferredDetailSourceCopy,
+  resolveCoverImage,
+  sourceLabel,
+} from './mediaBrowseModel';
 import { formatWatchPercent, watchStateLabel } from './mediaLibraryIndexAdapter';
 import { HorizontalScroller } from './HorizontalScroller';
 import './mediaItemDetail.css';
@@ -27,6 +34,10 @@ import './mediaItemDetail.css';
 export type MediaItemDetailPanelProps = {
   item: MediaBrowseItem;
   onPlay?: (opts?: {
+    startTimeSeconds?: number;
+    highlights?: Array<{ time: number; text: string }>;
+  }) => void;
+  onPlayCopy?: (copy: MediaSourceCopy, opts?: {
     startTimeSeconds?: number;
     highlights?: Array<{ time: number; text: string }>;
   }) => void;
@@ -38,6 +49,10 @@ export type MediaItemDetailPanelProps = {
 };
 
 type DetailInfoRow = readonly [string, string, 'normal' | 'wide'];
+type DetailPlaybackOptions = {
+  startTimeSeconds?: number;
+  highlights?: Array<{ time: number; text: string }>;
+};
 
 function appendDetailInfoRow(
   rows: DetailInfoRow[],
@@ -69,6 +84,7 @@ function formatMinutesText(value?: string): string {
 export function MediaItemDetailPanel({
   item,
   onPlay,
+  onPlayCopy,
   onClose,
   onOpenItem,
   onWatchChanged,
@@ -84,6 +100,17 @@ export function MediaItemDetailPanel({
   const [nfo115Loading, setNfo115Loading] = useState(false);
   const [nfo115Error, setNfo115Error] = useState('');
   const [d115Cover, setD115Cover] = useState('');
+  const [showPlaybackMenu, setShowPlaybackMenu] = useState(false);
+  const [pendingPlaybackOptions, setPendingPlaybackOptions] = useState<DetailPlaybackOptions | undefined>();
+  const playbackMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const preferredDetailCopy = getPreferredDetailSourceCopy(item);
+  const detailSource = preferredDetailCopy?.source ?? item.source;
+  const detailItemId = preferredDetailCopy?.itemId ?? item.itemId;
+  const detailServerUrl = preferredDetailCopy?.serverUrl ?? item.serverUrl;
+  const detailServerId = preferredDetailCopy?.serverId ?? item.serverId;
+  const detailServerName = preferredDetailCopy?.serverName ?? item.serverName;
+  const is115Detail = detailSource === '115';
 
   const fallbackCover = resolveCoverImage(item, 'poster');
   const effectivePlayed =
@@ -96,22 +123,47 @@ export function MediaItemDetailPanel({
       ? watchStateLabel(item.watchState)
       : '未标记';
   const pct = formatWatchPercent(item.userData || detail?.userData);
+  const sourceCopies = getMediaSourceCopies(item);
+  const playableSourceCopies = sourceCopies.filter((copy) => getMediaSourceCopyPlaybackStatus(copy).playable);
+
+  useEffect(() => {
+    setShowPlaybackMenu(false);
+    setPendingPlaybackOptions(undefined);
+  }, [item]);
+
+  useEffect(() => {
+    if (!showPlaybackMenu) return undefined;
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      if (!playbackMenuRef.current?.contains(event.target as Node)) {
+        setShowPlaybackMenu(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowPlaybackMenu(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointerDown);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointerDown);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [showPlaybackMenu]);
 
   useEffect(() => {
     let cancelled = false;
     setError('');
     setDetail(null);
     setPlayedLocal(null);
-    if (!item.itemId || !item.serverUrl) return undefined;
-    if (item.source !== 'emby' && item.source !== 'jellyfin') return undefined;
+    if (!detailItemId || !detailServerUrl) return undefined;
+    if (detailSource !== 'emby' && detailSource !== 'jellyfin') return undefined;
 
     setLoading(true);
     chrome.runtime.sendMessage(
       {
         type: 'EMBY_LIBRARY_GET_ITEM_DETAIL',
-        itemId: item.itemId,
-        serverUrl: item.serverUrl,
-        serverId: item.serverId,
+        itemId: detailItemId,
+        serverUrl: detailServerUrl,
+        serverId: detailServerId,
       },
       (resp) => {
         if (cancelled) return;
@@ -133,7 +185,7 @@ export function MediaItemDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [item.itemId, item.serverUrl, item.serverId, item.source]);
+  }, [detailItemId, detailServerUrl, detailServerId, detailSource]);
 
   // 115 条目：懒下载解析 NFO 正文，填充标题/年份/简介（Emby 详情走服务器，115 需自行解析）
   useEffect(() => {
@@ -141,7 +193,7 @@ export function MediaItemDetailPanel({
     setNfo115(item.nfoSummary ?? null);
     setNfo115Loading(false);
     setNfo115Error('');
-    if (item.source !== '115') return undefined;
+    if (!is115Detail) return undefined;
     if ((item.nfoSummary?.schemaVersion || 0) >= NFO_SUMMARY_SCHEMA_VERSION) return undefined;
     if (!item.libraryKey) {
       setNfo115Error('缺少索引 key，无法解析 NFO');
@@ -176,28 +228,28 @@ export function MediaItemDetailPanel({
     return () => {
       cancelled = true;
     };
-  }, [item.source, item.libraryKey, item.nfoSummary]);
+  }, [is115Detail, item.libraryKey, item.nfoSummary]);
 
   // 115 详情封面：现取直链（缓存复用），失败回退色块
   useEffect(() => {
     let cancelled = false;
     setD115Cover('');
-    if (item.source !== '115' || !item.coverPickCode) return undefined;
+    if (!is115Detail || !item.coverPickCode) return undefined;
     void resolveDrive115CoverUrl(item.coverPickCode).then((url) => {
       if (!cancelled && url) setD115Cover(url);
     });
     return () => {
       cancelled = true;
     };
-  }, [item.source, item.coverPickCode]);
+  }, [is115Detail, item.coverPickCode]);
 
-  const title = detail?.name || nfo115?.title || item.title;
+  const title = detail?.name || (is115Detail ? nfo115?.title : '') || item.title;
   const nfoOriginalTitle =
-    item.source === '115' && nfo115?.originalTitle && nfo115.originalTitle !== title
+    is115Detail && nfo115?.originalTitle && nfo115.originalTitle !== title
       ? nfo115.originalTitle
       : '';
   const primary = detail?.primaryImageUrl || d115Cover || fallbackCover.url;
-  const backdrop = detail?.backdropImageUrl || (item.source === '115' ? primary : undefined);
+  const backdrop = detail?.backdropImageUrl || (is115Detail ? primary : undefined);
   const people = detail?.people || [];
   const chapters = detail?.chapters || [];
   const similar = detail?.similar || [];
@@ -210,7 +262,7 @@ export function MediaItemDetailPanel({
     .join('、');
   const detailTags = joinLimited(detail?.tags);
   const infoRows: DetailInfoRow[] = [];
-  if (item.source === '115') {
+  if (is115Detail) {
     appendDetailInfoRow(infoRows, '\u539f\u540d', nfoOriginalTitle, 'wide');
     appendDetailInfoRow(infoRows, '\u756a\u53f7', nfo115?.num);
     appendDetailInfoRow(infoRows, '\u6f14\u5458', joinLimited(nfo115?.actors), 'wide');
@@ -234,7 +286,7 @@ export function MediaItemDetailPanel({
   }
 
   const togglePlayed = async () => {
-    if (!item.itemId || !item.serverUrl || playedBusy) return;
+    if (!detailItemId || !detailServerUrl || playedBusy) return;
     const next = !effectivePlayed;
     setPlayedBusy(true);
     try {
@@ -243,9 +295,9 @@ export function MediaItemDetailPanel({
           chrome.runtime.sendMessage(
             {
               type: 'EMBY_LIBRARY_SET_PLAYED',
-              itemId: item.itemId,
-              serverUrl: item.serverUrl,
-              serverId: item.serverId,
+              itemId: detailItemId,
+              serverUrl: detailServerUrl,
+              serverId: detailServerId,
               played: next,
             },
             (r) => {
@@ -276,17 +328,17 @@ export function MediaItemDetailPanel({
   };
 
   const openRelated = (rel: EmbyRelatedItemView) => {
-    if (!onOpenItem || !item.serverUrl) return;
+    if (!onOpenItem || !detailServerUrl) return;
     const next: MediaBrowseItem = {
       code: rel.name,
       title: rel.name,
-      source: item.source,
+      source: detailSource,
       year: rel.year ? String(rel.year) : '',
       hue: item.hue || 210,
       itemId: rel.itemId,
-      serverUrl: item.serverUrl,
-      serverId: item.serverId || detail?.serverId,
-      serverName: item.serverName,
+      serverUrl: detailServerUrl,
+      serverId: detailServerId || detail?.serverId,
+      serverName: detailServerName,
       coverImageUrl: rel.primaryImageUrl,
       imageUrls: rel.primaryImageUrl ? { Primary: rel.primaryImageUrl } : undefined,
     };
@@ -294,7 +346,7 @@ export function MediaItemDetailPanel({
   };
 
   const playChapter = (ch: EmbyItemChapterView) => {
-    onPlay?.({
+    requestDetailPlayback({
       startTimeSeconds: ch.startTimeSeconds || 0,
       highlights: chapters.map((c) => ({
         time: c.startTimeSeconds || 0,
@@ -303,13 +355,39 @@ export function MediaItemDetailPanel({
     });
   };
 
+  const requestDetailPlayback = (opts?: DetailPlaybackOptions) => {
+    const playbackOptions = opts || {
+      highlights: chapters.map((chapter) => ({
+        time: chapter.startTimeSeconds || 0,
+        text: chapter.name || `章节 ${chapter.index + 1}`,
+      })),
+    };
+    if (playableSourceCopies.length > 1) {
+      setPendingPlaybackOptions(playbackOptions);
+      setShowPlaybackMenu((open) => !open);
+      return;
+    }
+    if (playableSourceCopies.length === 1 && onPlayCopy) {
+      onPlayCopy(playableSourceCopies[0], playbackOptions);
+      return;
+    }
+    onPlay?.(playbackOptions);
+  };
+
   const playMain = () => {
-    onPlay?.({
+    requestDetailPlayback({
       highlights: chapters.map((c) => ({
-        time: c.startTimeSeconds || 0,
-        text: c.name || `章节 ${c.index + 1}`,
+      time: c.startTimeSeconds || 0,
+      text: c.name || `章节 ${c.index + 1}`,
       })),
     });
+  };
+
+  const playSourceCopy = (copy: MediaSourceCopy) => {
+    if (!getMediaSourceCopyPlaybackStatus(copy).playable) return;
+    setShowPlaybackMenu(false);
+    onPlayCopy?.(copy, pendingPlaybackOptions);
+    setPendingPlaybackOptions(undefined);
   };
 
   return (
@@ -347,8 +425,8 @@ export function MediaItemDetailPanel({
             {detail?.criticRating != null ? (
               <span className="ml-detail-pill">Critics {detail.criticRating}</span>
             ) : null}
-            {detail?.year || nfo115?.year || item.year ? (
-              <span className="ml-detail-pill">{detail?.year || nfo115?.year || item.year}</span>
+            {detail?.year || (is115Detail ? nfo115?.year : '') || item.year ? (
+              <span className="ml-detail-pill">{detail?.year || (is115Detail ? nfo115?.year : '') || item.year}</span>
             ) : null}
             {formatRuntime(detail?.runtimeTicks) ? (
               <span className="ml-detail-pill">{formatRuntime(detail?.runtimeTicks)}</span>
@@ -357,35 +435,35 @@ export function MediaItemDetailPanel({
               <span className="ml-detail-pill">{detail.officialRating}</span>
             ) : null}
             <span className="ml-detail-pill">
-              {sourceLabel(item.source)}
-              {item.serverName ? ` · ${item.serverName}` : ''}
+              {sourceLabel(detailSource)}
+              {detailServerName ? ` · ${detailServerName}` : ''}
             </span>
-            {item.source === '115' ? (
+            {is115Detail ? (
               <span className="ml-detail-pill" title="115 轻量索引不提供章节与相似推荐">
                 片库浅层索引 · 无章节/相似
               </span>
             ) : null}
-            {item.source === '115' && item.folderPath ? (
+            {is115Detail && item.folderPath ? (
               <span className="ml-detail-pill" title={item.fileName || item.folderPath}>
                 目录 {item.folderPath}
               </span>
             ) : null}
-            {item.source === '115' && nfo115?.num ? (
+            {is115Detail && nfo115?.num ? (
               <span className="ml-detail-pill">番号 {nfo115.num}</span>
             ) : null}
-            {item.source === '115' && nfo115?.rating ? (
+            {is115Detail && nfo115?.rating ? (
               <span className="ml-detail-pill">★ {nfo115.rating}</span>
             ) : null}
-            {item.source === '115' && nfo115?.runtime ? (
+            {is115Detail && nfo115?.runtime ? (
               <span className="ml-detail-pill">{nfo115.runtime} 分钟</span>
             ) : null}
-            {item.source === '115' && nfo115?.releaseDate ? (
+            {is115Detail && nfo115?.releaseDate ? (
               <span className="ml-detail-pill">{nfo115.releaseDate}</span>
             ) : null}
-            {item.source === '115' && nfo115?.studio ? (
+            {is115Detail && nfo115?.studio ? (
               <span className="ml-detail-pill">{nfo115.studio}</span>
             ) : null}
-            {item.source === '115' && nfo115?.publisher && nfo115.publisher !== nfo115.studio ? (
+            {is115Detail && nfo115?.publisher && nfo115.publisher !== nfo115.studio ? (
               <span className="ml-detail-pill">发行 {nfo115.publisher}</span>
             ) : null}
             <span className="ml-detail-pill">
@@ -395,12 +473,47 @@ export function MediaItemDetailPanel({
           </div>
 
           <div className="ml-detail-actions">
-            {onPlay ? (
-              <button type="button" className="ml-detail-btn ml-detail-btn-primary" onClick={() => playMain()}>
-                ▶ 播放
-              </button>
+            {onPlay || onPlayCopy ? (
+              <div className="ml-detail-play-menu" ref={playbackMenuRef}>
+                <button
+                  type="button"
+                  className="ml-detail-btn ml-detail-btn-primary"
+                  aria-expanded={showPlaybackMenu}
+                  aria-haspopup={playableSourceCopies.length > 1 ? 'menu' : undefined}
+                  onClick={playMain}
+                >
+                  ▶ {playableSourceCopies.length > 1 ? '选择播放来源' : '播放'}
+                </button>
+                {showPlaybackMenu ? (
+                  <div className="ml-detail-play-menu-popover" role="menu" aria-label="选择播放来源">
+                    {sourceCopies.map((copy) => {
+                      const status = getMediaSourceCopyPlaybackStatus(copy);
+                      const label = formatMediaSourceCopyLabel(copy);
+                      const progress = formatWatchPercent(copy.userData);
+                      return (
+                        <button
+                          key={copy.copyId}
+                          type="button"
+                          role="menuitem"
+                          className="ml-detail-play-menu-item"
+                          disabled={!status.playable || !onPlayCopy}
+                          title={status.playable ? `使用 ${label} 播放` : status.reason}
+                          onClick={() => playSourceCopy(copy)}
+                        >
+                          <strong>{label}</strong>
+                          <small>
+                            {status.playable ? '可播放' : status.reason || '暂不可播放'}
+                            {progress ? ` · 已播放 ${progress}` : ''}
+                            {copy.fileName ? ` · ${copy.fileName}` : ''}
+                          </small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             ) : null}
-            {item.itemId && item.serverUrl ? (
+            {detailItemId && detailServerUrl ? (
               <button
                 type="button"
                 className={`ml-detail-btn${effectivePlayed ? ' ml-detail-btn-active' : ''}`}
@@ -422,29 +535,29 @@ export function MediaItemDetailPanel({
           {loading ? <p className="ml-detail-status">正在从媒体服务器拉取详情…</p> : null}
           {error ? <p className="ml-detail-error">{error}（仍可播放）</p> : null}
 
-          {detail?.tagline || nfo115?.tagline ? (
-            <p className="ml-detail-tagline">{detail?.tagline || nfo115?.tagline}</p>
+          {detail?.tagline || (is115Detail ? nfo115?.tagline : '') ? (
+            <p className="ml-detail-tagline">{detail?.tagline || (is115Detail ? nfo115?.tagline : '')}</p>
           ) : null}
         </div>
       </div>
 
       {/* 下方区块使用完整弹窗宽度 */}
       <div className="ml-detail-content">
-        {detail?.overview || nfo115?.plot ? (
-          <p className="ml-detail-overview">{detail?.overview || nfo115?.plot}</p>
-        ) : item.source === '115' && nfo115Loading ? (
+        {detail?.overview || (is115Detail ? nfo115?.plot : '') ? (
+          <p className="ml-detail-overview">{detail?.overview || (is115Detail ? nfo115?.plot : '')}</p>
+        ) : is115Detail && nfo115Loading ? (
           <p className="ml-detail-overview">正在解析 NFO…</p>
-        ) : item.source === '115' && nfo115Error ? (
+        ) : is115Detail && nfo115Error ? (
           <p className="ml-detail-status">NFO 状态：{nfo115Error}</p>
         ) : null}
 
-        {item.source === '115' && !item.coverPickCode ? (
+        {is115Detail && !item.coverPickCode ? (
           <p className="ml-detail-status">封面状态：索引中没有发现封面文件</p>
         ) : null}
 
         {infoRows.length > 0 ? (
           <div className="ml-detail-info-card" data-detail-info-card="1">
-            <h4>{item.source === '115' ? 'NFO 信息' : '基础信息'}</h4>
+            <h4>{is115Detail ? 'NFO 信息' : '基础信息'}</h4>
             <dl className="ml-detail-info-grid">
               {infoRows.map(([label, value, variant]) => (
                 <div
@@ -465,11 +578,13 @@ export function MediaItemDetailPanel({
             <div className="ml-detail-copy-list">
               {item.copies.map((copy) => {
                 const copyProgress = formatWatchPercent(copy.userData);
+                const playbackStatus = getMediaSourceCopyPlaybackStatus(copy);
+                const copyLabel = formatMediaSourceCopyLabel(copy);
                 return (
                   <div key={copy.copyId} className="ml-detail-copy-row">
                     <span className="ml-detail-copy-source">{sourceLabel(copy.source)}</span>
                     <span className="ml-detail-copy-main">
-                      <strong>{copy.serverName || sourceLabel(copy.source)}</strong>
+                      <strong>{copyLabel}</strong>
                       {copy.fileName || copy.folderPath ? (
                         <small title={copy.folderPath || copy.fileName}>
                           {copy.fileName || copy.folderPath}
@@ -479,6 +594,23 @@ export function MediaItemDetailPanel({
                     {copyProgress ? (
                       <span className="ml-detail-copy-progress">已播放 {copyProgress}</span>
                     ) : null}
+                    <button
+                      type="button"
+                      className="ml-detail-copy-play"
+                      disabled={!playbackStatus.playable || !onPlayCopy}
+                      title={playbackStatus.playable ? `使用 ${copyLabel} 播放` : playbackStatus.reason}
+                      onClick={() => {
+                        if (!playbackStatus.playable) return;
+                        onPlayCopy?.(copy, {
+                          highlights: chapters.map((chapter) => ({
+                            time: chapter.startTimeSeconds || 0,
+                            text: chapter.name || `章节 ${chapter.index + 1}`,
+                          })),
+                        });
+                      }}
+                    >
+                      {playbackStatus.playable ? '播放此来源' : playbackStatus.reason || '暂不可播放'}
+                    </button>
                   </div>
                 );
               })}

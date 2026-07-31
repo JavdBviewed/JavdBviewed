@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { EmbyLibraryState } from '../embyLibrary/types';
 import { EMPTY_MEDIA_CLEANUP_STATE, EMPTY_MEDIA_DELETION_HISTORY } from './mediaCleanupModel';
-import { processEmbySyncCleanupState } from './mediaCleanupSync';
+import {
+  buildDrive115CleanupSnapshots,
+  buildEmbyCleanupSnapshots,
+  processEmbySyncCleanupState,
+} from './mediaCleanupSync';
 
 function entry(itemId: string, played: boolean) {
   return {
@@ -102,5 +106,36 @@ describe('mediaCleanupSync', () => {
       '115:file-1',
       'emby:http://home.local:item-1',
     ]);
+  });
+
+  it('keeps source-specific cover references in cleanup snapshots', () => {
+    const embySnapshots = buildEmbyCleanupSnapshots({
+      entries: {
+        'AAA-001': [{
+          ...entry('item-1', true),
+          coverImageUrl: 'http://home.local/Items/item-1/Images/Thumb',
+        }],
+      },
+      updatedAt: 1000,
+    }, new Set(['emby:http://home.local']));
+    const drive115Snapshots = buildDrive115CleanupSnapshots({
+      updatedAt: 1000,
+      entries: [{
+        code: 'AAA-001',
+        title: 'AAA-001',
+        videoFileId: 'video-1',
+        pickCode: 'video-pick',
+        coverFileName: 'poster.jpg',
+        coverPickCode: 'cover-pick',
+      }],
+    });
+
+    expect(embySnapshots[0].copies[0]).toMatchObject({
+      coverImageUrl: 'http://home.local/Items/item-1/Images/Thumb',
+    });
+    expect(drive115Snapshots[0].copies[0]).toMatchObject({
+      coverFileName: 'poster.jpg',
+      coverPickCode: 'cover-pick',
+    });
   });
 });

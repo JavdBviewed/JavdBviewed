@@ -29,6 +29,8 @@ export type Drive115CleanupLibraryState = {
     pickCode?: string;
     fileName?: string;
     folderName?: string;
+    coverFileName?: string;
+    coverPickCode?: string;
     updatedAt?: number;
   }>;
 };
@@ -73,6 +75,8 @@ export function buildDrive115CleanupSnapshots(
       pickCode: entry.pickCode,
       fileName: entry.fileName,
       folderPath: entry.folderName,
+      coverFileName: entry.coverFileName,
+      coverPickCode: entry.coverPickCode,
       lastFoundAt: entry.updatedAt || state?.updatedAt || Date.now(),
     });
     titles.set(titleId, title);
@@ -165,6 +169,7 @@ export function buildEmbyCleanupSnapshots(
       itemId: entry.itemId,
       fileName: entry.path?.split(/[\\/]/).pop(),
       folderPath: entry.path,
+      coverImageUrl: entry.imageUrls?.Thumb || entry.coverImageUrl,
       watchedAt: entry.userData?.played
         ? (entry.userData.lastPlayedAt || entry.updatedAt)
         : undefined,

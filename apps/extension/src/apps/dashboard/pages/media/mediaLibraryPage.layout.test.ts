@@ -66,6 +66,13 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(detailCss).toContain('.ml-detail-info-grid');
   });
 
+  it('keeps self-hosted media-server details ahead of 115 NFO fallback metadata', () => {
+    const detailSource = readFileSync(join(here, 'MediaItemDetailPanel.tsx'), 'utf-8');
+    expect(detailSource).toContain('getPreferredDetailSourceCopy');
+    expect(detailSource).toContain('is115Detail');
+    expect(detailSource).toContain("if (!is115Detail) return undefined;");
+  });
+
   it('shows every aggregated physical copy in the detail window', () => {
     const detailSource = readFileSync(join(here, 'MediaItemDetailPanel.tsx'), 'utf-8');
     const detailCss = readFileSync(join(here, 'mediaItemDetail.css'), 'utf-8');
@@ -73,6 +80,14 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(detailSource).toContain('可用来源');
     expect(detailSource).toContain('item.copies');
     expect(detailCss).toContain('.ml-detail-copy-list');
+  });
+
+  it('shows a compact source count on cards with multiple physical copies', () => {
+    const mediaCss = readFileSync(join(here, 'mediaPage.css'), 'utf-8');
+    expect(source).toContain('data-media-copy-count');
+    expect(source).toContain('const hasMultipleSources = sourceCopyCount > 1');
+    expect(source).toContain('个来源');
+    expect(mediaCss).toContain('.ml-card-copy-count');
   });
 
   it('keeps vertical wheel scrolling chained to the detail overlay over horizontal rows', () => {
@@ -242,7 +257,10 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(cleanupSource).toContain('处理失败');
     expect(cleanupSource).toContain('操作记录');
     expect(cleanupSource).toContain('删除选中的文件');
-    expect(cleanupSource).toContain('data-media-cleanup-title-group="1"');
+    expect(cleanupSource).toContain('data-media-cleanup-card="1"');
+    expect(cleanupSource).toContain('选择 ${item.code} 的全部来源文件');
+    expect(cleanupSource).toContain('本页全选');
+    expect(cleanupSource).toContain('已看影片整理分页');
     expect(cleanupSource).toContain('115 文件会移入回收站');
     expect(cleanupSource).toContain('本地媒体文件可能被直接删除');
     expect(cleanupSource).toContain('确认删除');
@@ -251,7 +269,8 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(cleanupSource).not.toContain('真实已看');
     expect(cleanupSource).not.toContain('副本');
     expect(mediaCss).toContain('.ml-cleanup-scan-card');
-    expect(mediaCss).toContain('.ml-cleanup-title-group');
+    expect(mediaCss).toContain('.ml-cleanup-card-grid');
+    expect(mediaCss).toContain('.ml-cleanup-card');
   });
 
   it('supports all-source and multi-selected Emby/Jellyfin/115 synchronization', () => {
@@ -286,7 +305,25 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(source).toContain('requestPlayback');
     expect(source).toContain('data-media-source-choice="1"');
     expect(source).toContain('选择播放来源');
-    expect(source).toContain('该影片有多个可播放副本');
+    expect(source).toContain('不可播放的副本会保留在列表中，并说明原因');
+  });
+
+  it('keeps source selection inside the detail window while card playback still uses the overlay', () => {
+    const detailSource = readFileSync(join(here, 'MediaItemDetailPanel.tsx'), 'utf-8');
+    expect(detailSource).toContain('ml-detail-play-menu');
+    expect(detailSource).toContain('选择播放来源');
+    expect(detailSource).toContain('setShowPlaybackMenu');
+    expect(detailSource).toContain('onPlayCopy?.(copy');
+    expect(source).toContain('data-media-source-choice="1"');
+    expect(source).toContain('playResolvedItem(mediaCopyToBrowseItem(it, copy)');
+    expect(source).not.toContain('setDetailItem(null);\n              requestPlayback(mediaCopyToBrowseItem(it, copy)');
+  });
+
+  it('lists all card sources and lets the detail panel play an exact source copy', () => {
+    expect(source).toContain('getMediaSourceLabels(item)');
+    expect(source).toContain('ml-card-source-row');
+    expect(source).toContain('onPlayCopy');
+    expect(source).toContain('mediaCopyToBrowseItem');
   });
 
   it('uses dashboard toast feedback for card actions instead of blocking alert', () => {

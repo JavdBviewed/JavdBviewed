@@ -1062,6 +1062,12 @@
   align-items: flex-start;
 }
 
+.ml-card-copy-count {
+  background: rgba(15, 23, 42, 0.82);
+  border-color: rgba(226, 232, 240, 0.38);
+  color: #f8fafc;
+}
+
 .ml-card-overlay-play {
   width: 54px;
   height: 54px;
@@ -1315,6 +1321,7 @@
 }
 
 .ml-card-info-row,
+.ml-card-source-row,
 .ml-card-tag-row {
   display: flex;
   align-items: center;
@@ -1781,6 +1788,20 @@ button.ml-resume-card {
   justify-content: flex-end;
 }
 
+.ml-card-source-row {
+  gap: 5px;
+}
+
+.ml-card-source {
+  max-width: 100%;
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 11.5px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ml-sync-target {
   display: grid;
   grid-template-columns: 20px 38px minmax(0, 1fr);
@@ -1918,6 +1939,178 @@ button.ml-resume-card {
   gap: 10px;
 }
 
+.ml-cleanup-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  margin: 12px 0;
+  color: var(--color-fg, var(--text-primary));
+  font-size: 12px;
+}
+
+.ml-cleanup-bulk-actions input,
+.ml-cleanup-card-heading input,
+.ml-cleanup-copy-row input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-primary, var(--primary));
+}
+
+.ml-cleanup-bulk-actions small {
+  margin-left: auto;
+  color: var(--color-fg-muted, var(--text-secondary));
+}
+
+.ml-cleanup-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 10px;
+  max-height: min(58vh, 620px);
+  overflow: auto;
+  padding: 2px 4px 2px 0;
+}
+
+.ml-cleanup-card {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  min-height: 150px;
+  overflow: hidden;
+  border: 1px solid var(--color-border, var(--border-primary));
+  border-radius: 8px;
+  background: var(--color-surface, var(--surface-primary));
+}
+
+.ml-cleanup-card-cover {
+  min-width: 0;
+  background: var(--color-bg-muted, var(--surface-secondary));
+}
+
+.ml-cleanup-card-cover .ui-media-cover,
+.ml-cleanup-card-cover .ui-media-cover__frame {
+  height: 100%;
+  min-height: 150px;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+
+.ml-cleanup-card-main {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.ml-cleanup-card-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.ml-cleanup-card-heading > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ml-cleanup-card-heading strong {
+  color: var(--color-primary-active, var(--color-primary, var(--primary)));
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.ml-cleanup-card-heading span {
+  overflow: hidden;
+  color: var(--color-fg, var(--text-primary));
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-cleanup-source-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ml-cleanup-source-badges span {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 6px;
+  border: 1px solid var(--color-border, var(--border-primary));
+  border-radius: 6px;
+  background: var(--color-surface-2, var(--surface-secondary));
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-cleanup-card-time {
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 11px;
+}
+
+.ml-cleanup-card-details {
+  min-width: 0;
+}
+
+.ml-cleanup-card-details summary {
+  width: max-content;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-primary, var(--primary));
+  cursor: pointer;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-cleanup-card-details[open] summary {
+  margin-bottom: 8px;
+}
+
+.ml-cleanup-card-details .ml-cleanup-copy-list {
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.ml-cleanup-copy-row {
+  min-height: 52px;
+  padding: 8px;
+}
+
+.ml-cleanup-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 38px;
+  margin-top: 12px;
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 12px;
+}
+
+.ml-cleanup-page-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--color-border, var(--border-primary));
+  border-radius: 6px;
+  background: var(--color-surface, var(--surface-primary));
+  color: var(--color-fg, var(--text-primary));
+  cursor: pointer;
+}
+
+.ml-cleanup-page-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .ml-cleanup-title-group {
   display: grid;
   gap: 8px;
@@ -2028,6 +2221,44 @@ button.ml-resume-card {
   border-top: 1px solid var(--color-border, var(--border-primary));
   color: var(--color-fg-muted, var(--text-secondary));
   font-size: 12px;
+}
+
+.ml-cleanup-footer > div {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 700px) {
+  .ml-cleanup-scan-card {
+    grid-template-columns: 1fr;
+  }
+
+  .ml-cleanup-scan-card > button {
+    width: 100%;
+  }
+
+  .ml-cleanup-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ml-cleanup-card {
+    grid-template-columns: 106px minmax(0, 1fr);
+    min-height: 132px;
+  }
+
+  .ml-cleanup-card-cover .ui-media-cover,
+  .ml-cleanup-card-cover .ui-media-cover__frame {
+    min-height: 132px;
+  }
+
+  .ml-cleanup-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ml-cleanup-footer > div > button {
+    flex: 1;
+  }
 }
 
 .ml-cleanup-confirm {

@@ -14,6 +14,12 @@ export type MediaCleanupCopySnapshot = {
   pickCode?: string;
   fileName?: string;
   folderPath?: string;
+  /** Emby/Jellyfin 可直接加载的封面地址。 */
+  coverImageUrl?: string;
+  /** 115 封面文件名，仅作展示与诊断。 */
+  coverFileName?: string;
+  /** 115 封面 pick_code，由界面按需解析短时下载地址。 */
+  coverPickCode?: string;
   watchedAt?: number;
   lastFoundAt: number;
 };

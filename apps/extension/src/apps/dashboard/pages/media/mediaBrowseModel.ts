@@ -161,6 +161,11 @@ export type MediaSourceCopy = {
   watchState?: MediaWatchState;
 };
 
+export type MediaSourceCopyPlaybackStatus = {
+  playable: boolean;
+  reason?: string;
+};
+
 export type MediaPlaybackChoice = {
   kind: 'unavailable' | 'direct' | 'choose';
   items: MediaBrowseItem[];
@@ -188,22 +193,74 @@ export function mediaCopyToBrowseItem(title: MediaBrowseItem, copy: MediaSourceC
   };
 }
 
-function isPlayableCopy(copy: MediaSourceCopy): boolean {
-  if (copy.source === '115') return Boolean(copy.pickCode);
-  return Boolean(copy.itemId && copy.serverUrl);
+function fallbackMediaSourceCopy(item: MediaBrowseItem): MediaSourceCopy {
+  return {
+    copyId: item.source === '115'
+      ? `115:${item.itemId || item.pickCode || item.code}`
+      : `${item.source}:${item.serverUrl || ''}:${item.itemId || item.code}`,
+    source: item.source,
+    serverName: item.serverName,
+    serverUrl: item.serverUrl,
+    serverId: item.serverId,
+    itemId: item.itemId,
+    fileId: item.source === '115' ? item.itemId : undefined,
+    pickCode: item.pickCode,
+    fileName: item.fileName,
+    folderPath: item.folderPath,
+    libraryKey: item.libraryKey,
+    coverImageUrl: item.coverImageUrl,
+    imageUrls: item.imageUrls,
+    coverPickCode: item.coverPickCode,
+    nfoSummary: item.nfoSummary,
+    userData: item.userData,
+    watchState: item.watchState,
+  };
+}
+
+export function getMediaSourceCopies(item: MediaBrowseItem): MediaSourceCopy[] {
+  return item.copies?.length ? item.copies : [fallbackMediaSourceCopy(item)];
+}
+
+export function formatMediaSourceCopyLabel(copy: MediaSourceCopy | null | undefined): string {
+  if (!copy) return '来源信息不可用';
+  const label = sourceLabel(copy.source);
+  const name = String(copy.serverName || '').trim();
+  return name ? `${label} · ${name}` : label;
+}
+
+export function getMediaSourceLabels(item: MediaBrowseItem): string[] {
+  return Array.from(new Set(getMediaSourceCopies(item).map(formatMediaSourceCopyLabel)));
+}
+
+/** 聚合影片详情优先走已配置的 Emby/Jellyfin，115 NFO 仅作为无服务器详情时的回退。 */
+export function getPreferredDetailSourceCopy(item: MediaBrowseItem): MediaSourceCopy | null {
+  return getMediaSourceCopies(item).find((copy) => (
+    (copy.source === 'emby' || copy.source === 'jellyfin')
+    && Boolean(copy.itemId && copy.serverUrl)
+  )) || null;
+}
+
+export function getMediaSourceCopyPlaybackStatus(
+  copy: MediaSourceCopy | null | undefined,
+): MediaSourceCopyPlaybackStatus {
+  if (!copy) return { playable: false, reason: '来源信息不可用' };
+  if (copy.source === '115') {
+    return copy.pickCode
+      ? { playable: true }
+      : { playable: false, reason: '115 索引缺少播放标识' };
+  }
+  if (!copy.serverUrl) return { playable: false, reason: '媒体服务器地址未配置' };
+  if (!copy.itemId) return { playable: false, reason: '媒体条目尚未同步完成' };
+  return { playable: true };
 }
 
 export function resolvePlaybackChoice(item: MediaBrowseItem): MediaPlaybackChoice {
-  const copies = item.copies?.length
-    ? item.copies.filter(isPlayableCopy).map((copy) => mediaCopyToBrowseItem(item, copy))
-    : [item].filter((candidate) => (
-      candidate.source === '115'
-        ? Boolean(candidate.pickCode)
-        : Boolean(candidate.itemId && candidate.serverUrl)
-    ));
+  const copies = getMediaSourceCopies(item);
+  const items = copies.map((copy) => mediaCopyToBrowseItem(item, copy));
+  const playableCount = copies.filter((copy) => getMediaSourceCopyPlaybackStatus(copy).playable).length;
   return {
-    kind: copies.length === 0 ? 'unavailable' : copies.length === 1 ? 'direct' : 'choose',
-    items: copies,
+    kind: playableCount === 0 ? 'unavailable' : copies.length === 1 ? 'direct' : 'choose',
+    items,
   };
 }
 

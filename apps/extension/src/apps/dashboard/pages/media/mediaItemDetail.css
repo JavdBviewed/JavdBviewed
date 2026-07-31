@@ -133,6 +133,65 @@
   margin-bottom: 12px;
 }
 
+.ml-detail-play-menu {
+  position: relative;
+  z-index: 3;
+}
+
+.ml-detail-play-menu-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  gap: 4px;
+  width: min(360px, calc(100vw - 64px));
+  max-height: 300px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--color-border, var(--border-primary));
+  border-radius: 8px;
+  background: var(--color-surface, #0f172a);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.34);
+}
+
+.ml-detail-play-menu-item {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-fg, var(--text-primary));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ml-detail-play-menu-item:hover,
+.ml-detail-play-menu-item:focus-visible {
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 14%, transparent);
+  outline: none;
+}
+
+.ml-detail-play-menu-item:disabled {
+  color: var(--color-fg-subtle, var(--text-secondary));
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.ml-detail-play-menu-item strong,
+.ml-detail-play-menu-item small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-detail-play-menu-item small {
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 12px;
+}
+
 .ml-detail-btn {
   min-height: 36px;
   padding: 0 16px;
@@ -244,7 +303,7 @@
 
 .ml-detail-copy-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: center;
   min-height: 52px;
@@ -276,6 +335,42 @@
 
 .ml-detail-copy-main small {
   color: var(--color-fg-muted, #94a3b8);
+}
+
+.ml-detail-copy-play {
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-primary, #3b82f6) 46%, var(--color-border, var(--border-primary)));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 12%, var(--color-surface, #0f172a));
+  color: var(--color-primary-active, var(--color-primary, #3b82f6));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ml-detail-copy-play:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus, 0 0 0 3px rgba(59, 130, 246, 0.3));
+}
+
+.ml-detail-copy-play:disabled {
+  border-color: var(--color-border, var(--border-primary));
+  background: var(--color-bg-muted, rgba(148, 163, 184, 0.12));
+  color: var(--color-fg-muted, #94a3b8);
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .ml-detail-copy-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .ml-detail-copy-progress,
+  .ml-detail-copy-play {
+    grid-column: 2 / -1;
+  }
 }
 
 /* 横向滚动行：主题化滚动条；仅溢出时抓手/横滑 */

@@ -9,6 +9,10 @@ import {
   buildMediaSyncTargets,
   buildMediaSourceChannels,
   filterMediaItems,
+  formatMediaSourceCopyLabel,
+  getMediaSourceCopyPlaybackStatus,
+  getMediaSourceLabels,
+  getPreferredDetailSourceCopy,
   resolvePlaybackChoice,
   heroItems,
   MEDIA_PREVIEW_ITEMS,
@@ -181,6 +185,63 @@ describe('mediaBrowseModel', () => {
     expect(direct.items[0]).toMatchObject({ source: 'emby', itemId: 'emby-1' });
     expect(choose.kind).toBe('choose');
     expect(choose.items.map((item) => item.source)).toEqual(['emby', '115']);
+  });
+
+  it('keeps every source visible and marks an unavailable copy without removing it from playback choice', () => {
+    const item: MediaBrowseItem = {
+      ...MEDIA_PREVIEW_ITEMS[0],
+      copies: [
+        {
+          copyId: 'emby:http://emby-134.local:item-1',
+          source: 'emby',
+          serverName: 'Emby-134',
+          serverUrl: 'http://emby-134.local',
+          itemId: 'item-1',
+        },
+        {
+          copyId: '115:file-1',
+          source: '115',
+          serverName: '115 片库',
+          fileId: 'file-1',
+          fileName: 'TEST-001.mp4',
+        },
+      ],
+    };
+
+    expect(getMediaSourceLabels(item)).toEqual(['Emby · Emby-134', '115 · 115 片库']);
+    expect(formatMediaSourceCopyLabel(item.copies?.[0])).toBe('Emby · Emby-134');
+    expect(getMediaSourceCopyPlaybackStatus(item.copies?.[1])).toEqual({
+      playable: false,
+      reason: '115 索引缺少播放标识',
+    });
+
+    const choice = resolvePlaybackChoice(item);
+    expect(choice.kind).toBe('choose');
+    expect(choice.items).toHaveLength(2);
+    expect(choice.items[1]).toMatchObject({ source: '115', itemId: 'file-1' });
+  });
+
+  it('prefers a configured self-hosted media server for aggregated detail metadata', () => {
+    const item: MediaBrowseItem = {
+      ...MEDIA_PREVIEW_ITEMS[0],
+      source: '115',
+      copies: [
+        { copyId: '115:file-1', source: '115', fileId: 'file-1', pickCode: 'pick-1' },
+        {
+          copyId: 'emby:http://emby.local:item-1',
+          source: 'emby',
+          serverName: '家庭 Emby',
+          serverUrl: 'http://emby.local',
+          itemId: 'item-1',
+        },
+      ],
+    };
+
+    expect(getPreferredDetailSourceCopy(item)).toMatchObject({
+      source: 'emby',
+      serverName: '家庭 Emby',
+      itemId: 'item-1',
+    });
   });
 
   it('filters by watch state', () => {
