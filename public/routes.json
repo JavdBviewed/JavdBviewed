@@ -2,7 +2,7 @@
   "version": "1.0.1",
   "lastUpdated": "2026-02-23T07:30:00Z",
   "updateInterval": 86400000,
-  "remoteUrl": "https://raw.githubusercontent.com/lmixture/JavdBviewed/main/public/routes.json",
+  "remoteUrl": "https://raw.githubusercontent.com/JavdBviewed/JavdBviewed/main/public/routes.json",
   "services": {
     "javdb": {
       "name": "JavDB",

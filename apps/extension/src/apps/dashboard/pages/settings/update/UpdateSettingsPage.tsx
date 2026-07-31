@@ -285,7 +285,7 @@ export function UpdateSettingsPage() {
             <div className="grid gap-2 px-2 py-2 sm:grid-cols-3">
               <a
                 className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3 text-center text-[13px] font-semibold text-[var(--color-fg)] no-underline hover:border-[var(--color-primary)]"
-                href="https://github.com/lmixture/JavdBviewed"
+                href="https://github.com/JavdBviewed/JavdBviewed"
                 target="_blank"
                 rel="noopener noreferrer"
               >

@@ -1789,8 +1789,8 @@
 ## 💬 反馈与建议
 
 如果您有任何功能建议或发现问题，欢迎：
-- 💬 提交 [Issue](https://github.com/lmixture/JavdBviewed/issues)
-- 🗨️ 发起 [Discussion](https://github.com/lmixture/JavdBviewed/discussions)
+- 💬 提交 [Issue](https://github.com/JavdBviewed/JavdBviewed/issues)
+- 🗨️ 发起 [Discussion](https://github.com/JavdBviewed/JavdBviewed/discussions)
 
 ---
 

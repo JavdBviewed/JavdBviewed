@@ -1,6 +1,6 @@
 # Contributing Guide
 
-Thanks for helping improve JavdBviewed. This project is a Chromium browser extension with a VitePress documentation site.
+Thanks for helping improve JavdBviewed. This project is a Chromium browser extension.
 
 ## Development Setup
 
@@ -23,7 +23,6 @@ pnpm run test:regression
 pnpm run test:dom
 pnpm run test:coverage
 pnpm run build
-pnpm run docs:build
 ```
 
 Run `pnpm run ci` before opening a larger pull request. It runs the same core checks used by GitHub Actions.
@@ -36,7 +35,6 @@ Run `pnpm run ci` before opening a larger pull request. It runs the same core ch
 - `src/services/`: business services shared across pages and background code
 - `src/utils/`: shared helpers, configuration, parsing, storage utilities
 - `src/types/`: shared TypeScript types
-- `vitepress/`: documentation site source
 - `scripts/`: build, release, and regression scripts
 
 ## Pull Request Expectations
@@ -44,7 +42,7 @@ Run `pnpm run ci` before opening a larger pull request. It runs the same core ch
 - Keep pull requests focused on one user-visible change or one internal cleanup.
 - Include manual test steps in the PR body.
 - Add or update tests for logic, data migration, sync, privacy, and task orchestration changes.
-- Update docs when behavior, setup, settings, permissions, or user workflows change.
+- Update the [documentation repository](https://github.com/JavdBviewed/JavdBviewed-Docs) when behavior, setup, settings, permissions, or user workflows change.
 - For UI changes, include before/after screenshots or a short recording.
 - For storage changes, describe migration and rollback impact.
 

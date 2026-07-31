@@ -3,7 +3,7 @@
  *
  * 运行时 GitHub 端点必须由这些常量推导，避免后续迁移仓库时再次分散修改 URL。
  */
-export const REPO_OWNER = 'lmixture';
+export const REPO_OWNER = 'JavdBviewed';
 export const REPO_NAME = 'JavdBviewed';
 export const REPO_SLUG = `${REPO_OWNER}/${REPO_NAME}`;
 

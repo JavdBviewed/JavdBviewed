@@ -568,7 +568,7 @@ export function CloudSettingsPage() {
         <SettingsHighlightNotice title="Cloud 功能仍在测试中">
           多端同步已开放给自建服务使用，但仍可能遇到连接、合并或兼容问题。遇到异常可以到{' '}
           <a
-            href="https://github.com/lmixture/JavdBviewed/issues"
+            href="https://github.com/JavdBviewed/JavdBviewed/issues"
             target="_blank"
             rel="noopener noreferrer"
           >

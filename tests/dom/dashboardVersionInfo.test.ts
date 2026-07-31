@@ -44,12 +44,12 @@ describe('dashboard version info about panel', () => {
     expect(author?.children[1]).toBe(authorLink);
     expect(authorAvatar).toBeNull();
     expect(authorLabel?.textContent?.trim()).toBe('Author:');
-    expect(authorLink?.getAttribute('href')).toBe('https://github.com/lmixture');
+    expect(authorLink?.getAttribute('href')).toBe('https://github.com/JavdBviewed');
     expect(authorLink?.getAttribute('target')).toBe('_blank');
     expect(authorLink?.getAttribute('rel')).toBe('noopener noreferrer');
-    expect(authorLink?.textContent?.trim()).toBe('lmixture');
-    expect(author?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Author: lmixture');
+    expect(authorLink?.textContent?.trim()).toBe('JavdBviewed');
+    expect(author?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Author: JavdBviewed');
     expect(authorLink?.classList.contains('info-author-link')).toBe(true);
-    expect(authorLink?.textContent).not.toContain('https://github.com/lmixture');
+    expect(authorLink?.textContent).not.toContain('https://github.com/JavdBviewed');
   });
 });

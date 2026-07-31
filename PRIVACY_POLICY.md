@@ -14,7 +14,7 @@ Jav 助手（以下简称"本扩展"）尊重并保护用户的隐私。本隐�
 
 - **扩展名称**: Jav 助手
 - **开发者**: lmixture
-- **联系方式**: [GitHub Issues](https://github.com/lmixture/JavdBviewed/issues)
+- **联系方式**: [GitHub Issues](https://github.com/JavdBviewed/JavdBviewed/issues)
 
 ### 3. 数据收集
 
@@ -102,8 +102,8 @@ Jav 助手（以下简称"本扩展"）尊重并保护用户的隐私。本隐�
 
 如果您对本隐私政策有任何疑问或建议，请通过以下方式联系我们：
 
-- **GitHub Issues**: https://github.com/lmixture/JavdBviewed/issues
-- **GitHub Discussions**: https://github.com/lmixture/JavdBviewed/discussions
+- **GitHub Issues**: https://github.com/JavdBviewed/JavdBviewed/issues
+- **GitHub Discussions**: https://github.com/JavdBviewed/JavdBviewed/discussions
 
 ---
 
@@ -117,7 +117,7 @@ Jav Assistant (hereinafter referred to as "this extension") respects and protect
 
 - **Extension Name**: Jav Assistant
 - **Developer**: lmixture
-- **Contact**: [GitHub Issues](https://github.com/lmixture/JavdBviewed/issues)
+- **Contact**: [GitHub Issues](https://github.com/JavdBviewed/JavdBviewed/issues)
 
 ### 3. Data Collection
 
@@ -205,8 +205,8 @@ We may update this privacy policy from time to time. Updated policies will be pu
 
 If you have any questions or suggestions about this privacy policy, please contact us through:
 
-- **GitHub Issues**: https://github.com/lmixture/JavdBviewed/issues
-- **GitHub Discussions**: https://github.com/lmixture/JavdBviewed/discussions
+- **GitHub Issues**: https://github.com/JavdBviewed/JavdBviewed/issues
+- **GitHub Discussions**: https://github.com/JavdBviewed/JavdBviewed/discussions
 
 ---
 

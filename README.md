@@ -1,4 +1,4 @@
-﻿# JavdBviewed
+# JavdBviewed
 
 <div align="center">
 
@@ -6,9 +6,9 @@
 
 **Jav 视频浏览助手**
 
-[![GitHub release](https://img.shields.io/github/v/release/lmixture/JavdBviewed)](https://github.com/lmixture/JavdBviewed/releases)
+[![GitHub release](https://img.shields.io/github/v/release/JavdBviewed/JavdBviewed)](https://github.com/JavdBviewed/JavdBviewed/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Chrome Web Store](https://img.shields.io/badge/Chrome-Extension-green.svg)](https://github.com/lmixture/JavdBviewed/releases)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome-Extension-green.svg)](https://github.com/JavdBviewed/JavdBviewed/releases)
 
 </div>
 
@@ -115,7 +115,7 @@ Jav 助手是一个功能强大的浏览器扩展，专为 JavDB 等 Jav 视频�
 
 **安装步骤：**
 
-1. 访问 [Releases 页面](https://github.com/lmixture/JavdBviewed/releases)
+1. 访问 [Releases 页面](https://github.com/JavdBviewed/JavdBviewed/releases)
 2. 下载最新版本的 `javdb-extension-v*.zip` 文件
 3. 解压到本地文件夹
 4. 打开浏览器扩展管理页面：
@@ -152,31 +152,11 @@ pnpm run test:regression
 pnpm run test:dom
 pnpm run test:coverage
 pnpm run build
-pnpm run docs:build
 ```
 
-#### 文档站本地预览
-```bash
-pnpm run vitepress:dev
-```
+#### 文档站
 
-#### 文档站构建
-```bash
-pnpm run vitepress:build
-```
-
-#### Vercel 文档部署配置
-```text
-Framework Preset: VitePress
-Install Command: pnpm install
-Build Command: pnpm run vitepress:build
-Output Directory: vitepress/.vitepress/dist
-```
-
-当前文档站统一约定：
-- 文档源码目录：`vitepress/`
-- VitePress 配置目录：`vitepress/.vitepress/`
-- 构建产物目录：`vitepress/.vitepress/dist/`
+VitePress 文档站已独立维护于 [JavdBviewed-Docs](https://github.com/JavdBviewed/JavdBviewed-Docs)，其中包含本地开发、构建与 Vercel 部署说明。
 
 #### 发布扩展
 1. 更新版本号：
@@ -196,8 +176,8 @@ Output Directory: vitepress/.vitepress/dist
 ## 🤝 支持与反馈
 
 如有问题或建议，欢迎通过以下方式联系：
-- 💬 提交 [Issue](https://github.com/lmixture/JavdBviewed/issues) - 报告问题或提出功能建议
-- 🗨️ 发起 [Discussion](https://github.com/lmixture/JavdBviewed/discussions) - 参与讨论和交流
+- 💬 提交 [Issue](https://github.com/JavdBviewed/JavdBviewed/issues) - 报告问题或提出功能建议
+- 🗨️ 发起 [Discussion](https://github.com/JavdBviewed/JavdBviewed/discussions) - 参与讨论和交流
 
 
 ## 致谢
@@ -212,6 +192,6 @@ Output Directory: vitepress/.vitepress/dist
 
 **您的支持是我持续维护和改进的最大动力 💪**
 
-[![Star History Chart](https://api.star-history.com/svg?repos=lmixture/JavdBviewed&type=Date)](https://star-history.com/#lmixture/JavdBviewed&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=JavdBviewed/JavdBviewed&type=Date)](https://star-history.com/#JavdBviewed/JavdBviewed&Date)
 
 </div>

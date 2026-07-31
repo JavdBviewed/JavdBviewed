@@ -321,7 +321,7 @@ export function EmbySettingsPage() {
           <SettingsHighlightNotice title="Emby/Jellyfin 功能仍在测试中">
             影音增强、媒体库同步和播放状态写回仍在持续打磨。遇到识别、同步或播放异常，可以到{' '}
             <a
-              href="https://github.com/lmixture/JavdBviewed/issues"
+              href="https://github.com/JavdBviewed/JavdBviewed/issues"
               target="_blank"
               rel="noopener noreferrer"
             >

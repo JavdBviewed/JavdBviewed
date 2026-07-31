@@ -6,12 +6,6 @@
   "license": "AGPL-3.0-only",
   "description": "JavdBviewed monorepo — browser extension + shared sync packages",
   "scripts": {
-    "vitepress:dev": "vitepress dev vitepress --host 127.0.0.1 --port 5174",
-    "vitepress:build": "vitepress build vitepress",
-    "vitepress:preview": "vitepress preview vitepress",
-    "docs:dev": "pnpm run vitepress:dev",
-    "docs:build": "pnpm run vitepress:build",
-    "docs:preview": "pnpm run vitepress:preview",
     "build": "rimraf dist-zip && node --import tsx scripts/build.ts",
     "build:extension": "pnpm --filter @javdb/extension build",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm --filter @javdb/sync-protocol typecheck && pnpm --filter @javdb/sync-client typecheck",
@@ -30,7 +24,7 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "lint": "pnpm run typecheck",
-    "ci": "pnpm run typecheck && pnpm run test && pnpm run test:dom && pnpm run test:style-contract && pnpm run build && pnpm run docs:build",
+    "ci": "pnpm run typecheck && pnpm run test && pnpm run test:dom && pnpm run test:style-contract && pnpm run build",
     "version:major": "pnpm tsx scripts/version.ts major",
     "version:minor": "pnpm tsx scripts/version.ts minor",
     "version:patch": "pnpm tsx scripts/version.ts patch",
@@ -75,8 +69,6 @@
     "tsx": "^4.16.2",
     "typescript": "^5.0.0",
     "vite": "^5.0.0",
-    "vitepress": "^1.6.4",
-    "vitepress-plugin-mermaid": "^2.0.17",
     "vitest": "^2.1.9"
   },
   "pnpm": {

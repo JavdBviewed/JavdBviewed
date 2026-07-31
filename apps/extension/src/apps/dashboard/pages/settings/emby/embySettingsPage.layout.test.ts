@@ -77,7 +77,7 @@ describe('EmbySettingsPage media server layout', () => {
     expect(pageSource).toContain('SettingsHighlightNotice');
     expect(pageSource).toContain('Emby/Jellyfin 功能仍在测试中');
     expect(pageSource).toContain('GitHub Issues');
-    expect(pageSource).toContain('https://github.com/lmixture/JavdBviewed/issues');
+    expect(pageSource).toContain('https://github.com/JavdBviewed/JavdBviewed/issues');
     expect(pageSource).not.toContain('mx-2 mb-2 flex items-start gap-2 rounded-[var(--radius-2)]');
   });
 

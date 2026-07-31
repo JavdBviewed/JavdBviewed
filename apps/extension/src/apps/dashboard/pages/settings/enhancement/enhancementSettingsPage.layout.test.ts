@@ -20,7 +20,7 @@ describe('EnhancementSettingsPage layout', () => {
     expect(pageSource).toContain('SettingsHighlightNotice');
     expect(pageSource).toContain('功能增强仍在测试中');
     expect(pageSource).toContain('GitHub Issues');
-    expect(pageSource).toContain('https://github.com/lmixture/JavdBviewed/issues');
+    expect(pageSource).toContain('https://github.com/JavdBviewed/JavdBviewed/issues');
     expect(sharedStyleSource).toContain('.settings-highlight-notice');
   });
 });

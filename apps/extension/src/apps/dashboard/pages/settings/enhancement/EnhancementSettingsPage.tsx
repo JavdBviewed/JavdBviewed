@@ -214,7 +214,7 @@ export function EnhancementSettingsPage() {
         <SettingsHighlightNotice title="功能增强仍在测试中">
           列表、影片、演员页增强覆盖的站点和页面结构较多，部分能力可能受源站改版影响。遇到异常可以到{' '}
           <a
-            href="https://github.com/lmixture/JavdBviewed/issues"
+            href="https://github.com/JavdBviewed/JavdBviewed/issues"
             target="_blank"
             rel="noopener noreferrer"
           >

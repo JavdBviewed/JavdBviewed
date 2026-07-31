@@ -82,7 +82,7 @@ describe('serverEndpointResolver', () => {
     );
 
     expect(GITHUB_BOOTSTRAP_URL).toBe(
-      'https://raw.githubusercontent.com/lmixture/JavdBviewed/main/public/bootstrap.json',
+      'https://raw.githubusercontent.com/JavdBviewed/JavdBviewed/main/public/bootstrap.json',
     );
 
     await expect(refreshServerEndpoint({ force: true })).resolves.toMatchObject({
