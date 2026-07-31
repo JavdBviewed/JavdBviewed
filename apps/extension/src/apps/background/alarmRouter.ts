@@ -20,6 +20,11 @@ import {
   handleDrive115Alarm,
   handleDrive115SettingsChange,
 } from './drive115UserRefresh';
+import {
+  DRIVE115_LIBRARY_INDEX_RESUME_ALARM,
+  ensureDrive115MediaLibraryResumeAlarm,
+  handleDrive115MediaLibraryResumeAlarm,
+} from '../../features/drive115/mediaLibrary';
 import { viewedPurgeExpired, actorsPurgeExpired } from '../../platform/storage/indexedDb';
 import {
   ALARM_DIAGNOSTICS_STORAGE_KEY,
@@ -45,6 +50,7 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 export function initializeBackgroundAlarmWiring(): void {
   syncInsightsMonthlyAlarmFromSettings();
   syncEmbyLibrarySyncAlarmFromCurrentSettings().catch(() => {});
+  ensureDrive115MediaLibraryResumeAlarm().catch(() => {});
   registerNewWorksStartupInitializer();
   registerRecycleBinCleanupAlarm();
   registerBackgroundAlarmRouter();
@@ -96,6 +102,7 @@ export function registerNewWorksStartupInitializer(): void {
   try {
     chrome.runtime.onStartup.addListener(async () => {
       try {
+        await ensureDrive115MediaLibraryResumeAlarm();
         await newWorksScheduler.initialize();
         try {
           const settings = await getSettings();
@@ -124,6 +131,15 @@ export function registerBackgroundAlarmRouter(): void {
           handleDrive115Alarm(name);
           return true;
         }, () => 'drive115-user-refresh').catch(() => {});
+        return;
+      }
+
+      if (name === DRIVE115_LIBRARY_INDEX_RESUME_ALARM) {
+        void withAlarmDiagnostics(
+          name,
+          () => handleDrive115MediaLibraryResumeAlarm(name),
+          () => 'drive115-library-index-resume',
+        ).catch(() => {});
         return;
       }
 

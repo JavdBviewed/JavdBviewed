@@ -16,5 +16,8 @@ export {
   handleDrive115MediaLibraryIndex,
   handleDrive115MediaLibraryResolveCoverUrl,
   handleDrive115MediaLibraryResolveNfo,
+  handleDrive115MediaLibraryResumeAlarm,
+  ensureDrive115MediaLibraryResumeAlarm,
   runDrive115MediaLibraryIndex,
 } from './handlers';
+export { DRIVE115_LIBRARY_INDEX_RESUME_ALARM } from './handlers';

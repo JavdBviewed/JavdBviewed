@@ -154,14 +154,44 @@ export function pickPrimaryNfo(
   nfos: ClassifiedFolderFile[],
   videoFileName?: string,
 ): ClassifiedFolderFile | null {
-  if (!nfos.length) return null;
+  return rankNfoCandidates(nfos, undefined, videoFileName)[0] || null;
+}
+
+/**
+ * 按番号同名、主视频同名、文件名的顺序排列 NFO 候选。
+ * 文件内容完整度只能在下载解析后判定，因此这里仅建立稳定的尝试顺序。
+ */
+export function rankNfoCandidates(
+  nfos: ClassifiedFolderFile[],
+  codeHint?: string,
+  videoFileName?: string,
+): ClassifiedFolderFile[] {
+  if (!nfos.length) return [];
+  const baseName = (value: string | undefined, extensionPattern: RegExp): string => String(value || '')
+    .replace(extensionPattern, '')
+    .trim()
+    .toUpperCase();
+  const codeBase = baseName(codeHint, /\.[^.]+$/);
   const base = String(videoFileName || '')
     .replace(/\.[^.]+$/, '')
     .trim()
-    .toLowerCase();
-  if (base) {
-    const match = nfos.find((n) => n.fileName.replace(/\.nfo$/i, '').toLowerCase() === base);
-    if (match) return match;
-  }
-  return nfos[0] || null;
+    .toUpperCase();
+  return nfos
+    .map((nfo, index) => ({
+      nfo,
+      index,
+      base: baseName(nfo.fileName, /\.nfo$/i),
+    }))
+    .sort((a, b) => {
+      const priority = (candidate: typeof a): number => {
+        if (codeBase && candidate.base === codeBase) return 0;
+        if (base && candidate.base === base) return 1;
+        return 2;
+      };
+      const priorityDiff = priority(a) - priority(b);
+      if (priorityDiff) return priorityDiff;
+      const nameDiff = a.nfo.fileName.localeCompare(b.nfo.fileName);
+      return nameDiff || a.index - b.index;
+    })
+    .map(({ nfo }) => nfo);
 }

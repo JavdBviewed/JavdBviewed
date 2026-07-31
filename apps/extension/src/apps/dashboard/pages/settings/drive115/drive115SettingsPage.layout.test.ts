@@ -80,6 +80,30 @@ describe('Drive115SettingsPage layout', () => {
     expect(pageSource).toContain('SKIP_REASON_LABELS');
   });
 
+  it('keeps each skip reason together with its matching folder details', () => {
+    expect(pageSource).toContain('skippedByReason');
+    expect(pageSource).toContain('跳过项目');
+    expect(pageSource).toContain('report.skipped.filter((item) => item.reason === row.reason)');
+    expect(pageSource).not.toContain('<h3 className="text-[13px] font-semibold">跳过原因</h3>');
+    expect(pageSource).not.toContain('<span>跳过明细</span>');
+  });
+
+  it('shows the concrete directory listing failure under the affected folder', () => {
+    expect(pageSource).toContain('item.failureMessage');
+    expect(pageSource).toContain('请求原因');
+  });
+
+  it('makes a rate-limit checkpoint visible as a resumable index state', () => {
+    expect(pageSource).toContain('indexResumePending');
+    expect(pageSource).toContain('indexResumeAt');
+    expect(pageSource).toContain('DRIVE115_LIBRARY_INDEX_CHECKPOINT');
+    expect(pageSource).toContain('window.setInterval');
+    expect(pageSource).toContain('等待继续');
+    expect(pageSource).toContain('将在');
+    expect(pageSource).toContain('可以关闭此管理页面');
+    expect(pageSource).toContain('关闭浏览器或关机不会丢失进度');
+  });
+
   it('uses keptPrevious response message instead of previous stats in the final toast', () => {
     expect(pageSource).toContain('resp?.keptPrevious');
     expect(pageSource).toContain('未发现可入库影片，已保留上一份索引');

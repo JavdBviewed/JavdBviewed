@@ -46,6 +46,7 @@ import {
   DRIVE115_AUTH_MODE_OPTIONS,
   extractUserInfoDisplay,
   formatDrive115DateTime,
+  formatDrive115Remain,
   getAccessTokenExpiryLabel,
   getAccessTokenStatusLabel,
   getRefreshTokenStatusLabel,
@@ -83,7 +84,13 @@ function formatReportDuration(startedAt: number, finishedAt: number): number {
   return Math.max(0, Math.round((finishedAt - startedAt) / 1000));
 }
 
-/** 索引结果详情窗口：概览 + 跳过原因分组 + 入库/跳过明细 */
+function readIndexResumeAt(raw: unknown): number {
+  if (!raw || typeof raw !== 'object') return 0;
+  const resumeAt = Number((raw as { resumeAt?: unknown }).resumeAt);
+  return Number.isFinite(resumeAt) && resumeAt > 0 ? Math.floor(resumeAt) : 0;
+}
+
+/** 索引结果详情窗口：概览 + 入库/跳过项目明细 */
 function Drive115IndexReportModal({
   open,
   report,
@@ -99,6 +106,12 @@ function Drive115IndexReportModal({
     .map((reason) => ({ reason, count: report.skipReasonCounts[reason] || 0 }))
     .filter((row) => row.count > 0)
     .sort((a, b) => b.count - a.count);
+  const skippedByReason = new Map(
+    reasonRows.map((row) => [
+      row.reason,
+      report.skipped.filter((item) => item.reason === row.reason),
+    ]),
+  );
 
   const stats: Array<{ label: string; value: string | number; accent?: 'ok' | 'skip' }> = [
     { label: '入库', value: report.indexedTotal, accent: 'ok' },
@@ -147,29 +160,6 @@ function Drive115IndexReportModal({
           </div>
         ) : null}
 
-        {/* 跳过原因分组 */}
-        {reasonRows.length ? (
-          <section className="space-y-2">
-            <h3 className="text-[13px] font-semibold">跳过原因</h3>
-            <div className="overflow-hidden rounded-[var(--radius-2)] border border-[var(--color-border)]">
-              {reasonRows.map((row, i) => (
-                <div
-                  key={row.reason}
-                  className={
-                    'flex items-center justify-between px-3 py-2 ' +
-                    (i > 0 ? 'border-t border-[var(--color-border)]' : '')
-                  }
-                >
-                  <span className="text-[var(--color-fg-muted)]">
-                    {SKIP_REASON_LABELS[row.reason] || row.reason}
-                  </span>
-                  <span className="font-semibold tabular-nums">{row.count}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         {/* 入库明细 */}
         {report.indexed.length ? (
           <section className="space-y-2">
@@ -205,32 +195,53 @@ function Drive115IndexReportModal({
           </section>
         ) : null}
 
-        {/* 跳过明细 */}
-        {report.skipped.length ? (
+        {/* 跳过项目按原因分组，避免用户在两个列表之间来回对照。 */}
+        {reasonRows.length ? (
           <section className="space-y-2">
             <h3 className="flex items-baseline justify-between text-[13px] font-semibold">
-              <span>跳过明细</span>
+              <span>跳过项目</span>
               <span className="text-[11px] font-normal text-[var(--color-fg-muted)]">
                 {report.skippedTotal > report.skipped.length
                   ? `显示 ${report.skipped.length} / 共 ${report.skippedTotal}`
-                  : `共 ${report.skipped.length}`}
+                  : `共 ${report.skippedTotal}`}
               </span>
             </h3>
             <div className="max-h-56 overflow-auto rounded-[var(--radius-2)] border border-[var(--color-border)]">
-              {report.skipped.map((item, i) => (
-                <div
-                  key={`skipped-${i}`}
-                  className={
-                    'flex items-center justify-between gap-2 px-3 py-1.5 ' +
-                    (i > 0 ? 'border-t border-[var(--color-border)]' : '')
-                  }
-                >
-                  <span className="truncate">{item.folderName}</span>
-                  <span className="shrink-0 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-0.5 text-[11px] text-[var(--color-fg-muted)]">
-                    {SKIP_REASON_LABELS[item.reason] || item.reason}
-                  </span>
-                </div>
-              ))}
+              {reasonRows.map((row, index) => {
+                const items = skippedByReason.get(row.reason) || [];
+                return (
+                  <div
+                    key={row.reason}
+                    className={index > 0 ? 'border-t border-[var(--color-border)]' : ''}
+                  >
+                    <div className="flex items-center justify-between gap-2 bg-[var(--color-surface-2)] px-3 py-2">
+                      <span className="font-medium">
+                        {SKIP_REASON_LABELS[row.reason] || row.reason}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-[var(--color-fg-muted)]">
+                        {items.length < row.count ? `已列出 ${items.length} / 共 ${row.count}` : `共 ${row.count}`}
+                      </span>
+                    </div>
+                    {items.map((item, itemIndex) => (
+                      <div
+                        key={`skipped-${row.reason}-${itemIndex}`}
+                        className={
+                          'px-3 py-1.5 text-[var(--color-fg-muted)] ' +
+                          (itemIndex > 0 ? 'border-t border-[var(--color-border)]' : '')
+                        }
+                      >
+                        <span className="block truncate">{item.folderName}</span>
+                        {item.failureMessage ? (
+                          <span className="mt-0.5 block break-words text-[11px] text-[var(--color-danger,#c0392b)]">
+                            请求原因：{item.failureMessage}
+                            {item.failureCode ? `（${item.failureCode}）` : ''}
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           </section>
         ) : null}
@@ -404,6 +415,8 @@ export function Drive115SettingsPage() {
   const [indexProgressText, setIndexProgressText] = useState('');
   const [indexProgress, setIndexProgress] = useState<Drive115IndexProgressView | null>(null);
   const [indexReport, setIndexReport] = useState<Drive115IndexReport | null>(null);
+  const [indexResumeAt, setIndexResumeAt] = useState(0);
+  const [indexResumeNow, setIndexResumeNow] = useState(() => Date.now());
   const [showIndexReport, setShowIndexReport] = useState(false);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [logStatsText, setLogStatsText] = useState('暂无日志');
@@ -448,6 +461,15 @@ export function Drive115SettingsPage() {
       } catch {
         /* ignore */
       }
+      try {
+        const checkpoint = await getValue<unknown>(
+          STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_CHECKPOINT,
+          null,
+        );
+        if (!cancelled) setIndexResumeAt(readIndexResumeAt(checkpoint));
+      } catch {
+        /* ignore */
+      }
     })();
 
     const onChanged = (
@@ -464,6 +486,10 @@ export function Drive115SettingsPage() {
         const next = changes[reportKey].newValue as Drive115IndexReport | undefined;
         setIndexReport(next && typeof next === 'object' ? next : null);
       }
+      const checkpointKey = STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_CHECKPOINT;
+      if (changes[checkpointKey]) {
+        setIndexResumeAt(readIndexResumeAt(changes[checkpointKey].newValue));
+      }
     };
     try {
       chrome.storage?.onChanged?.addListener(onChanged);
@@ -479,6 +505,13 @@ export function Drive115SettingsPage() {
       }
     };
   }, [applyIndexProgressSnapshot]);
+
+  useEffect(() => {
+    if (!indexResumeAt) return;
+    setIndexResumeNow(Date.now());
+    const timer = window.setInterval(() => setIndexResumeNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [indexResumeAt]);
 
   const persist = useCallback(async (nextForm: Drive115SettingsFormState) => {
     try {
@@ -929,6 +962,16 @@ export function Drive115SettingsPage() {
       return String(ts);
     }
   }, [form.mediaLibraryLastIndexAt]);
+  const indexResumePending = indexResumeAt > 0;
+  const indexResumeRemainingSec = Math.max(0, Math.ceil((indexResumeAt - indexResumeNow) / 1000));
+  const indexResumeAtLabel = useMemo(() => {
+    if (!indexResumeAt) return '';
+    try {
+      return new Date(indexResumeAt).toLocaleString();
+    } catch {
+      return String(indexResumeAt);
+    }
+  }, [indexResumeAt]);
 
   const refreshTokenLabel = useMemo(
     () => getRefreshTokenStatusLabel(form, nowSec),
@@ -1703,15 +1746,19 @@ export function Drive115SettingsPage() {
                     className={
                       indexingMediaLibrary || indexProgress?.running
                         ? 'text-[var(--color-primary,#e67e22)]'
-                        : form.mediaLibraryLastIndexError
+                        : indexResumePending
+                          ? 'text-[var(--color-warning,#d68910)]'
+                          : form.mediaLibraryLastIndexError
                           ? 'text-[var(--color-danger,#c0392b)]'
                           : 'text-[var(--color-fg-muted)]'
                     }
                   >
                     {indexingMediaLibrary || indexProgress?.running
                       ? '进行中'
-                      : form.mediaLibraryLastIndexError
-                        ? '上次失败/中断'
+                      : indexResumePending
+                        ? '等待继续'
+                        : form.mediaLibraryLastIndexError
+                          ? '上次失败/中断'
                         : form.mediaLibraryLastIndexAt
                           ? '空闲'
                           : '尚未索引'}
@@ -1748,9 +1795,25 @@ export function Drive115SettingsPage() {
                 ) : indexProgressText ? (
                   <div className="text-[11.5px] text-[var(--color-fg)]">{indexProgressText}</div>
                 ) : null}
+                {indexResumePending ? (
+                  <div
+                    className="space-y-1 rounded-[var(--radius-2)] border border-[var(--color-warning,#d68910)]/40 bg-[var(--color-surface)] px-2.5 py-2 text-[11.5px] text-[var(--color-warning,#d68910)]"
+                    data-drive115-index-resume="1"
+                  >
+                    <div>
+                      将在 {indexResumeAtLabel} 自动继续（剩余 {formatDrive115Remain(indexResumeRemainingSec)}）
+                    </div>
+                    <div className="text-[var(--color-fg-muted)]">
+                      可以关闭此管理页面。关闭浏览器或关机不会丢失进度；下次打开 Chrome 后会继续任务。
+                    </div>
+                  </div>
+                ) : null}
                 {form.mediaLibraryLastIndexError ? (
-                  <div className="text-[var(--color-danger,#c0392b)]">
-                    上次错误：{form.mediaLibraryLastIndexError}
+                  <div className={indexResumePending
+                    ? 'text-[var(--color-warning,#d68910)]'
+                    : 'text-[var(--color-danger,#c0392b)]'}>
+                    {indexResumePending ? '索引已暂停，已保存进度：' : '上次错误：'}
+                    {form.mediaLibraryLastIndexError}
                   </div>
                 ) : null}
                 {indexReport ? (

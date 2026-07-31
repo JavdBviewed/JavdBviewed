@@ -1023,7 +1023,7 @@ class Drive115V2Service {
     /** Background callers can skip the runtime proxy so AbortSignal can cancel the fetch directly. */
     skipBackgroundProxy?: boolean;
   }): Promise<
-    { success: boolean; message?: string; raw?: Drive115V2FileListResponse } &
+    { success: boolean; message?: string; raw?: Drive115V2FileListResponse; statusCode?: number } &
     { count?: number; data?: Drive115V2FileListItem[]; path?: Drive115V2PathItem[]; limit?: number; offset?: number; cid?: string | number }
   > {
     try {
@@ -1086,7 +1086,7 @@ class Drive115V2Service {
         if (!res.ok) {
           const msg = `文件列表网络错误: ${res.status} ${res.statusText}`;
           await addLogV2({ timestamp: Date.now(), level: 'warn', message: msg });
-          return { success: false, message: msg } as any;
+          return { success: false, message: msg, statusCode: res.status } as any;
         }
 
         json = await res.json().catch(() => ({} as Drive115V2FileListResponse));

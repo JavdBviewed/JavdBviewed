@@ -10,8 +10,15 @@ import { getDrive115V2Service, type Drive115V2FileListResponse } from '../v2';
 import type { ExtensionSettings } from '../../../types';
 import { indexDrive115Roots } from './indexer';
 import { NFO_SUMMARY_SCHEMA_VERSION, parseNfoSummary } from './parseEntryMeta';
-import { loadDrive115LibraryState, saveDrive115LibraryState } from './store';
+import {
+  clearDrive115IndexCheckpoint,
+  loadDrive115IndexCheckpoint,
+  loadDrive115LibraryState,
+  saveDrive115IndexCheckpoint,
+  saveDrive115LibraryState,
+} from './store';
 import type {
+  Drive115IndexCheckpoint,
   Drive115IndexProgressSnapshot,
   Drive115IndexResult,
   Drive115LibraryIndexState,
@@ -28,6 +35,8 @@ type Drive115SettingsRecord = Record<string, unknown> & {
 type Drive115IndexOptions = {
   rootCids?: string[];
 };
+
+export const DRIVE115_LIBRARY_INDEX_RESUME_ALARM = 'drive115-library-index-resume';
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
@@ -122,6 +131,43 @@ function readScanDepthFromSettings(settings: ExtensionSettings): number | undefi
 function normalizeRequestedRootCids(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return Array.from(new Set(value.map((cid) => String(cid || '').trim()).filter(Boolean)));
+}
+
+function matchesIndexCheckpoint(
+  checkpoint: Drive115IndexCheckpoint | null,
+  roots: Drive115MediaLibraryRoot[],
+  scanDepth: number | undefined,
+): checkpoint is Drive115IndexCheckpoint {
+  if (!checkpoint || checkpoint.scanDepth !== scanDepth) return false;
+  const configured = roots.map((root) => root.cid).sort();
+  const saved = [...checkpoint.rootCids].sort();
+  return configured.length === saved.length && configured.every((cid, index) => cid === saved[index]);
+}
+
+function scheduleIndexResume(checkpoint: Drive115IndexCheckpoint): void {
+  try {
+    if (!chrome?.alarms?.create) return;
+    chrome.alarms.create(DRIVE115_LIBRARY_INDEX_RESUME_ALARM, {
+      when: Math.max(Date.now() + 60_000, checkpoint.resumeAt),
+    });
+  } catch (error) {
+    log115('warn', '注册索引继续任务失败', error);
+  }
+}
+
+/** 冷启动或浏览器重启后，根据持久检查点恢复一次性继续闹钟。 */
+export async function ensureDrive115MediaLibraryResumeAlarm(): Promise<void> {
+  const checkpoint = await loadDrive115IndexCheckpoint();
+  if (!checkpoint) return;
+  scheduleIndexResume(checkpoint);
+}
+
+async function clearScheduledIndexResume(): Promise<void> {
+  try {
+    await chrome?.alarms?.clear?.(DRIVE115_LIBRARY_INDEX_RESUME_ALARM);
+  } catch {
+    // alarm 不可用时仅清除持久化检查点
+  }
 }
 
 function mergeUnselectedRootEntries(
@@ -226,6 +272,14 @@ export async function runDrive115MediaLibraryIndex(
           ? mergeUnselectedRootEntries(state, preservedEntries, allEnabled.length)
           : state
       );
+      const storedCheckpoint = await loadDrive115IndexCheckpoint();
+      const checkpoint = matchesIndexCheckpoint(storedCheckpoint, enabled, scanDepth)
+        ? storedCheckpoint
+        : null;
+      if (storedCheckpoint && !checkpoint) {
+        await clearDrive115IndexCheckpoint();
+        await clearScheduledIndexResume();
+      }
 
       const svc = getDrive115V2Service();
       const tokenRet = await svc.getValidAccessToken({ forceAutoRefresh: true });
@@ -268,6 +322,7 @@ export async function runDrive115MediaLibraryIndex(
       log115('info', `开始索引，根目录 ${enabled.length} 个`, {
         roots: enabled.map((r) => r.cid),
         scanDepth,
+        checkpoint,
       });
       await writeIndexProgress({
         phase: 'start',
@@ -327,7 +382,7 @@ export async function runDrive115MediaLibraryIndex(
             success: !!ret.success,
             message: ret.message,
             data: (ret.data || []) as Array<Record<string, unknown>>,
-            code: readRawCode(ret.raw),
+            code: readRawCode(ret.raw) ?? ret.statusCode,
           };
         },
         onProgress: (p) => {
@@ -394,6 +449,13 @@ export async function runDrive115MediaLibraryIndex(
           partialIndexed: result.partialIndexed,
           stats: result.state.stats,
         });
+      }
+      if (result.checkpoint && result.resumable && !result.cancelled) {
+        await saveDrive115IndexCheckpoint(result.checkpoint);
+        scheduleIndexResume(result.checkpoint);
+      } else {
+        await clearDrive115IndexCheckpoint();
+        await clearScheduledIndexResume();
       }
       // 落盘本轮结果明细报告（走同一条链，最终态覆盖进行中快照），供设置页详情窗口下钻
       if (result.report) {
@@ -473,6 +535,8 @@ export function handleDrive115MediaLibraryCancelIndex(
         return;
       }
       cancelIndexRequested = true;
+      await clearDrive115IndexCheckpoint();
+      await clearScheduledIndexResume();
       try {
         indexAbortController?.abort();
       } catch {
@@ -489,6 +553,19 @@ export function handleDrive115MediaLibraryCancelIndex(
       sendResponse({ success: false, message: getErrorMessage(e) });
     }
   })();
+  return true;
+}
+
+/** 后台冷却完成后续扫；检查点失效或不存在时无操作。 */
+export async function handleDrive115MediaLibraryResumeAlarm(alarmName: string): Promise<boolean> {
+  if (alarmName !== DRIVE115_LIBRARY_INDEX_RESUME_ALARM) return false;
+  const checkpoint = await loadDrive115IndexCheckpoint();
+  if (!checkpoint) return true;
+  if (checkpoint.resumeAt > Date.now()) {
+    scheduleIndexResume(checkpoint);
+    return true;
+  }
+  await runDrive115MediaLibraryIndex({ rootCids: checkpoint.rootCids });
   return true;
 }
 
@@ -544,6 +621,48 @@ export function handleDrive115MediaLibraryGetState(
 /** NFO 正文最大读取字节数，避免误拉大文件 */
 const NFO_MAX_BYTES = 256 * 1024;
 
+function getNfoCandidates(entry: Drive115LibraryIndexState['entries'][number]): Array<{
+  fileName: string;
+  pickCode: string;
+}> {
+  const candidates = (entry.nfoCandidates || [])
+    .map((candidate) => ({
+      fileName: String(candidate.fileName || '').trim(),
+      pickCode: String(candidate.pickCode || '').trim(),
+    }))
+    .filter((candidate) => Boolean(candidate.pickCode));
+  if (candidates.length) return candidates;
+  if (!entry.nfoPickCode) return [];
+  return [{ fileName: entry.nfoFileName || 'NFO', pickCode: entry.nfoPickCode }];
+}
+
+function scoreNfoSummary(summary: NonNullable<ReturnType<typeof parseNfoSummary>>): number {
+  const scalarFields = [
+    summary.title,
+    summary.originalTitle,
+    summary.tagline,
+    summary.plot,
+    summary.year,
+    summary.num,
+    summary.studio,
+    summary.publisher,
+    summary.countryCode,
+    summary.contentRating,
+    summary.website,
+    summary.coverUrl,
+    summary.fanartRef,
+    summary.releaseDate,
+    summary.rating,
+    summary.runtime,
+    summary.director,
+    summary.series,
+    summary.posterRef,
+  ];
+  return scalarFields.filter(Boolean).length
+    + (summary.actors?.length ? 1 : 0)
+    + (summary.genres?.length ? 1 : 0);
+}
+
 /**
  * 懒解析单条 115 条目的 NFO：按 key 定位条目 → 取下载直链 → 读文本 → 解析 → 回写 nfoSummary。
  * 失败降级：返回 success:false，不抛错、不动索引主库。
@@ -569,7 +688,8 @@ export function handleDrive115MediaLibraryResolveNfo(
         sendResponse({ success: true, summary: entry.nfoSummary, cached: true });
         return;
       }
-      if (!entry.nfoPickCode) {
+      const nfoCandidates = getNfoCandidates(entry);
+      if (!nfoCandidates.length) {
         sendResponse({ success: false, message: '该条目没有可解析的 NFO' });
         return;
       }
@@ -580,25 +700,41 @@ export function handleDrive115MediaLibraryResolveNfo(
         sendResponse({ success: false, message: tokenRet.success ? '无法获取 115 授权' : tokenRet.message });
         return;
       }
-      const urlRet = await svc.getFileDownloadUrl({
-        accessToken: tokenRet.accessToken,
-        pickCode: entry.nfoPickCode,
-      });
-      if (!urlRet.success || !urlRet.url) {
-        sendResponse({ success: false, message: urlRet.message || '获取 NFO 下载地址失败' });
-        return;
+      let summary: NonNullable<ReturnType<typeof parseNfoSummary>> | undefined;
+      let bestScore = -1;
+      let lastFailure = '';
+      for (const candidate of nfoCandidates) {
+        try {
+          const urlRet = await svc.getFileDownloadUrl({
+            accessToken: tokenRet.accessToken,
+            pickCode: candidate.pickCode,
+          });
+          if (!urlRet.success || !urlRet.url) {
+            lastFailure = urlRet.message || `获取 ${candidate.fileName} 下载地址失败`;
+            continue;
+          }
+          const res = await fetch(urlRet.url);
+          if (!res.ok) {
+            lastFailure = `下载 ${candidate.fileName} 失败 (${res.status})`;
+            continue;
+          }
+          const buf = await res.arrayBuffer();
+          const parsed = parseNfoSummary(new TextDecoder('utf-8').decode(buf.slice(0, NFO_MAX_BYTES)));
+          if (!parsed) {
+            lastFailure = `${candidate.fileName} 没有可解析信息`;
+            continue;
+          }
+          const score = scoreNfoSummary(parsed);
+          if (score > bestScore) {
+            summary = parsed;
+            bestScore = score;
+          }
+        } catch (error) {
+          lastFailure = `${candidate.fileName} 解析失败：${getErrorMessage(error)}`;
+        }
       }
-
-      const res = await fetch(urlRet.url);
-      if (!res.ok) {
-        sendResponse({ success: false, message: `下载 NFO 失败 (${res.status})` });
-        return;
-      }
-      const buf = await res.arrayBuffer();
-      const text = new TextDecoder('utf-8').decode(buf.slice(0, NFO_MAX_BYTES));
-      const summary = parseNfoSummary(text);
       if (!summary) {
-        sendResponse({ success: false, message: 'NFO 无可解析信息' });
+        sendResponse({ success: false, message: lastFailure || '所有 NFO 均无可解析信息' });
         return;
       }
 

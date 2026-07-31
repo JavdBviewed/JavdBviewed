@@ -13,6 +13,13 @@ export type Drive115MediaLibraryRoot = {
   enabled: boolean;
 };
 
+/** 同一影片目录中的 NFO 候选，按详情解析优先级稳定排序。 */
+export type Drive115NfoCandidate = {
+  fileId: string;
+  fileName: string;
+  pickCode?: string;
+};
+
 /** 单条本地索引条目 */
 export type Drive115LibraryEntry = {
   /** 稳定键：folderCid:videoFileId */
@@ -33,6 +40,8 @@ export type Drive115LibraryEntry = {
   nfoFileName?: string;
   /** NFO 文件 pick_code，供懒下载解析正文 */
   nfoPickCode?: string;
+  /** 目录中的全部 NFO 候选；旧索引未提供时由 nfoFile* 兼容生成单候选。 */
+  nfoCandidates?: Drive115NfoCandidate[];
   /** 封面文件 pick_code，供按需取封面直链 */
   coverPickCode?: string;
   /** NFO 解析摘要（标题/简介/年份 + 番号/演员/制作商/日期/类别/评分/时长/系列） */
@@ -85,6 +94,18 @@ export type Drive115IndexSkip = {
   folderName: string;
   folderCid: string;
   reason: Drive115IndexSkipReason;
+  /** 列目录失败时保留已脱敏的服务端/网络错误，供用户排查。 */
+  failureMessage?: string;
+  /** HTTP 或 115 原始错误码；仅用于分类与诊断。 */
+  failureCode?: number;
+};
+
+/** 等待继续扫描的目录，成功处理过的目录不会再次请求。 */
+export type Drive115IndexQueueItem = {
+  cid: string;
+  name: string;
+  depth: number;
+  rootCid: string;
 };
 
 /** 单条入库明细（详情窗口用，轻量） */
@@ -136,7 +157,26 @@ export type Drive115IndexResult = {
   state: Drive115LibraryIndexState;
   /** 本轮结果明细报告 */
   report?: Drive115IndexReport;
+  /** 限流或临时访问错误时保留，供后台冷却后续扫。 */
+  checkpoint?: Drive115IndexCheckpoint;
+  /** 本轮已暂停且可继续，而非永久失败。 */
+  resumable?: boolean;
   message?: string;
+};
+
+/** 115 分层扫描的短期恢复点，不包含授权信息。 */
+export type Drive115IndexCheckpoint = {
+  version: 1;
+  rootCids: string[];
+  scanDepth: number;
+  nextRootIndex: number;
+  pendingQueue: Drive115IndexQueueItem[];
+  stats: Drive115LibraryIndexStats;
+  containerFoldersSeen: number;
+  report: Drive115IndexReport;
+  resumeAt: number;
+  createdAt: number;
+  updatedAt: number;
 };
 
 /** 写入 storage 的索引进度快照，供设置页实时展示 */

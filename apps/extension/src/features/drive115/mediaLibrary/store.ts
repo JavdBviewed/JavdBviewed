@@ -11,6 +11,8 @@ import {
   type Drive115LibraryEntry,
   type Drive115LibraryIndexState,
   type Drive115LibraryIndexStats,
+  type Drive115NfoCandidate,
+  type Drive115IndexCheckpoint,
 } from './types';
 
 /** 规范化 NFO 摘要（含 JAV 富字段）；脏数据丢弃，空则返回 undefined */
@@ -87,6 +89,26 @@ function normalizeEntry(raw: unknown): Drive115LibraryEntry | null {
   if (!folderCid || !videoFileId || !pickCode) return null;
   const key = String(r.key || `${folderCid}:${videoFileId}`).trim();
   const nfoSummary = normalizeNfoSummary(r.nfoSummary);
+  const rawCandidates = Array.isArray(r.nfoCandidates) ? r.nfoCandidates : [];
+  const nfoCandidates: Drive115NfoCandidate[] = rawCandidates
+    .filter((candidate): candidate is Record<string, unknown> => !!candidate && typeof candidate === 'object')
+    .map((candidate) => ({
+      fileId: String(candidate.fileId || '').trim(),
+      fileName: String(candidate.fileName || '').trim(),
+      ...(String(candidate.pickCode || '').trim() ? { pickCode: String(candidate.pickCode).trim() } : {}),
+    }))
+    .filter((candidate) => candidate.fileId && candidate.fileName)
+    .filter((candidate, index, all) => all.findIndex((item) => item.fileId === candidate.fileId) === index);
+  const legacyNfoCandidate = r.nfoFileId && r.nfoFileName
+    ? {
+        fileId: String(r.nfoFileId),
+        fileName: String(r.nfoFileName),
+        ...(r.nfoPickCode ? { pickCode: String(r.nfoPickCode) } : {}),
+      }
+    : null;
+  if (legacyNfoCandidate && !nfoCandidates.some((candidate) => candidate.fileId === legacyNfoCandidate.fileId)) {
+    nfoCandidates.unshift(legacyNfoCandidate);
+  }
 
   return {
     key,
@@ -104,6 +126,7 @@ function normalizeEntry(raw: unknown): Drive115LibraryEntry | null {
     nfoFileId: r.nfoFileId ? String(r.nfoFileId) : undefined,
     nfoFileName: r.nfoFileName ? String(r.nfoFileName) : undefined,
     nfoPickCode: r.nfoPickCode ? String(r.nfoPickCode) : undefined,
+    nfoCandidates: nfoCandidates.length ? nfoCandidates : undefined,
     coverPickCode: r.coverPickCode ? String(r.coverPickCode) : undefined,
     nfoSummary,
     updatedAt: Number(r.updatedAt) || 0,
@@ -147,6 +170,54 @@ export async function loadDrive115LibraryState(): Promise<Drive115LibraryIndexSt
 export async function saveDrive115LibraryState(state: Drive115LibraryIndexState): Promise<void> {
   const normalized = normalizeDrive115LibraryState(state);
   await setValue(STORAGE_KEYS.DRIVE115_LIBRARY_STATE, normalized);
+}
+
+function normalizeCheckpoint(raw: unknown): Drive115IndexCheckpoint | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Record<string, unknown>;
+  const rootCids = Array.isArray(value.rootCids)
+    ? Array.from(new Set(value.rootCids.map((cid) => String(cid || '').trim()).filter(Boolean)))
+    : [];
+  const pendingQueue = Array.isArray(value.pendingQueue)
+    ? value.pendingQueue
+      .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+      .map((item) => ({
+        cid: String(item.cid || '').trim(),
+        name: String(item.name || '').trim(),
+        depth: Math.max(1, Math.floor(Number(item.depth) || 1)),
+        rootCid: String(item.rootCid || '').trim(),
+      }))
+      .filter((item) => item.cid && item.rootCid)
+    : [];
+  const report = value.report && typeof value.report === 'object'
+    ? value.report as Drive115IndexCheckpoint['report']
+    : null;
+  if (!rootCids.length || !pendingQueue.length || !report) return null;
+  return {
+    version: 1,
+    rootCids,
+    scanDepth: Math.max(1, Math.floor(Number(value.scanDepth) || 1)),
+    nextRootIndex: Math.max(0, Math.floor(Number(value.nextRootIndex) || 0)),
+    pendingQueue,
+    stats: normalizeStats(value.stats),
+    containerFoldersSeen: Math.max(0, Math.floor(Number(value.containerFoldersSeen) || 0)),
+    report,
+    resumeAt: Math.max(0, Number(value.resumeAt) || 0),
+    createdAt: Math.max(0, Number(value.createdAt) || 0),
+    updatedAt: Math.max(0, Number(value.updatedAt) || 0),
+  };
+}
+
+export async function loadDrive115IndexCheckpoint(): Promise<Drive115IndexCheckpoint | null> {
+  return normalizeCheckpoint(await getValue<unknown>(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_CHECKPOINT, null));
+}
+
+export async function saveDrive115IndexCheckpoint(checkpoint: Drive115IndexCheckpoint): Promise<void> {
+  await setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_CHECKPOINT, checkpoint);
+}
+
+export async function clearDrive115IndexCheckpoint(): Promise<void> {
+  await setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_CHECKPOINT, null);
 }
 
 /**

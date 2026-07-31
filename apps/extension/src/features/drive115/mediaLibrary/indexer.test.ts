@@ -92,6 +92,41 @@ describe('indexDrive115Roots', () => {
     });
   });
 
+  it('persists every NFO candidate while keeping the code-named one as the compatibility primary NFO', async () => {
+    const listFiles = vi.fn(async ({ cid }: { cid: string }) => {
+      if (cid === 'root') {
+        return { success: true, data: [{ fc: '0', cid: 'f1', fn: 'MISM-304 安堂はるの' }] };
+      }
+      return {
+        success: true,
+        data: [
+          { fc: '1', fid: 'v1', fn: 'movie.mp4', fs: 1000, pc: 'video-pick' },
+          { fc: '1', fid: 'movie-nfo', fn: 'movie.nfo', fs: 2, pc: 'movie-nfo-pick' },
+          { fc: '1', fid: 'code-nfo', fn: 'MISM-304.nfo', fs: 2, pc: 'code-nfo-pick' },
+        ],
+      };
+    });
+
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles,
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+      now: () => 1_700_000_000_000,
+    });
+
+    expect(result.state.entries[0]).toMatchObject({
+      code: 'MISM-304',
+      nfoFileName: 'MISM-304.nfo',
+      nfoPickCode: 'code-nfo-pick',
+    });
+    expect(result.state.entries[0]?.nfoCandidates).toEqual([
+      { fileId: 'code-nfo', fileName: 'MISM-304.nfo', pickCode: 'code-nfo-pick' },
+      { fileId: 'movie-nfo', fileName: 'movie.nfo', pickCode: 'movie-nfo-pick' },
+    ]);
+  });
+
   it('records cover and nfo names in the index report for diagnostics', async () => {
     const listFiles = vi.fn(async ({ cid }: { cid: string }) => {
       if (cid === 'root') {
@@ -523,6 +558,135 @@ describe('indexDrive115Roots', () => {
     expect(folderAttempts).toBe(3);
     expect(sleeps).toEqual([100, 200]);
     expect(progressMessages.some((m) => m.includes('115 接口繁忙') && m.includes('重试'))).toBe(true);
+  });
+
+  it('retries a temporary 5xx directory listing before skipping the folder', async () => {
+    const sleeps: number[] = [];
+    let folderAttempts = 0;
+    const listFiles = vi.fn(async ({ cid }: { cid: string }) => {
+      if (cid === 'root') {
+        return { success: true, data: [{ fc: '0', cid: 'movie', fn: 'SSIS-888' }] };
+      }
+      folderAttempts += 1;
+      if (folderAttempts < 3) {
+        return { success: false, code: 503, message: '文件列表网络错误: 503 Service Unavailable' };
+      }
+      return {
+        success: true,
+        data: [{ fc: '1', fid: 'v1', fn: 'SSIS-888.mp4', fs: 10, pc: 'pick-video' }],
+      };
+    });
+
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles,
+      sleep: async (ms) => { sleeps.push(ms); },
+      maxListRetries: 2,
+      retryBaseMs: 100,
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.state.entries.map((entry) => entry.code)).toContain('SSIS-888');
+    expect(folderAttempts).toBe(3);
+    expect(sleeps).toEqual([100, 200]);
+  });
+
+  it('keeps the concrete failure reason in the skipped folder report', async () => {
+    const listFiles = vi.fn(async ({ cid }: { cid: string }) => {
+      if (cid === 'root') {
+        return { success: true, data: [{ fc: '0', cid: 'movie', fn: 'SSIS-999' }] };
+      }
+      return { success: false, code: 403, message: '文件列表网络错误: 403 Forbidden' };
+    });
+
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles,
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+    });
+
+    expect(result.report?.skipped).toContainEqual(expect.objectContaining({
+      folderCid: 'movie',
+      reason: 'list_failed',
+      failureMessage: '文件列表网络错误: 403 Forbidden',
+    }));
+  });
+
+  it('keeps the unscanned queue in a checkpoint when rate limiting pauses a scan', async () => {
+    const listFiles = vi.fn(async ({ cid }: { cid: string }) => {
+      if (cid === 'root') {
+        return {
+          success: true,
+          data: [
+            { fc: '0', cid: 'first', fn: 'SSIS-001' },
+            { fc: '0', cid: 'second', fn: 'SSIS-002' },
+          ],
+        };
+      }
+      return { success: false, code: 429, message: '请求过于频繁，请稍后再试' };
+    });
+
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles,
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+      circuitBreakerThreshold: 1,
+    });
+
+    expect(result.success).toBe(false);
+    expect((result as { checkpoint?: { pendingQueue?: Array<{ cid: string }> } }).checkpoint)
+      .toMatchObject({ pendingQueue: [{ cid: 'first' }, { cid: 'second' }] });
+  });
+
+  it('resumes directly from the saved queue without listing the root again', async () => {
+    const firstPass = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles: async ({ cid }) => {
+        if (cid === 'root') {
+          return {
+            success: true,
+            data: [
+              { fc: '0', cid: 'first', fn: 'SSIS-101' },
+              { fc: '0', cid: 'second', fn: 'SSIS-102' },
+            ],
+          };
+        }
+        return { success: false, code: 429, message: '请求过于频繁，请稍后再试' };
+      },
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+      circuitBreakerThreshold: 1,
+    });
+    const checkpoint = firstPass.checkpoint;
+    expect(checkpoint).toBeDefined();
+    const calls: string[] = [];
+
+    const resumed = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      previous: firstPass.state,
+      checkpoint,
+      listFiles: async ({ cid }) => {
+        calls.push(cid);
+        if (cid === 'root') throw new Error('恢复扫描不应重列根目录');
+        return {
+          success: true,
+          data: [{ fc: '1', fid: `${cid}-v`, fn: `${cid}.mp4`, fs: 10, pc: `${cid}-pc` }],
+        };
+      },
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+    });
+
+    expect(resumed.success).toBe(true);
+    expect(calls).toEqual(['first', 'second']);
+    expect(resumed.state.entries.map((entry) => entry.code).sort()).toEqual(['SSIS-101', 'SSIS-102']);
   });
 
   it('passes abort signal to list calls and treats signal abort as cancellation', async () => {

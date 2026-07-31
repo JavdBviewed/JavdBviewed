@@ -10,6 +10,7 @@ import {
   pickPrimaryCover,
   pickPrimaryNfo,
   pickPrimaryVideo,
+  rankNfoCandidates,
 } from './classifyFolderEntries';
 
 describe('classifyFolderEntries', () => {
@@ -89,5 +90,17 @@ describe('classifyFolderEntries', () => {
       { fileId: '2', fileName: 'ABC-123.nfo', fileSize: 1, pickCode: 'b', kind: 'nfo' as const },
     ];
     expect(pickPrimaryNfo(nfos, 'ABC-123.mp4')?.fileId).toBe('2');
+  });
+
+  it('ranks code-named NFO before movie.nfo and keeps every candidate', () => {
+    const nfos = [
+      { fileId: 'movie', fileName: 'movie.nfo', fileSize: 1, pickCode: 'movie-pick', kind: 'nfo' as const },
+      { fileId: 'code', fileName: 'MISM-304.nfo', fileSize: 1, pickCode: 'code-pick', kind: 'nfo' as const },
+    ];
+
+    expect(rankNfoCandidates(nfos, 'MISM-304', 'movie.mp4').map((nfo) => nfo.fileId)).toEqual([
+      'code',
+      'movie',
+    ]);
   });
 });

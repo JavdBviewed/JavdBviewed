@@ -3,11 +3,13 @@
  * @description 115 media library background handler regression tests
  * @module features/drive115/mediaLibrary
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEYS } from '../../../utils/config';
 import { getSettings } from '../../../utils/storage';
 import { getDrive115V2Service } from '../v2';
 import {
+  DRIVE115_LIBRARY_INDEX_RESUME_ALARM,
+  ensureDrive115MediaLibraryResumeAlarm,
   handleDrive115MediaLibraryCancelIndex,
   handleDrive115MediaLibraryIndex,
   handleDrive115MediaLibraryResolveCoverUrl,
@@ -17,7 +19,7 @@ import { indexDrive115Roots } from './indexer';
 import { loadDrive115LibraryState, saveDrive115LibraryState } from './store';
 
 const storageMock = vi.hoisted(() => {
-  const state: { progress: unknown } = { progress: null };
+  const state: { progress: unknown; checkpoint: unknown } = { progress: null, checkpoint: null };
   const setValue = vi.fn(async (_key: string, value: unknown) => {
     state.progress = value;
   });
@@ -51,6 +53,9 @@ vi.mock('./indexer', () => ({
 vi.mock('./store', () => ({
   loadDrive115LibraryState: vi.fn(),
   saveDrive115LibraryState: vi.fn(),
+  loadDrive115IndexCheckpoint: vi.fn(async () => storageMock.state.checkpoint),
+  saveDrive115IndexCheckpoint: vi.fn(async (checkpoint: unknown) => { storageMock.state.checkpoint = checkpoint; }),
+  clearDrive115IndexCheckpoint: vi.fn(async () => { storageMock.state.checkpoint = null; }),
 }));
 
 const emptyState = {
@@ -94,6 +99,7 @@ describe('handleDrive115MediaLibraryCancelIndex', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     storageMock.state.progress = null;
+    storageMock.state.checkpoint = null;
     vi.mocked(loadDrive115LibraryState).mockResolvedValue(emptyState);
     vi.mocked(saveDrive115LibraryState).mockResolvedValue(undefined);
     vi.mocked(getSettings).mockResolvedValue({
@@ -184,6 +190,7 @@ describe('handleDrive115MediaLibraryIndex incremental persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     storageMock.state.progress = null;
+    storageMock.state.checkpoint = null;
     vi.mocked(loadDrive115LibraryState).mockResolvedValue(emptyState);
     vi.mocked(saveDrive115LibraryState).mockResolvedValue(undefined);
     vi.mocked(getSettings).mockResolvedValue({
@@ -274,6 +281,46 @@ describe('handleDrive115MediaLibraryIndex incremental persistence', () => {
   });
 });
 
+describe('ensureDrive115MediaLibraryResumeAlarm', () => {
+  const originalChrome = (globalThis as { chrome?: unknown }).chrome;
+  const createAlarm = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    storageMock.state.checkpoint = null;
+    (globalThis as { chrome?: unknown }).chrome = {
+      alarms: { create: createAlarm },
+    };
+  });
+
+  afterEach(() => {
+    if (originalChrome === undefined) delete (globalThis as { chrome?: unknown }).chrome;
+    else (globalThis as { chrome?: unknown }).chrome = originalChrome;
+  });
+
+  it('re-registers the persisted resume alarm after Chrome restarts', async () => {
+    const resumeAt = Date.now() + 5 * 60_000;
+    storageMock.state.checkpoint = {
+      rootCids: ['root'],
+      scanDepth: 2,
+      pendingQueue: [{ cid: 'folder', name: 'folder', depth: 1, rootCid: 'root' }],
+      stats: emptyState.stats,
+      containerFoldersSeen: 1,
+      report: {},
+      resumeAt,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await ensureDrive115MediaLibraryResumeAlarm();
+
+    expect(createAlarm).toHaveBeenCalledWith(
+      DRIVE115_LIBRARY_INDEX_RESUME_ALARM,
+      { when: resumeAt },
+    );
+  });
+});
+
 function callResolveNfo(message: unknown): Promise<any> {
   return new Promise((resolve) => {
     const handled = handleDrive115MediaLibraryResolveNfo(message, resolve);
@@ -330,6 +377,75 @@ describe('handleDrive115MediaLibraryResolveNfo', () => {
     const saved = vi.mocked(saveDrive115LibraryState).mock.calls[0][0] as any;
     expect(saved.entries[0].nfoSummary).toMatchObject({ title: '真实标题' });
 
+    vi.unstubAllGlobals();
+  });
+
+  it('falls back across NFO candidates and keeps the more complete parsed summary', async () => {
+    vi.mocked(loadDrive115LibraryState).mockResolvedValue({
+      ...emptyState,
+      entries: [{
+        ...entry,
+        nfoCandidates: [
+          { fileId: 'brief', fileName: 'SSIS-001.nfo', pickCode: 'brief-pick' },
+          { fileId: 'rich', fileName: 'movie.nfo', pickCode: 'rich-pick' },
+        ],
+      } as any],
+    });
+    const getFileDownloadUrl = vi.fn(async ({ pickCode }: { pickCode: string }) => ({
+      success: true,
+      url: `https://dl/${pickCode}`,
+    }));
+    vi.mocked(getDrive115V2Service).mockReturnValue({
+      getValidAccessToken: vi.fn(async () => ({ success: true, accessToken: 'token' })),
+      getFileDownloadUrl,
+    } as any);
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode(
+        url.endsWith('brief-pick')
+          ? '<movie><title>简版</title></movie>'
+          : '<movie><title>完整版</title><year>2024</year><plot>完整简介</plot><actor><name>演员</name></actor></movie>',
+      ).buffer,
+    })));
+
+    const resp = await callResolveNfo({ type: 'DRIVE115_MEDIA_LIBRARY_RESOLVE_NFO', key: 'f1:v1' });
+
+    expect(getFileDownloadUrl).toHaveBeenCalledWith({ accessToken: 'token', pickCode: 'brief-pick' });
+    expect(getFileDownloadUrl).toHaveBeenCalledWith({ accessToken: 'token', pickCode: 'rich-pick' });
+    expect(resp.summary).toMatchObject({ title: '完整版', year: '2024', plot: '完整简介', actors: ['演员'] });
+    vi.unstubAllGlobals();
+  });
+
+  it('continues with the next NFO when an earlier candidate cannot be downloaded', async () => {
+    vi.mocked(loadDrive115LibraryState).mockResolvedValue({
+      ...emptyState,
+      entries: [{
+        ...entry,
+        nfoCandidates: [
+          { fileId: 'broken', fileName: 'SSIS-001.nfo', pickCode: 'broken-pick' },
+          { fileId: 'usable', fileName: 'movie.nfo', pickCode: 'usable-pick' },
+        ],
+      } as any],
+    });
+    const getFileDownloadUrl = vi.fn(async ({ pickCode }: { pickCode: string }) => (
+      pickCode === 'broken-pick'
+        ? { success: false, message: '直链已失效' }
+        : { success: true, url: 'https://dl/usable-pick' }
+    ));
+    vi.mocked(getDrive115V2Service).mockReturnValue({
+      getValidAccessToken: vi.fn(async () => ({ success: true, accessToken: 'token' })),
+      getFileDownloadUrl,
+    } as any);
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode('<movie><title>可用 NFO</title></movie>').buffer,
+    })));
+
+    const resp = await callResolveNfo({ type: 'DRIVE115_MEDIA_LIBRARY_RESOLVE_NFO', key: 'f1:v1' });
+
+    expect(getFileDownloadUrl).toHaveBeenCalledWith({ accessToken: 'token', pickCode: 'broken-pick' });
+    expect(getFileDownloadUrl).toHaveBeenCalledWith({ accessToken: 'token', pickCode: 'usable-pick' });
+    expect(resp.summary).toMatchObject({ title: '可用 NFO' });
     vi.unstubAllGlobals();
   });
 

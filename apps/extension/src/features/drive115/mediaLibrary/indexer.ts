@@ -8,6 +8,7 @@ import {
   pickPrimaryCover,
   pickPrimaryNfo,
   pickPrimaryVideo,
+  rankNfoCandidates,
 } from './classifyFolderEntries';
 import { resolveEntryCode, resolveEntryTitle } from './parseEntryMeta';
 import { createRateLimitController, isLikelyRateLimitError } from './rateLimit';
@@ -17,6 +18,8 @@ import {
   type Drive115IndexProgress,
   type Drive115IndexReport,
   type Drive115IndexResult,
+  type Drive115IndexCheckpoint,
+  type Drive115IndexQueueItem,
   type Drive115IndexSkipReason,
   type Drive115LibraryEntry,
   type Drive115LibraryIndexState,
@@ -66,6 +69,8 @@ export type IndexDrive115RootsDeps = {
   rootIntervalMs?: number;
   folderIntervalMs?: number;
   circuitBreakerThreshold?: number;
+  /** 上一轮被限流暂停后恢复的扫描位置。 */
+  checkpoint?: Drive115IndexCheckpoint | null;
 };
 
 const CANCELLED_MESSAGE = '索引已取消';
@@ -80,6 +85,19 @@ function clampScanDepth(raw: number | undefined): number {
   const parsed = Math.floor(Number(raw ?? DEFAULT_SCAN_DEPTH));
   if (!Number.isFinite(parsed)) return DEFAULT_SCAN_DEPTH;
   return Math.min(MAX_SCAN_DEPTH, Math.max(MIN_SCAN_DEPTH, parsed));
+}
+
+function isTransientDirectoryListError(message: string | null | undefined, code?: number): boolean {
+  if (typeof code === 'number' && (code === 408 || code === 425 || code === 429 || code >= 500)) {
+    return true;
+  }
+  const text = String(message || '').toLowerCase();
+  return text.includes('timeout')
+    || text.includes('timed out')
+    || text.includes('network')
+    || text.includes('failed to fetch')
+    || text.includes('gateway')
+    || text.includes('service unavailable');
 }
 
 function isTruthyFolderFlag(value: unknown): boolean {
@@ -129,12 +147,14 @@ function buildEntry(params: {
   if (!video.pickCode) {
     return { entry: null, skipReason: 'no_pickcode' };
   }
-  const nfo = pickPrimaryNfo(classified.nfos, video.fileName);
+  const initialNfo = pickPrimaryNfo(classified.nfos, video.fileName);
   const codeInfo = resolveEntryCode({
     folderName: params.folderName,
     videoFileName: video.fileName,
-    nfoFileName: nfo?.fileName,
+    nfoFileName: initialNfo?.fileName,
   });
+  const nfoCandidates = rankNfoCandidates(classified.nfos, codeInfo.code, video.fileName);
+  const nfo = nfoCandidates[0] || null;
   const cover = pickPrimaryCover(classified.covers, codeInfo.code);
   const title = resolveEntryTitle({
     code: codeInfo.code,
@@ -160,6 +180,11 @@ function buildEntry(params: {
       nfoFileId: nfo?.fileId,
       nfoFileName: nfo?.fileName,
       nfoPickCode: nfo?.pickCode,
+      nfoCandidates: nfoCandidates.map((candidate) => ({
+        fileId: candidate.fileId,
+        fileName: candidate.fileName,
+        ...(candidate.pickCode ? { pickCode: candidate.pickCode } : {}),
+      })),
       updatedAt: params.now,
     },
   };
@@ -171,12 +196,7 @@ type ListedFolder = {
   data: Array<Record<string, unknown>>;
 };
 
-type FolderQueueItem = {
-  cid: string;
-  name: string;
-  depth: number;
-  rootCid: string;
-};
+type FolderQueueItem = Drive115IndexQueueItem;
 
 function mergePartialEntries(
   previous: Drive115LibraryIndexState | null,
@@ -214,6 +234,7 @@ export async function indexDrive115Roots(
   const scanDepth = clampScanDepth(deps.scanDepth);
   const enabledRoots = (deps.roots || []).filter((r) => r && r.enabled !== false && String(r.cid || '').trim());
   const previous = deps.previous || null;
+  const checkpoint = deps.checkpoint || null;
   const rate = createRateLimitController({
     rootIntervalMs: deps.rootIntervalMs,
     folderIntervalMs: deps.folderIntervalMs,
@@ -226,16 +247,30 @@ export async function indexDrive115Roots(
   const maxListRetries = Math.max(0, Math.floor(deps.maxListRetries ?? DEFAULT_LIST_RETRIES));
   const retryBaseMs = Math.max(0, Math.floor(deps.retryBaseMs ?? DEFAULT_RETRY_BASE_MS));
   const retrySleep = deps.sleep || ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const stats = { ...DEFAULT_DRIVE115_LIBRARY_STATS, roots: enabledRoots.length };
+  const stats = checkpoint
+    ? { ...checkpoint.stats, roots: enabledRoots.length }
+    : { ...DEFAULT_DRIVE115_LIBRARY_STATS, roots: enabledRoots.length };
   const entries: Drive115LibraryEntry[] = [];
   let hardError: string | undefined;
   let cancelled = false;
-  let rootsDone = 0;
-  let containerFoldersSeen = 0;
+  let resumable = false;
+  let rootsDone = checkpoint?.report.rootsDone || 0;
+  let containerFoldersSeen = checkpoint?.containerFoldersSeen || 0;
+  let checkpointQueue: FolderQueueItem[] = checkpoint ? [...checkpoint.pendingQueue] : [];
+  let checkpointRootIndex = checkpoint?.nextRootIndex || 0;
 
   // 结果明细报告：入库/跳过明细 + 分原因计数（明细列表有上限，总数不受截断影响）
   const REPORT_LIST_CAP = 500;
-  const report: Drive115IndexReport = {
+  const report: Drive115IndexReport = checkpoint ? {
+    ...checkpoint.report,
+    indexed: [...checkpoint.report.indexed],
+    skipped: [...checkpoint.report.skipped],
+    skipReasonCounts: { ...checkpoint.report.skipReasonCounts },
+    rootsTotal: enabledRoots.length,
+    finishedAt: 0,
+    cancelled: undefined,
+    error: undefined,
+  } : {
     indexed: [],
     skipped: [],
     indexedTotal: 0,
@@ -273,11 +308,13 @@ export async function indexDrive115Roots(
     folderName: string,
     folderCid: string,
     reason: Drive115IndexSkipReason,
+    failureMessage?: string,
+    failureCode?: number,
   ): void => {
     report.skippedTotal += 1;
     bumpReason(reason);
     if (report.skipped.length < REPORT_LIST_CAP) {
-      report.skipped.push({ folderName, folderCid, reason });
+      report.skipped.push({ folderName, folderCid, reason, failureMessage, failureCode });
     } else {
       report.truncatedList = true;
     }
@@ -300,6 +337,19 @@ export async function indexDrive115Roots(
     };
   };
   const finalizeReport = (): Drive115IndexReport => snapshotReport(true);
+  const buildCheckpoint = (): Drive115IndexCheckpoint => ({
+    version: 1,
+    rootCids: enabledRoots.map((root) => String(root.cid).trim()),
+    scanDepth,
+    nextRootIndex: checkpointRootIndex,
+    pendingQueue: [...checkpointQueue],
+    stats: { ...stats },
+    containerFoldersSeen,
+    report: snapshotReport(false),
+    resumeAt: now() + 10 * 60_000,
+    createdAt: checkpoint?.createdAt || now(),
+    updatedAt: now(),
+  });
 
   // 进行中每处理若干个文件夹就推一次报告快照，供设置页实时下钻
   const REPORT_FLUSH_EVERY = 10;
@@ -378,11 +428,18 @@ export async function indexDrive115Roots(
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         const limited = isLikelyRateLimitError(msg);
+        const retryable = limited || isTransientDirectoryListError(msg);
         if (rate.markFailure(msg, limited)) {
+          resumable = retryable;
           hardError = rate.getTripReason();
           return null;
         }
-        if (!limited || attempt >= maxListRetries) throw e;
+        if (!retryable) throw e;
+        if (attempt >= maxListRetries) {
+          resumable = true;
+          hardError = `目录访问暂时失败，已保存进度等待继续：${msg}`;
+          return null;
+        }
         const waitMs = retryBaseMs * (2 ** attempt);
         emitProgress(`115 接口繁忙，${Math.ceil(waitMs / 1000)} 秒后重试：${params.name}`);
         if (requestCancel()) return null;
@@ -398,11 +455,18 @@ export async function indexDrive115Roots(
 
       const msg = result.message || params.fallbackMessage;
       const limited = isLikelyRateLimitError(msg, result.code);
+      const retryable = limited || isTransientDirectoryListError(msg, result.code);
       if (rate.markFailure(msg, limited)) {
+        resumable = retryable;
         hardError = rate.getTripReason();
         return null;
       }
-      if (!limited || attempt >= maxListRetries) return result;
+      if (!retryable) return result;
+      if (attempt >= maxListRetries) {
+        resumable = true;
+        hardError = `目录访问暂时失败，已保存进度等待继续：${msg}`;
+        return null;
+      }
 
       const waitMs = retryBaseMs * (2 ** attempt);
       emitProgress(`115 接口繁忙，${Math.ceil(waitMs / 1000)} 秒后重试：${params.name}`);
@@ -421,7 +485,7 @@ export async function indexDrive115Roots(
     if (!rootList || hardError) return null;
     if (!rootList.success) {
       stats.skipped += 1;
-      recordSkip(cid, cid, 'list_failed');
+      recordSkip(cid, cid, 'list_failed', rootList.message, rootList.code);
       return null;
     }
     return (rootList.data || []) as Array<Record<string, unknown>>;
@@ -437,7 +501,7 @@ export async function indexDrive115Roots(
     if (!fileList || hardError) return null;
     if (!fileList.success) {
       stats.skipped += 1;
-      recordSkip(name, cid, 'list_failed');
+      recordSkip(name, cid, 'list_failed', fileList.message, fileList.code);
       return null;
     }
     return {
@@ -485,17 +549,22 @@ export async function indexDrive115Roots(
     };
   }
 
-  outer: for (const root of enabledRoots) {
+  outer: for (let rootIndex = checkpointRootIndex; rootIndex < enabledRoots.length; rootIndex += 1) {
+    const root = enabledRoots[rootIndex];
+    if (!root) continue;
     const rootCid = String(root.cid).trim();
     try {
-      const rootData = await listRoot(rootCid);
+      const usesCheckpointQueue = checkpoint && rootIndex === checkpointRootIndex && checkpointQueue.length > 0;
+      const rootData = usesCheckpointQueue ? null : await listRoot(rootCid);
       if (hardError) break outer;
-      if (!rootData) {
+      if (!usesCheckpointQueue && !rootData) {
         rootsDone += 1;
         continue;
       }
 
-      const queue: FolderQueueItem[] = splitFolders(rootData).map((folder) => {
+      const queue: FolderQueueItem[] = usesCheckpointQueue
+        ? [...checkpointQueue]
+        : splitFolders(rootData || []).map((folder) => {
         const cid = folderId(folder);
         return {
           cid,
@@ -503,7 +572,9 @@ export async function indexDrive115Roots(
           depth: 1,
           rootCid,
         };
-      }).filter((item) => item.cid);
+        }).filter((item) => item.cid);
+      checkpointRootIndex = rootIndex;
+      checkpointQueue = [...queue];
 
       for (let index = 0; index < queue.length; index += 1) {
         if (rate.isTripped()) {
@@ -518,6 +589,7 @@ export async function indexDrive115Roots(
         }
         const item = queue[index];
         if (!item || !item.cid) continue;
+        checkpointQueue = queue.slice(index);
         const listed = await listFolder(item.cid, item.name);
         if (hardError) break outer;
         if (!listed) continue;
@@ -532,6 +604,7 @@ export async function indexDrive115Roots(
         if (built.entry) {
           stats.foldersSeen += 1;
           pushIndexedEntry(built.entry);
+          checkpointQueue = queue.slice(index + 1);
           continue;
         }
 
@@ -558,6 +631,7 @@ export async function indexDrive115Roots(
           // Prioritize the current branch so actor/category structures start producing entries
           // before a large root's remaining container folders are exhausted.
           if (nestedItems.length > 0) queue.splice(index + 1, 0, ...nestedItems);
+          checkpointQueue = queue.slice(index + 1);
           continue;
         }
 
@@ -568,10 +642,13 @@ export async function indexDrive115Roots(
         }
         stats.skipped += 1;
         recordSkip(listed.name, listed.cid, reason);
+        checkpointQueue = queue.slice(index + 1);
         emitProgress();
       }
 
       rootsDone += 1;
+      checkpointRootIndex = rootIndex + 1;
+      checkpointQueue = [];
       deps.onProgress?.({
         phase: 'root',
         message: `根目录完成：${root.path || root.name || rootCid}`,
@@ -585,6 +662,7 @@ export async function indexDrive115Roots(
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       if (rate.isTripped() || isLikelyRateLimitError(msg)) {
+        resumable = true;
         hardError = rate.getTripReason() || msg;
         break outer;
       }
@@ -596,11 +674,12 @@ export async function indexDrive115Roots(
   if (hardError) {
     const partialIndexed = entries.length;
     const { mergedEntries, partialMerged, keptPrevious } = mergePartialEntries(previous, entries);
+    const shouldKeepProgressStats = partialMerged || checkpoint !== null;
     const state: Drive115LibraryIndexState = {
       version: 1,
-      updatedAt: partialMerged ? now() : previous?.updatedAt || 0,
+      updatedAt: shouldKeepProgressStats ? now() : previous?.updatedAt || 0,
       entries: mergedEntries,
-      stats: partialMerged
+      stats: shouldKeepProgressStats
         ? { ...stats, indexed: mergedEntries.length }
         : previous?.stats || { ...stats },
       lastError: hardError,
@@ -626,6 +705,8 @@ export async function indexDrive115Roots(
       cancelled,
       state,
       report: finalizeReport(),
+      checkpoint: resumable && !cancelled && checkpointQueue.length ? buildCheckpoint() : undefined,
+      resumable: resumable && !cancelled,
       message: detail,
     };
   }
@@ -658,11 +739,14 @@ export async function indexDrive115Roots(
     };
   }
 
+  const finalEntries = checkpoint
+    ? mergePartialEntries(previous, entries).mergedEntries
+    : entries;
   const state: Drive115LibraryIndexState = {
     version: 1,
     updatedAt: now(),
-    entries,
-    stats,
+    entries: finalEntries,
+    stats: checkpoint ? { ...stats, indexed: finalEntries.length } : stats,
     lastError: undefined,
   };
   deps.onProgress?.({

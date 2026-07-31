@@ -68,6 +68,8 @@ export const STORAGE_KEYS = {
     DRIVE115_LIBRARY_STATE: 'drive115_library_state',
     // 115 片库索引进行中进度快照（dashboard 实时展示）
     DRIVE115_LIBRARY_INDEX_PROGRESS: 'drive115_library_index_progress',
+    // 115 片库扫描恢复点（不含授权信息）
+    DRIVE115_LIBRARY_INDEX_CHECKPOINT: 'drive115_library_index_checkpoint',
     // 115 片库上一轮索引结果明细报告（入库/跳过明细，供详情窗口下钻）
     DRIVE115_LIBRARY_INDEX_REPORT: 'drive115_library_index_report',
 
