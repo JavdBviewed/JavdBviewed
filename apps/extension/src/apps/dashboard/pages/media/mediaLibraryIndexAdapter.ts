@@ -3,7 +3,7 @@
  * @description 将 Emby/Jellyfin 本地索引状态适配为媒体库浏览条目
  * @module apps/dashboard/pages/media
  */
-import { buildMediaItemUrl } from '../../../../features/embyLibrary/domain/libraryIndex';
+import { buildMediaItemUrl, normalizeServerUrl } from '../../../../features/embyLibrary/domain/libraryIndex';
 import {
   computeWatchState,
   formatWatchPercent,
@@ -14,7 +14,8 @@ import {
 import type { EmbyLibraryIndexEntry, EmbyLibraryState, EmbyWatchUserData } from '../../../../features/embyLibrary/types';
 import type { MediaWatchEvidenceMap } from '../../../../features/media/mediaWatchEvidence';
 import type { ParsedNfoSummary } from '../../../../features/drive115/mediaLibrary/parseEntryMeta';
-import type { MediaBrowseItem, MediaBrowseSource } from './mediaBrowseModel';
+import { normalizeVideoCodeCandidate } from '../../../../shared/utils/videoCodeExtractor';
+import type { MediaBrowseItem, MediaItemSource, MediaSourceCopy } from './mediaBrowseModel';
 
 /**
  * 从番号字符串生成稳定色相（预览渐变用）
@@ -30,7 +31,7 @@ export function hueFromCode(code: string): number {
 /**
  * 将索引条目映射为浏览用 source
  */
-export function entryToSource(entry: EmbyLibraryIndexEntry): Exclude<MediaBrowseSource, 'all' | '115'> {
+export function entryToSource(entry: EmbyLibraryIndexEntry): Extract<MediaItemSource, 'emby' | 'jellyfin'> {
   return entry.serverType === 'jellyfin' ? 'jellyfin' : 'emby';
 }
 
@@ -78,32 +79,196 @@ function secondsToTicks(seconds: number | undefined): number {
   return Math.round(value * 10_000_000);
 }
 
+export function makeMediaCopyId(input: Pick<MediaSourceCopy, 'source' | 'serverUrl' | 'itemId' | 'fileId' | 'pickCode'>): string {
+  if (input.source === '115') {
+    const resourceId = String(input.fileId || input.itemId || input.pickCode || '').trim();
+    return resourceId ? `115:${resourceId}` : '';
+  }
+  const serverUrl = normalizeServerUrl(String(input.serverUrl || ''));
+  const itemId = String(input.itemId || '').trim();
+  return serverUrl && itemId ? `${input.source}:${serverUrl}:${itemId}` : '';
+}
+
+function browseItemToCopy(item: MediaBrowseItem): MediaSourceCopy {
+  const fileId = item.source === '115' ? item.itemId : undefined;
+  return {
+    copyId: makeMediaCopyId({
+      source: item.source,
+      serverUrl: item.serverUrl,
+      itemId: item.itemId,
+      fileId,
+      pickCode: item.pickCode,
+    }),
+    source: item.source,
+    serverName: item.serverName,
+    serverUrl: item.serverUrl,
+    serverId: item.serverId,
+    itemId: item.itemId,
+    fileId,
+    pickCode: item.pickCode,
+    fileName: item.fileName,
+    folderPath: item.folderPath,
+    libraryKey: item.libraryKey,
+    coverImageUrl: item.coverImageUrl,
+    imageUrls: item.imageUrls,
+    coverPickCode: item.coverPickCode,
+    nfoSummary: item.nfoSummary,
+    userData: item.userData,
+    watchState: item.watchState,
+  };
+}
+
+function withOwnCopy(item: MediaBrowseItem): MediaBrowseItem {
+  if (item.copies?.length) return item;
+  return { ...item, copies: [browseItemToCopy(item)] };
+}
+
+function normalizeEvidenceAlias(value: unknown): string {
+  return String(value || '').trim().toUpperCase();
+}
+
+function withoutCommonVideoExtension(value: unknown): string {
+  return String(value || '').trim().replace(/\.(mp4|mkv|avi|mov|wmv|m4v|ts|webm)$/i, '');
+}
+
+function collectEvidenceAliases(item: MediaBrowseItem): string[] {
+  const rawValues = [
+    item.code,
+    item.title,
+    item.fileName,
+    withoutCommonVideoExtension(item.fileName),
+    item.folderPath,
+    item.pickCode,
+    item.itemId,
+  ];
+  const aliases = new Set<string>();
+  for (const raw of rawValues) {
+    const normalized = normalizeEvidenceAlias(raw);
+    if (normalized) aliases.add(normalized);
+    const videoCode = normalizeVideoCodeCandidate(String(raw || ''));
+    if (videoCode) aliases.add(normalizeEvidenceAlias(videoCode));
+  }
+  return Array.from(aliases);
+}
+
+function findLocalWatchEvidence(
+  item: MediaBrowseItem,
+  evidenceMap: MediaWatchEvidenceMap,
+): MediaWatchEvidenceMap[string] | undefined {
+  const aliases = collectEvidenceAliases(item);
+  for (const alias of aliases) {
+    const direct = evidenceMap[alias];
+    if (direct) return direct;
+  }
+  return Object.entries(evidenceMap).find(([rawKey, evidence]) => {
+    const evidenceAliases = [
+      rawKey,
+      evidence.sourceItemId,
+      evidence.pickCode,
+      evidence.fileId,
+      evidence.fileName,
+      withoutCommonVideoExtension(evidence.fileName),
+    ].map(normalizeEvidenceAlias);
+    return evidenceAliases.some((alias) => alias && aliases.includes(alias));
+  })?.[1];
+}
+
+function findCopyWatchEvidence(
+  code: string,
+  copy: MediaSourceCopy,
+  evidenceMap: MediaWatchEvidenceMap,
+): MediaWatchEvidenceMap[string] | undefined {
+  const direct = evidenceMap[`${normalizeEvidenceAlias(code)}::${copy.copyId}`];
+  if (direct) return direct;
+  return Object.values(evidenceMap).find((evidence) => {
+    if (evidence.copyId) return evidence.copyId === copy.copyId;
+    const sourceMatches = copy.source === '115'
+      ? evidence.source === 'drive115'
+      : evidence.source === copy.source;
+    if (!sourceMatches) return false;
+    const sourceIds = [evidence.sourceItemId, evidence.fileId, evidence.pickCode]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    const copyIds = [copy.itemId, copy.fileId, copy.pickCode]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean);
+    return sourceIds.some((sourceId) => copyIds.includes(sourceId));
+  });
+}
+
+function mergeEvidenceIntoUserData(
+  remote: EmbyWatchUserData | undefined,
+  evidence: MediaWatchEvidenceMap[string] | undefined,
+): EmbyWatchUserData | undefined {
+  if (!evidence) return remote;
+  const local: EmbyWatchUserData = {
+    played: evidence.watched === true,
+    positionTicks: secondsToTicks(evidence.positionSec),
+    runtimeTicks: secondsToTicks(evidence.durationSec),
+    percent: evidence.percent,
+    lastPlayedAt: evidence.lastPlayedAt,
+  };
+  const remotePercent = remote?.percent || 0;
+  const localPercent = local.percent || 0;
+  const useLocalTicks = localPercent >= remotePercent;
+  const percent = Math.max(remotePercent, localPercent);
+  return {
+    played: Boolean(remote?.played || local.played || percent >= 90),
+    positionTicks: useLocalTicks
+      ? (local.positionTicks || remote?.positionTicks || 0)
+      : (remote?.positionTicks || local.positionTicks || 0),
+    runtimeTicks: Math.max(remote?.runtimeTicks || 0, local.runtimeTicks || 0),
+    percent,
+    lastPlayedAt: Math.max(remote?.lastPlayedAt || 0, local.lastPlayedAt || 0),
+  };
+}
+
+function aggregateCopyUserData(values: Array<EmbyWatchUserData | undefined>): EmbyWatchUserData | undefined {
+  const available = values.filter((value): value is EmbyWatchUserData => Boolean(value));
+  if (!available.length) return undefined;
+  const representative = [...available].sort((a, b) => {
+    if (a.played !== b.played) return a.played ? -1 : 1;
+    if (a.percent !== b.percent) return b.percent - a.percent;
+    return b.lastPlayedAt - a.lastPlayedAt;
+  })[0];
+  return {
+    ...representative,
+    played: available.some((value) => value.played || value.percent >= 90),
+    runtimeTicks: Math.max(...available.map((value) => value.runtimeTicks || 0)),
+    lastPlayedAt: Math.max(...available.map((value) => value.lastPlayedAt || 0)),
+  };
+}
+
 /**
- * Emby 库状态 → 浏览列表（每个番号取第一条命中作为代表）
+ * Emby 库状态 → 浏览列表（每个物理副本输出一条，稍后按影片聚合）
  */
 export function mapLibraryStateToBrowseItems(state: EmbyLibraryState | null | undefined): MediaBrowseItem[] {
   if (!state?.entries) return [];
   const items: MediaBrowseItem[] = [];
   for (const [code, entries] of Object.entries(state.entries)) {
     if (!entries?.length) continue;
-    const entry = entries[0];
-    const source = entryToSource(entry);
-    const watchState = resolveItemWatchState(entry);
-    items.push({
-      code,
-      title: entry.itemName || code,
-      source,
-      year: '',
-      hue: hueFromCode(code),
-      coverImageUrl: entry.coverImageUrl,
-      imageUrls: entry.imageUrls,
-      serverName: entry.serverName,
-      itemId: entry.itemId,
-      serverUrl: entry.serverUrl,
-      serverId: entry.serverId,
-      userData: entry.userData,
-      watchState,
-    });
+    for (const entry of entries) {
+      const source = entryToSource(entry);
+      const watchState = resolveItemWatchState(entry);
+      const item: MediaBrowseItem = {
+        code,
+        title: entry.itemName || code,
+        source,
+        year: '',
+        hue: hueFromCode(code),
+        coverImageUrl: entry.coverImageUrl,
+        imageUrls: entry.imageUrls,
+        serverName: entry.serverName,
+        itemId: entry.itemId,
+        serverUrl: entry.serverUrl,
+        serverId: entry.serverId,
+        fileName: entry.path?.split(/[\\/]/).pop(),
+        folderPath: entry.path,
+        userData: entry.userData,
+        watchState,
+      };
+      items.push(withOwnCopy(item));
+    }
   }
   // 番号字典序，稳定展示
   items.sort((a, b) => a.code.localeCompare(b.code));
@@ -126,33 +291,30 @@ export function mergeLocalWatchEvidence(
 ): MediaBrowseItem[] {
   if (!evidenceMap || !Object.keys(evidenceMap).length) return items;
   return items.map((item) => {
-    const key = String(item.code || '').trim().toUpperCase();
-    const ev = evidenceMap[key];
-    if (!ev) return item;
-
-    const localUd: EmbyWatchUserData = {
-      played: ev.watched === true,
-      positionTicks: secondsToTicks(ev.positionSec),
-      runtimeTicks: secondsToTicks(ev.durationSec),
-      percent: ev.percent,
-      lastPlayedAt: ev.lastPlayedAt,
+    const copies = item.copies?.map((copy) => {
+      const evidence = findCopyWatchEvidence(item.code, copy, evidenceMap);
+      const userData = mergeEvidenceIntoUserData(copy.userData, evidence);
+      return {
+        ...copy,
+        userData,
+        watchState: userData ? computeWatchState(userData) : copy.watchState,
+      };
+    });
+    const legacyEvidence = findLocalWatchEvidence(item, evidenceMap);
+    const legacyUserData = legacyEvidence?.copyId
+      ? undefined
+      : mergeEvidenceIntoUserData(item.userData, legacyEvidence);
+    const userData = aggregateCopyUserData([
+      ...(copies || []).map((copy) => copy.userData),
+      legacyUserData,
+    ]);
+    if (!userData && !copies) return item;
+    return {
+      ...item,
+      copies,
+      userData,
+      watchState: userData ? computeWatchState(userData) : item.watchState,
     };
-    const remotePercent = item.userData?.percent || 0;
-    const localPercent = localUd.percent || 0;
-    const mergedPercent = Math.max(remotePercent, localPercent);
-    const useLocalTicks = localPercent >= remotePercent;
-    const mergedPlayed = Boolean(item.userData?.played || localUd.played || mergedPercent >= 90);
-    const mergedUd: EmbyWatchUserData = {
-      played: mergedPlayed,
-      positionTicks: useLocalTicks
-        ? (localUd.positionTicks || item.userData?.positionTicks || 0)
-        : (item.userData?.positionTicks || localUd.positionTicks || 0),
-      runtimeTicks: Math.max(item.userData?.runtimeTicks || 0, localUd.runtimeTicks || 0),
-      percent: mergedPercent,
-      lastPlayedAt: Math.max(item.userData?.lastPlayedAt || 0, localUd.lastPlayedAt || 0),
-    };
-    const watchState = computeWatchState(mergedUd);
-    return { ...item, userData: mergedUd, watchState };
   });
 }
 
@@ -188,7 +350,7 @@ export function mapDrive115LibraryStateToBrowseItems(
       String(entry.videoFileId);
     const title =
       String(entry.nfoSummary?.title || entry.title || code).trim() || code;
-    items.push({
+    items.push(withOwnCopy({
       code,
       title,
       source: '115',
@@ -203,39 +365,46 @@ export function mapDrive115LibraryStateToBrowseItems(
       libraryKey: entry.key,
       coverPickCode: entry.coverPickCode,
       nfoSummary: entry.nfoSummary,
-    });
+    }));
   }
   items.sort((a, b) => a.code.localeCompare(b.code));
   return items;
 }
 
 /**
- * 合并 Emby 与 115 目录；同番号优先保留 Emby/JF，再追加仅 115 有的
+ * 合并媒体目录；同番号聚合为一个影片实体，并保留全部物理副本。
  */
 export function mergeBrowseCatalogs(
   embyItems: MediaBrowseItem[],
   drive115Items: MediaBrowseItem[],
 ): MediaBrowseItem[] {
   const byCode = new Map<string, MediaBrowseItem>();
-  for (const item of embyItems) {
-    const key = String(item.code || '').toUpperCase();
-    if (!key) continue;
-    byCode.set(key, item);
-  }
-  for (const item of drive115Items) {
-    const key = String(item.code || '').toUpperCase();
-    // 无番号用 itemId 保证不丢
-    const mapKey = key || `115:${item.itemId || item.pickCode || Math.random()}`;
-    if (key && byCode.has(key)) {
-      // Emby 已有同番号：附加 pickCode 便于 115 快捷播（不改 source）
-      const existing = byCode.get(key);
-      if (!existing) continue;
-      if (!existing.pickCode && item.pickCode) {
-        byCode.set(key, { ...existing, pickCode: item.pickCode, fileName: item.fileName || existing.fileName });
-      }
+  for (const rawItem of [...embyItems, ...drive115Items]) {
+    const item = withOwnCopy(rawItem);
+    const normalizedCode = normalizeVideoCodeCandidate(String(item.code || ''));
+    const ownCopy = item.copies?.[0];
+    const fallbackId = ownCopy?.copyId || `${item.source}:${item.itemId || item.pickCode || item.code}`;
+    const mapKey = normalizedCode ? normalizedCode.toUpperCase() : `copy:${fallbackId}`;
+    const existing = byCode.get(mapKey);
+    if (!existing) {
+      byCode.set(mapKey, { ...item, code: normalizedCode || item.code });
       continue;
     }
-    byCode.set(mapKey, item);
+
+    const copies = [...(existing.copies || []), ...(item.copies || [])]
+      .filter((copy, index, all) => Boolean(copy.copyId) && all.findIndex((candidate) => candidate.copyId === copy.copyId) === index);
+    const userData = aggregateCopyUserData(copies.map((copy) => copy.userData));
+    const next: MediaBrowseItem = {
+      ...existing,
+      copies,
+      userData,
+      watchState: userData ? computeWatchState(userData) : existing.watchState,
+    };
+    if (!next.pickCode && item.source === '115') {
+      next.pickCode = item.pickCode;
+      next.fileName = item.fileName || next.fileName;
+    }
+    byCode.set(mapKey, next);
   }
   return Array.from(byCode.values()).sort((a, b) => a.code.localeCompare(b.code));
 }

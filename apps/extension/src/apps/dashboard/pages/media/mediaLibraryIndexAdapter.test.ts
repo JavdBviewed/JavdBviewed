@@ -15,6 +15,7 @@ import {
   mapDrive115LibraryStateToBrowseItems,
   mergeBrowseCatalogs,
   hasDrive115LibraryIndex,
+  resolveWatchProgressPercent,
 } from './mediaLibraryIndexAdapter';
 
 describe('mediaLibraryIndexAdapter', () => {
@@ -72,6 +73,59 @@ describe('mediaLibraryIndexAdapter', () => {
     expect(items[1].watchState).toBe('watched');
     expect(hasLibraryIndex(state)).toBe(true);
     expect(hasLibraryIndex({ entries: {}, updatedAt: 0 })).toBe(false);
+  });
+
+  it('preserves every physical copy when the same code exists on multiple sources', () => {
+    const emby = mapLibraryStateToBrowseItems({
+      updatedAt: 1,
+      entries: {
+        'ABC-123': [
+          {
+            serverType: 'emby',
+            serverName: '客厅 Emby',
+            serverUrl: 'http://emby.local/',
+            itemId: 'emby-1',
+            itemName: 'ABC-123',
+            path: 'D:\\Movies\\ABC-123.mp4',
+            updatedAt: 1,
+          },
+          {
+            serverType: 'jellyfin',
+            serverName: '书房 Jellyfin',
+            serverUrl: 'http://jellyfin.local',
+            itemId: 'jf-1',
+            itemName: 'ABC-123',
+            path: '/media/ABC-123.mkv',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+    const drive115 = mapDrive115LibraryStateToBrowseItems({
+      entries: [{
+        code: 'abc-123',
+        title: 'ABC-123',
+        videoFileId: '115-file-1',
+        pickCode: '115-pick-1',
+        fileName: 'ABC-123.mp4',
+      }],
+    });
+
+    expect(emby).toHaveLength(2);
+    const [title] = mergeBrowseCatalogs(emby, drive115);
+
+    expect(title.code).toBe('ABC-123');
+    expect(title.copies).toHaveLength(3);
+    expect(title.copies?.map((copy) => copy.copyId)).toEqual([
+      'emby:http://emby.local:emby-1',
+      'jellyfin:http://jellyfin.local:jf-1',
+      '115:115-file-1',
+    ]);
+    expect(title.copies?.map((copy) => copy.serverName)).toEqual([
+      '客厅 Emby',
+      '书房 Jellyfin',
+      '115 片库',
+    ]);
   });
 
   it('builds server web open url for indexed items', () => {
@@ -132,6 +186,201 @@ describe('mediaLibraryIndexAdapter', () => {
     expect(merged[0].userData?.percent).toBe(95);
     expect(merged[0].userData?.positionTicks).toBe(600_000_000);
     expect(merged[0].userData?.runtimeTicks).toBe(1_000_000_000);
+  });
+
+  it('merges watch evidence into matching copies and aggregates the title state', () => {
+    const titles = mergeBrowseCatalogs(
+      mapLibraryStateToBrowseItems({
+        updatedAt: 1,
+        entries: {
+          'ABC-222': [{
+            serverType: 'emby',
+            serverName: 'Home',
+            serverUrl: 'http://emby.local',
+            itemId: 'emby-2',
+            itemName: 'ABC-222',
+            updatedAt: 1,
+          }],
+        },
+      }),
+      mapDrive115LibraryStateToBrowseItems({
+        entries: [{
+          code: 'ABC-222',
+          videoFileId: 'file-2',
+          pickCode: 'pick-2',
+          fileName: 'ABC-222.mp4',
+        }],
+      }),
+    );
+
+    const [title] = mergeLocalWatchEvidence(titles, {
+      'ABC-222::emby:http://emby.local:emby-2': {
+        source: 'emby',
+        sourceItemId: 'emby-2',
+        copyId: 'emby:http://emby.local:emby-2',
+        percent: 25,
+        watched: false,
+        lastPlayedAt: 10,
+      },
+      'ABC-222::115:file-2': {
+        source: 'drive115',
+        sourceItemId: 'pick-2',
+        copyId: '115:file-2',
+        percent: 95,
+        watched: true,
+        lastPlayedAt: 20,
+      },
+    });
+
+    expect(title.copies?.find((copy) => copy.source === 'emby')?.userData?.percent).toBe(25);
+    expect(title.copies?.find((copy) => copy.source === '115')?.userData?.percent).toBe(95);
+    expect(title.watchState).toBe('watched');
+    expect(title.userData?.percent).toBe(95);
+  });
+
+  it('merges local Emby evidence by source item id so external resume survives reload', () => {
+    const items = mapLibraryStateToBrowseItems({
+      updatedAt: 1,
+      entries: {
+        'ABC-EMBY': [
+          {
+            serverType: 'emby',
+            serverName: 'H',
+            serverUrl: 'http://e',
+            itemId: 'emby-item-1',
+            itemName: 'ABC-EMBY 本地续看',
+            updatedAt: 1,
+          },
+        ],
+      },
+    });
+
+    const merged = mergeLocalWatchEvidence(items, {
+      'OLD-CODE': {
+        source: 'emby',
+        sourceItemId: 'emby-item-1',
+        percent: 50,
+        watched: false,
+        lastPlayedAt: 99,
+        positionSec: 600,
+        durationSec: 1200,
+      },
+    });
+
+    expect(merged[0].source).toBe('emby');
+    expect(merged[0].watchState).toBe('in_progress');
+    expect(merged[0].userData?.percent).toBe(50);
+    expect(merged[0].userData?.lastPlayedAt).toBe(99);
+  });
+
+  it('merges local 115 evidence into 115-only catalog items so they appear in continue watching', () => {
+    const items = mapDrive115LibraryStateToBrowseItems({
+      entries: [
+        {
+          code: 'D115-88',
+          title: 'D115-88',
+          videoFileId: 'file-88',
+          pickCode: 'pick-88',
+          fileName: 'D115-88.mp4',
+          folderName: 'D115-88',
+        },
+      ],
+    });
+
+    const merged = mergeLocalWatchEvidence(items, {
+      'D115-88': {
+        source: 'drive115',
+        percent: 50,
+        watched: false,
+        lastPlayedAt: 88,
+        positionSec: 600,
+        durationSec: 1200,
+        pickCode: 'pick-88',
+        fileId: 'file-88',
+      },
+    });
+
+    expect(merged[0].source).toBe('115');
+    expect(merged[0].watchState).toBe('in_progress');
+    expect(merged[0].userData?.percent).toBe(50);
+    expect(merged[0].userData?.positionTicks).toBe(6_000_000_000);
+    expect(merged[0].userData?.runtimeTicks).toBe(12_000_000_000);
+  });
+
+  it('matches legacy 115 watch evidence by file name and pick code aliases', () => {
+    const items = mapDrive115LibraryStateToBrowseItems({
+      entries: [
+        {
+          code: 'D115-99',
+          title: 'D115-99',
+          videoFileId: 'file-99',
+          pickCode: 'pick-99',
+          fileName: 'D115-99.mp4',
+          folderName: 'D115-99',
+        },
+      ],
+    });
+
+    const byFileName = mergeLocalWatchEvidence(items, {
+      'D115-99.MP4': {
+        source: 'drive115',
+        percent: 25,
+        watched: false,
+        lastPlayedAt: 99,
+        positionSec: 300,
+        durationSec: 1200,
+        pickCode: 'pick-99',
+        fileId: 'file-99',
+        fileName: 'D115-99.mp4',
+      },
+    });
+    expect(byFileName[0].watchState).toBe('in_progress');
+    expect(byFileName[0].userData?.percent).toBe(25);
+
+    const byPickCode = mergeLocalWatchEvidence(items, {
+      'PICK-99': {
+        source: 'drive115',
+        percent: 50,
+        watched: false,
+        lastPlayedAt: 100,
+        positionSec: 600,
+        durationSec: 1200,
+        pickCode: 'pick-99',
+      },
+    });
+    expect(byPickCode[0].watchState).toBe('in_progress');
+    expect(byPickCode[0].userData?.percent).toBe(50);
+  });
+
+  it('keeps 115 items in progress when only resume position is known', () => {
+    const items = mapDrive115LibraryStateToBrowseItems({
+      entries: [
+        {
+          code: 'D115-100',
+          title: 'D115-100',
+          videoFileId: 'file-100',
+          pickCode: 'pick-100',
+          fileName: 'D115-100.mp4',
+          folderName: 'D115-100',
+        },
+      ],
+    });
+
+    const merged = mergeLocalWatchEvidence(items, {
+      'D115-100': {
+        source: 'drive115',
+        percent: 0,
+        watched: false,
+        lastPlayedAt: 100,
+        positionSec: 180,
+        pickCode: 'pick-100',
+      },
+    });
+
+    expect(merged[0].watchState).toBe('in_progress');
+    expect(merged[0].userData?.percent).toBe(0);
+    expect(merged[0].userData?.positionTicks).toBe(1_800_000_000);
+    expect(resolveWatchProgressPercent(merged[0].userData)).toBe(5);
   });
 
 

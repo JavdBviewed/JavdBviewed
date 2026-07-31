@@ -237,6 +237,47 @@
   min-width: 0;
 }
 
+.ml-detail-copy-list {
+  display: grid;
+  gap: 8px;
+}
+
+.ml-detail-copy-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 52px;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-border, var(--border-primary)) 68%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface-2, #1e293b) 70%, transparent);
+}
+
+.ml-detail-copy-source,
+.ml-detail-copy-progress {
+  color: var(--color-fg-muted, #94a3b8);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ml-detail-copy-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ml-detail-copy-main strong,
+.ml-detail-copy-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-detail-copy-main small {
+  color: var(--color-fg-muted, #94a3b8);
+}
+
 /* 横向滚动行：主题化滚动条；仅溢出时抓手/横滑 */
 .ml-detail-people-row,
 .ml-detail-hscroll {
@@ -251,7 +292,8 @@
   overflow-y: hidden;
   padding: 2px 2px 14px;
   overscroll-behavior-x: contain;
-  overscroll-behavior-y: none;
+  /* 纵向滚轮必须继续传给详情弹窗主体，不能被横向行截断。 */
+  overscroll-behavior-y: auto;
   -webkit-overflow-scrolling: touch;
   align-items: flex-start;
   /* 默认：内容未溢出 — 不要抓手，不要看起来像可拖滚动条 */

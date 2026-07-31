@@ -459,6 +459,33 @@ export function MediaItemDetailPanel({
           </div>
         ) : null}
 
+        {item.copies?.length ? (
+          <section className="ml-detail-section" data-media-source-copies="1">
+            <h4>可用来源</h4>
+            <div className="ml-detail-copy-list">
+              {item.copies.map((copy) => {
+                const copyProgress = formatWatchPercent(copy.userData);
+                return (
+                  <div key={copy.copyId} className="ml-detail-copy-row">
+                    <span className="ml-detail-copy-source">{sourceLabel(copy.source)}</span>
+                    <span className="ml-detail-copy-main">
+                      <strong>{copy.serverName || sourceLabel(copy.source)}</strong>
+                      {copy.fileName || copy.folderPath ? (
+                        <small title={copy.folderPath || copy.fileName}>
+                          {copy.fileName || copy.folderPath}
+                        </small>
+                      ) : null}
+                    </span>
+                    {copyProgress ? (
+                      <span className="ml-detail-copy-progress">已播放 {copyProgress}</span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         {(mediaStreams.length > 0
           || detail?.videoSummary
           || detail?.audioSummary

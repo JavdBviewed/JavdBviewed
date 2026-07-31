@@ -22,6 +22,21 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(source).toContain('STORAGE_KEYS.EMBY_LIBRARY_STATE');
   });
 
+  it('监听本地观看证据变化以刷新 115 续看和所有卡片进度', () => {
+    expect(source).toContain('STORAGE_KEYS.MEDIA_WATCH_EVIDENCE');
+    expect(source).toContain('reportDrive115Evidence');
+    expect(source).toContain('await reportDrive115Evidence');
+  });
+
+  it('stores 115 playback progress under the catalog code and keeps no-duration resume evidence', () => {
+    expect(source).toContain('resolveDrive115PlaybackItem');
+    expect(source).toContain('normalizeVideoCodeCandidate(stream.query || candidate.fileName || \'\')');
+    expect(source).toContain('const code = matchedItem?.code || extractedCode');
+    expect(source).toContain('parseDrive115RuntimeSeconds');
+    expect(source).toContain('if (streamSnap && (duration > 0 || position > 0))');
+    expect(source).not.toContain('if (duration <= 0) return;\n\n    if (info.ended)');
+  });
+
   it('变更回调走防抖后调用目录刷新', () => {
     // 防抖 setTimeout + 复用既有 reloadCatalogFromStorage
     expect(source).toMatch(/setTimeout\([\s\S]*reloadCatalogFromStorage/);
@@ -51,6 +66,24 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(detailCss).toContain('.ml-detail-info-grid');
   });
 
+  it('shows every aggregated physical copy in the detail window', () => {
+    const detailSource = readFileSync(join(here, 'MediaItemDetailPanel.tsx'), 'utf-8');
+    const detailCss = readFileSync(join(here, 'mediaItemDetail.css'), 'utf-8');
+    expect(detailSource).toContain('data-media-source-copies="1"');
+    expect(detailSource).toContain('可用来源');
+    expect(detailSource).toContain('item.copies');
+    expect(detailCss).toContain('.ml-detail-copy-list');
+  });
+
+  it('keeps vertical wheel scrolling chained to the detail overlay over horizontal rows', () => {
+    const detailCss = readFileSync(join(here, 'mediaItemDetail.css'), 'utf-8');
+    const scrollerSource = readFileSync(join(here, 'useHorizontalScroller.ts'), 'utf-8');
+    expect(detailCss).toContain('overscroll-behavior-y: auto;');
+    expect(detailCss).not.toContain('overscroll-behavior-y: none;');
+    expect(scrollerSource).toContain('if (e.shiftKey && absY > 0)');
+    expect(scrollerSource).toContain('普通竖向滚轮：完全不拦截');
+  });
+
   it('routes 115 playback through the shared overlay MediaPlayer instead of an inline video', () => {
     const panelSource = readFileSync(join(here, 'Media115PlayPanel.tsx'), 'utf-8');
     const mediaCss = readFileSync(join(here, 'mediaPage.css'), 'utf-8');
@@ -68,12 +101,198 @@ describe('MediaLibraryPage 实时刷新', () => {
 
   it('keeps 115 playback status inside panel/toast instead of media toolbar', () => {
     const panelSource = readFileSync(join(here, 'Media115PlayPanel.tsx'), 'utf-8');
-    expect(source).toContain('librarySyncMessage');
+    expect(source).not.toContain('librarySyncMessage');
     expect(source).not.toContain('setSyncMessage');
     expect(source).not.toMatch(/setLibrarySyncMessage\([^)]*stream\.message/);
     expect(source).toContain("void toast(stream.message, 'info')");
     expect(panelSource).toContain('className="ml-115-msg"');
     expect(panelSource).toContain('\u5df2\u901a\u8fc7\u7d22\u5f15 pick_code \u83b7\u53d6\u64ad\u653e\u5730\u5740\uff0c\u6b63\u5728\u6253\u5f00\u64ad\u653e\u5668\u2026');
+  });
+
+  it('uses a persistent toast for media sync feedback instead of toolbar inline text', () => {
+    expect(source).toContain('showPersistentMessage');
+    expect(source).toContain('正在同步 ${selectedTargets.length} 个媒体来源…');
+    expect(source).not.toContain('ml-sync-msg-inline');
+  });
+
+  it('renders Emby-style card overlay with progress and corner actions', () => {
+    const mediaCss = readFileSync(join(here, 'mediaPage.css'), 'utf-8');
+    expect(source).toContain('className="ml-card-overlay"');
+    expect(source).toContain('className="ml-card-overlay-play"');
+    expect(source).toContain('className="ml-card-overlay-actions"');
+    expect(source).toContain('在 115 搜索并播放');
+    expect(source).toContain('ml-card-overlay-icon-text');
+    expect(source).toContain('className="ml-card-progress"');
+    expect(source).toContain('data-card-size={viewSettings.cardSize}');
+    expect(mediaCss).toContain('.ml-card-overlay');
+    expect(mediaCss).toContain('.ml-card-overlay-icon-text');
+    expect(mediaCss).toContain('.ml-card-progress-fill');
+    expect(mediaCss).toContain('.ml-card:focus-within .ml-card-overlay');
+  });
+
+  it('keeps progress bars on every media card while excluding hero cards', () => {
+    const mediaCss = readFileSync(join(here, 'mediaPage.css'), 'utf-8');
+    expect(source).toContain('className="ml-card-progress"');
+    expect(source).toContain('progressBarPercent');
+    expect(source).not.toMatch(/ml-hero[\s\S]{0,160}ml-card-progress/);
+    expect(mediaCss).toContain('.ml-card-progress');
+    expect(mediaCss).not.toContain('.ml-hero-progress');
+  });
+
+  it('resolves 115 covers in continue watching cards with the same lazy cover hook as grid cards', () => {
+    expect(source).toContain('function ResumeMediaCard');
+    expect(source).toContain('d115ResumeCoverRef');
+    expect(source).toContain('d115ResumeCover');
+    expect(source).toContain('ref={d115ResumeCoverRef}');
+    expect(source).toContain("item.source === '115' && d115ResumeCover ? d115ResumeCover : resumeCover");
+  });
+
+  it('keeps the card surface as the detail entry and reserves more for actions', () => {
+    const mediaCss = readFileSync(join(here, 'mediaPage.css'), 'utf-8');
+    expect(source).toContain('className="ml-card-hit"');
+    expect(source).toContain('onClick={() => onOpenDetail?.(item)}');
+    expect(source).toContain('setShowActionMenu(true)');
+    expect(source).toContain('title="更多操作"');
+    expect(source).not.toContain('title="更多"\n              aria-label="更多"\n              onClick={(e) => {\n                e.preventDefault();\n                e.stopPropagation();\n                onOpenDetail?.(item);');
+    expect(mediaCss).toContain('pointer-events: none;');
+    expect(mediaCss).toContain('.ml-card-overlay button');
+    expect(mediaCss).toContain('pointer-events: auto;');
+  });
+
+  it('adds an Emby-like media view settings dialog for card fields', () => {
+    expect(source).toContain('showViewSettings');
+    expect(source).toContain('title="视图设置"');
+    expect(source).toContain('卡片外观');
+    expect(source).toContain('显示内容');
+    expect(source).toContain('图像大小');
+    expect(source).toContain('恢复默认');
+    expect(source).toContain('完成');
+    expect(source).toContain('resetMediaViewSettings');
+    expect(source).toContain('writeMediaViewSettings');
+    expect(source).toContain('DEFAULT_MEDIA_VIEW_FIELDS');
+  });
+
+  it('uses a compact media command bar with clear summary and view copy', () => {
+    const mediaCss = readFileSync(join(here, 'mediaPage.css'), 'utf-8');
+    expect(source).toContain('className="ml-view-shell"');
+    expect(source).toContain('className="ml-view-summary"');
+    expect(source).toContain('className="ml-view-controls"');
+    expect(source).toContain('className="ml-view-command-group"');
+    expect(source).toContain('视图');
+    expect(source).toContain('同步媒体库与播放状态');
+    expect(source).toContain('同步媒体库');
+    expect(source).toContain('媒体库工具');
+    expect(source).toContain('115 手动播放');
+    expect(source).toContain('已看影片整理');
+    expect(source).not.toContain('title="从本地索引刷新列表"');
+    expect(source).not.toContain('title="打开 115 播放面板"');
+    expect(source).not.toContain('title="打开/关闭 115 清理清单"');
+    expect(source).not.toContain('媒体库同步说明');
+    expect(mediaCss).toContain('.ml-view-shell');
+    expect(mediaCss).toContain('.ml-view-summary');
+    expect(mediaCss).toContain('.ml-view-command-group');
+    expect(mediaCss).toContain('.ml-command-panel');
+    expect(mediaCss).toContain('.ml-command-panel-item');
+    expect(mediaCss).toContain('.ml-view-settings-footer');
+  });
+
+  it('exposes the unbounded carousel step for stable transition diagnostics', () => {
+    expect(source).toContain('data-hero-step={heroStep}');
+    expect(source).toContain('window.setTimeout(() =>');
+    expect(source).toContain('}, [heroStep, heroes.length]);');
+  });
+
+  it('renders source filters from configured media channels instead of fixed source types', () => {
+    expect(source).toContain('buildMediaSourceChannels');
+    expect(source).toContain('sourceChannels.map');
+    expect(source).toContain('channel.label');
+    expect(source).not.toContain('const FILTERS:');
+    expect(source).not.toContain("{ id: 'emby', label: 'Emby' }");
+    expect(source).not.toContain("{ id: 'jellyfin', label: 'Jellyfin' }");
+  });
+
+
+  it('opens media tools in an overlay panel instead of a toolbar dropdown', () => {
+    const mediaCss = readFileSync(join(here, 'mediaPage.css'), 'utf-8');
+    expect(source).toContain('showToolsPanel');
+    expect(source).toContain('title="媒体库工具"');
+    expect(source).toContain('data-media-tools-panel="1"');
+    expect(source).toContain('115 手动播放');
+    expect(source).toContain('已看影片整理');
+    expect(source).not.toContain('showMediaTools');
+    expect(source).not.toContain('mediaToolWrapRef');
+    expect(source).not.toContain("document.addEventListener('pointerdown'");
+    expect(source).not.toContain('data-media-tool-menu');
+    expect(source).not.toContain('data-media-tool-trigger');
+    expect(mediaCss).toContain('.ml-command-panel');
+    expect(mediaCss).toContain('.ml-command-panel-list');
+    expect(mediaCss).toContain('.ml-command-panel-item');
+    expect(mediaCss).not.toContain('.ml-tool-wrap');
+    expect(mediaCss).not.toContain('.ml-tool-menu');
+  });
+
+  it('opens watched media organizer with scanning, user-facing tabs, and safe confirmation', () => {
+    const cleanupSource = readFileSync(join(here, 'MediaCleanupPanel.tsx'), 'utf-8');
+    const mediaCss = readFileSync(join(here, 'mediaPage.css'), 'utf-8');
+    expect(source).toContain('title="已看影片整理"');
+    expect(source).toContain('data-media-cleanup-overlay="1"');
+    expect(source).toContain('onScan={scanWatchedMedia}');
+    expect(cleanupSource).toContain('查找已看影片');
+    expect(cleanupSource).toContain('待处理');
+    expect(cleanupSource).toContain('处理失败');
+    expect(cleanupSource).toContain('操作记录');
+    expect(cleanupSource).toContain('删除选中的文件');
+    expect(cleanupSource).toContain('data-media-cleanup-title-group="1"');
+    expect(cleanupSource).toContain('115 文件会移入回收站');
+    expect(cleanupSource).toContain('本地媒体文件可能被直接删除');
+    expect(cleanupSource).toContain('确认删除');
+    expect(cleanupSource).not.toContain('window.confirm');
+    expect(cleanupSource).not.toContain('跨来源清理');
+    expect(cleanupSource).not.toContain('真实已看');
+    expect(cleanupSource).not.toContain('副本');
+    expect(mediaCss).toContain('.ml-cleanup-scan-card');
+    expect(mediaCss).toContain('.ml-cleanup-title-group');
+  });
+
+  it('supports all-source and multi-selected Emby/Jellyfin/115 synchronization', () => {
+    const mediaCss = readFileSync(join(here, 'mediaPage.css'), 'utf-8');
+    expect(source).toContain('MediaSyncTarget');
+    expect(source).toContain('syncTargets');
+    expect(source).toContain('selectedSyncTargetKeys');
+    expect(source).toContain('showSyncPanel');
+    expect(source).toContain('title="同步媒体库"');
+    expect(source).toContain('data-media-sync-panel="1"');
+    expect(source).toContain('同步全部来源');
+    expect(source).toContain('同步已选来源（');
+    expect(source).toContain('serverIds');
+    expect(source).toContain('rootCids');
+    expect(source).toContain('DRIVE115_MEDIA_LIBRARY_INDEX');
+    expect(source).toContain('type="checkbox"');
+    expect(source).toContain('全选');
+    expect(source).not.toContain('只同步某一个 Emby/Jellyfin 服务器');
+    expect(source).not.toContain('showSyncMenu');
+    expect(source).not.toContain('syncMenuWrapRef');
+    expect(source).not.toContain('data-media-sync-menu');
+    expect(source).not.toContain('data-media-sync-trigger');
+    expect(source).not.toContain("{ type: 'EMBY_LIBRARY_SYNC', manual: true },");
+    expect(mediaCss).toContain('.ml-command-panel-meta');
+    expect(mediaCss).toContain('.ml-command-panel-empty');
+    expect(mediaCss).not.toContain('.ml-sync-menu');
+    expect(mediaCss).not.toContain('.ml-sync-split-btn');
+  });
+
+  it('uses one playback request path and opens a source chooser for aggregated titles', () => {
+    expect(source).toContain('resolvePlaybackChoice');
+    expect(source).toContain('requestPlayback');
+    expect(source).toContain('data-media-source-choice="1"');
+    expect(source).toContain('选择播放来源');
+    expect(source).toContain('该影片有多个可播放副本');
+  });
+
+  it('uses dashboard toast feedback for card actions instead of blocking alert', () => {
+    expect(source).toContain('void toast(`标记失败：${msg}`, \'error\')');
+    expect(source).toContain("void toast(e instanceof Error ? e.message : String(e), 'error')");
+    expect(source).not.toContain('window.alert(');
   });
 
 

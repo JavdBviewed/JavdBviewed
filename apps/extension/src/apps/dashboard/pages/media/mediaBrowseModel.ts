@@ -7,7 +7,35 @@ import type { EmbyWatchUserData } from '../../../../features/embyLibrary/types';
 import type { MediaWatchState } from '../../../../features/embyLibrary/domain/watchState';
 import type { ParsedNfoSummary as Drive115ParsedNfoSummary } from '../../../../features/drive115/mediaLibrary/parseEntryMeta';
 
-export type MediaBrowseSource = 'all' | 'emby' | 'jellyfin' | '115';
+export type MediaItemSource = 'emby' | 'jellyfin' | '115';
+export type MediaBrowseSource = 'all' | MediaItemSource | `server:${string}`;
+
+export type MediaSourceChannel = {
+  id: Exclude<MediaBrowseSource, 'all'>;
+  label: string;
+  source: MediaItemSource;
+  serverUrl?: string;
+};
+
+export type MediaSyncTarget = {
+  key: string;
+  kind: 'media-server' | 'drive115-root';
+  source: MediaItemSource;
+  id: string;
+  label: string;
+  detail: string;
+};
+
+type MediaSourceSettings = {
+  emby?: {
+    enabled?: unknown;
+    mediaServers?: unknown;
+  };
+  drive115?: {
+    enabled?: unknown;
+    mediaLibraryRoots?: unknown;
+  };
+};
 
 /** 真实观看筛选（与来源筛选叠加） */
 export type MediaWatchFilter = 'all' | 'in_progress' | 'watched' | 'not_watched';
@@ -21,15 +49,72 @@ export type MediaWatchFilter = 'all' | 'in_progress' | 'watched' | 'not_watched'
 export type MediaCoverViewMode = 'poster' | 'thumb' | 'backdrop';
 
 export const MEDIA_COVER_VIEW_MODES: { id: MediaCoverViewMode; label: string; hint: string }[] = [
-  { id: 'thumb', label: '略缩图', hint: '横版 Thumb · 完整显示不裁切' },
+  { id: 'thumb', label: '缩略图', hint: '横版 Thumb · 完整显示不裁切' },
   { id: 'poster', label: '海报', hint: '竖版 Primary · 完整显示不裁切' },
   { id: 'backdrop', label: '背景图', hint: '横版 Backdrop · 铺满裁边' },
 ];
 
+export type MediaCardSize = 'small' | 'normal' | 'large' | 'xlarge';
+
+export const MEDIA_CARD_SIZE_OPTIONS: { id: MediaCardSize; label: string }[] = [
+  { id: 'small', label: '小' },
+  { id: 'normal', label: '中' },
+  { id: 'large', label: '大' },
+  { id: 'xlarge', label: '超大' },
+];
+
+export type MediaViewField =
+  | 'title'
+  | 'fileName'
+  | 'rating'
+  | 'criticRating'
+  | 'year'
+  | 'runtime'
+  | 'genres'
+  | 'director'
+  | 'tags'
+  | 'studio';
+
+export const DEFAULT_MEDIA_VIEW_FIELDS: { id: MediaViewField; label: string }[] = [
+  { id: 'title', label: '标题' },
+  { id: 'fileName', label: '文件名' },
+  { id: 'rating', label: '评分' },
+  { id: 'criticRating', label: '影评人评分' },
+  { id: 'year', label: '年份' },
+  { id: 'runtime', label: '时长' },
+  { id: 'genres', label: '类型' },
+  { id: 'director', label: '导演' },
+  { id: 'tags', label: '标签' },
+  { id: 'studio', label: '片商' },
+];
+
+export type MediaViewSettings = {
+  coverView: MediaCoverViewMode;
+  cardSize: MediaCardSize;
+  visibleFields: Record<MediaViewField, boolean>;
+};
+
+export const DEFAULT_MEDIA_VIEW_SETTINGS: MediaViewSettings = {
+  coverView: 'thumb',
+  cardSize: 'normal',
+  visibleFields: {
+    title: true,
+    fileName: false,
+    rating: true,
+    criticRating: true,
+    year: true,
+    runtime: true,
+    genres: true,
+    director: false,
+    tags: true,
+    studio: true,
+  },
+};
+
 export type MediaBrowseItem = {
   code: string;
   title: string;
-  source: Exclude<MediaBrowseSource, 'all'>;
+  source: MediaItemSource;
   year: string;
   hue: number;
   coverImageUrl?: string;
@@ -52,7 +137,75 @@ export type MediaBrowseItem = {
   coverPickCode?: string;
   /** 115 索引：NFO 解析摘要（标题/简介/年份 + JAV 富字段），懒加载填充 */
   nfoSummary?: Drive115ParsedNfoSummary;
+  /** 同一影片当前可用的全部物理来源副本。 */
+  copies?: MediaSourceCopy[];
 };
+
+export type MediaSourceCopy = {
+  copyId: string;
+  source: MediaItemSource;
+  serverName?: string;
+  serverUrl?: string;
+  serverId?: string;
+  itemId?: string;
+  fileId?: string;
+  pickCode?: string;
+  fileName?: string;
+  folderPath?: string;
+  libraryKey?: string;
+  coverImageUrl?: string;
+  imageUrls?: MediaBrowseItem['imageUrls'];
+  coverPickCode?: string;
+  nfoSummary?: Drive115ParsedNfoSummary;
+  userData?: EmbyWatchUserData;
+  watchState?: MediaWatchState;
+};
+
+export type MediaPlaybackChoice = {
+  kind: 'unavailable' | 'direct' | 'choose';
+  items: MediaBrowseItem[];
+};
+
+export function mediaCopyToBrowseItem(title: MediaBrowseItem, copy: MediaSourceCopy): MediaBrowseItem {
+  return {
+    ...title,
+    source: copy.source,
+    serverName: copy.serverName,
+    serverUrl: copy.serverUrl,
+    serverId: copy.serverId,
+    itemId: copy.itemId || copy.fileId,
+    pickCode: copy.pickCode,
+    fileName: copy.fileName,
+    folderPath: copy.folderPath,
+    libraryKey: copy.libraryKey,
+    coverImageUrl: copy.coverImageUrl || title.coverImageUrl,
+    imageUrls: copy.imageUrls || title.imageUrls,
+    coverPickCode: copy.coverPickCode,
+    nfoSummary: copy.nfoSummary || title.nfoSummary,
+    userData: copy.userData,
+    watchState: copy.watchState,
+    copies: [copy],
+  };
+}
+
+function isPlayableCopy(copy: MediaSourceCopy): boolean {
+  if (copy.source === '115') return Boolean(copy.pickCode);
+  return Boolean(copy.itemId && copy.serverUrl);
+}
+
+export function resolvePlaybackChoice(item: MediaBrowseItem): MediaPlaybackChoice {
+  const copies = item.copies?.length
+    ? item.copies.filter(isPlayableCopy).map((copy) => mediaCopyToBrowseItem(item, copy))
+    : [item].filter((candidate) => (
+      candidate.source === '115'
+        ? Boolean(candidate.pickCode)
+        : Boolean(candidate.itemId && candidate.serverUrl)
+    ));
+  return {
+    kind: copies.length === 0 ? 'unavailable' : copies.length === 1 ? 'direct' : 'choose',
+    items: copies,
+  };
+}
 
 export const MEDIA_PREVIEW_ITEMS: MediaBrowseItem[] = [
   { code: 'SSIS-458', title: '恋人未满的同居生活', source: 'emby', year: '2022', hue: 330 },
@@ -133,7 +286,7 @@ export function resolveCoverImage(
     };
   }
 
-  // thumb（略缩图）：必须优先真 Thumb，禁止默默用 Primary 冒充
+  // thumb（缩略图）：必须优先真 Thumb，禁止默默用 Primary 冒充
   if (thumb) {
     return {
       url: thumb,
@@ -190,15 +343,136 @@ export function sourceLabel(source: MediaBrowseItem['source']): string {
   return '115';
 }
 
+function normalizeMediaServerUrl(value: unknown): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    const pathname = parsed.pathname.replace(/\/+$/, '');
+    return `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}${pathname}`;
+  } catch {
+    return raw.replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+export function buildMediaSyncTargets(settings: unknown): MediaSyncTarget[] {
+  const input = isRecord(settings) ? settings as MediaSourceSettings : {};
+  const targets: MediaSyncTarget[] = [];
+  const emby = isRecord(input.emby) ? input.emby : undefined;
+  const servers = Array.isArray(emby?.mediaServers) ? emby.mediaServers : [];
+
+  for (const [index, value] of servers.entries()) {
+    if (!isRecord(value) || value.enabled === false) continue;
+    const source: Extract<MediaItemSource, 'emby' | 'jellyfin'> =
+      value.type === 'jellyfin' ? 'jellyfin' : 'emby';
+    const url = normalizeMediaServerUrl(value.url);
+    const token = String(value.apiKey || value.accessToken || '').trim();
+    if (!url || !token) continue;
+    const id = String(value.id || `${source}:${url || value.name || index}`).trim();
+    if (!id || targets.some((target) => target.key === `server:${id}`)) continue;
+    const name = String(value.name || '').trim() || (source === 'jellyfin' ? 'Jellyfin' : 'Emby');
+    targets.push({
+      key: `server:${id}`,
+      kind: 'media-server',
+      source,
+      id,
+      label: `${source === 'jellyfin' ? 'Jellyfin' : 'Emby'} · ${name}`,
+      detail: url,
+    });
+  }
+
+  const drive115 = isRecord(input.drive115) ? input.drive115 : undefined;
+  const roots = Array.isArray(drive115?.mediaLibraryRoots) ? drive115.mediaLibraryRoots : [];
+  if (drive115?.enabled === true) {
+    for (const value of roots) {
+      if (!isRecord(value) || value.enabled === false) continue;
+      const id = String(value.cid || '').trim();
+      if (!id || targets.some((target) => target.key === `drive115:${id}`)) continue;
+      const name = String(value.name || value.path || '').trim() || '片库目录';
+      targets.push({
+        key: `drive115:${id}`,
+        kind: 'drive115-root',
+        source: '115',
+        id,
+        label: `115 · ${name}`,
+        detail: String(value.path || value.name || id).trim(),
+      });
+    }
+  }
+
+  return targets;
+}
+
+export function partitionMediaSyncTargets(
+  targets: MediaSyncTarget[],
+  selectedKeys: ReadonlySet<string>,
+): { serverIds: string[]; rootCids: string[] } {
+  const selected = targets.filter((target) => selectedKeys.has(target.key));
+  return {
+    serverIds: selected.filter((target) => target.kind === 'media-server').map((target) => target.id),
+    rootCids: selected.filter((target) => target.kind === 'drive115-root').map((target) => target.id),
+  };
+}
+
+export function buildMediaSourceChannels(settings: unknown): MediaSourceChannel[] {
+  const input = isRecord(settings) ? settings as MediaSourceSettings : {};
+  const channels: MediaSourceChannel[] = [];
+  const emby = isRecord(input.emby) ? input.emby : undefined;
+
+  if (emby?.enabled === true && Array.isArray(emby.mediaServers)) {
+    for (const value of emby.mediaServers) {
+      if (!isRecord(value) || value.enabled === false) continue;
+      const serverUrl = normalizeMediaServerUrl(value.url);
+      if (!serverUrl) continue;
+      const source: Extract<MediaItemSource, 'emby' | 'jellyfin'> =
+        value.type === 'jellyfin' ? 'jellyfin' : 'emby';
+      const name = String(value.name || '').trim() || (source === 'jellyfin' ? 'Jellyfin' : 'Emby');
+      const id = `server:${source}:${encodeURIComponent(serverUrl)}` as const;
+      if (channels.some((channel) => channel.id === id)) continue;
+      channels.push({
+        id,
+        label: `${source === 'jellyfin' ? 'Jellyfin' : 'Emby'} · ${name}`,
+        source,
+        serverUrl,
+      });
+    }
+  }
+
+  const drive115 = isRecord(input.drive115) ? input.drive115 : undefined;
+  const roots = Array.isArray(drive115?.mediaLibraryRoots) ? drive115.mediaLibraryRoots : [];
+  const hasEnabledRoot = roots.some((root) => isRecord(root) && root.enabled !== false);
+  if (drive115?.enabled === true && hasEnabledRoot) {
+    channels.push({ id: '115', label: '115 片库', source: '115' });
+  }
+
+  return channels;
+}
+
 export function filterMediaItems(
   items: MediaBrowseItem[],
   filter: MediaBrowseSource,
   query: string,
   watchFilter: MediaWatchFilter = 'all',
+  channels: MediaSourceChannel[] = [],
 ): MediaBrowseItem[] {
   const q = query.trim().toLowerCase();
   return items.filter((item) => {
-    if (filter !== 'all' && item.source !== filter) return false;
+    if (filter !== 'all') {
+      const channel = channels.find((candidate) => candidate.id === filter);
+      if (channel?.serverUrl) {
+        const channelMatches = item.copies?.some((copy) => (
+          copy.source === channel.source
+          && normalizeMediaServerUrl(copy.serverUrl) === channel.serverUrl
+        )) || (
+          item.source === channel.source
+          && normalizeMediaServerUrl(item.serverUrl) === channel.serverUrl
+        );
+        if (!channelMatches) return false;
+      } else {
+        const sourceMatches = item.copies?.some((copy) => copy.source === filter) || item.source === filter;
+        if (filter.startsWith('server:') || !sourceMatches) return false;
+      }
+    }
     if (watchFilter !== 'all') {
       const ws = item.watchState || 'none';
       if (watchFilter === 'watched' && ws !== 'watched') return false;
@@ -274,17 +548,74 @@ export function heroItems(
   return pool.slice(0, Math.min(limit, top));
 }
 
-export function subPathToFilter(subPath?: string): MediaBrowseSource {
-  if (subPath === 'emby') return 'emby';
-  if (subPath === 'jellyfin') return 'jellyfin';
-  if (subPath === '115') return '115';
+export function subPathToFilter(
+  subPath?: string,
+  channels?: MediaSourceChannel[],
+): MediaBrowseSource {
+  if (subPath === 'emby' || subPath === 'jellyfin') {
+    if (!channels) return subPath;
+    return channels.find((channel) => channel.source === subPath)?.id || 'all';
+  }
+  if (subPath === '115') {
+    if (!channels) return '115';
+    return channels.find((channel) => channel.source === '115')?.id || 'all';
+  }
   return 'all';
 }
 
+export type CarouselWindowEntry = {
+  virtualIndex: number;
+  itemIndex: number;
+  position: number;
+  cycle: number;
+};
+
+function positiveModulo(value: number, length: number): number {
+  return ((value % length) + length) % length;
+}
+
+export function buildCarouselWindow(
+  step: number,
+  length: number,
+  radius: number,
+): CarouselWindowEntry[] {
+  if (length <= 0 || radius < 0) return [];
+  const center = Math.trunc(step);
+  const safeRadius = Math.trunc(radius);
+  const out: CarouselWindowEntry[] = [];
+  for (let position = -safeRadius; position <= safeRadius; position += 1) {
+    const virtualIndex = center + position;
+    out.push({
+      virtualIndex,
+      itemIndex: positiveModulo(virtualIndex, length),
+      position,
+      cycle: Math.floor(virtualIndex / length),
+    });
+  }
+  return out;
+}
+
+export function resolveCarouselDotStep(
+  step: number,
+  targetIndex: number,
+  length: number,
+): number {
+  if (length <= 0) return 0;
+  const currentIndex = positiveModulo(step, length);
+  const target = positiveModulo(targetIndex, length);
+  let delta = target - currentIndex;
+  if (delta > length / 2) delta -= length;
+  if (delta < -length / 2) delta += length;
+  return step + delta;
+}
+
 const COVER_VIEW_STORAGE_KEY = 'ml_cover_view_mode';
+const MEDIA_VIEW_SETTINGS_STORAGE_KEY = 'ml_media_view_settings';
 
 export function readCoverViewMode(): MediaCoverViewMode {
   try {
+    const mediaSettings = readMediaViewSettings();
+    if (mediaSettings.coverView) return mediaSettings.coverView;
     const v = localStorage.getItem(COVER_VIEW_STORAGE_KEY);
     if (v === 'poster' || v === 'thumb' || v === 'backdrop') return v;
   } catch { /* ignore */ }
@@ -294,6 +625,66 @@ export function readCoverViewMode(): MediaCoverViewMode {
 export function writeCoverViewMode(mode: MediaCoverViewMode): void {
   try {
     localStorage.setItem(COVER_VIEW_STORAGE_KEY, mode);
+    const settings = readMediaViewSettings();
+    writeMediaViewSettings({ ...settings, coverView: mode });
   } catch { /* ignore */ }
+}
+
+export function readMediaViewSettings(): MediaViewSettings {
+  try {
+    const raw = localStorage.getItem(MEDIA_VIEW_SETTINGS_STORAGE_KEY);
+    const legacyCover = localStorage.getItem(COVER_VIEW_STORAGE_KEY);
+    if (!raw) {
+      return normalizeMediaViewSettings({ coverView: legacyCover });
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    return normalizeMediaViewSettings(parsed);
+  } catch {
+    return DEFAULT_MEDIA_VIEW_SETTINGS;
+  }
+}
+
+export function writeMediaViewSettings(settings: MediaViewSettings): void {
+  try {
+    const normalized = normalizeMediaViewSettings(settings);
+    localStorage.setItem(MEDIA_VIEW_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
+    localStorage.setItem(COVER_VIEW_STORAGE_KEY, normalized.coverView);
+  } catch { /* ignore */ }
+}
+
+function normalizeMediaViewSettings(value: unknown): MediaViewSettings {
+  const input = isRecord(value) ? value : {};
+  const visibleInput = isRecord(input.visibleFields) ? input.visibleFields : {};
+  const visibleFields = DEFAULT_MEDIA_VIEW_FIELDS.reduce<Record<MediaViewField, boolean>>(
+    (acc, field) => {
+      const raw = visibleInput[field.id];
+      acc[field.id] = typeof raw === 'boolean'
+        ? raw
+        : DEFAULT_MEDIA_VIEW_SETTINGS.visibleFields[field.id];
+      return acc;
+    },
+    { ...DEFAULT_MEDIA_VIEW_SETTINGS.visibleFields },
+  );
+  return {
+    coverView: normalizeCoverView(input.coverView),
+    cardSize: normalizeCardSize(input.cardSize),
+    visibleFields,
+  };
+}
+
+function normalizeCoverView(value: unknown): MediaCoverViewMode {
+  return value === 'poster' || value === 'thumb' || value === 'backdrop'
+    ? value
+    : DEFAULT_MEDIA_VIEW_SETTINGS.coverView;
+}
+
+function normalizeCardSize(value: unknown): MediaCardSize {
+  return value === 'small' || value === 'normal' || value === 'large' || value === 'xlarge'
+    ? value
+    : DEFAULT_MEDIA_VIEW_SETTINGS.cardSize;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
 }
 
