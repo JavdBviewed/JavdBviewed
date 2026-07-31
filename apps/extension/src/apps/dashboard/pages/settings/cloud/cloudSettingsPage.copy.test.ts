@@ -97,9 +97,13 @@ describe('CloudSettingsPage copy', () => {
     expect(pageSource).toContain('已保存账号，登录后即可同步');
   });
 
-  it('places manual sync on the connection summary and reports its lifecycle in a dialog', () => {
+  it('starts automatic connection and sync from saved credentials while retaining manual retry', () => {
     expect(pageSource).toContain('立即同步');
-    expect(pageSource).toContain("props.loggedIn ? '立即同步' : '登录后同步'");
+    expect(pageSource).toContain('正在自动连接…');
+    expect(pageSource).toContain('重新连接');
+    expect(pageSource).not.toContain('登录后同步');
+    expect(pageSource).toContain('已自动登录并完成首次同步');
+    expect(pageSource).toContain('自动连接或同步失败');
     expect(pageSource).toContain('onSync={onSyncNow}');
     expect(pageSource).toContain('CloudSyncProgressDialog');
     expect(pageSource).toContain('正在整理本机数据');

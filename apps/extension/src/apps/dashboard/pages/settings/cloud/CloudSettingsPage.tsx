@@ -3,7 +3,7 @@
  * @description Cloud 多端同步设置页：对齐其它设置页的卡片密度、状态反馈与操作提示
  * @module apps/dashboard/pages/settings/cloud
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DeviceInfo } from '@javdb/sync-protocol';
 import { Badge } from '../../../../../ui/primitives/Badge/Badge';
 import { Button } from '../../../../../ui/primitives/Button/Button';
@@ -31,6 +31,7 @@ import './cloudSettings.css';
 
 type StatusTone = 'idle' | 'ok' | 'err' | 'busy' | 'warn';
 type HealthState = 'unknown' | 'ok' | 'err' | 'checking';
+type AutoConnectionState = 'idle' | 'connecting' | 'failed';
 
 type SyncReport = CloudSyncNowResult & {
   finishedAt: number;
@@ -102,11 +103,13 @@ export function CloudSettingsPage() {
   });
   const [connDirty, setConnDirty] = useState(false);
   const [connectionEditorOpen, setConnectionEditorOpen] = useState(false);
+  const [autoConnectionState, setAutoConnectionState] = useState<AutoConnectionState>('idle');
   const [autoSync, setAutoSync] = useState<CloudAutoSyncSettings>({
     enabled: true,
     intervalMinutes: 30,
     updatedAt: 0,
   });
+  const autoConnectAttemptRef = useRef('');
 
   const facade = useMemo(() => createExtensionCloudFacade(), []);
   const busy = busyAction != null;
@@ -118,6 +121,7 @@ export function CloudSettingsPage() {
   const connectionReady = Boolean(normalizedDraft);
   const baseUrlInvalid = baseUrlDraft.trim().length > 0 && !connectionReady;
   const configuredBaseUrl = normalizeCloudBaseUrl(settings?.baseUrl || '') || '未配置地址';
+  const hasSavedCredentials = Boolean(settings?.accountIdentifier && settings?.accountPassword);
 
   const setStatus = useCallback((text: string, tone: StatusTone) => {
     setBanner({ text, tone });
@@ -211,6 +215,39 @@ export function CloudSettingsPage() {
     [facade, setStatus],
   );
 
+  const runSyncWithProgress = useCallback(async (showProgress = true): Promise<SyncReport> => {
+    if (showProgress) setSyncProgress({ open: true, stage: 'preparing' });
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    if (showProgress) setSyncProgress({ open: true, stage: 'syncing' });
+    const result = await facade.syncNow();
+    const report: SyncReport = { ...result, finishedAt: Date.now() };
+    setSyncReport(report);
+    if (showProgress) setSyncProgress({ open: true, stage: 'complete', report });
+    setStatus(
+      result.message || `同步完成：↑${result.pushed} ↓${result.pulled}`,
+      result.code === 'SYNC_PARTIAL' ? 'warn' : 'ok',
+    );
+    try {
+      setDevices(await facade.listDevices());
+    } catch {
+      // 同步成功不依赖设备列表刷新
+    }
+    return report;
+  }, [facade, setStatus]);
+
+  const loginAndSync = useCallback(async (showProgress = true) => {
+    if (!identifier.trim() || !password) {
+      throw new Error('请填写账号与密码');
+    }
+    const state = await facade.login({ identifier: identifier.trim(), password });
+    setSettings(state.settings);
+    setAutoSync(state.autoSync);
+    setSession(state.session);
+    setDevices(state.devices);
+    setShowPassword(false);
+    await runSyncWithProgress(showProgress);
+  }, [facade, identifier, password, runSyncWithProgress]);
+
   // 仅挂载加载一次，避免输入被 effect 覆盖
   useEffect(() => {
     let cancelled = false;
@@ -248,12 +285,37 @@ export function CloudSettingsPage() {
 
   const onSaveConnection = () =>
     void withBusy('save', async () => {
-      const saved = await persistConnection();
-      if (!saved) return;
-      setStatus('连接配置已保存', 'ok');
-      await toast('✓ 连接已保存', 'success');
-      setConnectionEditorOpen(false);
-      void probeHealthUrl(saved.baseUrl, { silent: true });
+      try {
+        const saved = await persistConnection();
+        if (!saved) return;
+        // 保存动作已负责首轮自动连接，避免 effect 随后用同一份凭证重复发起登录请求。
+        autoConnectAttemptRef.current = `${saved.updatedAt}:${saved.baseUrl}:${saved.accountIdentifier}`;
+        if (!identifier.trim() || !password) {
+          setAutoConnectionState('idle');
+          setStatus('连接已保存，请补充账号密码后自动连接', 'warn');
+          await toast('连接已保存，请填写账号密码', 'info');
+          setConnectionEditorOpen(false);
+          void probeHealthUrl(saved.baseUrl, { silent: true });
+          return;
+        }
+        setAutoConnectionState('connecting');
+        if (!await probeHealthUrl(saved.baseUrl, { silent: true })) {
+          setAutoConnectionState('failed');
+          setStatus('连接已保存，但自动连接失败：请检查服务地址', 'err');
+          setConnectionEditorOpen(false);
+          return;
+        }
+        await loginAndSync(true);
+        setAutoConnectionState('idle');
+        setStatus('已自动登录并完成首次同步', 'ok');
+        await toast('✓ 已自动登录并完成首次同步', 'success');
+        setConnectionEditorOpen(false);
+      } catch (e) {
+        setAutoConnectionState('failed');
+        const msg = humanizeCloudError(e);
+        setStatus(`自动连接或同步失败：${msg}`, 'err');
+        setConnectionEditorOpen(false);
+      }
     });
 
   const onProbeHealth = () =>
@@ -328,14 +390,9 @@ export function CloudSettingsPage() {
           await toast('请先测试连接成功再登录', 'warning');
           return;
         }
-        const state = await facade.login({ identifier: identifier.trim(), password });
-        setSettings(state.settings);
-        setAutoSync(state.autoSync);
-        setSession(state.session);
-        setDevices(state.devices);
-        setShowPassword(false);
-        setStatus('登录成功，可以开始同步', 'ok');
-        await toast('✓ 登录成功', 'success');
+        await loginAndSync(true);
+        setStatus('已自动登录并完成首次同步', 'ok');
+        await toast('✓ 已自动登录并完成首次同步', 'success');
         setConnectionEditorOpen(false);
       } catch (e) {
         const msg = humanizeCloudError(e);
@@ -343,6 +400,52 @@ export function CloudSettingsPage() {
         await toast(msg, 'error');
       }
     });
+
+  // 兼容旧版本只保存账号密码但尚未建立本机会话的用户：进入设置后自动恢复并同步一次。
+  useEffect(() => {
+    if (loading || loggedIn || !settings || busyAction) return;
+    if (!settings.accountIdentifier || !settings.accountPassword) return;
+    const attemptKey = `${settings.updatedAt}:${settings.baseUrl}:${settings.accountIdentifier}`;
+    if (autoConnectAttemptRef.current === attemptKey) return;
+    autoConnectAttemptRef.current = attemptKey;
+    setAutoConnectionState('connecting');
+    void withBusy('auto-connect', async () => {
+      try {
+        if (!await probeHealthUrl(settings.baseUrl, { silent: true })) {
+          setAutoConnectionState('failed');
+          setStatus('自动连接失败：请检查 Cloud 服务地址', 'err');
+          return;
+        }
+        await loginAndSync(false);
+        setAutoConnectionState('idle');
+        setStatus('已自动登录并完成首次同步', 'ok');
+      } catch (e) {
+        setAutoConnectionState('failed');
+        const msg = humanizeCloudError(e);
+        setStatus(`自动连接或同步失败：${msg}`, 'err');
+      }
+    });
+  }, [busyAction, loading, loggedIn, loginAndSync, probeHealthUrl, setStatus, settings, withBusy]);
+
+  const onReconnect = () => {
+    if (busy || !hasSavedCredentials) return;
+    void withBusy('reconnect', async () => {
+      setAutoConnectionState('connecting');
+      try {
+        if (!await probeHealthUrl(settings?.baseUrl || '', { silent: true })) {
+          setAutoConnectionState('failed');
+          setStatus('重新连接失败：请检查 Cloud 服务地址', 'err');
+          return;
+        }
+        await loginAndSync(true);
+        setAutoConnectionState('idle');
+        setStatus('已重新连接并完成同步', 'ok');
+      } catch (e) {
+        setAutoConnectionState('failed');
+        setStatus(`重新连接或同步失败：${humanizeCloudError(e)}`, 'err');
+      }
+    });
+  };
 
   const onLogout = () =>
     void withBusy('logout', async () => {
@@ -402,23 +505,9 @@ export function CloudSettingsPage() {
 
   const onSyncNow = () => {
     if (!loggedIn || busy) return;
-    setSyncProgress({ open: true, stage: 'preparing' });
     void withBusy('sync', async () => {
       try {
-        await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-        setSyncProgress({ open: true, stage: 'syncing' });
-        const result = await facade.syncNow();
-        const report: SyncReport = { ...result, finishedAt: Date.now() };
-        setSyncReport(report);
-        setSyncProgress({ open: true, stage: 'complete', report });
-        const tone: StatusTone =
-          result.code === 'SYNC_PARTIAL' ? 'warn' : 'ok';
-        setStatus(result.message || `同步完成：↑${result.pushed} ↓${result.pulled}`, tone);
-        try {
-          setDevices(await facade.listDevices());
-        } catch {
-          // ignore
-        }
+        await runSyncWithProgress(true);
       } catch (e) {
         const msg = humanizeCloudError(e);
         setStatus(msg, 'err');
@@ -609,10 +698,13 @@ export function CloudSettingsPage() {
           healthState={healthState}
           healthDetail={healthDetail}
           loggedIn={loggedIn}
+          hasSavedCredentials={hasSavedCredentials}
+          autoConnectionState={autoConnectionState}
           deviceLabel={settings.deviceLabel || '未命名设备'}
           syncBusy={busyAction === 'sync'}
           disabled={busy}
           onEdit={openConnectionEditor}
+          onReconnect={onReconnect}
           onSync={onSyncNow}
         />
 
@@ -756,10 +848,13 @@ function CloudConnectionSummary(props: {
   healthState: HealthState;
   healthDetail: string;
   loggedIn: boolean;
+  hasSavedCredentials: boolean;
+  autoConnectionState: AutoConnectionState;
   deviceLabel: string;
   syncBusy: boolean;
   disabled: boolean;
   onEdit: () => void;
+  onReconnect: () => void;
   onSync: () => void;
 }) {
   return (
@@ -795,11 +890,27 @@ function CloudConnectionSummary(props: {
           <Button
             variant="primary"
             size="sm"
-            disabled={props.disabled || !props.loggedIn}
-            title={props.loggedIn ? '立即同步本机与 Cloud 数据' : '请先在编辑连接中登录账号'}
-            onClick={props.onSync}
+            disabled={props.disabled || (!props.loggedIn && !props.hasSavedCredentials)}
+            title={
+              props.loggedIn
+                ? '立即同步本机与 Cloud 数据'
+                : props.autoConnectionState === 'connecting'
+                  ? '正在自动连接并同步'
+                  : props.hasSavedCredentials
+                    ? '重新连接并同步 Cloud'
+                    : '请先配置账号密码'
+            }
+            onClick={props.loggedIn ? props.onSync : props.hasSavedCredentials ? props.onReconnect : props.onEdit}
           >
-            {props.syncBusy ? '同步中…' : props.loggedIn ? '立即同步' : '登录后同步'}
+            {props.autoConnectionState === 'connecting'
+              ? '正在自动连接…'
+              : props.syncBusy
+                ? '同步中…'
+                : props.loggedIn
+                  ? '立即同步'
+                  : props.hasSavedCredentials
+                    ? '重新连接'
+                    : '配置账号'}
           </Button>
           <Button variant="secondary" size="sm" disabled={props.disabled} onClick={props.onEdit}>
             编辑连接
