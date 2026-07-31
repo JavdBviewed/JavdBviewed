@@ -359,29 +359,47 @@ describe('online availability helpers', () => {
     expect(result.available).toBe(false);
   });
 
-  it('places the panel after review buttons when enhancement panel is absent', () => {
+  it('places the panel in a detail enhancement panel after the main columns', () => {
     document.body.innerHTML = `
-      <nav class="panel movie-panel-info">
-        <div class="panel-block">番号</div>
-        <div class="review-buttons"></div>
-        <div class="panel-block">stats</div>
-      </nav>
+      <div class="columns is-desktop">
+        <div class="column column-video-cover">cover</div>
+        <div class="column">
+          <nav class="panel movie-panel-info">
+            <div class="panel-block">番号</div>
+            <div class="review-buttons"></div>
+            <div class="panel-block">stats</div>
+          </nav>
+        </div>
+      </div>
     `;
 
     const target = findOnlineAvailabilityInsertionTarget();
+    const columns = document.querySelector('.columns.is-desktop');
+    const container = document.getElementById('jdb-detail-enhancement-panel');
 
-    expect(target?.parent).toBe(document.querySelector('.movie-panel-info'));
-    expect(target?.before).toBe(document.querySelector('.review-buttons')?.nextSibling);
+    expect(target?.parent).toBe(document.querySelector('#jdb-detail-enhancement-panel .panel'));
+    expect(target?.before).toBeNull();
+    expect(container?.previousElementSibling).toBe(columns);
   });
 
-  it('keeps detail external search directly below online availability when online availability loads later', async () => {
+  it('keeps detail external and subtitle search directly below online availability when online availability loads later', async () => {
     document.body.innerHTML = `
       <h2 class="title is-4"><strong>SSIS-795</strong></h2>
-      <nav class="panel movie-panel-info">
-        <div class="panel-block first-block">SSIS-795</div>
-        <div id="jdb-external-search-panel" class="panel-block">外部搜索</div>
-        <div class="review-buttons"></div>
-      </nav>
+      <div class="columns is-desktop">
+        <div class="column column-video-cover">cover</div>
+        <div class="column">
+          <nav class="panel movie-panel-info">
+            <div class="panel-block first-block">SSIS-795</div>
+            <div class="review-buttons"></div>
+          </nav>
+        </div>
+      </div>
+      <div id="jdb-detail-enhancement-panel" class="jdb-detail-enhancement-panel">
+        <nav class="panel jdb-detail-enhancement-panel-inner">
+          <div id="jdb-external-search-panel" class="panel-block">外部搜索</div>
+          <div id="jdb-subtitle-search-panel" class="panel-block">字幕搜索</div>
+        </nav>
+      </div>
     `;
 
     const manager = new OnlineAvailabilityManager();
@@ -395,7 +413,11 @@ describe('online availability helpers', () => {
     const onlinePanel = document.getElementById('jdb-online-availability-panel');
     const searchPanel = document.getElementById('jdb-external-search-panel');
 
+    const subtitlePanel = document.getElementById('jdb-subtitle-search-panel');
+    expect(onlinePanel?.parentElement).toBe(document.querySelector('#jdb-detail-enhancement-panel .panel'));
     expect(onlinePanel?.nextElementSibling).toBe(searchPanel);
+    expect(searchPanel?.nextElementSibling).toBe(subtitlePanel);
+    expect(document.querySelector('.movie-panel-info #jdb-online-availability-panel')).toBeNull();
   });
 
   it('renders a final empty state when a site request never settles', async () => {

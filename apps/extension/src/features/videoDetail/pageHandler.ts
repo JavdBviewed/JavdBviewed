@@ -17,6 +17,7 @@ import { initOrchestrator } from '../../apps/content/orchestrator';
 import { showEnhancementLoading } from '../../platform/browser/enhancementLoadingIndicator';
 import { renderDetailSearchLinks } from '../externalSearch';
 import { renderDetailLibraryStatus } from '../embyLibrary/content/statusBadges';
+import { ensureDetailEnhancementPanel } from '../detailEnhancementPanel';
 
 import type { InitPhase } from '../../apps/content/orchestrator';
 import type { GlobalTaskVisibilityPolicy } from '../../shared/taskCenterTypes';
@@ -1024,12 +1025,19 @@ export async function runActorRemarksQuick(timeoutMs?: number): Promise<void> {
             if (panel) return panel;
             panel = document.createElement('div');
             panel.id = 'enhanced-actor-remarks';
+            panel.className = 'panel-block';
             panel.style.cssText = 'margin:12px 0;padding:12px;background:#fff7ed;border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:8px;color:#78350f;font-size:13px;';
             const title = document.createElement('div');
             title.textContent = '演员备注';
             title.style.cssText = 'font-weight:bold;margin-bottom:6px;color:#92400e;';
             panel.appendChild(title);
-            actorBlock.parentElement?.insertBefore(panel, actorBlock.nextSibling);
+
+            const enhancementPanel = ensureDetailEnhancementPanel();
+            if (enhancementPanel) {
+                enhancementPanel.appendChild(panel);
+            } else {
+                actorBlock.parentElement?.insertBefore(panel, actorBlock.nextSibling);
+            }
             return panel;
         };
 

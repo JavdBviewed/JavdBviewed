@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initOrchestrator } from '../../apps/extension/src/apps/content/orchestrator';
 import { STATE, setCurrentFaviconState, setCurrentTitleStatus, setSuspendEarlyFaviconSync } from '../../apps/extension/src/features/contentState';
-import { handleVideoDetailPage } from '../../apps/extension/src/features/videoDetail/pageHandler';
+import { handleVideoDetailPage, runActorRemarksQuick } from '../../apps/extension/src/features/videoDetail/pageHandler';
 import { concurrencyManager, storageManager } from '../../apps/extension/src/features/records/content';
 import type { VideoRecord } from '../../apps/extension/src/types';
 import { DEFAULT_SETTINGS, VIDEO_STATUS } from '../../apps/extension/src/utils/config';
@@ -163,6 +163,13 @@ function applyStorageMocks(): void {
 
 describe('video detail want sync', () => {
   beforeEach(() => {
+    if (!('innerText' in HTMLElement.prototype)) {
+      Object.defineProperty(HTMLElement.prototype, 'innerText', {
+        configurable: true,
+        get() { return this.textContent || ''; },
+        set(value: string) { this.textContent = value; },
+      });
+    }
     vi.useFakeTimers();
     vi.clearAllMocks();
     setCurrentFaviconState(null);
@@ -247,5 +254,96 @@ describe('video detail want sync', () => {
 
     expect(STATE.records['SSIS-795']).toBeUndefined();
     expect(favicon?.href).not.toContain('assets/switch-want.png');
+  });
+  it('moves actor remarks panel mode into the detail enhancement panel without moving inline remarks', async () => {
+    window.history.pushState({}, '', '/v/ssis-795');
+    document.body.innerHTML = `
+      <main>
+        <h2 class="title is-4"><strong>SSIS-795</strong></h2>
+        <div class="columns is-desktop">
+          <div class="column column-video-cover">cover</div>
+          <div class="column">
+            <nav class="panel movie-panel-info">
+              <div class="panel-block first-block"><span class="title is-4">SSIS-795</span></div>
+              <div class="panel-block actor-block">
+                <strong>演员:</strong>
+                <span class="value"><a href="/actors/abc">Alice</a></span>
+              </div>
+              <div class="review-buttons"></div>
+            </nav>
+          </div>
+        </div>
+      </main>
+    `;
+    STATE.settings = {
+      ...DEFAULT_SETTINGS,
+      videoEnhancement: {
+        ...DEFAULT_SETTINGS.videoEnhancement,
+        enableActorRemarks: true,
+        actorRemarksMode: 'panel',
+        actorRemarksTaskTimeoutSeconds: 1,
+      },
+    } as typeof DEFAULT_SETTINGS;
+    const tasks = await import('../../apps/extension/src/platform/tasks');
+    vi.mocked(tasks.runChunkedWork).mockImplementation(async (items: unknown[], options: any) => {
+      for (const item of items) {
+        await options.onItem(item);
+      }
+      await options.onBatchComplete?.({ batchIndex: 0, itemCount: items.length, processed: items.length, stopped: false });
+    });
+    const { actorExtraInfoService } = await import('../../apps/extension/src/features/actorRemarks');
+    vi.mocked(actorExtraInfoService.getActorRemarks).mockResolvedValue({
+      age: 28,
+      heightCm: 168,
+      cup: 'd',
+      retired: false,
+      source: 'test',
+      wikiUrl: 'https://example.test/wiki/Alice',
+    } as any);
+
+    await runActorRemarksQuick(1000);
+
+    const panel = document.getElementById('enhanced-actor-remarks');
+    expect(panel?.parentElement).toBe(document.querySelector('#jdb-detail-enhancement-panel .panel'));
+    expect(panel?.classList.contains('panel-block')).toBe(true);
+    expect(panel?.textContent).toContain('\u6f14\u5458\u5907\u6ce8');
+    expect(panel?.textContent).toContain('Alice');
+    expect(document.querySelector('.movie-panel-info #enhanced-actor-remarks')).toBeNull();
+    expect(document.querySelector('.actor-block .jdb-actor-remarks-inline')?.textContent).toContain('28 / 168cm / D');
+  });
+  it('创建详情页记录时，只保存原站类别标签，不保存拓展注入的外部来源入口', async () => {
+    document.body.innerHTML = `
+      <header>
+        <a class="navbar-item" href="https://javdb.com">JavDB</a>
+      </header>
+      <main>
+        <h2 class="title is-4"><strong>SSIS-795</strong></h2>
+        <nav class="panel movie-panel-info">
+          <div class="panel-block first-block"><span class="title is-4">SSIS-795</span></div>
+          <div class="panel-block genre">
+            <strong>類別:</strong>
+            <span class="value">
+              <a href="/tags?c=1">劇情</a>
+              <a href="/tags?c=2">中文字幕</a>
+              <span class="jdb-detail-search-links">
+                <a class="tag" href="https://wiki.example/search?q=SSIS-795">Wiki</a>
+                <a class="tag" href="https://xslist.example/search?q=SSIS-795">xslist</a>
+                <a class="tag" href="https://example.test/98tang/SSIS-795">98堂</a>
+                <a class="tag" href="https://subtitle.example/SSIS-795">迅雷字幕</a>
+              </span>
+            </span>
+          </div>
+          <div class="panel-block">
+            <strong>描述:</strong>
+            <span class="value">用于让资料抽取通过二次校验。</span>
+          </div>
+          <div class="review-buttons"></div>
+        </nav>
+      </main>
+    `;
+
+    await handleVideoDetailPage();
+
+    expect(STATE.records['SSIS-795']?.tags).toEqual(['劇情', '中文字幕']);
   });
 });

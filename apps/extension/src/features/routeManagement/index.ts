@@ -7,11 +7,11 @@
 import { getRepoRawUrl } from '../../shared/repoIdentity';
 import type { ExtensionSettings } from '../../types';
 import { buildServerApiUrl, verifyJsonChecksum } from '../../platform/network/serverEndpointResolver';
-import { DEFAULT_SETTINGS } from '../../utils/config';
+import { createDefaultRouteSettings } from './defaultRoutes';
 
 export type ServiceType = 'javdb' | 'javbus';
 
-const DEFAULT_ROUTES = DEFAULT_SETTINGS.routes;
+const DEFAULT_ROUTES = createDefaultRouteSettings();
 
 /**
  * 远程线路配置接口
@@ -573,7 +573,7 @@ export class RouteManager {
     private async getSettings(): Promise<ExtensionSettings> {
         return new Promise((resolve) => {
             chrome.storage.local.get('settings', (result) => {
-                resolve(result.settings || DEFAULT_SETTINGS);
+                resolve(result.settings || { routes: DEFAULT_ROUTES } as ExtensionSettings);
             });
         });
     }

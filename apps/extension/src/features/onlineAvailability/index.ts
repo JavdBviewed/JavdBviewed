@@ -6,6 +6,7 @@
 import { extractVideoIdFromPage } from '../../platform/browser';
 import { defaultHttpClient } from '../../platform/network/httpClient';
 import { getOrFetchSessionResult } from '../../platform/storage/sessionResultCache';
+import { ensureDetailEnhancementPanel } from '../detailEnhancementPanel';
 import { log } from '../contentState';
 
 export type OnlineAvailabilityFetchType = 'get' | 'parser';
@@ -295,7 +296,7 @@ export class OnlineAvailabilityManager {
     `;
 
     target.parent.insertBefore(panel, target.before);
-    placeExternalSearchBelowOnlineAvailability(panel);
+    placeSearchPanelsBelowOnlineAvailability(panel);
   }
 
   private renderResults(results: OnlineAvailabilityResult[], totalCount = results.length): void {
@@ -348,15 +349,27 @@ export class OnlineAvailabilityManager {
   }
 }
 
-function placeExternalSearchBelowOnlineAvailability(onlinePanel: HTMLElement): void {
-  const searchPanel = document.getElementById('jdb-external-search-panel');
-  if (!searchPanel || !onlinePanel.parentElement) return;
-  if (searchPanel === onlinePanel.nextElementSibling) return;
+function placeSearchPanelsBelowOnlineAvailability(onlinePanel: HTMLElement): void {
+  if (!onlinePanel.parentElement) return;
 
-  onlinePanel.parentElement.insertBefore(searchPanel, onlinePanel.nextSibling);
+  let before = onlinePanel.nextSibling;
+  ['jdb-external-search-panel', 'jdb-subtitle-search-panel'].forEach((id) => {
+    const panel = document.getElementById(id);
+    if (!panel || !onlinePanel.parentElement) return;
+    onlinePanel.parentElement.insertBefore(panel, before);
+    before = panel.nextSibling;
+  });
 }
 
 export function findOnlineAvailabilityInsertionTarget(): OnlineAvailabilityInsertionTarget | null {
+  const enhancementPanel = ensureDetailEnhancementPanel();
+  if (enhancementPanel) {
+    const firstSearchPanel = ['jdb-external-search-panel', 'jdb-subtitle-search-panel']
+      .map(id => document.getElementById(id))
+      .find(panel => panel?.parentElement === enhancementPanel) ?? null;
+    return { parent: enhancementPanel, before: firstSearchPanel };
+  }
+
   const moviePanel = document.querySelector('.movie-panel-info');
   const directReviewButtons = moviePanel
     ? Array.from(moviePanel.children).find(child => child.classList.contains('review-buttons'))

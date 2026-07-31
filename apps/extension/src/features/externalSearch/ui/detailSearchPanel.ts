@@ -3,6 +3,7 @@
  * @description detailSearchPanel
  * @module features/externalSearch
  */
+import { ensureDetailEnhancementPanel, findDetailEnhancementInsertionTarget } from '../../detailEnhancementPanel';
 import { isSubtitleCatLink, isXunleiSubtitleLink, openSubtitleCatModal, openXunleiSubtitleModal } from '../../subtitles';
 import { buildDetailSearchLinks } from '../application/buildDetailSearchLinks';
 import type { DetailSearchInsertionTarget, DetailSearchLink, RenderDetailSearchLinksOptions } from '../domain/types';
@@ -10,8 +11,17 @@ import { injectDetailSearchStyles } from './detailSearchStyles';
 
 export function findDetailSearchInsertionTarget(): DetailSearchInsertionTarget | null {
   const onlinePanel = document.getElementById('jdb-online-availability-panel');
-  if (onlinePanel?.parentElement) {
-    return { parent: onlinePanel.parentElement, before: onlinePanel.nextSibling };
+  if (onlinePanel?.parentElement?.classList.contains('jdb-detail-enhancement-panel-inner')) {
+    return findDetailEnhancementInsertionTarget(onlinePanel.nextSibling);
+  }
+
+  const enhancementPanel = ensureDetailEnhancementPanel();
+  if (enhancementPanel) {
+    const existingOnlinePanel = document.getElementById('jdb-online-availability-panel');
+    return {
+      parent: enhancementPanel,
+      before: existingOnlinePanel?.parentElement === enhancementPanel ? existingOnlinePanel.nextSibling : null,
+    };
   }
 
   const moviePanel = document.querySelector('.movie-panel-info');

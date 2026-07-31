@@ -54,34 +54,52 @@ describe('detail search links', () => {
     expect(links[1].url).toBe('https://fc2ppvdb.com/articles/4903984');
   });
 
-  it('places the search row below online availability when it is present', () => {
+  it('places the search row in the detail enhancement panel below online availability when it is present', () => {
     document.body.innerHTML = `
-      <nav class="panel movie-panel-info">
-        <div class="panel-block first-block">SSIS-795</div>
-        <div class="review-buttons"></div>
-        <div id="jdb-online-availability-panel" class="panel-block">在线可看</div>
-      </nav>
+      <div class="columns is-desktop">
+        <div class="column column-video-cover">cover</div>
+        <div class="column">
+          <nav class="panel movie-panel-info">
+            <div class="panel-block first-block">SSIS-795</div>
+            <div class="review-buttons"></div>
+          </nav>
+        </div>
+      </div>
+      <div id="jdb-detail-enhancement-panel" class="jdb-detail-enhancement-panel">
+        <nav class="panel jdb-detail-enhancement-panel-inner">
+          <div id="jdb-online-availability-panel" class="panel-block">在线可看</div>
+        </nav>
+      </div>
     `;
 
     const target = findDetailSearchInsertionTarget();
 
-    expect(target?.parent).toBe(document.querySelector('.movie-panel-info'));
+    expect(target?.parent).toBe(document.querySelector('#jdb-detail-enhancement-panel .panel'));
     expect(target?.before).toBe(document.querySelector('#jdb-online-availability-panel')?.nextSibling);
   });
 
-  it('uses the online availability slot when the online panel has not rendered yet', () => {
+  it('creates a detail enhancement panel after the main columns when the online panel has not rendered yet', () => {
     document.body.innerHTML = `
-      <nav class="panel movie-panel-info">
-        <div class="panel-block first-block">SSIS-795</div>
-        <div class="review-buttons"></div>
-        <div class="panel-block">stats</div>
-      </nav>
+      <div class="columns is-desktop">
+        <div class="column column-video-cover">cover</div>
+        <div class="column">
+          <nav class="panel movie-panel-info">
+            <div class="panel-block first-block">SSIS-795</div>
+            <div class="review-buttons"></div>
+            <div class="panel-block">stats</div>
+          </nav>
+        </div>
+      </div>
     `;
 
     const target = findDetailSearchInsertionTarget();
+    const columns = document.querySelector('.columns.is-desktop');
+    const container = document.getElementById('jdb-detail-enhancement-panel');
 
-    expect(target?.parent).toBe(document.querySelector('.movie-panel-info'));
-    expect(target?.before).toBe(document.querySelector('.review-buttons')?.nextSibling);
+    expect(target?.parent).toBe(document.querySelector('#jdb-detail-enhancement-panel .panel'));
+    expect(target?.before).toBeNull();
+    expect(container?.previousElementSibling).toBe(columns);
+    expect(document.querySelector('.movie-panel-info #jdb-external-search-panel')).toBeNull();
   });
 
   it('renders a compact external search panel on detail pages', () => {
@@ -100,6 +118,8 @@ describe('detail search links', () => {
     const icon = link?.querySelector<HTMLImageElement>('img');
 
     expect(panel?.className).toContain('panel-block');
+    expect(panel?.parentElement).toBe(document.querySelector('#jdb-detail-enhancement-panel .panel'));
+    expect(document.querySelector('.movie-panel-info #jdb-external-search-panel')).toBeNull();
     expect(panel?.textContent).toContain('外部搜索:');
     expect(link?.textContent).toBe('JavBus');
     expect(link?.href).toBe('https://javbus.com/search/SSIS-795');
