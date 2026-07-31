@@ -376,10 +376,14 @@ export function mapEmbyItemToDetailView(
       name: String(p.Name || '').trim(),
       role: p.Role ? String(p.Role) : undefined,
       type: p.Type ? String(p.Type) : undefined,
-      imageUrl:
-        p.Id && p.PrimaryImageTag
-          ? `${normalizeServerUrl(server.url)}/Items/${encodeURIComponent(String(p.Id))}/Images/Primary?tag=${encodeURIComponent(p.PrimaryImageTag)}&maxHeight=240&maxWidth=160&quality=90${server.apiKey || server.accessToken ? `&api_key=${encodeURIComponent(String(server.accessToken || server.apiKey))}` : ''}`
-          : undefined,
+      imageUrl: p.Id
+        ? buildMediaItemImageUrl(
+            server,
+            { Id: String(p.Id), PrimaryImageTag: p.PrimaryImageTag },
+            'Primary',
+            { maxHeight: 240, maxWidth: 160, quality: 90 },
+          )
+        : undefined,
     }))
     .filter((p) => p.name);
 

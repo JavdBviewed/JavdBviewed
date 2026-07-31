@@ -32,6 +32,7 @@ import {
   toArrayFromObjMap,
 } from './restoreStorage';
 import { performWebDAVUpload } from './uploadService';
+import { mergeMediaCleanupStorageValue } from '../../mediaCleanup';
 
 let restoreInProgress = false;
 
@@ -565,6 +566,9 @@ async function restoreRegisteredStorageAll(importData: any, summary: any): Promi
 
     if (key === CLOUD_SETTINGS_STORAGE_KEY) {
       await setValue(key, await mergeCloudSettingsForRestore(value));
+    } else if (policy.webdav.restoreMode === 'merge') {
+      const localValue = await getValueSafe(key, undefined);
+      await setValue(key, mergeMediaCleanupStorageValue(key, localValue, value));
     } else {
       await setValue(key, value);
     }

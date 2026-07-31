@@ -7,20 +7,33 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const store: Record<string, unknown> = {};
 
-vi.mock('../../utils/storage', () => ({
-  getValue: vi.fn(async (key: string, fallback: unknown) => {
-    return key in store ? store[key] : fallback;
-  }),
-  setValue: vi.fn(async (key: string, value: unknown) => {
-    store[key] = value;
-  }),
-}));
-
-import { getWatchEvidence, loadMediaPlaybackProgressList, reportWatchProgress } from './mediaWatchEvidence';
+import {
+  getWatchEvidence,
+  loadMediaPlaybackProgressList,
+  reportWatchProgress,
+} from './mediaWatchEvidence';
 
 describe('mediaWatchEvidence', () => {
   beforeEach(() => {
     for (const k of Object.keys(store)) delete store[k];
+    vi.stubGlobal('chrome', {
+      runtime: {},
+      storage: {
+        local: {
+          get: (keys: string[], callback: (items: Record<string, unknown>) => void) => {
+            const result: Record<string, unknown> = {};
+            for (const key of keys) {
+              if (key in store) result[key] = store[key];
+            }
+            callback(result);
+          },
+          set: (payload: Record<string, unknown>, callback?: () => void) => {
+            Object.assign(store, payload);
+            callback?.();
+          },
+        },
+      },
+    });
   });
 
   it('merges higher percent and marks watched at threshold', async () => {
@@ -40,6 +53,34 @@ describe('mediaWatchEvidence', () => {
     await reportWatchProgress({ code: 'X-1', source: 'drive115', percent: 10 });
     const e = await getWatchEvidence('X-1');
     expect(e?.percent).toBe(80);
+  });
+
+  it('keeps progress for two physical copies of the same title independently', async () => {
+    await reportWatchProgress({
+      code: 'ABC-1',
+      source: 'emby',
+      sourceItemId: 'emby-item-1',
+      copyId: 'emby:http://emby.local:emby-item-1',
+      percent: 25,
+    });
+    await reportWatchProgress({
+      code: 'ABC-1',
+      source: 'drive115',
+      sourceItemId: '115-pick-1',
+      copyId: '115:115-file-1',
+      fileId: '115-file-1',
+      pickCode: '115-pick-1',
+      percent: 80,
+    });
+
+    const emby = await getWatchEvidence('ABC-1', 'emby:http://emby.local:emby-item-1');
+    const drive115 = await getWatchEvidence('ABC-1', '115:115-file-1');
+    const progress = await loadMediaPlaybackProgressList();
+
+    expect(emby?.percent).toBe(25);
+    expect(drive115?.percent).toBe(80);
+    expect(progress).toHaveLength(2);
+    expect(progress.map((item) => item.sourceItemId).sort()).toEqual(['115-pick-1', 'emby-item-1']);
   });
 
   it('stores 115 playback resume position and keeps progress monotonic', async () => {

@@ -25,6 +25,10 @@ type Drive115SettingsRecord = Record<string, unknown> & {
   mediaLibraryScanDepth?: unknown;
 };
 
+type Drive115IndexOptions = {
+  rootCids?: string[];
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 }
@@ -115,6 +119,31 @@ function readScanDepthFromSettings(settings: ExtensionSettings): number | undefi
   return Number.isFinite(depth) ? depth : undefined;
 }
 
+function normalizeRequestedRootCids(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return Array.from(new Set(value.map((cid) => String(cid || '').trim()).filter(Boolean)));
+}
+
+function mergeUnselectedRootEntries(
+  state: Drive115LibraryIndexState,
+  preservedEntries: Drive115LibraryIndexState['entries'],
+  configuredRootCount: number,
+): Drive115LibraryIndexState {
+  if (preservedEntries.length === 0) return state;
+  const byKey = new Map(preservedEntries.map((entry) => [entry.key, entry]));
+  for (const entry of state.entries) byKey.set(entry.key, entry);
+  const entries = Array.from(byKey.values());
+  return {
+    ...state,
+    entries,
+    stats: {
+      ...state.stats,
+      roots: configuredRootCount,
+      indexed: entries.length,
+    },
+  };
+}
+
 async function patchDrive115IndexMeta(patch: {
   mediaLibraryLastIndexAt?: number | null;
   mediaLibraryLastIndexError?: string | null;
@@ -140,7 +169,9 @@ async function patchDrive115IndexMeta(patch: {
 /**
  * 执行一次手动索引（串行；并发请求复用同一 promise）
  */
-export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResult> {
+export async function runDrive115MediaLibraryIndex(
+  options: Drive115IndexOptions = {},
+): Promise<Drive115IndexResult> {
   if (indexingPromise) return indexingPromise;
 
   cancelIndexRequested = false;
@@ -151,25 +182,50 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
       const settings = await getSettings();
       const roots = readRootsFromSettings(settings);
       const scanDepth = readScanDepthFromSettings(settings);
-      const enabled = roots.filter((r) => r.enabled !== false);
+      const allEnabled = roots.filter((r) => r.enabled !== false);
+      const requestedRootCids = normalizeRequestedRootCids(options.rootCids);
+      const requestedSet = requestedRootCids ? new Set(requestedRootCids) : null;
+      const enabled = requestedSet
+        ? allEnabled.filter((root) => requestedSet.has(root.cid))
+        : allEnabled;
       if (!enabled.length) {
+        const message = requestedSet
+          ? '所选 115 片库目录不存在或已停用'
+          : '未配置启用的片库根目录';
         const result: Drive115IndexResult = {
           success: false,
           keptPrevious: previous.entries.length > 0,
-          state: { ...previous, lastError: '未配置启用的片库根目录' },
-          message: '未配置启用的片库根目录',
+          state: { ...previous, lastError: message },
+          message,
         };
         await patchDrive115IndexMeta({
           mediaLibraryLastIndexError: result.message || null,
         });
         await writeIndexProgress({
           phase: 'error',
-          message: result.message || '未配置启用的片库根目录',
+          message: result.message || message,
           running: false,
           updatedAt: Date.now(),
         });
         return result;
       }
+
+      const isPartial = requestedSet !== null && enabled.length < allEnabled.length;
+      const selectedSet = new Set(enabled.map((root) => root.cid));
+      const selectedPrevious: Drive115LibraryIndexState = isPartial
+        ? {
+          ...previous,
+          entries: previous.entries.filter((entry) => selectedSet.has(entry.rootCid)),
+        }
+        : previous;
+      const preservedEntries = isPartial
+        ? previous.entries.filter((entry) => !selectedSet.has(entry.rootCid))
+        : [];
+      const mergePartialState = (state: Drive115LibraryIndexState): Drive115LibraryIndexState => (
+        isPartial
+          ? mergeUnselectedRootEntries(state, preservedEntries, allEnabled.length)
+          : state
+      );
 
       const svc = getDrive115V2Service();
       const tokenRet = await svc.getValidAccessToken({ forceAutoRefresh: true });
@@ -243,14 +299,14 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
         return reportChain;
       };
 
-      const result = await indexDrive115Roots({
+      const indexedResult = await indexDrive115Roots({
         roots: enabled,
-        previous,
+        previous: selectedPrevious,
         scanDepth,
         shouldCancel: () => cancelIndexRequested || !!indexAbortController?.signal.aborted,
         signal: indexAbortController.signal,
         onPartialState: (state) => {
-          void enqueueSave(state);
+          void enqueueSave(mergePartialState(state));
         },
         onReport: (rep) => {
           void enqueueReport(rep);
@@ -297,6 +353,10 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
           }
         },
       });
+      const result: Drive115IndexResult = {
+        ...indexedResult,
+        state: mergePartialState(indexedResult.state),
+      };
 
       if (result.cancelled) {
         await enqueueSave(result.state);
@@ -373,12 +433,14 @@ export async function runDrive115MediaLibraryIndex(): Promise<Drive115IndexResul
 }
 
 export function handleDrive115MediaLibraryIndex(
-  _message: unknown,
+  message: unknown,
   sendResponse: SendResponse,
 ): boolean {
   void (async () => {
     try {
-      const result = await runDrive115MediaLibraryIndex();
+      const result = await runDrive115MediaLibraryIndex({
+        rootCids: normalizeRequestedRootCids(asRecord(message).rootCids),
+      });
       sendResponse({
         success: result.success,
         keptPrevious: result.keptPrevious,

@@ -40,6 +40,10 @@ import {
   handleEmbyUserLogin,
 } from '../../features/embyLibrary/background/handlers';
 import {
+  enqueueCompletedPlayback,
+} from '../../features/mediaCleanup/mediaCleanupStorage';
+import { handleMediaCleanupDeleteCopy } from '../../features/mediaCleanup/mediaCleanupBackground';
+import {
   handleDrive115MediaLibraryCancelIndex,
   handleDrive115MediaLibraryGetState,
   handleDrive115MediaLibraryIndex,
@@ -60,6 +64,7 @@ import {
 } from './utilityMessageHandlers';
 import { handleClearAllRecords } from './clearRecordsHandler';
 import { getBackgroundAlarmDiagnosticsSnapshot } from './alarmRouter';
+import { reportWatchProgress } from '../../features/media/mediaWatchEvidence';
 
 export { registerEmbyDynamicScripts };
 
@@ -254,10 +259,23 @@ export function registerMiscRouter(): void {
         case 'MEDIA_WATCH_EVIDENCE_REPORT': {
           void (async () => {
             try {
-              const { reportWatchProgress } = await import('../../features/media/mediaWatchEvidence');
+              const source = message?.source || 'drive115';
+              const fileId = String(message?.fileId || '').trim();
+              const pickCode = String(message?.pickCode || '').trim();
+              const sourceItemId = String(message?.sourceItemId || pickCode || fileId || '').trim();
+              const serverUrl = String(message?.serverUrl || '').trim().replace(/\/+$/, '');
+              const copyId = String(message?.copyId || (
+                source === 'drive115' && (fileId || pickCode)
+                  ? `115:${fileId || pickCode}`
+                  : serverUrl && sourceItemId
+                    ? `${source}:${serverUrl}:${sourceItemId}`
+                    : ''
+              )).trim();
               const evidence = await reportWatchProgress({
                 code: String(message?.code || ''),
-                source: message?.source || 'drive115',
+                source,
+                sourceItemId: sourceItemId || undefined,
+                copyId: copyId || undefined,
                 percent: message?.percent,
                 positionSec: message?.positionSec,
                 durationSec: message?.durationSec,
@@ -266,12 +284,38 @@ export function registerMiscRouter(): void {
                 fileName: message?.fileName,
                 forceWatched: message?.forceWatched === true,
               });
-              sendResponse({ success: true, evidence });
+              let cleanupAdded = false;
+              if (evidence.watched && copyId) {
+                try {
+                  const cleanup = await enqueueCompletedPlayback({
+                    code: String(message?.code || ''),
+                    title: String(message?.title || message?.fileName || message?.code || ''),
+                    source,
+                    copyId,
+                    serverName: message?.serverName,
+                    serverUrl: serverUrl || undefined,
+                    serverId: message?.serverId,
+                    itemId: source === 'drive115' ? undefined : sourceItemId || undefined,
+                    fileId: fileId || undefined,
+                    pickCode: pickCode || undefined,
+                    fileName: message?.fileName,
+                    folderPath: message?.folderPath,
+                    watchedAt: evidence.lastPlayedAt,
+                  });
+                  cleanupAdded = cleanup.added;
+                } catch {
+                  // 观看进度已经保存；清理队列失败不能反向伪装成播放上报失败。
+                }
+              }
+              sendResponse({ success: true, evidence, cleanupAdded });
             } catch (e: any) {
               sendResponse({ success: false, error: e?.message || String(e) });
             }
           })();
           return true;
+        }
+        case 'MEDIA_CLEANUP_DELETE_COPY': {
+          return handleMediaCleanupDeleteCopy(message, sendResponse);
         }
         case 'setup-alarms':
           setupWebDAVSyncAlarm().then(() => sendResponse({ success: true }))

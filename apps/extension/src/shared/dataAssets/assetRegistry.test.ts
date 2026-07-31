@@ -59,6 +59,12 @@ describe('data asset registry guard', () => {
     expect(getCloudStorageAssetPolicy(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE)?.cloud.full).toBe(true);
     expect(getCloudStorageAssetPolicy(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE)?.cloud.incremental).toBe(true);
     expect(resolveChromeStorageAssetPolicy(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE)?.webdav.restoreMode).toBe('merge');
+    expect(getCloudStorageAssetPolicy(STORAGE_KEYS.MEDIA_CLEANUP_STATE)?.cloud.full).toBe(true);
+    expect(getCloudStorageAssetPolicy(STORAGE_KEYS.MEDIA_CLEANUP_STATE)?.cloud.incremental).toBe(true);
+    expect(resolveChromeStorageAssetPolicy(STORAGE_KEYS.MEDIA_CLEANUP_STATE)?.webdav.restoreMode).toBe('merge');
+    expect(getCloudStorageAssetPolicy(STORAGE_KEYS.MEDIA_DELETION_HISTORY)?.cloud.full).toBe(true);
+    expect(getCloudStorageAssetPolicy(STORAGE_KEYS.MEDIA_DELETION_HISTORY)?.cloud.incremental).toBe(true);
+    expect(resolveChromeStorageAssetPolicy(STORAGE_KEYS.MEDIA_DELETION_HISTORY)?.webdav.restoreMode).toBe('merge');
     expect(getCloudStorageAssetPolicy(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS)).toBeUndefined();
     expect(getCloudStorageAssetPolicy('cloud_sync_session_v1')).toBeUndefined();
 
@@ -68,6 +74,8 @@ describe('data asset registry guard', () => {
         STORAGE_KEYS.EMBY_LIBRARY_STATE,
         STORAGE_KEYS.DRIVE115_LIBRARY_STATE,
         STORAGE_KEYS.MEDIA_WATCH_EVIDENCE,
+        STORAGE_KEYS.MEDIA_CLEANUP_STATE,
+        STORAGE_KEYS.MEDIA_DELETION_HISTORY,
         STORAGE_KEYS.MEDIA_115_CLEANUP_LIST,
         STORAGE_KEYS.DASHBOARD_LAST_PAGE,
         'cloud_sync_settings_v1',
@@ -106,6 +114,10 @@ describe('data asset registry guard', () => {
         expect.objectContaining({ path: 'webdav.password', currentCloudPolicy: 'allowed' }),
         expect.objectContaining({ path: 'drive115.authToken', currentCloudPolicy: 'allowed' }),
         expect.objectContaining({ path: 'ai.providers.*.apiKey', currentCloudPolicy: 'allowed' }),
+        expect.objectContaining({
+          path: 'emby.mediaServers.*.password',
+          currentCloudPolicy: 'allowed',
+        }),
         expect.objectContaining({ path: 'privacy.privateMode.passwordHash', currentCloudPolicy: 'allowed' }),
         expect.objectContaining({ path: 'privacy.privateMode.passwordSalt', currentCloudPolicy: 'allowed' }),
       ]),

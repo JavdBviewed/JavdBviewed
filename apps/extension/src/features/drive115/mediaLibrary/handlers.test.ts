@@ -75,9 +75,9 @@ function callCancel(): Promise<unknown> {
   });
 }
 
-function callIndex(): Promise<unknown> {
+function callIndex(message: unknown = {}): Promise<unknown> {
   return new Promise((resolve) => {
-    const handled = handleDrive115MediaLibraryIndex({}, resolve);
+    const handled = handleDrive115MediaLibraryIndex(message, resolve);
     expect(handled).toBe(true);
   });
 }
@@ -228,6 +228,49 @@ describe('handleDrive115MediaLibraryIndex incremental persistence', () => {
     expect(saveDrive115LibraryState).toHaveBeenCalledWith(finalState);
     const calls = vi.mocked(saveDrive115LibraryState).mock.calls.map((c) => c[0]);
     expect(calls.indexOf(partial)).toBeLessThan(calls.indexOf(finalState));
+  });
+
+  it('indexes selected root cids and preserves entries from unselected roots', async () => {
+    const oldA = { key: 'a:old', code: 'AAA-001', rootCid: 'root-a' } as any;
+    const oldB = { key: 'b:old', code: 'BBB-001', rootCid: 'root-b' } as any;
+    vi.mocked(loadDrive115LibraryState).mockResolvedValue({
+      ...emptyState,
+      updatedAt: 100,
+      entries: [oldA, oldB],
+    });
+    vi.mocked(getSettings).mockResolvedValue({
+      drive115: {
+        enabled: true,
+        mediaLibraryRoots: [
+          { cid: 'root-a', name: 'A', enabled: true },
+          { cid: 'root-b', name: 'B', enabled: true },
+        ],
+      },
+    } as any);
+    const nextB = { key: 'b:new', code: 'BBB-002', rootCid: 'root-b' } as any;
+    vi.mocked(indexDrive115Roots).mockImplementation(async (deps: any) => {
+      expect(deps.roots.map((root: { cid: string }) => root.cid)).toEqual(['root-b']);
+      expect(deps.previous.entries).toEqual([oldB]);
+      return {
+        success: true,
+        keptPrevious: false,
+        state: {
+          ...emptyState,
+          updatedAt: 200,
+          entries: [nextB],
+        },
+        message: '索引完成：1 条',
+      };
+    });
+
+    const response = await callIndex({
+      type: 'DRIVE115_MEDIA_LIBRARY_INDEX',
+      rootCids: ['root-b'],
+    });
+
+    expect(response).toMatchObject({ success: true });
+    const finalState = vi.mocked(saveDrive115LibraryState).mock.calls.at(-1)?.[0];
+    expect(finalState?.entries).toEqual([oldA, nextB]);
   });
 });
 

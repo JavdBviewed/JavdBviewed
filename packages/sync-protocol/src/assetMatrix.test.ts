@@ -65,6 +65,8 @@ describe('assetMatrix', () => {
         'emby_library_state',
         'drive115_library_state',
         'media_watch_evidence',
+        'media_cleanup_state',
+        'media_deletion_history',
         'dashboard_last_page',
         'restore_backup',
         'logs',

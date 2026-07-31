@@ -88,6 +88,7 @@ describe('Cloud 全量资产同步', () => {
       [STORAGE_KEYS.SETTINGS]: {
         theme: 'dark',
         display: { hideViewed: true },
+        futureSettingsSection: { nestedValue: 'keep-with-full-settings' },
         emby: {
           enabled: true,
           mediaServers: [
@@ -98,6 +99,7 @@ describe('Cloud 全量资产同步', () => {
               url: 'http://emby.local:8096',
               apiKey: 'emby-key',
               accessToken: 'emby-token',
+              password: 'emby-password',
               enabled: true,
             },
           ],
@@ -114,6 +116,8 @@ describe('Cloud 全量资产同步', () => {
       cloud_sync_settings_v1: {
         baseUrl: 'http://127.0.0.1:18080',
         deviceLabel: '浏览器扩展',
+        accountIdentifier: 'alice',
+        accountPassword: 'saved-password',
         deviceId: 'dev-local-1',
         updatedAt: 180,
       },
@@ -129,6 +133,8 @@ describe('Cloud 全量资产同步', () => {
       [STORAGE_KEYS.DRIVE115_LIBRARY_STATE]: { items: [{ code: 'ABC-001', pickCode: 'pick-1' }] },
       [STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS]: { phase: 'scan', current: 12, total: 50 },
       [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'ABC-001': { progress: 80 } },
+      [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: { version: 1, items: {}, observedWatchedCopyIds: [], updatedAt: 180 },
+      [STORAGE_KEYS.MEDIA_DELETION_HISTORY]: { version: 1, records: {}, updatedAt: 180 },
       [STORAGE_KEYS.DASHBOARD_LAST_PAGE]: '#/records',
       restore_backup_2026: { records: 1 },
     });
@@ -160,6 +166,8 @@ describe('Cloud 全量资产同步', () => {
         `storage_item/${STORAGE_KEYS.EMBY_LIBRARY_STATE}`,
         `storage_item/${STORAGE_KEYS.DRIVE115_LIBRARY_STATE}`,
         `storage_item/${STORAGE_KEYS.MEDIA_WATCH_EVIDENCE}`,
+        `storage_item/${STORAGE_KEYS.MEDIA_CLEANUP_STATE}`,
+        `storage_item/${STORAGE_KEYS.MEDIA_DELETION_HISTORY}`,
         `storage_item/${STORAGE_KEYS.DASHBOARD_LAST_PAGE}`,
         'storage_item/restore_backup_2026',
       ]),
@@ -182,6 +190,7 @@ describe('Cloud 全量资产同步', () => {
     expect(settingsEntity?.payload).toMatchObject({
       key: STORAGE_KEYS.SETTINGS,
       value: {
+        futureSettingsSection: { nestedValue: 'keep-with-full-settings' },
         emby: {
           enabled: true,
           mediaServers: [
@@ -189,9 +198,20 @@ describe('Cloud 全量资产同步', () => {
               id: 'srv-1',
               apiKey: 'emby-key',
               accessToken: 'emby-token',
+              password: 'emby-password',
             }),
           ],
         },
+      },
+    });
+    const cloudSettingsEntity = entities.find(
+      (e) => e.type === 'storage_item' && e.id === 'cloud_sync_settings_v1',
+    );
+    expect(cloudSettingsEntity?.payload).toMatchObject({
+      key: 'cloud_sync_settings_v1',
+      value: {
+        accountIdentifier: 'alice',
+        accountPassword: 'saved-password',
       },
     });
   });
@@ -308,6 +328,7 @@ describe('Cloud 全量资产同步', () => {
             display: { hideViewed: false },
             dataSync: { enabled: true },
             actorLibrary: { enabled: true },
+            futureSettingsSection: { nestedValue: 'restore-with-full-settings' },
             emby: {
               enabled: true,
               mediaServers: [
@@ -318,6 +339,7 @@ describe('Cloud 全量资产同步', () => {
                   url: 'http://emby.local:8096',
                   apiKey: 'emby-key',
                   accessToken: 'emby-token',
+                  password: 'emby-password',
                   enabled: true,
                 },
               ],
@@ -338,6 +360,7 @@ describe('Cloud 全量资产同步', () => {
       display: { hideViewed: false },
       dataSync: { enabled: true },
       actorLibrary: { enabled: true },
+      futureSettingsSection: { nestedValue: 'restore-with-full-settings' },
       emby: {
         enabled: true,
         mediaServers: [
@@ -345,6 +368,7 @@ describe('Cloud 全量资产同步', () => {
             id: 'srv-1',
             apiKey: 'emby-key',
             accessToken: 'emby-token',
+            password: 'emby-password',
           }),
         ],
       },
@@ -355,9 +379,11 @@ describe('Cloud 全量资产同步', () => {
     setChromeStorage({
       cloud_sync_settings_v1: {
         baseUrl: 'http://old.local:18080',
-        deviceLabel: '旧设备',
-        deviceId: 'local-device-keep',
-        updatedAt: 100,
+      deviceLabel: '旧设备',
+      accountIdentifier: 'local-account',
+      accountPassword: 'local-password',
+      deviceId: 'local-device-keep',
+      updatedAt: 100,
       },
     });
     const { createExtensionEntityStore } = await import(
@@ -376,6 +402,8 @@ describe('Cloud 全量资产同步', () => {
           value: {
             baseUrl: 'http://cloud.example:18080',
             deviceLabel: '远端标签',
+            accountIdentifier: 'remote-account',
+            accountPassword: 'remote-password',
             deviceId: 'remote-device-should-not-win',
             updatedAt: 300,
           },
@@ -386,8 +414,75 @@ describe('Cloud 全量资产同步', () => {
     expect(getChromeStorageSnapshot().cloud_sync_settings_v1).toEqual({
       baseUrl: 'http://cloud.example:18080',
       deviceLabel: '远端标签',
+      accountIdentifier: 'remote-account',
+      accountPassword: 'remote-password',
       deviceId: 'local-device-keep',
       updatedAt: 300,
     });
+  });
+
+  it('应用远端清理状态与删除历史时按稳定 ID 合并本地记录', async () => {
+    setChromeStorage({
+      [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: {
+        version: 1,
+        items: {
+          'AAA-001': {
+            id: 'AAA-001', titleId: 'AAA-001', code: 'AAA-001', title: 'Local', reason: 'watched',
+            addedAt: 100, updatedAt: 100,
+            copies: { '115:file-1': { copyId: '115:file-1', source: '115', fileId: 'file-1', lastFoundAt: 100, status: 'pending', updatedAt: 100 } },
+          },
+        },
+        observedWatchedCopyIds: ['115:file-1'],
+        updatedAt: 100,
+      },
+      [STORAGE_KEYS.MEDIA_DELETION_HISTORY]: {
+        version: 1,
+        records: {
+          'local-history': { id: 'local-history', titleId: 'AAA-001', code: 'AAA-001', title: 'Local', copyId: '115:file-1', source: '115', lastFoundAt: 100, reason: 'extension_cleanup', deletedAt: 100 },
+        },
+        updatedAt: 100,
+      },
+    });
+    const { createExtensionEntityStore } = await import(
+      '../../apps/extension/src/features/cloudSync/extensionEntityStore'
+    );
+
+    await createExtensionEntityStore().applyRemote([
+      {
+        id: STORAGE_KEYS.MEDIA_CLEANUP_STATE,
+        type: 'storage_item',
+        revision: 2,
+        updatedAt: 200,
+        payload: { key: STORAGE_KEYS.MEDIA_CLEANUP_STATE, value: {
+          version: 1,
+          items: {
+            'BBB-002': {
+              id: 'BBB-002', titleId: 'BBB-002', code: 'BBB-002', title: 'Remote', reason: 'watched',
+              addedAt: 200, updatedAt: 200,
+              copies: { 'emby:https://home:item-2': { copyId: 'emby:https://home:item-2', source: 'emby', itemId: 'item-2', lastFoundAt: 200, status: 'pending', updatedAt: 200 } },
+            },
+          },
+          observedWatchedCopyIds: ['emby:https://home:item-2'],
+          updatedAt: 200,
+        } },
+      },
+      {
+        id: STORAGE_KEYS.MEDIA_DELETION_HISTORY,
+        type: 'storage_item',
+        revision: 2,
+        updatedAt: 200,
+        payload: { key: STORAGE_KEYS.MEDIA_DELETION_HISTORY, value: {
+          version: 1,
+          records: {
+            'remote-history': { id: 'remote-history', titleId: 'BBB-002', code: 'BBB-002', title: 'Remote', copyId: 'emby:https://home:item-2', source: 'emby', lastFoundAt: 200, reason: 'external_missing', deletedAt: 200 },
+          },
+          updatedAt: 200,
+        } },
+      },
+    ]);
+
+    const snapshot = getChromeStorageSnapshot();
+    expect(Object.keys(snapshot[STORAGE_KEYS.MEDIA_CLEANUP_STATE].items).sort()).toEqual(['AAA-001', 'BBB-002']);
+    expect(Object.keys(snapshot[STORAGE_KEYS.MEDIA_DELETION_HISTORY].records).sort()).toEqual(['local-history', 'remote-history']);
   });
 });

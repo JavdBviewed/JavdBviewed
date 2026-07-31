@@ -73,6 +73,13 @@ export const SETTINGS_SENSITIVE_PATH_POLICIES: readonly SettingsSensitivePathPol
     reason: 'AI key 当前允许进入用户自建 Cloud，registry 记录风险边界。',
   },
   {
+    path: 'emby.mediaServers.*.password',
+    assetClass: 'vault',
+    currentCloudPolicy: 'allowed',
+    futurePolicy: 'vault-candidate',
+    reason: 'Emby/Jellyfin 来源密码当前随完整 settings 备份和同步，未来迁移到凭据 vault。',
+  },
+  {
     path: 'privacy.privateMode.passwordHash',
     assetClass: 'vault',
     currentCloudPolicy: 'allowed',
@@ -328,10 +335,10 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
   chromeStorage(
     'storage.media115CleanupList',
     STORAGE_KEYS.MEDIA_115_CLEANUP_LIST,
-    'account',
+    'legacy-compat',
     { backup: true, restore: true, restoreMode: 'replace' },
     { full: true, incremental: true, entityType: 'storage_item', allowDelete: true },
-    '115 待清理清单由真实观看证据产生，但用户仍期望可恢复。',
+    '旧版 115 单来源清理清单保留迁移和备份兼容，新写入使用通用清理状态。',
   ),
   chromeStorage(
     'storage.mediaWatchEvidence',
@@ -340,6 +347,22 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
     { backup: true, restore: true, restoreMode: 'merge' },
     { full: true, incremental: true, entityType: 'storage_item', allowDelete: true },
     '真实观看证据是跨端业务状态。',
+  ),
+  chromeStorage(
+    'storage.mediaCleanupState',
+    STORAGE_KEYS.MEDIA_CLEANUP_STATE,
+    'account',
+    { backup: true, restore: true, restoreMode: 'merge' },
+    { full: true, incremental: true, entityType: 'storage_item', allowDelete: true },
+    '跨来源待清理队列包含用户确认状态，需要跨端备份与续接。',
+  ),
+  chromeStorage(
+    'storage.mediaDeletionHistory',
+    STORAGE_KEYS.MEDIA_DELETION_HISTORY,
+    'account',
+    { backup: true, restore: true, restoreMode: 'merge' },
+    { full: true, incremental: true, entityType: 'storage_item', allowDelete: true },
+    '已看副本的删除历史是持久审计账本，用于找回记录而非恢复视频文件。',
   ),
   chromeStorage(
     'storage.dashboardLastPage',
@@ -355,7 +378,7 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
     'account',
     { backup: true, restore: true, restoreMode: 'merge' },
     { full: true, incremental: true, entityType: 'storage_item', allowDelete: false },
-    'Cloud 连接配置可同步 baseUrl 和标签，但应用时必须保护本机 deviceId。',
+    'Cloud 连接地址、设备名与登录凭据可备份和同步；应用时必须保护本机 deviceId，会话令牌保持本机。',
     { preserveLocalFields: ['deviceId'] },
   ),
   chromeStorage(

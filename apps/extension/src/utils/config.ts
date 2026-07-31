@@ -11,6 +11,7 @@ import { PrivacyConfig } from '../types/privacy';
 import { normalizeDrive115Settings } from '../features/drive115/app';
 import { DEFAULT_AI_SETTINGS } from '../types/ai';
 import { DEFAULT_SERVER_API_BASE_URL } from '../platform/network/serverEndpointResolver';
+import { createDefaultRouteSettings } from '../features/routeManagement/defaultRoutes';
 
 export const SERVER_API_BASE_URL = DEFAULT_SERVER_API_BASE_URL;
 export const TELEMETRY_REPORT_ENDPOINT = `${SERVER_API_BASE_URL}/v1/telemetry/report`;
@@ -72,6 +73,10 @@ export const STORAGE_KEYS = {
 
     // 媒体库：真实已看 → 115 待清理清单
     MEDIA_115_CLEANUP_LIST: 'media_115_cleanup_list',
+
+    // 媒体库：跨来源待清理队列与删除历史账本
+    MEDIA_CLEANUP_STATE: 'media_cleanup_state',
+    MEDIA_DELETION_HISTORY: 'media_deletion_history',
 
     // 本地真实观看证据（115 播放进度等，与原站 status 分离）
     MEDIA_WATCH_EVIDENCE: 'media_watch_evidence',
@@ -472,48 +477,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
     },
 
     // 新增：线路默认配置
-    routes: {
-        javdb: {
-            primary: 'https://javdb.com',
-            alternatives: [
-                {
-                    url: 'https://javdb570.com',
-                    enabled: true,
-                    description: '备用线路1',
-                    addedAt: Date.now()
-                },
-                {
-                    url: 'https://javdb36.com',
-                    enabled: true,
-                    description: '备用线路2',
-                    addedAt: Date.now()
-                }
-            ]
-        },
-        javbus: {
-            primary: 'https://www.javbus.com',
-            alternatives: [
-                {
-                    url: 'https://www.seejav.cyou',
-                    enabled: true,
-                    description: '防屏蔽地址1',
-                    addedAt: Date.now()
-                },
-                {
-                    url: 'https://www.busjav.cyou',
-                    enabled: true,
-                    description: '防屏蔽地址2',
-                    addedAt: Date.now()
-                },
-                {
-                    url: 'https://www.fanbus.cyou',
-                    enabled: true,
-                    description: '防屏蔽地址3',
-                    addedAt: Date.now()
-                }
-            ]
-        }
-    },
+    routes: createDefaultRouteSettings(),
 
     // 磁力资源搜索默认配置
     magnetSearch: {

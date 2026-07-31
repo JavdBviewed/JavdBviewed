@@ -3,8 +3,6 @@
  * @description 本地真实观看证据（与 JavDB 原站 status 分离）
  * @module features/media
  */
-import { STORAGE_KEYS } from '../../utils/config';
-import { getValue, setValue } from '../../utils/storage';
 
 export type MediaWatchEvidenceSource = 'drive115' | 'emby' | 'jellyfin' | 'manual';
 
@@ -20,9 +18,18 @@ export type MediaWatchEvidence = {
   fileName?: string;
   positionSec?: number;
   durationSec?: number;
+  copyId?: string;
 };
 
 export type MediaWatchEvidenceMap = Record<string, MediaWatchEvidence>;
+
+export type MediaWatchEvidenceStateV2 = {
+  version: 2;
+  titles: Record<string, {
+    legacy?: MediaWatchEvidence;
+    copies: Record<string, MediaWatchEvidence>;
+  }>;
+};
 
 export type MediaPlaybackProgress = {
   source: MediaWatchEvidenceSource;
@@ -39,7 +46,9 @@ export type MediaPlaybackProgress = {
   fileName?: string;
 };
 
-const EMPTY: MediaWatchEvidenceMap = {};
+const EMPTY_STATE: MediaWatchEvidenceStateV2 = { version: 2, titles: {} };
+/** 后台也会动态 import 本模块，禁止从 utils/config 或 storage 封装引入，避免把 DOM 依赖带进 MV3 service worker。 */
+const MEDIA_WATCH_EVIDENCE_STORAGE_KEY = 'media_watch_evidence';
 
 /** 真实已看阈值（与 Emby watchState 默认一致） */
 export const LOCAL_WATCHED_PERCENT_THRESHOLD = 90;
@@ -48,27 +57,46 @@ export const LOCAL_WATCHED_PERCENT_THRESHOLD = 90;
  * 读取全部本地观看证据
  */
 export async function loadWatchEvidenceMap(): Promise<MediaWatchEvidenceMap> {
-  const map = await getValue<MediaWatchEvidenceMap>(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE, EMPTY);
-  return { ...map };
+  const state = await loadWatchEvidenceState();
+  const map: MediaWatchEvidenceMap = {};
+  for (const [code, bucket] of Object.entries(state.titles)) {
+    if (bucket.legacy) map[code] = bucket.legacy;
+    for (const [copyId, evidence] of Object.entries(bucket.copies)) {
+      map[`${code}::${copyId}`] = { ...evidence, copyId };
+    }
+  }
+  return map;
+}
+
+export async function loadWatchEvidenceState(): Promise<MediaWatchEvidenceStateV2> {
+  const raw = await chromeLocalGet<unknown>(MEDIA_WATCH_EVIDENCE_STORAGE_KEY, EMPTY_STATE);
+  if (isWatchEvidenceStateV2(raw)) return normalizeState(raw);
+  return migrateLegacyEvidenceMap(raw);
 }
 
 /**
  * 读取单番号证据
  */
-export async function getWatchEvidence(code: string): Promise<MediaWatchEvidence | null> {
+export async function getWatchEvidence(code: string, copyId?: string): Promise<MediaWatchEvidence | null> {
   const key = normalizeCodeKey(code);
   if (!key) return null;
-  const map = await loadWatchEvidenceMap();
-  return map[key] || null;
+  const state = await loadWatchEvidenceState();
+  const bucket = state.titles[key];
+  if (!bucket) return null;
+  if (copyId) return bucket.copies[copyId] || null;
+  return aggregateEvidence(bucket.legacy, Object.values(bucket.copies));
 }
 
 /**
  * 将底层观看证据解释为统一播放进度列表，供继续观看、备份恢复和 Cloud 同步消费。
  */
 export async function loadMediaPlaybackProgressList(): Promise<MediaPlaybackProgress[]> {
-  const map = await loadWatchEvidenceMap();
-  return Object.entries(map)
-    .map(([code, evidence]) => watchEvidenceToPlaybackProgress(code, evidence))
+  const state = await loadWatchEvidenceState();
+  return Object.entries(state.titles)
+    .flatMap(([code, bucket]) => [
+      ...(bucket.legacy ? [bucket.legacy] : []),
+      ...Object.values(bucket.copies),
+    ].map((evidence) => watchEvidenceToPlaybackProgress(code, evidence)))
     .filter((item): item is MediaPlaybackProgress => Boolean(item))
     .sort((a, b) => b.lastPlayedAt - a.lastPlayedAt);
 }
@@ -113,6 +141,7 @@ export async function reportWatchProgress(input: {
   fileId?: string;
   fileName?: string;
   forceWatched?: boolean;
+  copyId?: string;
 }): Promise<MediaWatchEvidence> {
   const key = normalizeCodeKey(input.code);
   if (!key) {
@@ -133,8 +162,10 @@ export async function reportWatchProgress(input: {
   }
   percent = Math.max(0, Math.min(100, percent));
 
-  const map = await loadWatchEvidenceMap();
-  const prev = map[key];
+  const state = await loadWatchEvidenceState();
+  const bucket = state.titles[key] || { copies: {} };
+  const resolvedCopyId = String(input.copyId || '').trim();
+  const prev = resolvedCopyId ? bucket.copies[resolvedCopyId] : bucket.legacy;
   const now = Date.now();
   const nextPercent = Math.max(prev?.percent || 0, percent);
   const watched =
@@ -163,11 +194,110 @@ export async function reportWatchProgress(input: {
     fileName: input.fileName || prev?.fileName,
     positionSec: nextPositionSec,
     durationSec: nextDurationSec,
+    copyId: resolvedCopyId || undefined,
   };
 
-  map[key] = next;
-  await setValue(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE, map);
+  state.titles[key] = resolvedCopyId
+    ? { ...bucket, copies: { ...bucket.copies, [resolvedCopyId]: next } }
+    : { ...bucket, legacy: next };
+  await chromeLocalSet(MEDIA_WATCH_EVIDENCE_STORAGE_KEY, state);
   return next;
+}
+
+function isWatchEvidenceStateV2(value: unknown): value is MediaWatchEvidenceStateV2 {
+  if (!value || typeof value !== 'object') return false;
+  const input = value as Partial<MediaWatchEvidenceStateV2>;
+  return input.version === 2 && Boolean(input.titles) && typeof input.titles === 'object';
+}
+
+function normalizeState(state: MediaWatchEvidenceStateV2): MediaWatchEvidenceStateV2 {
+  const titles: MediaWatchEvidenceStateV2['titles'] = {};
+  for (const [rawCode, rawBucket] of Object.entries(state.titles || {})) {
+    const code = normalizeCodeKey(rawCode);
+    if (!code || !rawBucket || typeof rawBucket !== 'object') continue;
+    titles[code] = {
+      ...(rawBucket.legacy ? { legacy: rawBucket.legacy } : {}),
+      copies: { ...(rawBucket.copies || {}) },
+    };
+  }
+  return { version: 2, titles };
+}
+
+function migrateLegacyEvidenceMap(value: unknown): MediaWatchEvidenceStateV2 {
+  if (!value || typeof value !== 'object') return { version: 2, titles: {} };
+  const titles: MediaWatchEvidenceStateV2['titles'] = {};
+  for (const [rawCode, evidence] of Object.entries(value as MediaWatchEvidenceMap)) {
+    const code = normalizeCodeKey(rawCode);
+    if (!code || !evidence || typeof evidence !== 'object') continue;
+    titles[code] = { legacy: evidence, copies: {} };
+  }
+  return { version: 2, titles };
+}
+
+function aggregateEvidence(
+  legacy: MediaWatchEvidence | undefined,
+  copies: MediaWatchEvidence[],
+): MediaWatchEvidence | null {
+  const all = [...(legacy ? [legacy] : []), ...copies];
+  if (!all.length) return null;
+  return all.reduce((best, current) => {
+    if (current.watched !== best.watched) return current.watched ? current : best;
+    if (current.percent !== best.percent) return current.percent > best.percent ? current : best;
+    return current.lastPlayedAt > best.lastPlayedAt ? current : best;
+  });
+}
+
+function resolveChromeLocalStorage(): chrome.storage.StorageArea | null {
+  if (typeof chrome === 'undefined') return null;
+  return chrome.storage?.local ?? null;
+}
+
+function readChromeLastErrorMessage(): string {
+  if (typeof chrome === 'undefined') return '';
+  try {
+    return chrome.runtime?.lastError?.message || '';
+  } catch {
+    return '';
+  }
+}
+
+function chromeLocalGet<T>(key: string, fallback: T): Promise<T> {
+  const area = resolveChromeLocalStorage();
+  if (!area) return Promise.resolve(fallback);
+  return new Promise<T>((resolve, reject) => {
+    try {
+      area.get([key], (items) => {
+        const errorMessage = readChromeLastErrorMessage();
+        if (errorMessage) {
+          reject(new Error(errorMessage));
+          return;
+        }
+        const value = items?.[key];
+        resolve((value !== undefined && value !== null ? value : fallback) as T);
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+function chromeLocalSet<T>(key: string, value: T): Promise<void> {
+  const area = resolveChromeLocalStorage();
+  if (!area) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    try {
+      area.set({ [key]: value }, () => {
+        const errorMessage = readChromeLastErrorMessage();
+        if (errorMessage) {
+          reject(new Error(errorMessage));
+          return;
+        }
+        resolve();
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
 }
 
 function resolveSourceItemId(code: string, evidence: MediaWatchEvidence): string {

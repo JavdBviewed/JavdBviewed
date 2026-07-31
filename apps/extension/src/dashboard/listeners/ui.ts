@@ -1,5 +1,5 @@
 // src/dashboard/listeners/ui.ts
-import { showMessage } from '../ui/toast';
+import { showMessage, showPersistentMessage, type ToastHandle } from '../ui/toast';
 import {
   DRIVE115_TOKEN_REFRESH_EVENT,
   DRIVE115_TOKEN_REFRESH_RUNTIME_MESSAGE,
@@ -25,29 +25,57 @@ let drive115RefreshActive = false;
 let lastDrive115StartToastAt = 0;
 let lastDrive115SuccessToastAt = 0;
 let lastDrive115ErrorToastAt = 0;
+let drive115RefreshToast: ToastHandle | null = null;
+let lastDrive115FinalSignature = '';
+let lastDrive115FinalAt = 0;
+
+const DRIVE115_FINAL_TOAST_DEDUP_WINDOW_MS = 2500;
+
+function ensureDrive115RefreshToast(message: string): void {
+  if (!drive115RefreshToast) {
+    drive115RefreshToast = showPersistentMessage(message, 'info');
+    return;
+  }
+  drive115RefreshToast.update(message, 'info');
+}
+
+function finishDrive115RefreshToast(message: string, type: ToastType, duration = 5000): void {
+  const now = Date.now();
+  const signature = `${type}:${message}`;
+  if (
+    lastDrive115FinalSignature === signature
+    && now - lastDrive115FinalAt <= DRIVE115_FINAL_TOAST_DEDUP_WINDOW_MS
+  ) {
+    return;
+  }
+  lastDrive115FinalSignature = signature;
+  lastDrive115FinalAt = now;
+
+  const toast = drive115RefreshToast || showPersistentMessage(message, type);
+  toast.update(message, type, duration);
+  drive115RefreshToast = null;
+}
 
 function handleDrive115TokenRefreshToast(detail: Drive115TokenRefreshEventDetail | undefined): void {
   if (!detail) return;
   const now = Date.now();
   if (detail.phase === 'start') {
     if (!drive115RefreshActive && now - lastDrive115StartToastAt > 3000) {
-      showMessage(detail.source === 'manual' ? '正在刷新 115 凭证…' : '115 凭证已过期，正在自动刷新…', 'info', 8000);
+      ensureDrive115RefreshToast('正在刷新 115 凭证…');
       lastDrive115StartToastAt = now;
     }
     drive115RefreshActive = true;
     return;
   }
   if (detail.phase === 'reuse') {
-    if (!drive115RefreshActive && now - lastDrive115StartToastAt > 3000) {
-      showMessage('115 凭证正在刷新中，本次操作会等待刷新完成…', 'info', 8000);
-      lastDrive115StartToastAt = now;
-    }
+    ensureDrive115RefreshToast('115 凭证正在刷新，等待结果…');
+    lastDrive115StartToastAt = now;
     drive115RefreshActive = true;
     return;
   }
   if (detail.phase === 'success') {
     if (drive115RefreshActive || now - lastDrive115SuccessToastAt > 5000) {
-      showMessage(detail.source === 'manual' ? '115 凭证刷新成功' : '115 凭证刷新成功，已继续当前操作', 'success');
+      finishDrive115RefreshToast('115 凭证刷新成功', 'success', 3500);
       lastDrive115SuccessToastAt = now;
     }
     drive115RefreshActive = false;
@@ -55,7 +83,7 @@ function handleDrive115TokenRefreshToast(detail: Drive115TokenRefreshEventDetail
   }
   if (detail.phase === 'error') {
     if (now - lastDrive115ErrorToastAt > 3000) {
-      showMessage(`115 凭证刷新失败：${detail.message || '请稍后重试或重新授权'}`, 'error', 8000);
+      finishDrive115RefreshToast(`115 凭证刷新失败：${detail.message || '请稍后重试或重新授权'}`, 'error', 9000);
       lastDrive115ErrorToastAt = now;
     }
     drive115RefreshActive = false;
@@ -63,7 +91,7 @@ function handleDrive115TokenRefreshToast(detail: Drive115TokenRefreshEventDetail
   }
   if (detail.phase === 'blocked') {
     if (now - lastDrive115ErrorToastAt > 3000) {
-      showMessage(`115 凭证暂时无法刷新：${detail.message || '请稍后重试或重新授权'}`, 'warning', 8000);
+      finishDrive115RefreshToast(`115 凭证暂时无法刷新：${detail.message || '请稍后重试或重新授权'}`, 'warning', 9000);
       lastDrive115ErrorToastAt = now;
     }
     drive115RefreshActive = false;

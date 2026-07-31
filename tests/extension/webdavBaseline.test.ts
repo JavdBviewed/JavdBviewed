@@ -329,11 +329,30 @@ describe('WebDAV backup and restore baseline', () => {
     });
 
     setChromeStorage({
-      [STORAGE_KEYS.SETTINGS]: { theme: 'dark' },
+      [STORAGE_KEYS.SETTINGS]: {
+        theme: 'dark',
+        futureSettingsSection: { nestedValue: 'keep-with-full-settings' },
+        emby: {
+          mediaServers: [
+            {
+              id: 'srv-1',
+              type: 'emby',
+              name: 'Home',
+              url: 'http://emby.local:8096',
+              apiKey: 'emby-key',
+              username: 'ryen',
+              password: 'emby-password',
+              enabled: true,
+            },
+          ],
+        },
+      },
       [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
       [STORAGE_KEYS.PRIVACY_STATE]: { screenshotMode: { enabled: true } },
       [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
       [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
+      [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: { version: 1, items: {}, observedWatchedCopyIds: [], updatedAt: 10 },
+      [STORAGE_KEYS.MEDIA_DELETION_HISTORY]: { version: 1, records: {}, updatedAt: 10 },
       [STORAGE_KEYS.DASHBOARD_LAST_PAGE]: '#/records',
       cloud_sync_settings_v1: { baseUrl: 'https://cloud.example.com', deviceId: 'local-device' },
       'taskCenter:snapshot': { running: true },
@@ -356,10 +375,18 @@ describe('WebDAV backup and restore baseline', () => {
     const snapshot = await collectBackupData();
 
     expect(snapshot.storageAll).toMatchObject({
+      [STORAGE_KEYS.SETTINGS]: {
+        futureSettingsSection: { nestedValue: 'keep-with-full-settings' },
+        emby: {
+          mediaServers: [expect.objectContaining({ password: 'emby-password' })],
+        },
+      },
       [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
       [STORAGE_KEYS.PRIVACY_STATE]: { screenshotMode: { enabled: true } },
       [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
       [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
+      [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: { version: 1, items: {}, observedWatchedCopyIds: [], updatedAt: 10 },
+      [STORAGE_KEYS.MEDIA_DELETION_HISTORY]: { version: 1, records: {}, updatedAt: 10 },
       [STORAGE_KEYS.DASHBOARD_LAST_PAGE]: '#/records',
       cloud_sync_settings_v1: { baseUrl: 'https://cloud.example.com', deviceId: 'local-device' },
     });
@@ -1098,6 +1125,15 @@ describe('WebDAV backup and restore baseline', () => {
     expect(sanitizeImportedSettings(
       {
         theme: 'dark',
+        futureSettingsSection: { nestedValue: 'restore-with-full-settings' },
+        emby: {
+          mediaServers: [
+            {
+              id: 'srv-1',
+              password: 'emby-password',
+            },
+          ],
+        },
         webdav: {
           url: 'https://cloud.example.com/dav/',
           clientId: 'cloud-client',
@@ -1137,6 +1173,15 @@ describe('WebDAV backup and restore baseline', () => {
       },
     )).toEqual({
       theme: 'dark',
+      futureSettingsSection: { nestedValue: 'restore-with-full-settings' },
+      emby: {
+        mediaServers: [
+          {
+            id: 'srv-1',
+            password: 'emby-password',
+          },
+        ],
+      },
       webdav: {
         url: 'https://cloud.example.com/dav/',
         clientId: 'local-client',
@@ -1194,7 +1239,20 @@ describe('WebDAV backup and restore baseline', () => {
       cloud_sync_settings_v1: {
         baseUrl: 'https://local.example.com',
         deviceLabel: 'Local',
+        accountIdentifier: 'local-account',
+        accountPassword: 'local-password',
         deviceId: 'local-device',
+        updatedAt: 10,
+      },
+      [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: {
+        version: 1,
+        items: { LOCAL: { id: 'LOCAL', titleId: 'LOCAL', code: 'LOCAL', title: 'Local', reason: 'watched', addedAt: 10, updatedAt: 10, copies: {} } },
+        observedWatchedCopyIds: [],
+        updatedAt: 10,
+      },
+      [STORAGE_KEYS.MEDIA_DELETION_HISTORY]: {
+        version: 1,
+        records: { local: { id: 'local', titleId: 'LOCAL', code: 'LOCAL', title: 'Local', copyId: '115:local', source: '115', lastFoundAt: 10, reason: 'extension_cleanup', deletedAt: 10 } },
         updatedAt: 10,
       },
     });
@@ -1217,11 +1275,24 @@ describe('WebDAV backup and restore baseline', () => {
           [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
           [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
           [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
+          [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: {
+            version: 1,
+            items: { REMOTE: { id: 'REMOTE', titleId: 'REMOTE', code: 'REMOTE', title: 'Remote', reason: 'watched', addedAt: 20, updatedAt: 20, copies: {} } },
+            observedWatchedCopyIds: [],
+            updatedAt: 20,
+          },
+          [STORAGE_KEYS.MEDIA_DELETION_HISTORY]: {
+            version: 1,
+            records: { remote: { id: 'remote', titleId: 'REMOTE', code: 'REMOTE', title: 'Remote', copyId: '115:remote', source: '115', lastFoundAt: 20, reason: 'extension_cleanup', deletedAt: 20 } },
+            updatedAt: 20,
+          },
           [STORAGE_KEYS.DASHBOARD_LAST_PAGE]: '#/cloud',
           [STORAGE_KEYS.ADV_SEARCH_PRESETS]: { presetA: { name: 'A' } },
           cloud_sync_settings_v1: {
             baseUrl: 'https://remote.example.com',
             deviceLabel: 'Remote Label',
+            accountIdentifier: 'remote-account',
+            accountPassword: 'remote-password',
             deviceId: 'remote-device',
             updatedAt: 20,
           },
@@ -1253,11 +1324,19 @@ describe('WebDAV backup and restore baseline', () => {
       [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
       [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
       [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
+      [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: {
+        items: { LOCAL: expect.any(Object), REMOTE: expect.any(Object) },
+      },
+      [STORAGE_KEYS.MEDIA_DELETION_HISTORY]: {
+        records: { local: expect.any(Object), remote: expect.any(Object) },
+      },
       [STORAGE_KEYS.DASHBOARD_LAST_PAGE]: '#/cloud',
       [STORAGE_KEYS.ADV_SEARCH_PRESETS]: { presetA: { name: 'A' } },
       cloud_sync_settings_v1: {
         baseUrl: 'https://remote.example.com',
         deviceLabel: 'Remote Label',
+        accountIdentifier: 'remote-account',
+        accountPassword: 'remote-password',
         deviceId: 'local-device',
         updatedAt: 20,
       },
@@ -1272,6 +1351,8 @@ describe('WebDAV backup and restore baseline', () => {
         STORAGE_KEYS.EMBY_LIBRARY_STATE,
         STORAGE_KEYS.MEDIA_WATCH_EVIDENCE,
         STORAGE_KEYS.MEDIA_115_CLEANUP_LIST,
+        STORAGE_KEYS.MEDIA_CLEANUP_STATE,
+        STORAGE_KEYS.MEDIA_DELETION_HISTORY,
         STORAGE_KEYS.DASHBOARD_LAST_PAGE,
         STORAGE_KEYS.ADV_SEARCH_PRESETS,
         'cloud_sync_settings_v1',

@@ -38,6 +38,7 @@ import {
 import { markCloudStorageWrite } from './storageChangeGate';
 import { shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
 import { resolveLogEntityId } from './toSyncEntity';
+import { mergeMediaCleanupStorageValue } from '../mediaCleanup';
 
 export const EXTENSION_SYNC_ENTITY_TYPES: readonly SyncEntityType[] = [
   'video',
@@ -142,7 +143,7 @@ function removeChromeStorageKey(key: string): Promise<void> {
 }
 
 /**
- * 合并远端 Cloud 连接配置：采用 baseUrl / deviceLabel，保留本机 deviceId。
+ * 合并远端 Cloud 连接配置：采用可恢复连接字段，保留本机 deviceId。
  */
 async function mergeCloudConnectionSettings(
   remoteValue: unknown,
@@ -170,9 +171,23 @@ async function mergeCloudConnectionSettings(
       : typeof local.deviceLabel === 'string'
         ? local.deviceLabel
         : '浏览器扩展';
+  const accountIdentifier =
+    typeof remote.accountIdentifier === 'string'
+      ? remote.accountIdentifier.trim()
+      : typeof local.accountIdentifier === 'string'
+        ? local.accountIdentifier.trim()
+        : '';
+  const accountPassword =
+    typeof remote.accountPassword === 'string'
+      ? remote.accountPassword
+      : typeof local.accountPassword === 'string'
+        ? local.accountPassword
+        : '';
   return {
     baseUrl,
     deviceLabel,
+    accountIdentifier,
+    accountPassword,
     deviceId: localDeviceId || remoteDeviceId,
     updatedAt:
       typeof remote.updatedAt === 'number' && Number.isFinite(remote.updatedAt)
@@ -495,8 +510,10 @@ async function applyOne(entity: SyncEntity): Promise<void> {
         await setValue(key, merged);
         return;
       }
-      markCloudStorageWrite(key, value);
-      await setValue(key, value);
+      const localValue = await getValue<unknown>(key, undefined);
+      const mergedValue = mergeMediaCleanupStorageValue(key, localValue, value);
+      markCloudStorageWrite(key, mergedValue);
+      await setValue(key, mergedValue);
       return;
     }
     default:

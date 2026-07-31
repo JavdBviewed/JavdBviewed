@@ -21,6 +21,8 @@ export interface EmbyMediaServer {
   libraryOptions?: EmbyLibraryFolderOption[];
   /** 用户登录会话：写 UserData / 按用户进度（与 apiKey 并存） */
   username?: string;
+  /** 用户登录密码（随来源设置持久化；禁止写入日志或诊断响应） */
+  password?: string;
   /** 用户 AccessToken（AuthenticateByName 返回，勿日志输出） */
   accessToken?: string;
   userId?: string;

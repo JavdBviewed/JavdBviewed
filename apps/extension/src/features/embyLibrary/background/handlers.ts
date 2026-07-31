@@ -4,7 +4,7 @@
  * @module features/embyLibrary
  */
 import { STORAGE_KEYS } from '../../../utils/config';
-import { getSettings, getValue, setValue } from '../../../utils/storage';
+import { getSettings, getValue, saveSettings, setValue } from '../../../utils/storage';
 import { authenticateEmbyUser, buildEmbyAuthHeaders, hasEmbyUserSession } from '../domain/embyUserAuth';
 import {
   buildLibraryIndex,
@@ -18,6 +18,8 @@ import { resolveEmbyStreamUrl } from '../domain/embyPlayback';
 import { reportEmbyPlaybackProgress } from '../domain/embyPlaystate';
 import { fetchEmbyItemDetail } from '../domain/embyItemDetail';
 import { embyLog, mediaLog, playerLog } from '../mediaLibraryLogger';
+import { reportWatchProgress } from '../../media/mediaWatchEvidence';
+import { processPersistedEmbySyncCleanup } from '../../mediaCleanup/mediaCleanupStorage';
 import type {
   EmbyLibraryFolderOption,
   EmbyLibraryIndexEntry,
@@ -31,23 +33,33 @@ type SendResponse = (response: any) => void;
 
 export interface EmbyLibraryHandlerDeps {
   getSettings: () => Promise<any>;
+  saveSettings: (settings: any) => Promise<void>;
   getState: () => Promise<EmbyLibraryState>;
   saveState: (state: EmbyLibraryState) => Promise<void>;
   fetchImpl: typeof fetch;
   now: () => number;
+  processCleanupSync?: (input: {
+    previous: EmbyLibraryState;
+    next: EmbyLibraryState;
+    successfulServerKeys: ReadonlySet<string>;
+    now: number;
+  }) => Promise<{ enqueuedCount: number; baselineCount: number }>;
 }
 
 const DEFAULT_STATE: EmbyLibraryState = { entries: {}, updatedAt: 0 };
 /** 大库 / 穿透代理时 15s 偏紧；同步失败常见于超时被当成泛化「连接失败」 */
 const DEFAULT_LIBRARY_REQUEST_TIMEOUT_MS = 45000;
+const TICKS_PER_SECOND = 10_000_000;
 
 function defaultDeps(): EmbyLibraryHandlerDeps {
   return {
     getSettings,
+    saveSettings,
     getState: () => getValue<EmbyLibraryState>(STORAGE_KEYS.EMBY_LIBRARY_STATE, DEFAULT_STATE),
     saveState: (state) => setValue(STORAGE_KEYS.EMBY_LIBRARY_STATE, state),
     fetchImpl: fetch,
     now: () => Date.now(),
+    processCleanupSync: processPersistedEmbySyncCleanup,
   };
 }
 
@@ -90,6 +102,20 @@ function getEnabledServers(settings: any): EmbyMediaServer[] {
     .filter((server) => server.url && (server.apiKey || server.accessToken));
 }
 
+function filterServersForSync(servers: EmbyMediaServer[], message: any): EmbyMediaServer[] {
+  const serverIds = new Set<string>();
+  const singleId = String(message?.serverId || '').trim();
+  if (singleId) serverIds.add(singleId);
+  if (Array.isArray(message?.serverIds)) {
+    message.serverIds.forEach((id: unknown) => {
+      const value = String(id || '').trim();
+      if (value) serverIds.add(value);
+    });
+  }
+  if (serverIds.size === 0) return servers;
+  return servers.filter((server) => serverIds.has(server.id));
+}
+
 function sanitizeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || '连接失败');
   return message
@@ -105,6 +131,41 @@ function getEntryServerIndexKey(entry: Pick<EmbyLibraryIndexEntry, 'serverType' 
   return `${entry.serverType}:${normalizeServerUrl(entry.serverUrl)}`;
 }
 
+function ticksToSeconds(ticks: unknown): number | undefined {
+  const value = Number(ticks);
+  if (!Number.isFinite(value) || value < 0) return undefined;
+  return Math.round(value / TICKS_PER_SECOND);
+}
+
+async function saveExternalWatchEvidenceForEntry(input: {
+  code: string;
+  entry: EmbyLibraryIndexEntry;
+  positionSec?: number;
+  durationSec?: number;
+  percent: number;
+  forceWatched?: boolean;
+}): Promise<void> {
+  try {
+    await reportWatchProgress({
+      code: input.code,
+      source: input.entry.serverType,
+      sourceItemId: input.entry.itemId,
+      copyId: `${input.entry.serverType}:${normalizeServerUrl(input.entry.serverUrl)}:${input.entry.itemId}`,
+      positionSec: input.positionSec,
+      durationSec: input.durationSec,
+      percent: input.percent,
+      forceWatched: input.forceWatched === true,
+      fileName: input.entry.itemName,
+    });
+  } catch (error) {
+    playerLog.warn('本地观看证据写入失败', {
+      itemId: input.entry.itemId,
+      code: input.code,
+      error: sanitizeError(error),
+    });
+  }
+}
+
 async function fetchAllMediaItems(
   server: EmbyMediaServer,
   fetchImpl: typeof fetch,
@@ -117,10 +178,6 @@ async function fetchAllMediaItems(
     // 仅请求官方稳定 Fields；ParentThumb* 若服务端有会自带，不强制写入 Fields 以免部分版本 4xx
     Fields: 'Path,PrimaryImageAspectRatio,ImageTags,PrimaryImageTag,BackdropImageTags,UserData,RunTimeTicks',
   });
-  // 有用户会话时带 UserId，UserData 更完整
-  if (server.userId) {
-    params.set('UserId', server.userId);
-  }
   if (searchTerm) {
     params.set('SearchTerm', searchTerm);
   }
@@ -132,7 +189,10 @@ async function fetchAllMediaItems(
     params.set('api_key', server.apiKey);
   }
 
-  const url = `${normalizeServerUrl(server.url)}/Items?${params.toString()}`;
+  const itemPath = server.userId
+    ? `/Users/${encodeURIComponent(server.userId)}/Items`
+    : '/Items';
+  const url = `${normalizeServerUrl(server.url)}${itemPath}?${params.toString()}`;
   const headers = buildEmbyAuthHeaders(server);
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timeoutId = controller
@@ -174,6 +234,99 @@ async function fetchAllMediaItems(
   }
 
   return Array.isArray(data?.Items) ? data.Items : [];
+}
+
+async function resolveConfiguredWatchUserId(
+  server: EmbyMediaServer,
+  fetchImpl: typeof fetch,
+): Promise<string | undefined> {
+  const configuredUserId = String(server.userId || '').trim();
+  if (configuredUserId) return configuredUserId;
+
+  const username = String(server.username || '').trim();
+  const apiKey = String(server.apiKey || '').trim();
+  if (!username || !apiKey) return undefined;
+
+  const url = `${normalizeServerUrl(server.url)}/Users?api_key=${encodeURIComponent(apiKey)}`;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => controller.abort(), DEFAULT_LIBRARY_REQUEST_TIMEOUT_MS)
+    : null;
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      method: 'GET',
+      headers: buildEmbyAuthHeaders(server),
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+  } catch (error: any) {
+    if (error?.name === 'AbortError') throw new Error('读取媒体用户超时');
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+
+  if (response.status === 401) throw new Error('API Key 无权读取媒体用户');
+  if (!response.ok) throw new Error(`读取媒体用户失败 (${response.status})`);
+
+  let data: any;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('媒体用户数据解析失败');
+  }
+  const users = Array.isArray(data) ? data : Array.isArray(data?.Items) ? data.Items : [];
+  const normalizedUsername = username.toLocaleLowerCase();
+  const matched = users.find((user: any) => (
+    String(user?.Name || '').trim().toLocaleLowerCase() === normalizedUsername
+    && user?.Policy?.IsDisabled !== true
+  ));
+  const resolvedUserId = String(matched?.Id || '').trim();
+  if (!resolvedUserId) {
+    throw new Error(`未找到观看数据用户「${username}」，请在媒体库来源中重新登录`);
+  }
+  return resolvedUserId;
+}
+
+async function persistResolvedWatchUserId(
+  server: EmbyMediaServer,
+  resolvedUserId: string,
+  deps: Pick<EmbyLibraryHandlerDeps, 'getSettings' | 'saveSettings'>,
+): Promise<void> {
+  const latest = await deps.getSettings();
+  const mediaServers = latest?.emby?.mediaServers;
+  if (!Array.isArray(mediaServers)) return;
+
+  let changed = false;
+  const nextServers = mediaServers.map((candidate: any) => {
+    const sameId = String(candidate?.id || '') === server.id;
+    const sameUrl = normalizeServerUrl(String(candidate?.url || '')) === normalizeServerUrl(server.url);
+    const matchesLegacySource = !candidate?.id && sameUrl;
+    if (!sameId && !matchesLegacySource) return candidate;
+    if (String(candidate?.userId || '').trim() === resolvedUserId) return candidate;
+    changed = true;
+    return { ...candidate, userId: resolvedUserId };
+  });
+  if (!changed) return;
+
+  await deps.saveSettings({
+    ...latest,
+    emby: {
+      ...latest.emby,
+      mediaServers: nextServers,
+    },
+  });
+}
+
+async function resolveServerUserScope(
+  server: EmbyMediaServer,
+  deps: Pick<EmbyLibraryHandlerDeps, 'fetchImpl' | 'getSettings' | 'saveSettings'>,
+): Promise<EmbyMediaServer> {
+  const resolvedUserId = await resolveConfiguredWatchUserId(server, deps.fetchImpl);
+  if (!resolvedUserId || resolvedUserId === server.userId) return server;
+
+  await persistResolvedWatchUserId(server, resolvedUserId, deps);
+  return { ...server, userId: resolvedUserId };
 }
 
 /**
@@ -244,17 +397,18 @@ export async function fetchServerLibraryFolders(
  */
 async function fetchMoviesForServer(
   server: EmbyMediaServer,
-  fetchImpl: typeof fetch,
+  deps: Pick<EmbyLibraryHandlerDeps, 'fetchImpl' | 'getSettings' | 'saveSettings'>,
   searchTerm?: string,
 ): Promise<EmbyMediaItem[]> {
+  const scopedServer = await resolveServerUserScope(server, deps);
   const libraryIds = (server.libraryIds || []).map((id) => String(id).trim()).filter(Boolean);
   if (libraryIds.length === 0) {
-    return fetchAllMediaItems(server, fetchImpl, searchTerm);
+    return fetchAllMediaItems(scopedServer, deps.fetchImpl, searchTerm);
   }
 
   const buckets: EmbyMediaItem[] = [];
   for (const parentId of libraryIds) {
-    const items = await fetchAllMediaItems(server, fetchImpl, searchTerm, parentId);
+    const items = await fetchAllMediaItems(scopedServer, deps.fetchImpl, searchTerm, parentId);
     buckets.push(...items);
   }
   return deduplicateMediaItemsById(buckets);
@@ -309,7 +463,7 @@ export async function handleEmbyLibrarySync(
       deps.getState(),
     ]);
 
-    const servers = getEnabledServers(settings);
+    const servers = filterServersForSync(getEnabledServers(settings), message);
     if (servers.length === 0) {
       sendResponse({ success: true, synced: 0, failed: 0, serverResults: [] });
       return;
@@ -338,7 +492,7 @@ export async function handleEmbyLibrarySync(
 
     for (const server of servers) {
       try {
-        const items = await fetchMoviesForServer(server, deps.fetchImpl);
+        const items = await fetchMoviesForServer(server, deps);
         const index = buildLibraryIndex(server, items, now);
         indexes.push(index);
         successfulServerIds.add(server.id);
@@ -377,6 +531,25 @@ export async function handleEmbyLibrarySync(
 
     await deps.saveState(nextState);
 
+    let cleanupSummary: { enqueuedCount: number; baselineCount: number } | undefined;
+    if (successfulServerIds.size > 0 && deps.processCleanupSync) {
+      try {
+        const successfulServerKeys = new Set(
+          servers
+            .filter((server) => successfulServerIds.has(server.id))
+            .map((server) => getServerIndexKey(server)),
+        );
+        cleanupSummary = await deps.processCleanupSync({
+          previous: previousState,
+          next: nextState,
+          successfulServerKeys,
+          now,
+        });
+      } catch (error) {
+        mediaLog.warn('媒体库清理账本更新失败', { error: sanitizeError(error) });
+      }
+    }
+
     const synced = serverResults.filter((result) => result.success).length;
     const failed = serverResults.filter((result) => !result.success).length;
     const firstError = serverResults.find((result) => !result.success)?.error;
@@ -386,6 +559,10 @@ export async function handleEmbyLibrarySync(
       synced,
       failed,
       serverResults,
+      ...(cleanupSummary ? {
+        newCleanupItems: cleanupSummary.enqueuedCount,
+        historicalWatchedCandidates: cleanupSummary.baselineCount,
+      } : {}),
       ...(synced === 0 && firstError ? { error: firstError } : {}),
     });
   } catch (error) {
@@ -431,7 +608,7 @@ export async function handleEmbyLibraryCheckCodes(
           const searchTerms = generateVideoCodeSearchTerms(code);
           const returnedItems: EmbyMediaItem[] = [];
           for (const searchTerm of searchTerms) {
-            returnedItems.push(...await fetchMoviesForServer(server, deps.fetchImpl, searchTerm));
+            returnedItems.push(...await fetchMoviesForServer(server, deps, searchTerm));
           }
           const items = deduplicateMediaItemsById(returnedItems);
           const matchedItems = items.filter((item) => extractCodeFromMediaItem(item) === code);
@@ -493,27 +670,35 @@ export async function handleEmbyLibrarySetPlayed(
       return;
     }
 
-    const base = normalizeServerUrl(server.url);
+    const scopedServer = await resolveServerUserScope(server, deps);
+    const base = normalizeServerUrl(scopedServer.url);
     let response: Response;
 
-    if (hasEmbyUserSession(server) && server.userId && server.accessToken) {
-      const path = `${base}/Users/${encodeURIComponent(server.userId)}/PlayedItems/${encodeURIComponent(itemId)}`;
+    if (hasEmbyUserSession(scopedServer) && scopedServer.userId && scopedServer.accessToken) {
+      const path = `${base}/Users/${encodeURIComponent(scopedServer.userId)}/PlayedItems/${encodeURIComponent(itemId)}`;
       response = await deps.fetchImpl(path, {
         method: played ? 'POST' : 'DELETE',
         headers: {
-          ...buildEmbyAuthHeaders(server),
+          ...buildEmbyAuthHeaders(scopedServer),
           'Content-Type': 'application/json',
         },
       });
     } else {
-      if (!server.apiKey) {
+      if (!scopedServer.apiKey) {
         sendResponse({
           success: false,
           error: '请先填写 API Key，或登录媒体服务器用户账号后再写回',
         });
         return;
       }
-      const userDataUrl = `${base}/Items/${encodeURIComponent(itemId)}/UserData?api_key=${encodeURIComponent(server.apiKey)}`;
+      if (!scopedServer.userId) {
+        sendResponse({
+          success: false,
+          error: '请在媒体库来源中配置用户名或登录用户账号后再写回观看状态',
+        });
+        return;
+      }
+      const userDataUrl = `${base}/Users/${encodeURIComponent(scopedServer.userId)}/Items/${encodeURIComponent(itemId)}/UserData?api_key=${encodeURIComponent(scopedServer.apiKey)}`;
       response = await deps.fetchImpl(userDataUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -527,7 +712,7 @@ export async function handleEmbyLibrarySetPlayed(
     if (response.status === 401 || response.status === 403) {
       sendResponse({
         success: false,
-        error: hasEmbyUserSession(server)
+        error: hasEmbyUserSession(scopedServer)
           ? '用户令牌无效或权限不足，请重新登录媒体服务器账号'
           : '服务器拒绝写回：请在设置中登录 Emby/Jellyfin 用户账号（仅 ApiKey 通常不能写 UserData）',
       });
@@ -543,12 +728,24 @@ export async function handleEmbyLibrarySetPlayed(
     const now = deps.now();
     let updated = false;
     const nextEntries: Record<string, EmbyLibraryIndexEntry[]> = {};
+    const evidenceWrites: Promise<void>[] = [];
     for (const [code, entries] of Object.entries(state.entries || {})) {
       nextEntries[code] = entries.map((entry) => {
         const sameItem = entry.itemId === itemId
           && normalizeServerUrl(entry.serverUrl) === serverUrl;
         if (!sameItem) return entry;
         updated = true;
+        if (played) {
+          const durationSec = ticksToSeconds(entry.userData?.runtimeTicks);
+          evidenceWrites.push(saveExternalWatchEvidenceForEntry({
+            code,
+            entry,
+            positionSec: durationSec ?? 0,
+            durationSec: durationSec ?? 0,
+            percent: 100,
+            forceWatched: true,
+          }));
+        }
         return {
           ...entry,
           userData: {
@@ -570,13 +767,16 @@ export async function handleEmbyLibrarySetPlayed(
         updatedAt: state.updatedAt || now,
       });
     }
+    if (evidenceWrites.length > 0) {
+      await Promise.all(evidenceWrites);
+    }
 
     sendResponse({
       success: true,
       played,
       itemId,
       localIndexUpdated: updated,
-      usedUserSession: hasEmbyUserSession(server),
+      usedUserSession: hasEmbyUserSession(scopedServer),
     });
   } catch (error) {
     sendResponse({ success: false, error: sanitizeError(error) });
@@ -657,9 +857,14 @@ export async function handleEmbyLibraryGetItemDetail(
       sendResponse({ success: false, error: '未找到匹配的已启用媒体服务器' });
       return;
     }
-    embyLog.info('GET_ITEM_DETAIL', { itemId, serverUrl: server.url, userId: server.userId || null });
+    const scopedServer = await resolveServerUserScope(server, deps);
+    embyLog.info('GET_ITEM_DETAIL', {
+      itemId,
+      serverUrl: scopedServer.url,
+      userId: scopedServer.userId || null,
+    });
     const ret = await fetchEmbyItemDetail({
-      server,
+      server: scopedServer,
       itemId,
       fetchImpl: deps.fetchImpl,
     });
@@ -703,9 +908,10 @@ export async function handleEmbyLibraryResolveStream(
       return;
     }
 
-    playerLog.info('解析播放流', { itemId, serverUrl: server.url });
+    const scopedServer = await resolveServerUserScope(server, deps);
+    playerLog.info('解析播放流', { itemId, serverUrl: scopedServer.url });
     const resolved = await resolveEmbyStreamUrl({
-      server,
+      server: scopedServer,
       itemId,
       serverId: message?.serverId ? String(message.serverId) : server.id,
       fetchImpl: deps.fetchImpl,
@@ -728,7 +934,7 @@ export async function handleEmbyLibraryResolveStream(
       streamType: resolved.streamType,
       subtitles: resolved.subtitles?.length || 0,
       qualities: resolved.qualities?.length || 0,
-      usedUserSession: hasEmbyUserSession(server),
+      usedUserSession: hasEmbyUserSession(scopedServer),
     });
     sendResponse({
       success: true,
@@ -742,7 +948,7 @@ export async function handleEmbyLibraryResolveStream(
       message: resolved.message,
       subtitles: resolved.subtitles || [],
       qualities: resolved.qualities || [],
-      usedUserSession: hasEmbyUserSession(server),
+      usedUserSession: hasEmbyUserSession(scopedServer),
     });
   } catch (error) {
     playerLog.error('解析播放流异常', { error: sanitizeError(error) });
@@ -783,10 +989,11 @@ export async function handleEmbyLibraryReportProgress(
       return;
     }
 
+    const scopedServer = await resolveServerUserScope(server, deps);
     const durationSeconds = Number(message?.durationSeconds);
     const isStopped = message?.isStopped === true || isCompleted;
     const ret = await reportEmbyPlaybackProgress({
-      server,
+      server: scopedServer,
       itemId,
       positionSeconds,
       durationSeconds: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : undefined,
@@ -802,12 +1009,13 @@ export async function handleEmbyLibraryReportProgress(
     const now = deps.now();
     let updated = false;
     const nextEntries: Record<string, EmbyLibraryIndexEntry[]> = {};
+    const evidenceWrites: Promise<void>[] = [];
     const positionTicks = ret.positionTicks != null
       ? ret.positionTicks
-      : Math.round(Math.max(0, positionSeconds) * 10_000_000);
+      : Math.round(Math.max(0, positionSeconds) * TICKS_PER_SECOND);
     const durationTicks = ret.runtimeTicks
       || (Number.isFinite(durationSeconds) && durationSeconds > 0
-        ? Math.round(durationSeconds * 10_000_000)
+        ? Math.round(durationSeconds * TICKS_PER_SECOND)
         : 0);
 
     for (const [code, entries] of Object.entries(state.entries || {})) {
@@ -824,6 +1032,14 @@ export async function handleEmbyLibraryReportProgress(
           : runtimeTicks > 0
             ? Math.min(99, Math.max(1, Math.round((positionTicks / runtimeTicks) * 100)))
             : (positionTicks > 0 ? Math.max(1, entry.userData?.percent || 5) : 0);
+        evidenceWrites.push(saveExternalWatchEvidenceForEntry({
+          code,
+          entry,
+          positionSec: isCompleted ? 0 : ticksToSeconds(positionTicks),
+          durationSec: ticksToSeconds(runtimeTicks),
+          percent,
+          forceWatched: isCompleted,
+        }));
         return {
           ...entry,
           userData: {
@@ -843,6 +1059,9 @@ export async function handleEmbyLibraryReportProgress(
         entries: nextEntries,
         updatedAt: state.updatedAt || now,
       });
+    }
+    if (evidenceWrites.length > 0) {
+      await Promise.all(evidenceWrites);
     }
 
     if (!ret.success && !updated) {
@@ -864,7 +1083,7 @@ export async function handleEmbyLibraryReportProgress(
         positionTicks,
         localIndexUpdated: true,
         remoteError: ret.message,
-        usedUserSession: hasEmbyUserSession(server),
+        usedUserSession: hasEmbyUserSession(scopedServer),
       });
       return;
     }
@@ -881,7 +1100,7 @@ export async function handleEmbyLibraryReportProgress(
       method: ret.method,
       positionTicks,
       localIndexUpdated: updated,
-      usedUserSession: hasEmbyUserSession(server),
+      usedUserSession: hasEmbyUserSession(scopedServer),
     });
   } catch (error) {
     playerLog.error('进度写回异常', { error: sanitizeError(error) });

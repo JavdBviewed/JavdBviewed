@@ -260,11 +260,14 @@ async function postUserDataProgress(params: {
         Accept: 'application/json',
       };
     } else if (server.apiKey) {
-      url = `${base}/Users/${encodeURIComponent(server.userId || '')}/Items/${encodeURIComponent(itemId)}/UserData?api_key=${encodeURIComponent(server.apiKey)}`;
-      // 无 userId 时回退旧路径
       if (!server.userId) {
-        url = `${base}/Items/${encodeURIComponent(itemId)}/UserData?api_key=${encodeURIComponent(server.apiKey)}`;
+        return {
+          success: false,
+          message: '请配置媒体服务器用户名或登录用户账号后再写回进度',
+          method: 'none',
+        };
       }
+      url = `${base}/Users/${encodeURIComponent(server.userId)}/Items/${encodeURIComponent(itemId)}/UserData?api_key=${encodeURIComponent(server.apiKey)}`;
       headers = {
         'Content-Type': 'application/json',
         Accept: 'application/json',

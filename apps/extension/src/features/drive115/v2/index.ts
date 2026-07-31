@@ -1734,6 +1734,14 @@ export function extractStreamUrlFromPlayResponse(json: unknown): string | undefi
 }
 
 export { inferDrive115StreamType, maskDrive115StreamUrlForLog };
+export {
+  DRIVE115_TOKEN_REFRESH_EVENT,
+  DRIVE115_TOKEN_REFRESH_RUNTIME_MESSAGE,
+} from './tokenRefreshEvents';
+export type {
+  Drive115TokenRefreshEventDetail,
+  Drive115TokenRefreshPhase,
+} from './tokenRefreshEvents';
 export type { Drive115StreamType, Drive115PlaybackEndpointKind };
 
 export function getDrive115V2Service(): Drive115V2Service {

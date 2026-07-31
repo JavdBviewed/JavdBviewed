@@ -84,6 +84,21 @@ describe('embyItemDetail mapping', () => {
     expect(formatChapterTime(detail.chapters[1].startPositionTicks)).toBe('10:00');
   });
 
+  it('builds person image URLs when Emby omits PrimaryImageTag', () => {
+    const detail = mapEmbyItemToDetailView(server, {
+      Id: 'movie-1',
+      Name: 'Title',
+      People: [
+        { Id: 'person-without-tag', Name: '演员A', Type: 'Actor' },
+        { Id: 'person-with-tag', Name: '演员B', Type: 'Actor', PrimaryImageTag: 'person-tag' },
+      ],
+    });
+
+    expect(detail.people[0].imageUrl).toContain('/Items/person-without-tag/Images/Primary');
+    expect(detail.people[0].imageUrl).toContain('api_key=k');
+    expect(detail.people[1].imageUrl).toContain('tag=person-tag');
+  });
+
   it('buildChapterImageUrl includes mediaSourceId and api_key', () => {
     const url = buildChapterImageUrl(
       { url: 'http://emby.local:8096', apiKey: 'k', accessToken: 'tok' },

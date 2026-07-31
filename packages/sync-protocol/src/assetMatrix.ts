@@ -165,6 +165,24 @@ export const ASSET_MATRIX: readonly AssetMatrixRow[] = [
     webdavAlign: false,
   },
   {
+    asset: 'media_cleanup_state',
+    storage: 'media_cleanup_state',
+    cloudClass: 'account',
+    entityType: 'storage_item',
+    conflict: 'LWW-record',
+    webdavAlign: true,
+    notes: 'cross-source cleanup queue; physical deletion always requires explicit confirmation',
+  },
+  {
+    asset: 'media_deletion_history',
+    storage: 'media_deletion_history',
+    cloudClass: 'account',
+    entityType: 'storage_item',
+    conflict: 'LWW-record',
+    webdavAlign: true,
+    notes: 'persistent audit ledger only; does not imply recoverable media files',
+  },
+  {
     asset: 'dashboard_last_page',
     storage: 'dashboard_last_page',
     cloudClass: 'account',
@@ -203,6 +221,7 @@ export const ASSET_MATRIX: readonly AssetMatrixRow[] = [
     entityType: 'storage_item',
     conflict: 'LWW-record',
     webdavAlign: false,
+    notes: 'legacy compatibility source; new writes use media_cleanup_state',
   },
   {
     asset: 'logs',
@@ -228,7 +247,7 @@ export const ASSET_MATRIX: readonly AssetMatrixRow[] = [
     entityType: 'storage_item',
     conflict: 'LWW-record',
     webdavAlign: false,
-    notes: 'sync baseUrl/deviceLabel; deviceId stays device-local on apply',
+    notes: 'sync baseUrl/deviceLabel/account credentials; deviceId stays device-local and session tokens stay local',
   },
   {
     asset: 'cloud_auto_sync_settings',
