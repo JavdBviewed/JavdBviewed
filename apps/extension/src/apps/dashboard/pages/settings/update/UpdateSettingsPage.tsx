@@ -301,7 +301,7 @@ export function UpdateSettingsPage() {
               </a>
               <a
                 className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3 text-center text-[13px] font-semibold text-[var(--color-fg)] no-underline hover:border-[var(--color-primary)]"
-                href="https://jbd.we-together.club/"
+                href="https://docs.we-together.club/"
                 target="_blank"
                 rel="noopener noreferrer"
               >

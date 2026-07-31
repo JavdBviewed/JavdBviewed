@@ -2,7 +2,7 @@ import type { UserProfile } from '../../types';
 import { initUserProfileSection } from '../userProfile';
 import { userService } from '../services/userService';
 
-const HELP_URL = 'https://jbd.we-together.club/';
+const HELP_URL = 'https://docs.we-together.club/';
 const GITHUB_URL = 'https://github.com/JavdBviewed/JavdBviewed';
 const TELEGRAM_URL = 'https://t.me/javdbviewed';
 

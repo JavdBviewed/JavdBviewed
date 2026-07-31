@@ -110,7 +110,7 @@ describe('Dashboard user menu', () => {
     (document.querySelector('[data-user-menu-action="github"]') as HTMLButtonElement).click();
     (document.querySelector('[data-user-menu-action="telegram"]') as HTMLButtonElement).click();
 
-    expect(window.open).toHaveBeenNthCalledWith(1, 'https://jbd.we-together.club/', '_blank', 'noopener,noreferrer');
+    expect(window.open).toHaveBeenNthCalledWith(1, 'https://docs.we-together.club/', '_blank', 'noopener,noreferrer');
     expect(window.open).toHaveBeenNthCalledWith(2, 'https://github.com/JavdBviewed/JavdBviewed', '_blank', 'noopener,noreferrer');
     expect(window.open).toHaveBeenNthCalledWith(3, 'https://t.me/javdbviewed', '_blank', 'noopener,noreferrer');
   });
