@@ -38,6 +38,87 @@ test.describe('JavdBviewed extension browser smoke', () => {
     }
   });
 
+  test('shows the saved 115 index resume countdown after the dashboard page reloads', async ({}, testInfo) => {
+    const harnessOptions = resolveTestHarnessOptions(testInfo.outputPath('profile'));
+    const context = await launchExtensionContext(harnessOptions, {
+      headless: false,
+      channel: process.env.JAVDB_EXTENSION_CHANNEL ?? 'chromium',
+    });
+
+    try {
+      const extensionId = await readExtensionId(context);
+      await markReleaseAnnouncementSeenInContext(context);
+      const page = await context.newPage();
+      await page.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/drive115-settings'), {
+        waitUntil: 'domcontentloaded',
+      });
+      await dismissReleaseAnnouncementIfPresent(page);
+
+      await page.evaluate(() => {
+        const now = Date.now();
+        return chrome.storage.local.set({
+          settings: {
+            drive115: {
+              enabled: true,
+              mediaLibraryRoots: [{ cid: 'e2e-resume-root', name: 'E2E 片库', enabled: true }],
+              mediaLibraryLastIndexError: '目录访问暂时失败，已保存进度等待继续',
+            },
+          },
+          drive115_library_index_checkpoint: {
+            version: 1,
+            rootCids: ['e2e-resume-root'],
+            scanDepth: 2,
+            nextRootIndex: 0,
+            pendingQueue: [{
+              cid: 'e2e-resume-folder',
+              name: 'E2E 影片目录',
+              depth: 1,
+              rootCid: 'e2e-resume-root',
+            }],
+            stats: {
+              roots: 1,
+              foldersSeen: 12,
+              indexed: 2,
+              skipped: 1,
+              unrecognized: 0,
+              apiCalls: 13,
+              truncatedFolders: 0,
+            },
+            containerFoldersSeen: 3,
+            report: {
+              version: 1,
+              indexed: [],
+              skipped: [],
+              indexedTotal: 2,
+              skippedTotal: 1,
+              skipReasonCounts: { no_video: 1 },
+              rootsTotal: 1,
+              rootsDone: 0,
+              apiCalls: 13,
+              startedAt: now - 60_000,
+              finishedAt: now,
+              truncated: false,
+              truncatedFolders: 0,
+            },
+            resumeAt: now + 5 * 60_000,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+
+      const resumeNotice = page.locator('[data-drive115-index-resume="1"]');
+      await expect(resumeNotice).toBeVisible();
+      await expect(resumeNotice).toContainText('将在');
+      await expect(resumeNotice).toContainText('自动继续');
+      await expect(resumeNotice).toContainText('可以关闭此管理页面');
+      await expect(resumeNotice).toContainText('关闭浏览器或关机不会丢失进度');
+    } finally {
+      await context.close();
+    }
+  });
+
   test('renders 115 progress on cards, resume list, and pending credential refresh toast', async ({}, testInfo) => {
     const harnessOptions = resolveTestHarnessOptions(testInfo.outputPath('profile'));
     const context = await launchExtensionContext(harnessOptions, {
@@ -89,7 +170,21 @@ test.describe('JavdBviewed extension browser smoke', () => {
                     source: '115',
                     serverName: '115 片库',
                     fileId: 'file-e2e-cleanup',
+                    coverPickCode: 'cover-e2e-115',
                     fileName: 'E2E-CLEANUP.mp4',
+                    watchedAt: now,
+                    lastFoundAt: now,
+                    status: 'pending',
+                    updatedAt: now,
+                  },
+                  'emby:http://emby.invalid:item-e2e-cleanup': {
+                    copyId: 'emby:http://emby.invalid:item-e2e-cleanup',
+                    source: 'emby',
+                    serverName: 'E2E Emby',
+                    serverUrl: 'http://emby.invalid',
+                    itemId: 'item-e2e-cleanup',
+                    coverImageUrl: 'https://example.invalid/e2e-emby-cover.jpg',
+                    fileName: 'E2E-CLEANUP.mkv',
                     watchedAt: now,
                     lastFoundAt: now,
                     status: 'pending',
@@ -172,10 +267,16 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await expect(cleanupOverlay.getByRole('tab', { name: '待处理' })).toBeVisible();
       await expect(cleanupOverlay.getByRole('tab', { name: '处理失败' })).toBeVisible();
       await expect(cleanupOverlay.getByRole('tab', { name: '操作记录' })).toBeVisible();
-      await cleanupOverlay.getByRole('checkbox').check();
+      const cleanupCard = cleanupOverlay.locator('[data-media-cleanup-card="1"]');
+      await expect(cleanupCard).toHaveCount(1);
+      await expect(cleanupCard).toContainText('115 网盘 · 115 片库 · 1 个文件');
+      await expect(cleanupCard).toContainText('Emby · E2E Emby · 1 个文件');
+      await cleanupOverlay.getByRole('checkbox', { name: '选择 E2E-CLEANUP 的全部来源文件' }).check();
       await cleanupOverlay.getByRole('button', { name: '删除选中的文件' }).click();
       const confirmDialog = cleanupOverlay.getByRole('alertdialog');
-      await expect(confirmDialog).toContainText('确认删除 1 个文件');
+      await expect(confirmDialog).toContainText('确认删除 2 个文件');
+      await expect(confirmDialog).toContainText('115 网盘 1 个文件');
+      await expect(confirmDialog).toContainText('Emby 1 个文件');
       await expect(confirmDialog).toContainText('115 文件会移入回收站');
       await confirmDialog.getByRole('button', { name: '取消' }).click();
       await expect(confirmDialog).toHaveCount(0);
@@ -374,12 +475,15 @@ test.describe('JavdBviewed extension browser smoke', () => {
 
       const card = page.locator('.ml-card[data-code="EETM-001"]');
       await expect(card).toHaveCount(1);
+      await expect(card.locator('[data-media-copy-count="2"]')).toHaveText('2 个来源');
+      await expect(card.locator('.ml-card-source-row')).toContainText('Emby · E2E Emby');
+      await expect(card.locator('.ml-card-source-row')).toContainText('115 · 115 片库');
       await card.getByRole('button', { name: '扩展内播放' }).click();
       const chooser = page.locator('[data-media-source-choice="1"]');
       await expect(chooser).toBeVisible();
       await expect(chooser.getByRole('button')).toHaveCount(2);
-      await expect(chooser).toContainText('E2E Emby');
-      await expect(chooser).toContainText('115');
+      await expect(chooser).toContainText('Emby · E2E Emby');
+      await expect(chooser).toContainText('115 · 115');
     } finally {
       await context.close();
     }
@@ -603,6 +707,8 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await expect(connectionDialog).toBeHidden();
       await expect(connectionSummary).toContainText('http://127.0.0.1:18080');
       await expect(connectionSummary).toContainText('E2E Cloud 浏览器');
+      await expect(connectionSummary).not.toContainText('登录后同步');
+      await expect(connectionSummary.getByRole('button', { name: '重新连接' })).toBeVisible();
       await expect.poll(async () => page.evaluate(async () => {
         const state = await chrome.storage.local.get('cloud_sync_settings_v1');
         return state.cloud_sync_settings_v1 as {
@@ -909,6 +1015,73 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await page.mouse.wheel(0, 420);
       await expect.poll(() => overlayBody.evaluate((element) => element.scrollTop)).toBeGreaterThan(before.top);
       await expect.poll(() => peopleRow.evaluate((element) => element.scrollLeft)).toBe(before.left);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('keeps detail open when choosing a source from its inline playback menu', async ({}, testInfo) => {
+    const harnessOptions = resolveTestHarnessOptions(testInfo.outputPath('profile'));
+    const context = await launchExtensionContext(harnessOptions, {
+      headless: false,
+      channel: process.env.JAVDB_EXTENSION_CHANNEL ?? 'chromium',
+    });
+
+    try {
+      const extensionId = await readExtensionId(context);
+      await markReleaseAnnouncementSeenInContext(context);
+      const page = await context.newPage();
+      await page.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-media'), {
+        waitUntil: 'domcontentloaded',
+      });
+      await dismissReleaseAnnouncementIfPresent(page);
+
+      await page.evaluate(() => {
+        const now = Date.now();
+        return chrome.storage.local.set({
+          emby_library_state: {
+            updatedAt: now,
+            entries: {
+              'MIDA-440': [{
+                serverType: 'emby',
+                serverName: 'E2E Emby',
+                serverUrl: 'http://source-choice.e2e.local:8096',
+                itemId: 'source-choice-emby',
+                itemName: 'MIDA-440 来源选择测试',
+                updatedAt: now,
+              }],
+            },
+          },
+          drive115_library_state: {
+            updatedAt: now,
+            entries: [{
+              key: 'source-choice:115',
+              code: 'MIDA-440',
+              title: 'MIDA-440 来源选择测试',
+              videoFileId: 'source-choice-115',
+              pickCode: 'source-choice-pick',
+              fileName: 'MIDA-440.mp4',
+              folderName: 'MIDA-440',
+              updatedAt: now,
+            }],
+          },
+        });
+      });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+
+      await page.locator('.ml-card[data-code="MIDA-440"] .ml-card-hit')
+        .evaluate((element: HTMLButtonElement) => element.click());
+      const detail = page.locator('[data-media-detail="1"]');
+      await expect(detail).toBeVisible();
+      await detail.getByRole('button', { name: /选择播放来源/ }).click();
+
+      const sourceMenu = detail.getByRole('menu', { name: '选择播放来源' });
+      await expect(sourceMenu).toBeVisible();
+      await expect(detail).toBeVisible();
+      await sourceMenu.getByRole('menuitem', { name: /115.*115 片库/ }).click();
+
+      await expect(detail).toBeVisible();
+      await expect(page.locator('[data-media-115-play-overlay="1"]')).toBeVisible();
     } finally {
       await context.close();
     }
