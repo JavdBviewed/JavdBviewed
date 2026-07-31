@@ -148,6 +148,7 @@ export default withMermaid(defineConfig({
             { text: '项目概览', link: '/reference/project-overview' },
             { text: '版本发布', link: '/reference/changelog' },
             { text: '功能总览', link: '/reference/features' },
+            { text: '产品上报与隐私边界', link: '/reference/telemetry' },
             { text: '隐私政策', link: '/reference/privacy-policy' }
           ]
         }
