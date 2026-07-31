@@ -42,14 +42,10 @@ javdb-backup_*.json
 # Markdown files
 *.md
 *av*.md
-# 排除特定文件夹的 md 文件
+# 保留在主仓库内维护的 Markdown 文件
 !todo/*.md
 !scripts/*.md
 !tutorial/*.md
-!docs/*.md
-!docs/**/*.md
-!docs/releases/**
-!docs/releases/**/*.md
 !apps/**/README.md
 !packages/**/README.md
 !apps/extension/src/apps/**/README.md
@@ -63,6 +59,9 @@ javdb-backup_*.json
 !vitepress/.vitepress/*.mts
 vitepress/.vitepress/cache/
 vitepress/.vitepress/dist/
+
+# 文档站已迁移至独立的 JavdBviewed-Docs 仓库，主仓库仅保留本地历史副本
+docs/
 
 # 参考文档
 !reference/
