@@ -8,11 +8,13 @@ import type { DeviceInfo } from '@javdb/sync-protocol';
 import { Badge } from '../../../../../ui/primitives/Badge/Badge';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
+import { Modal } from '../../../../../ui/primitives/Modal/Modal';
 import { SettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
 import { SettingField } from '../../../../../ui/patterns/SettingField/SettingField';
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import { SettingsHighlightNotice } from '../shared/SettingsHighlightNotice';
 import type { SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import {
   createExtensionCloudFacade,
@@ -34,6 +36,13 @@ type SyncReport = CloudSyncNowResult & {
   finishedAt: number;
 };
 
+type SyncProgressState = {
+  open: boolean;
+  stage: 'preparing' | 'syncing' | 'complete' | 'error';
+  report?: SyncReport;
+  error?: string;
+};
+
 const INTERVAL_OPTIONS = [
   { value: '15', label: '15 分钟' },
   { value: '30', label: '30 分钟' },
@@ -45,7 +54,6 @@ const CLOUD_SECTION_IDS = {
   overview: 'cloud-section-overview',
   sync: 'cloud-section-sync',
   connection: 'cloud-section-connection',
-  account: 'cloud-section-account',
   devices: 'cloud-section-devices',
   scope: 'cloud-section-scope',
 } as const;
@@ -54,7 +62,6 @@ const CLOUD_SECTION_NAV_ITEMS: SettingsSectionNavItem[] = [
   { id: CLOUD_SECTION_IDS.overview, label: '状态总览', shortLabel: '总览' },
   { id: CLOUD_SECTION_IDS.sync, label: '同步', shortLabel: '同步' },
   { id: CLOUD_SECTION_IDS.connection, label: '连接服务', shortLabel: '连接' },
-  { id: CLOUD_SECTION_IDS.account, label: '账号', shortLabel: '账号' },
   { id: CLOUD_SECTION_IDS.devices, label: '已登录设备', shortLabel: '设备' },
   { id: CLOUD_SECTION_IDS.scope, label: '同步范围与说明', shortLabel: '范围' },
 ];
@@ -78,7 +85,7 @@ export function CloudSettingsPage() {
   const [settings, setSettings] = useState<CloudConnectionSettings | null>(null);
   const [baseUrlDraft, setBaseUrlDraft] = useState('');
   const [deviceLabelDraft, setDeviceLabelDraft] = useState('');
-  const [identifier, setIdentifier] = useState('admin');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [session, setSession] = useState<CloudSessionRecord | null>(null);
@@ -89,7 +96,12 @@ export function CloudSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [syncReport, setSyncReport] = useState<SyncReport | null>(null);
+  const [syncProgress, setSyncProgress] = useState<SyncProgressState>({
+    open: false,
+    stage: 'preparing',
+  });
   const [connDirty, setConnDirty] = useState(false);
+  const [connectionEditorOpen, setConnectionEditorOpen] = useState(false);
   const [autoSync, setAutoSync] = useState<CloudAutoSyncSettings>({
     enabled: true,
     intervalMinutes: 30,
@@ -105,6 +117,7 @@ export function CloudSettingsPage() {
   );
   const connectionReady = Boolean(normalizedDraft);
   const baseUrlInvalid = baseUrlDraft.trim().length > 0 && !connectionReady;
+  const configuredBaseUrl = normalizeCloudBaseUrl(settings?.baseUrl || '') || '未配置地址';
 
   const setStatus = useCallback((text: string, tone: StatusTone) => {
     setBanner({ text, tone });
@@ -136,6 +149,8 @@ export function CloudSettingsPage() {
       const next = await facade.saveConnection({
         baseUrl: baseUrlDraft,
         deviceLabel: deviceLabelDraft,
+        identifier: identifier.trim(),
+        password,
       });
       setSettings(next);
       setBaseUrlDraft(next.baseUrl);
@@ -148,7 +163,7 @@ export function CloudSettingsPage() {
       await toast('请填写有效的 Cloud 地址', 'warning');
       return null;
     }
-  }, [baseUrlDraft, deviceLabelDraft, facade, setStatus]);
+  }, [baseUrlDraft, deviceLabelDraft, facade, identifier, password, setStatus]);
 
   const probeHealthUrl = useCallback(
     async (baseUrl: string, opts?: { silent?: boolean }) => {
@@ -208,6 +223,8 @@ export function CloudSettingsPage() {
         setSettings(state.settings);
         setBaseUrlDraft(state.settings.baseUrl);
         setDeviceLabelDraft(state.settings.deviceLabel);
+        setIdentifier(state.settings.accountIdentifier || '');
+        setPassword(state.settings.accountPassword || '');
         setAutoSync(state.autoSync);
         setSession(state.session);
         setDevices(state.devices);
@@ -235,6 +252,7 @@ export function CloudSettingsPage() {
       if (!saved) return;
       setStatus('连接配置已保存', 'ok');
       await toast('✓ 连接已保存', 'success');
+      setConnectionEditorOpen(false);
       void probeHealthUrl(saved.baseUrl, { silent: true });
     });
 
@@ -245,6 +263,28 @@ export function CloudSettingsPage() {
       if (!saved) return;
       await probeHealthUrl(saved.baseUrl, { silent: false });
     });
+
+  const openConnectionEditor = () => {
+    if (!settings) return;
+    setBaseUrlDraft(settings.baseUrl);
+    setDeviceLabelDraft(settings.deviceLabel);
+    setIdentifier(settings.accountIdentifier || '');
+    setPassword(settings.accountPassword || '');
+    setShowPassword(false);
+    setConnDirty(false);
+    setConnectionEditorOpen(true);
+  };
+
+  const closeConnectionEditor = () => {
+    if (!settings || busyAction === 'save' || busyAction === 'health') return;
+    setBaseUrlDraft(settings.baseUrl);
+    setDeviceLabelDraft(settings.deviceLabel);
+    setIdentifier(settings.accountIdentifier || '');
+    setPassword(settings.accountPassword || '');
+    setShowPassword(false);
+    setConnDirty(false);
+    setConnectionEditorOpen(false);
+  };
 
   const onRegister = () =>
     void withBusy('register', async () => {
@@ -293,10 +333,10 @@ export function CloudSettingsPage() {
         setAutoSync(state.autoSync);
         setSession(state.session);
         setDevices(state.devices);
-        setPassword('');
         setShowPassword(false);
         setStatus('登录成功，可以开始同步', 'ok');
         await toast('✓ 登录成功', 'success');
+        setConnectionEditorOpen(false);
       } catch (e) {
         const msg = humanizeCloudError(e);
         setStatus(msg, 'err');
@@ -360,19 +400,20 @@ export function CloudSettingsPage() {
     });
   };
 
-  const onSyncNow = () =>
+  const onSyncNow = () => {
+    if (!loggedIn || busy) return;
+    setSyncProgress({ open: true, stage: 'preparing' });
     void withBusy('sync', async () => {
       try {
+        await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+        setSyncProgress({ open: true, stage: 'syncing' });
         const result = await facade.syncNow();
         const report: SyncReport = { ...result, finishedAt: Date.now() };
         setSyncReport(report);
+        setSyncProgress({ open: true, stage: 'complete', report });
         const tone: StatusTone =
           result.code === 'SYNC_PARTIAL' ? 'warn' : 'ok';
         setStatus(result.message || `同步完成：↑${result.pushed} ↓${result.pulled}`, tone);
-        await toast(
-          result.message || '✓ 同步完成',
-          result.code === 'SYNC_PARTIAL' ? 'warning' : 'success',
-        );
         try {
           setDevices(await facade.listDevices());
         } catch {
@@ -381,9 +422,10 @@ export function CloudSettingsPage() {
       } catch (e) {
         const msg = humanizeCloudError(e);
         setStatus(msg, 'err');
-        await toast(msg, 'error');
+        setSyncProgress({ open: true, stage: 'error', error: msg });
       }
     });
+  };
 
   const onToggleAutoSync = (enabled: boolean) =>
     void withBusy('auto', async () => {
@@ -434,23 +476,25 @@ export function CloudSettingsPage() {
       sectionNavItems={CLOUD_SECTION_NAV_ITEMS}
     >
       <div id="cloud-settings" className="cloud-settings">
+        <SettingsHighlightNotice title="Cloud 功能仍在测试中">
+          多端同步已开放给自建服务使用，但仍可能遇到连接、合并或兼容问题。遇到异常可以到{' '}
+          <a
+            href="https://github.com/lmixture/JavdBviewed/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub Issues
+          </a>{' '}
+          反馈现象、截图和日志。
+        </SettingsHighlightNotice>
+
         {/* 总览条 */}
       <div id={CLOUD_SECTION_IDS.overview} className="cloud-overview-grid">
         <OverviewCard
           label="服务"
           badge={healthBadge(healthState)}
           detail={healthDetail}
-          meta={normalizedDraft || '未配置地址'}
-          action={
-            <button
-              type="button"
-              className="text-[11.5px] font-semibold text-[var(--color-primary)] underline-offset-2 hover:underline disabled:opacity-50"
-              disabled={busy}
-              onClick={() => onProbeHealth()}
-            >
-              {busyAction === 'health' ? '检测中…' : '测试'}
-            </button>
-          }
+          meta={configuredBaseUrl}
         />
         <OverviewCard
           label="登录"
@@ -462,7 +506,7 @@ export function CloudSettingsPage() {
             )
           }
           detail={loginDetail}
-          meta={loggedIn ? '本机会话有效' : '完成下方账号登录'}
+          meta={loggedIn ? '本机会话有效' : settings.accountIdentifier ? '已保存账号，登录后即可同步' : '完成下方账号登录'}
         />
         <OverviewCard
           label="上次同步"
@@ -518,32 +562,14 @@ export function CloudSettingsPage() {
         </div>
       ) : null}
 
-      {/* 已登录：同步主路径置顶 */}
+      {/* 同步设置 */}
       {loggedIn ? (
         <SettingSection
           id={CLOUD_SECTION_IDS.sync}
-          title="同步"
-          description="本地改动会自动入队；空云首传不会清空本地。结果以服务端返回为准。"
+          title="同步设置"
+          description="手动同步在「连接服务」摘要卡中执行。本地改动会自动入队；空云首传不会清空本地。"
           contentClassName="gap-1"
-          className="border-[var(--color-primary)]/30"
         >
-          <div className="flex flex-wrap items-center gap-2 px-2 py-2">
-            <Button
-              type="button"
-              variant="primary"
-              size="lg"
-              disabled={busy}
-              onClick={() => onSyncNow()}
-            >
-              {busyAction === 'sync' ? '同步中…' : '立即同步'}
-            </Button>
-            <p className="m-0 max-w-sm text-[12.5px] leading-snug text-[var(--color-fg-muted)]">
-              建议在改完一批标记后再点；后台自动同步可在下方开启。
-            </p>
-          </div>
-
-          <div className="mx-2 mb-1 border-t border-[var(--color-border)]" />
-
           <SettingToggleRow
             id="cloud-auto-sync"
             label="后台自动同步"
@@ -566,7 +592,7 @@ export function CloudSettingsPage() {
         </SettingSection>
       ) : (
         <Callout tone="info" title="开始使用">
-          按顺序完成：① 填写并测试 Cloud 地址 → ② 登录账号 → ③ 立即同步。
+          在下方「连接服务」中填写地址、测试连接并登录账号，完成后可直接从服务摘要卡同步。
           本机 Docker 默认地址多为 <code className="text-[var(--color-fg)]">http://127.0.0.1:18080</code>
           （Windows 常占用 8080）。
         </Callout>
@@ -576,204 +602,53 @@ export function CloudSettingsPage() {
       <SettingSection
         id={CLOUD_SECTION_IDS.connection}
         title="连接服务"
-        description="自建实例 Base URL。改地址后请保存或测试连接。"
+        description="当前仅支持一个自建 Cloud 服务；连接参数在编辑弹窗中统一管理。"
       >
-        <div className="grid gap-0 sm:grid-cols-2">
-          <SettingField
-            id="cloud-base-url"
-            label="Cloud 地址"
-            description={
-              baseUrlInvalid
-                ? '地址格式无效'
-                : connDirty
-                  ? '有未保存修改'
-                  : '例 http://127.0.0.1:18080'
-            }
-          >
-            <Input
-              id="cloud-base-url"
-              value={baseUrlDraft}
-              invalid={baseUrlInvalid}
-              onChange={(e) => {
-                setBaseUrlDraft(e.target.value);
-                setConnDirty(true);
-              }}
-              placeholder="http://127.0.0.1:18080"
-              autoComplete="off"
-              spellCheck={false}
-              disabled={busy && busyAction === 'sync'}
-            />
-          </SettingField>
-          <SettingField
-            id="cloud-device-label"
-            label="本机设备名称"
-            description="出现在已登录设备列表"
-          >
-            <Input
-              id="cloud-device-label"
-              value={deviceLabelDraft}
-              onChange={(e) => {
-                setDeviceLabelDraft(e.target.value);
-                setConnDirty(true);
-              }}
-              placeholder="浏览器扩展"
-              autoComplete="off"
-              disabled={busy && busyAction === 'sync'}
-            />
-          </SettingField>
-        </div>
+        <CloudConnectionSummary
+          baseUrl={configuredBaseUrl}
+          healthState={healthState}
+          healthDetail={healthDetail}
+          loggedIn={loggedIn}
+          deviceLabel={settings.deviceLabel || '未命名设备'}
+          syncBusy={busyAction === 'sync'}
+          disabled={busy}
+          onEdit={openConnectionEditor}
+          onSync={onSyncNow}
+        />
 
-        <div className="px-2 pb-1">
-          <div className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-bg-muted,#f4f5f7)] px-3 py-2">
-            <div className="text-[12px] font-semibold text-[var(--color-fg-muted)]">设备 ID</div>
-            <p className="mt-1 mb-0 break-all font-mono text-[11.5px] text-[var(--color-fg)]">
-              {settings.deviceId}
-            </p>
-            <p className="mt-1 mb-0 text-[11.5px] leading-snug text-[var(--color-fg-muted)]">
-              与「关于」页 / WebDAV 的 Device ID 为同一本机身份。
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 px-2 py-2">
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={busy || !connectionReady}
-            onClick={() => onSaveConnection()}
-          >
-            {busyAction === 'save' ? '保存中…' : connDirty ? '保存修改' : '保存连接'}
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            disabled={busy || !connectionReady}
-            onClick={() => onProbeHealth()}
-          >
-            {busyAction === 'health' ? '检测中…' : '测试连接'}
-          </Button>
-          {connDirty ? (
-            <span className="text-[12px] text-[var(--color-warning,#d68910)]">未保存</span>
-          ) : null}
-        </div>
+        <CloudConnectionEditDialog
+          open={connectionEditorOpen}
+          baseUrlDraft={baseUrlDraft}
+          deviceLabelDraft={deviceLabelDraft}
+          deviceId={settings.deviceId}
+          baseUrlInvalid={baseUrlInvalid}
+          connectionReady={connectionReady}
+          connDirty={connDirty}
+          busyAction={busyAction}
+          loggedIn={loggedIn}
+          session={session}
+          identifier={identifier}
+          password={password}
+          showPassword={showPassword}
+          onBaseUrlChange={(value) => {
+            setBaseUrlDraft(value);
+            setConnDirty(true);
+          }}
+          onDeviceLabelChange={(value) => {
+            setDeviceLabelDraft(value);
+            setConnDirty(true);
+          }}
+          onIdentifierChange={setIdentifier}
+          onPasswordChange={setPassword}
+          onTogglePassword={() => setShowPassword((value) => !value)}
+          onClose={closeConnectionEditor}
+          onSave={onSaveConnection}
+          onProbe={onProbeHealth}
+          onLogin={onLogin}
+          onRegister={onRegister}
+          onLogout={onLogout}
+        />
       </SettingSection>
-
-      {/* 账号 */}
-      <SettingSection
-        id={CLOUD_SECTION_IDS.account}
-        title="账号"
-        description={
-          loggedIn
-            ? '当前本机会话。退出后需重新登录才能同步。'
-            : '使用引导管理员或自建账号。密码错误不会创建会话。'
-        }
-      >
-        {loggedIn ? (
-          <>
-            <div className="mx-2 my-1 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-bg-muted,#f4f5f7)] px-3 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[13.5px] font-bold text-[var(--color-fg)]">
-                  {settings.deviceLabel}
-                </span>
-                <Badge tone="primary">本机会话</Badge>
-                {healthState === 'ok' ? <Badge tone="success">服务在线</Badge> : null}
-              </div>
-              <dl className="mt-2 mb-0 grid gap-1.5 text-[12.5px] sm:grid-cols-2">
-                <div className="min-w-0">
-                  <dt className="m-0 text-[var(--color-fg-muted)]">用户 ID</dt>
-                  <dd className="m-0 truncate font-mono text-[var(--color-fg)]">
-                    {session?.userId || '—'}
-                  </dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="m-0 text-[var(--color-fg-muted)]">设备 ID</dt>
-                  <dd className="m-0 truncate font-mono text-[var(--color-fg)]">
-                    {settings.deviceId}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-            <div className="flex flex-wrap gap-2 px-2 py-2">
-              <Button type="button" variant="ghost" disabled={busy} onClick={() => onLogout()}>
-                {busyAction === 'logout' ? '退出中…' : '退出登录'}
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="grid gap-0 sm:grid-cols-2">
-              <SettingField id="cloud-identifier" label="账号">
-                <Input
-                  id="cloud-identifier"
-                  value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="admin"
-                  autoComplete="username"
-                  disabled={busy}
-                />
-              </SettingField>
-              <SettingField id="cloud-password" label="密码">
-                <div className="relative">
-                  <Input
-                    id="cloud-password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                    disabled={busy}
-                    className="pr-10"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') onLogin();
-                    }}
-                  />
-                  <button
-                    type="button"
-                    disabled={busy}
-                    aria-label={showPassword ? '隐藏密码' : '显示密码'}
-                    title={showPassword ? '隐藏密码' : '显示密码'}
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-[var(--radius-2)] text-[var(--color-fg-muted)] transition-colors hover:text-[var(--color-fg)] focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <i className={showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'} aria-hidden="true" />
-                  </button>
-                </div>
-              </SettingField>
-            </div>
-            <div className="flex flex-wrap gap-2 px-2 py-2">
-              <Button type="button" variant="primary" disabled={busy} onClick={() => onLogin()}>
-                {busyAction === 'login' ? '登录中…' : '登录'}
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={busy}
-                onClick={() => onRegister()}
-              >
-                {busyAction === 'register' ? '注册中…' : '注册新账号'}
-              </Button>
-            </div>
-          </>
-        )}
-      </SettingSection>
-
-      {!loggedIn ? (
-        <SettingSection
-          id={CLOUD_SECTION_IDS.sync}
-          title="同步"
-          description="登录后可立即同步并开启后台自动同步"
-        >
-          <div className="flex flex-wrap items-center gap-2 px-2 py-2">
-            <Button type="button" variant="primary" disabled>
-              立即同步
-            </Button>
-            <span className="text-[12.5px] text-[var(--color-warning,#d68910)]">
-              请先完成上方登录
-            </span>
-          </div>
-          <EmptySyncHint />
-        </SettingSection>
-      ) : null}
 
       {/* 设备 */}
       <SettingSection
@@ -856,7 +731,7 @@ export function CloudSettingsPage() {
           </p>
           <p className="m-0">
             <span className="font-semibold text-[var(--color-fg)]">不会同步：</span>
-            运行/磁力日志、磁力缓存、Emby 本机库、遥测、会话与密钥明文。
+            运行/磁力日志、磁力缓存、Emby 本机库、遥测与登录会话令牌。
           </p>
           <p className="m-0">
             <span className="font-semibold text-[var(--color-fg)]">WebDAV：</span>
@@ -864,12 +739,374 @@ export function CloudSettingsPage() {
           </p>
         </div>
       </div>
+      <CloudSyncProgressDialog
+        state={syncProgress}
+        onClose={() => setSyncProgress((state) => ({ ...state, open: false }))}
+        onRetry={onSyncNow}
+      />
       </div>
     </SettingsPageFrame>
   );
 }
 
 /* ---------- presentational helpers ---------- */
+
+function CloudConnectionSummary(props: {
+  baseUrl: string;
+  healthState: HealthState;
+  healthDetail: string;
+  loggedIn: boolean;
+  deviceLabel: string;
+  syncBusy: boolean;
+  disabled: boolean;
+  onEdit: () => void;
+  onSync: () => void;
+}) {
+  return (
+    <div className="cloud-connection-summary mx-2 mb-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13.5px] font-bold text-[var(--color-fg)]" title={props.baseUrl}>
+            {props.baseUrl}
+          </div>
+          <dl className="mt-2 mb-0 grid gap-x-5 gap-y-2 text-[12px] sm:grid-cols-3">
+            <div>
+              <dt className="text-[var(--color-fg-muted)]">健康状态</dt>
+              <dd className="m-0 mt-0.5 flex items-center gap-2 text-[var(--color-fg)]">
+                {healthBadge(props.healthState)}
+                <span className="truncate" title={props.healthDetail}>{props.healthDetail}</span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[var(--color-fg-muted)]">登录状态</dt>
+              <dd className="m-0 mt-0.5 font-semibold text-[var(--color-fg)]">
+                {props.loggedIn ? '已登录' : '未登录'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[var(--color-fg-muted)]">本机设备名</dt>
+              <dd className="m-0 mt-0.5 truncate font-semibold text-[var(--color-fg)]" title={props.deviceLabel}>
+                {props.deviceLabel}
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={props.disabled || !props.loggedIn}
+            title={props.loggedIn ? '立即同步本机与 Cloud 数据' : '请先在编辑连接中登录账号'}
+            onClick={props.onSync}
+          >
+            {props.syncBusy ? '同步中…' : props.loggedIn ? '立即同步' : '登录后同步'}
+          </Button>
+          <Button variant="secondary" size="sm" disabled={props.disabled} onClick={props.onEdit}>
+            编辑连接
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CloudConnectionEditDialog(props: {
+  open: boolean;
+  baseUrlDraft: string;
+  deviceLabelDraft: string;
+  deviceId: string;
+  baseUrlInvalid: boolean;
+  connectionReady: boolean;
+  connDirty: boolean;
+  busyAction: string | null;
+  loggedIn: boolean;
+  session: CloudSessionRecord | null;
+  identifier: string;
+  password: string;
+  showPassword: boolean;
+  onBaseUrlChange: (value: string) => void;
+  onDeviceLabelChange: (value: string) => void;
+  onIdentifierChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onTogglePassword: () => void;
+  onClose: () => void;
+  onSave: () => void;
+  onProbe: () => void;
+  onLogin: () => void;
+  onRegister: () => void;
+  onLogout: () => void;
+}) {
+  const connectionBusy = props.busyAction != null;
+
+  return (
+    <Modal
+      open={props.open}
+      title="连接服务"
+      onClose={props.onClose}
+      className="cloud-connection-edit-modal max-h-[calc(100vh-2rem)] !max-w-3xl overflow-y-auto"
+      footer={
+        <>
+          <Button variant="secondary" disabled={connectionBusy} onClick={props.onClose}>
+            取消
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={connectionBusy || !props.connectionReady}
+            onClick={props.onProbe}
+          >
+            {props.busyAction === 'health' ? '检测中…' : '测试连接'}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={connectionBusy || !props.connectionReady}
+            onClick={props.onSave}
+          >
+            {props.busyAction === 'save' ? '保存中…' : props.connDirty ? '保存修改' : '保存连接'}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-2 sm:grid-cols-2">
+        <SettingField
+          id="cloud-base-url"
+          label="Cloud 地址"
+          description={
+            props.baseUrlInvalid
+              ? '地址格式无效'
+              : props.connDirty
+                ? '有未保存修改'
+                : '例 http://127.0.0.1:18080'
+          }
+        >
+          <Input
+            id="cloud-base-url"
+            value={props.baseUrlDraft}
+            invalid={props.baseUrlInvalid}
+            onChange={(event) => props.onBaseUrlChange(event.currentTarget.value)}
+            placeholder="http://127.0.0.1:18080"
+            autoComplete="off"
+            spellCheck={false}
+            disabled={connectionBusy}
+          />
+        </SettingField>
+        <SettingField
+          id="cloud-device-label"
+          label="本机设备名称"
+          description="出现在已登录设备列表"
+        >
+          <Input
+            id="cloud-device-label"
+            value={props.deviceLabelDraft}
+            onChange={(event) => props.onDeviceLabelChange(event.currentTarget.value)}
+            placeholder="浏览器扩展"
+            autoComplete="off"
+            disabled={connectionBusy}
+          />
+        </SettingField>
+        <div className="sm:col-span-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-bg-muted,#f4f5f7)] px-3 py-2">
+          <div className="text-[12px] font-semibold text-[var(--color-fg-muted)]">设备 ID</div>
+          <p className="mt-1 mb-0 break-all font-mono text-[11.5px] text-[var(--color-fg)]">
+            {props.deviceId}
+          </p>
+          <p className="mt-1 mb-0 text-[11.5px] leading-snug text-[var(--color-fg-muted)]">
+            与「关于」页 / WebDAV 的 Device ID 为同一本机身份。
+          </p>
+        </div>
+        {props.connDirty ? (
+          <span className="sm:col-span-2 text-[12px] text-[var(--color-warning,#d68910)]">
+            当前修改尚未保存
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-5 border-t border-[var(--color-border)] pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-[13px] font-bold text-[var(--color-fg)]">账号与会话</div>
+            <p className="mt-0.5 mb-0 text-[12px] leading-snug text-[var(--color-fg-muted)]">
+              {props.loggedIn ? '当前浏览器已连接到该 Cloud 账号。' : '登录后可在服务摘要中立即同步。'}
+            </p>
+          </div>
+          {props.loggedIn ? <Badge tone="success">已登录</Badge> : <Badge tone="warning">未登录</Badge>}
+        </div>
+        {props.loggedIn ? (
+          <div className="mt-3 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-bg-muted,#f4f5f7)] px-3 py-2.5">
+            <dl className="m-0 grid gap-2 text-[12px] sm:grid-cols-2">
+              <div className="min-w-0">
+                <dt className="text-[var(--color-fg-muted)]">用户 ID</dt>
+                <dd className="m-0 mt-0.5 truncate font-mono text-[var(--color-fg)]">{props.session?.userId || '—'}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[var(--color-fg-muted)]">登录状态</dt>
+                <dd className="m-0 mt-0.5 font-semibold text-[var(--color-fg)]">本机会话有效</dd>
+              </div>
+            </dl>
+            <div className="mt-3">
+              <Button type="button" variant="ghost" size="sm" disabled={connectionBusy} onClick={props.onLogout}>
+                {props.busyAction === 'logout' ? '退出中…' : '退出登录'}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <SettingField id="cloud-identifier" label="账号">
+                <Input
+                  id="cloud-identifier"
+                  value={props.identifier}
+                  onChange={(event) => props.onIdentifierChange(event.currentTarget.value)}
+                  placeholder="admin"
+                  autoComplete="username"
+                  disabled={connectionBusy}
+                />
+              </SettingField>
+              <SettingField id="cloud-password" label="密码">
+                <div className="relative">
+                  <Input
+                    id="cloud-password"
+                    type={props.showPassword ? 'text' : 'password'}
+                    value={props.password}
+                    onChange={(event) => props.onPasswordChange(event.currentTarget.value)}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    disabled={connectionBusy}
+                    className="pr-10"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') props.onLogin();
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={connectionBusy}
+                    aria-label={props.showPassword ? '隐藏密码' : '显示密码'}
+                    title={props.showPassword ? '隐藏密码' : '显示密码'}
+                    onClick={props.onTogglePassword}
+                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-[var(--radius-2)] text-[var(--color-fg-muted)] transition-colors hover:text-[var(--color-fg)] focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <i className={props.showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'} aria-hidden="true" />
+                  </button>
+                </div>
+              </SettingField>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" variant="primary" disabled={connectionBusy} onClick={props.onLogin}>
+                {props.busyAction === 'login' ? '登录中…' : '登录'}
+              </Button>
+              <Button type="button" variant="secondary" disabled={connectionBusy} onClick={props.onRegister}>
+                {props.busyAction === 'register' ? '注册中…' : '注册新账号'}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function CloudSyncProgressDialog(props: {
+  state: SyncProgressState;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  const working = props.state.stage === 'preparing' || props.state.stage === 'syncing';
+  const title =
+    props.state.stage === 'complete'
+      ? '同步完成'
+      : props.state.stage === 'error'
+        ? '同步失败'
+        : '正在同步 Cloud';
+  const status =
+    props.state.stage === 'preparing'
+      ? '正在整理本机数据'
+      : props.state.stage === 'syncing'
+        ? '正在与 Cloud 服务同步并合并数据'
+        : props.state.stage === 'complete'
+          ? props.state.report?.message || '本次同步已完成'
+          : props.state.error || '同步过程中发生未知错误';
+
+  return (
+    <Modal
+      open={props.state.open}
+      title={title}
+      onClose={() => {
+        if (!working) props.onClose();
+      }}
+      className="cloud-sync-progress-modal !max-w-xl"
+      footer={
+        working ? (
+          <span className="text-[12px] text-[var(--color-fg-muted)]">同步进行中，请勿关闭此窗口。</span>
+        ) : props.state.stage === 'error' ? (
+          <>
+            <Button variant="secondary" onClick={props.onClose}>关闭</Button>
+            <Button variant="primary" onClick={props.onRetry}>重试同步</Button>
+          </>
+        ) : (
+          <Button variant="primary" onClick={props.onClose}>完成</Button>
+        )
+      }
+    >
+      <div className="space-y-4">
+        <div className="flex items-start gap-3">
+          <span
+            className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${
+              props.state.stage === 'error'
+                ? 'bg-[var(--color-danger,#c0392b)]/12 text-[var(--color-danger,#c0392b)]'
+                : props.state.stage === 'complete'
+                  ? 'bg-[var(--color-success,#27ae60)]/12 text-[var(--color-success,#1e8449)]'
+                  : 'bg-[var(--color-primary-soft,#eef5ff)] text-[var(--color-primary)]'
+            }`}
+            aria-hidden
+          >
+            {props.state.stage === 'error' ? '!' : props.state.stage === 'complete' ? '✓' : '…'}
+          </span>
+          <div>
+            <p className="m-0 font-semibold text-[var(--color-fg)]">{status}</p>
+            {working ? (
+              <p className="mt-1 mb-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
+                完成前会保留本窗口；同步不会因切换页面而取消。
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <ol className="m-0 grid list-none gap-2 p-0 text-[12px]">
+          <SyncProgressStep label="整理本机数据" active={props.state.stage === 'preparing'} done={props.state.stage !== 'preparing'} />
+          <SyncProgressStep
+            label="与 Cloud 同步并合并"
+            active={props.state.stage === 'syncing'}
+            done={props.state.stage === 'complete'}
+            failed={props.state.stage === 'error'}
+          />
+          <SyncProgressStep label="完成" done={props.state.stage === 'complete'} />
+        </ol>
+
+        {props.state.report ? <SyncResultPanel report={props.state.report} /> : null}
+      </div>
+    </Modal>
+  );
+}
+
+function SyncProgressStep(props: {
+  label: string;
+  active?: boolean;
+  done?: boolean;
+  failed?: boolean;
+}) {
+  const tone = props.failed
+    ? 'border-[var(--color-danger,#c0392b)]/35 bg-[var(--color-danger,#c0392b)]/8 text-[var(--color-danger,#c0392b)]'
+    : props.done
+      ? 'border-[var(--color-success,#27ae60)]/35 bg-[var(--color-success,#27ae60)]/8 text-[var(--color-success,#1e8449)]'
+      : props.active
+        ? 'border-[var(--color-primary)]/35 bg-[var(--color-primary-soft,#eef5ff)] text-[var(--color-primary)]'
+        : 'border-[var(--color-border)] bg-[var(--color-bg-muted,#f4f5f7)] text-[var(--color-fg-muted)]';
+  const marker = props.failed ? '!' : props.done ? '✓' : props.active ? '…' : '•';
+
+  return (
+    <li className={`flex items-center gap-2 rounded-[var(--radius-2)] border px-3 py-2 ${tone}`}>
+      <span className={props.active ? 'animate-pulse' : ''} aria-hidden>{marker}</span>
+      <span className="font-medium">{props.label}</span>
+    </li>
+  );
+}
 
 function OverviewCard(props: {
   label: string;

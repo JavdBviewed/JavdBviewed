@@ -1,4 +1,4 @@
-﻿// src/dashboard/tabs/mount.ts
+// src/dashboard/tabs/mount.ts
 // 负责在需要时挂载 Tab 的 partial 与样式
 
 import { ensureMounted, loadPartial, injectPartial } from '../loaders/partialsLoader';
@@ -47,6 +47,12 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
               const { mountDrive115SettingsPage } = await import('../../apps/dashboard/pages/settings/drive115/mountDrive115SettingsPage');
               mountDrive115SettingsPage('#tab-settings');
               console.debug('[mount] 设置子页：React 全页 drive115-settings');
+              return;
+            }
+            if (subSection === 'emby-settings') {
+              const { mountEmbySettingsPage } = await import('../../apps/dashboard/pages/settings/emby/mountEmbySettingsPage');
+              mountEmbySettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 emby-settings');
               return;
             }
           }

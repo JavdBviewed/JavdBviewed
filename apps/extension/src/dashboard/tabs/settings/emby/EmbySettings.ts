@@ -387,7 +387,7 @@ export class EmbySettings extends BaseSettingsPanel {
                         </label>
                         <label class="setting-label">
                             <span class="setting-title">密码</span>
-                            <input type="password" class="emby-server-password setting-input" value="" placeholder="登录后不会明文回显" autocomplete="current-password">
+                            <input type="password" class="emby-server-password setting-input" value="${this.escapeHtml(server.password || '')}" placeholder="用于登录并保存到此来源" autocomplete="current-password">
                         </label>
                         <div class="emby-user-auth-actions">
                             <button type="button" class="btn btn-primary emby-user-login-btn">登录并保存令牌</button>
@@ -398,7 +398,7 @@ export class EmbySettings extends BaseSettingsPanel {
                     <input type="hidden" class="emby-server-user-id" value="${this.escapeHtml(server.userId || '')}">
                     <input type="hidden" class="emby-server-user-display" value="${this.escapeHtml(server.userDisplayName || '')}">
                     <input type="hidden" class="emby-server-token-at" value="${server.tokenObtainedAt ? String(server.tokenObtainedAt) : ''}">
-                    <p class="setting-description">API Key 负责扫库；用户登录后的 AccessToken 用于标记真实已看。密码仅用于本次登录请求，不会写入设置。</p>
+                    <p class="setting-description">API Key 负责扫库；用户登录后的 AccessToken 用于标记真实已看。用户名和密码会随来源配置保存，用于重新登录和同步观看状态。</p>
                 </div>
                 <div class="emby-server-libraries">
                     <div class="emby-server-libraries-head">
@@ -649,6 +649,7 @@ export class EmbySettings extends BaseSettingsPanel {
                 libraryIds,
                 ...(libraryOptions && libraryOptions.length ? { libraryOptions } : {}),
                 username: server.username ? String(server.username) : undefined,
+                password: server.password ? String(server.password) : undefined,
                 accessToken: server.accessToken ? String(server.accessToken) : undefined,
                 userId: server.userId ? String(server.userId) : undefined,
                 userDisplayName: server.userDisplayName ? String(server.userDisplayName) : undefined,
@@ -667,6 +668,7 @@ export class EmbySettings extends BaseSettingsPanel {
             const apiKey = item.querySelector<HTMLInputElement>('.emby-server-api-key')?.value.trim() || '';
             const enabled = item.querySelector<HTMLInputElement>('.emby-server-enabled')?.checked !== false;
             const username = item.querySelector<HTMLInputElement>('.emby-server-username')?.value.trim() || undefined;
+            const password = item.querySelector<HTMLInputElement>('.emby-server-password')?.value || undefined;
             const accessToken = item.querySelector<HTMLInputElement>('.emby-server-access-token')?.value.trim() || undefined;
             const userId = item.querySelector<HTMLInputElement>('.emby-server-user-id')?.value.trim() || undefined;
             const userDisplayName = item.querySelector<HTMLInputElement>('.emby-server-user-display')?.value.trim() || undefined;
@@ -685,6 +687,7 @@ export class EmbySettings extends BaseSettingsPanel {
                 libraryIds,
                 ...(libraryOptions.length ? { libraryOptions } : {}),
                 username: username || existing?.username,
+                password: password ?? existing?.password,
                 accessToken: accessToken || existing?.accessToken,
                 userId: userId || existing?.userId,
                 userDisplayName: userDisplayName || existing?.userDisplayName,
@@ -833,9 +836,6 @@ export class EmbySettings extends BaseSettingsPanel {
             setHidden('.emby-server-user-id', response.userId);
             setHidden('.emby-server-user-display', response.userName || username);
             setHidden('.emby-server-token-at', String(response.tokenObtainedAt || Date.now()));
-
-            const pwd = item.querySelector<HTMLInputElement>('.emby-server-password');
-            if (pwd) pwd.value = '';
 
             const label = item.querySelector('.emby-user-session-label');
             if (label) {

@@ -42,20 +42,40 @@ export function notifyJavdbTabsSettingsUpdated(): void {
   }
 }
 
-export type DebouncedSaveOptions<T> = {
+export type DebouncedSaveOptions<T, TResult = void> = {
   delayMs: number;
-  persist: (value: T) => Promise<void> | void;
+  persist: (value: T) => Promise<TResult> | TResult;
 };
 
 /**
  * React hook：对表单变更做防抖保存
  */
-export function useDebouncedSettingsSave<T>(options: DebouncedSaveOptions<T>) {
+export function useDebouncedSettingsSave<T, TResult = void>(
+  options: DebouncedSaveOptions<T, TResult>,
+) {
   const { delayMs, persist } = options;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<{ value: T } | null>(null);
+  const persistQueueRef = useRef<Promise<void>>(Promise.resolve());
   const mountedRef = useRef(true);
   const persistRef = useRef(persist);
   persistRef.current = persist;
+
+  const enqueuePersist = useCallback((value: T): Promise<TResult> => {
+    const operation = persistQueueRef.current.then(() => persistRef.current(value));
+    persistQueueRef.current = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }, []);
+
+  const persistPending = useCallback((): Promise<TResult> | null => {
+    const pending = pendingRef.current;
+    if (!pending) return null;
+    pendingRef.current = null;
+    return enqueuePersist(pending.value);
+  }, [enqueuePersist]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -65,18 +85,20 @@ export function useDebouncedSettingsSave<T>(options: DebouncedSaveOptions<T>) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
+      void persistPending();
     };
-  }, []);
+  }, [persistPending]);
 
   const scheduleSave = useCallback(
     (value: T) => {
+      pendingRef.current = { value };
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
         timerRef.current = null;
-        void persistRef.current(value);
+        void persistPending();
       }, delayMs);
     },
-    [delayMs],
+    [delayMs, persistPending],
   );
 
   const flush = useCallback(
@@ -85,9 +107,10 @@ export function useDebouncedSettingsSave<T>(options: DebouncedSaveOptions<T>) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
-      return Promise.resolve(persistRef.current(value));
+      pendingRef.current = null;
+      return enqueuePersist(value);
     },
-    [],
+    [enqueuePersist],
   );
 
   return { scheduleSave, flush, mountedRef };

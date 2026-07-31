@@ -1,0 +1,74 @@
+/**
+ * @file settingsHighlightNotice.css
+ * @description 设置页通用高亮提示块样式
+ * @module apps/dashboard/pages/settings/shared
+ */
+
+.settings-highlight-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 15px;
+  border: 1px solid color-mix(in srgb, var(--color-warning, #d68910) 38%, var(--color-border, #d0d7de));
+  border-radius: var(--radius-3, 12px);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-warning, #d68910) 14%, transparent), transparent 58%),
+    var(--color-surface, var(--surface-primary));
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 8px 20px rgba(15, 23, 42, 0.05);
+}
+
+[data-theme='dark'] .settings-highlight-notice {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.settings-highlight-notice--info {
+  border-color: color-mix(in srgb, var(--color-primary, #3b82f6) 34%, var(--color-border, #d0d7de));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-primary, #3b82f6) 12%, transparent), transparent 58%),
+    var(--color-surface, var(--surface-primary));
+}
+
+.settings-highlight-notice-icon {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-warning, #d68910) 16%, transparent);
+  color: var(--color-warning, #b9770e);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1.45;
+  text-transform: uppercase;
+}
+
+.settings-highlight-notice--info .settings-highlight-notice-icon {
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 14%, transparent);
+  color: var(--color-primary, #2563eb);
+}
+
+.settings-highlight-notice-body {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.settings-highlight-notice-title {
+  margin: 0;
+  color: var(--color-fg, var(--text-primary));
+  font-size: 13.5px;
+  font-weight: 850;
+}
+
+.settings-highlight-notice-text {
+  margin: 0;
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.settings-highlight-notice a {
+  color: var(--color-primary, var(--primary));
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

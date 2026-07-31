@@ -139,7 +139,7 @@ export type EmbyUserLoginResult =
   | { ok: false; error: string };
 
 /**
- * 用户登录媒体服务器：密码仅用于本次请求，返回的 AccessToken 由调用方写入设置
+ * 用户登录媒体服务器：本函数只负责鉴权，来源凭据与返回会话由调用方写入设置
  */
 export async function loginEmbyUser(params: {
   serverUrl: string;

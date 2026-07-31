@@ -17,6 +17,7 @@ import {
   normalizeMediaServers,
   removeMatchUrlAt,
   removeMediaServerAt,
+  clearMediaServerUserSession,
   updateMatchUrlAt,
   updateMediaServerAt,
   validateEmbyForm,
@@ -133,6 +134,53 @@ describe('embySettingsModel', () => {
     expect(servers[0].type).toBe('jellyfin');
     expect(servers[0].enabled).toBe(false);
     expect(servers[0].id).toBeTruthy();
+  });
+
+  it('preserves the saved password through settings normalization and round-trip', () => {
+    const form = mapSettingsToEmbyForm({
+      emby: {
+        mediaServers: [
+          {
+            id: 'saved-login',
+            type: 'emby',
+            name: 'Home',
+            url: 'http://media.local:8096',
+            apiKey: 'api-key',
+            username: 'ryen',
+            password: 'saved-password',
+            enabled: true,
+          },
+        ],
+      },
+    } as any);
+
+    expect(form.mediaServers[0]?.password).toBe('saved-password');
+    expect(
+      (formToEmbySettings(form).mediaServers as Array<{ password?: string }>)[0]?.password,
+    ).toBe('saved-password');
+  });
+
+  it('keeps the saved password when clearing a user session', () => {
+    const server = normalizeMediaServers([
+      {
+        id: 'saved-login',
+        type: 'emby',
+        name: 'Home',
+        url: 'http://media.local:8096',
+        apiKey: 'api-key',
+        username: 'ryen',
+        password: 'saved-password',
+        accessToken: 'session-token',
+        userId: 'user-1',
+        enabled: true,
+      },
+    ])[0];
+
+    const cleared = clearMediaServerUserSession(server);
+
+    expect(cleared.password).toBe('saved-password');
+    expect(cleared.accessToken).toBeUndefined();
+    expect(cleared.userId).toBeUndefined();
   });
 
   it('validates form urls and servers', () => {

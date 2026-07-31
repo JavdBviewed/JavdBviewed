@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file reactFullPageIds.ts
  * @description 完整 React 内容页 id 集合
  * @module apps/dashboard/pages/settings/shared
@@ -16,6 +16,8 @@ export const REACT_FULL_SETTINGS_PAGE_IDS = new Set<string>([
   'cloud-settings',
   // W4.1：115 设置保真 React 全页（用户点验启用）
   'drive115-settings',
+  // 媒体服务器配置已迁移为摘要列表 + 弹窗编辑
+  'emby-settings',
 ]);
 
 /**

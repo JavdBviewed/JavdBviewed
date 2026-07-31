@@ -13,6 +13,7 @@ import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingS
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import type { KeywordFilterRule } from '../../../../../types';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import { SettingsHighlightNotice } from '../shared/SettingsHighlightNotice';
 import { useDebouncedSettingsSave } from '../shared/settingsPersist';
 import {
   exportOrchestrationDiagnostics,
@@ -210,6 +211,18 @@ export function EnhancementSettingsPage() {
       className="enhancement-settings-react"
     >
       <div id="enhancement-settings" className="flex flex-col gap-4" data-settings-page="enhancement">
+        <SettingsHighlightNotice title="功能增强仍在测试中">
+          列表、影片、演员页增强覆盖的站点和页面结构较多，部分能力可能受源站改版影响。遇到异常可以到{' '}
+          <a
+            href="https://github.com/lmixture/JavdBviewed/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub Issues
+          </a>{' '}
+          反馈现象、截图和日志。
+        </SettingsHighlightNotice>
+
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Tabs
             items={ENHANCEMENT_SUBTABS}

@@ -1,6 +1,6 @@
 /**
  * @file cloudSettingsStorage.ts
- * @description Cloud 连接配置（baseUrl / 设备名）本地持久化
+ * @description Cloud 连接配置（地址 / 设备名 / 可恢复账号）本地持久化
  * @module features/cloudSync
  */
 import { getSettings } from '../../utils/storage';
@@ -12,6 +12,10 @@ export type CloudConnectionSettings = {
   baseUrl: string;
   /** 本机设备显示名 */
   deviceLabel: string;
+  /** 用于再次登录的账号名；会随连接配置备份与同步。 */
+  accountIdentifier: string;
+  /** 用于再次登录的密码；会随连接配置备份与同步。 */
+  accountPassword: string;
   /**
    * 稳定设备 id。
    * 优先复用 WebDAV `settings.webdav.clientId`（关于页 Device ID），
@@ -48,6 +52,8 @@ export function createDefaultCloudSettings(sharedDeviceId?: string): CloudConnec
     // 本机 Docker 在 Windows 上常因 8080 被保留而映射到 18080；仍可手改
     baseUrl: 'http://127.0.0.1:18080',
     deviceLabel: '浏览器扩展',
+    accountIdentifier: '',
+    accountPassword: '',
     deviceId: sharedDeviceId?.trim() || randomId(),
     updatedAt: Date.now(),
   };
@@ -81,6 +87,9 @@ export async function loadCloudSettings(): Promise<CloudConnectionSettings> {
             typeof v.deviceLabel === 'string' && v.deviceLabel.trim()
               ? v.deviceLabel.trim()
               : defaults.deviceLabel,
+          accountIdentifier:
+            typeof v.accountIdentifier === 'string' ? v.accountIdentifier.trim() : '',
+          accountPassword: typeof v.accountPassword === 'string' ? v.accountPassword : '',
           deviceId,
           updatedAt: typeof v.updatedAt === 'number' ? v.updatedAt : Date.now(),
         };
@@ -118,6 +127,8 @@ export async function saveCloudSettings(
     ...patch,
     baseUrl: normalizeCloudBaseUrl(patch.baseUrl ?? current.baseUrl),
     deviceLabel: (patch.deviceLabel ?? current.deviceLabel).trim() || current.deviceLabel,
+    accountIdentifier: (patch.accountIdentifier ?? current.accountIdentifier).trim(),
+    accountPassword: patch.accountPassword ?? current.accountPassword,
     deviceId: nextDeviceId,
     updatedAt: Date.now(),
   };

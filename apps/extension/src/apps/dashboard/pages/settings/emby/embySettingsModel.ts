@@ -131,6 +131,7 @@ export function normalizeMediaServer(raw: unknown, index = 0): EmbyMediaServer {
   const libraryIds = normalizeLibraryIds(server.libraryIds);
   const libraryOptions = normalizeLibraryOptions(server.libraryOptions);
   const username = String(server.username || '').trim();
+  const password = String(server.password ?? '');
   const accessToken = String(server.accessToken || '').trim();
   const userId = String(server.userId || '').trim();
   const userDisplayName = String(server.userDisplayName || '').trim();
@@ -145,6 +146,7 @@ export function normalizeMediaServer(raw: unknown, index = 0): EmbyMediaServer {
     ...(libraryIds.length > 0 ? { libraryIds } : {}),
     ...(libraryOptions ? { libraryOptions } : {}),
     ...(username ? { username } : {}),
+    ...(password ? { password } : {}),
     ...(accessToken ? { accessToken } : {}),
     ...(userId ? { userId } : {}),
     ...(userDisplayName ? { userDisplayName } : {}),

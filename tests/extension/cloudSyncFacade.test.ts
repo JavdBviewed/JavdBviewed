@@ -73,4 +73,29 @@ describe('Cloud sync extension facade', () => {
       '请填写有效的 Cloud 地址',
     );
   });
+
+  it('persists configured account credentials with the reusable Cloud connection', async () => {
+    const { createExtensionCloudFacade } = await import(
+      '../../apps/extension/src/features/cloudSync/extensionCloudFacade'
+    );
+    const facade = createExtensionCloudFacade();
+
+    await facade.saveConnection({
+      baseUrl: 'https://cloud.example.com',
+      deviceLabel: '测试扩展',
+      identifier: 'alice',
+      password: 'saved-password',
+    });
+
+    expect(getChromeStorageSnapshot()[CLOUD_SETTINGS_STORAGE_KEY]).toMatchObject({
+      accountIdentifier: 'alice',
+      accountPassword: 'saved-password',
+    });
+    await expect(facade.loadState()).resolves.toMatchObject({
+      settings: {
+        accountIdentifier: 'alice',
+        accountPassword: 'saved-password',
+      },
+    });
+  });
 });

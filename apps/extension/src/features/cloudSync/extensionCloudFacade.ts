@@ -46,6 +46,8 @@ export type CloudLoginInput = {
 export type CloudConnectionInput = {
   baseUrl: string;
   deviceLabel: string;
+  identifier?: string;
+  password?: string;
 };
 
 export type ExtensionCloudFacadeOptions = {
@@ -126,6 +128,10 @@ export function createExtensionCloudFacade(
     return saveCloudSettings({
       baseUrl,
       deviceLabel: input.deviceLabel.trim() || '浏览器扩展',
+      ...(typeof input.identifier === 'string'
+        ? { accountIdentifier: input.identifier.trim() }
+        : {}),
+      ...(typeof input.password === 'string' ? { accountPassword: input.password } : {}),
     });
   }
 
@@ -158,7 +164,10 @@ export function createExtensionCloudFacade(
 
   async function register(input: CloudLoginInput): Promise<void> {
     const credentials = requireCredentials(input);
-    const settings = await loadCloudSettings();
+    const settings = await saveCloudSettings({
+      accountIdentifier: credentials.identifier,
+      accountPassword: credentials.password,
+    });
     const { api } = await createExtensionCloudClient(settings, {
       transport: options.transport,
     });
@@ -167,7 +176,10 @@ export function createExtensionCloudFacade(
 
   async function login(input: CloudLoginInput): Promise<CloudFacadeState> {
     const credentials = requireCredentials(input);
-    const settings = await loadCloudSettings();
+    const settings = await saveCloudSettings({
+      accountIdentifier: credentials.identifier,
+      accountPassword: credentials.password,
+    });
     const { api } = await createExtensionCloudClient(settings, {
       transport: options.transport,
     });

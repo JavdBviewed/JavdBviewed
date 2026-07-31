@@ -13,6 +13,7 @@ import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingS
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import type { EmbyMediaServer, EmbyServerType } from '../../../../../features/embyLibrary/types';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import { SettingsHighlightNotice } from '../shared/SettingsHighlightNotice';
 import {
   getSettings,
   useDebouncedSettingsSave,
@@ -47,6 +48,11 @@ import {
 const AUTO_SAVE_MS = 1000;
 
 type ServerDraft = EmbyMediaServer | null;
+type ServerDeleteTarget = {
+  index: number;
+  server: EmbyMediaServer;
+} | null;
+type SettingsPersistResult = Awaited<ReturnType<typeof persistEmbyForm>>;
 
 /**
  * Emby/Jellyfin 增强设置完整页面
@@ -57,6 +63,8 @@ export function EmbySettingsPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [serverDraft, setServerDraft] = useState<ServerDraft>(null);
   const [editingServerIndex, setEditingServerIndex] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ServerDeleteTarget>(null);
+  const [deletingServer, setDeletingServer] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<LibrarySyncUiState>({ kind: 'idle' });
   const [checkCode, setCheckCode] = useState('');
@@ -69,9 +77,10 @@ export function EmbySettingsPage() {
     const result = await persistEmbyForm(nextForm);
     if (!result.ok) {
       setSaveError(result.error || '保存失败');
-      return;
+      return result;
     }
     setSaveError(null);
+    return result;
   }, []);
 
   const { scheduleSave, flush } = useDebouncedSettingsSave({
@@ -167,14 +176,36 @@ export function EmbySettingsPage() {
     setServerDraft(null);
   };
 
-  const onRemoveServer = (index: number) => {
-    setFormAndSchedule(
-      (prev) => ({
-        ...prev,
-        mediaServers: removeMediaServerAt(prev.mediaServers, index),
-      }),
-      true,
-    );
+  const requestRemoveServer = (index: number) => {
+    const server = formRef.current.mediaServers[index];
+    if (!server) return;
+    setDeleteTarget({ index, server });
+  };
+
+  const onConfirmRemoveServer = async () => {
+    if (!deleteTarget || deletingServer) return;
+    setDeletingServer(true);
+    try {
+      await flush(formRef.current);
+      const nextForm = {
+        ...formRef.current,
+        mediaServers: removeMediaServerAt(formRef.current.mediaServers, deleteTarget.index),
+      };
+      const result = await persistEmbyForm(nextForm);
+      if (!result.ok) {
+        setSaveError(result.error || '删除来源失败');
+        await toast(result.error || '删除来源失败', 'error');
+        return;
+      }
+      formRef.current = nextForm;
+      setForm(nextForm);
+      setSaveError(null);
+      setDeleteTarget(null);
+      setEditingServerIndex(null);
+      await toast('媒体服务器来源已删除', 'success');
+    } finally {
+      setDeletingServer(false);
+    }
   };
 
   const onServerField = (
@@ -187,17 +218,20 @@ export function EmbySettingsPage() {
     }));
   };
 
-  const onServerLoginSuccess = (
+  const onServerLoginSuccess = async (
     index: number,
     patch: Partial<EmbyMediaServer>,
-  ) => {
-    setFormAndSchedule(
-      (prev) => ({
-        ...prev,
-        mediaServers: updateMediaServerAt(prev.mediaServers, index, patch),
-      }),
-      true,
-    );
+  ): Promise<SettingsPersistResult> => {
+    const nextForm = {
+      ...formRef.current,
+      mediaServers: updateMediaServerAt(formRef.current.mediaServers, index, patch),
+    };
+    const saved = await flush(nextForm);
+    if (!saved.ok) return saved;
+
+    formRef.current = nextForm;
+    setForm(nextForm);
+    return saved;
   };
 
   const onServerLogout = (index: number) => {
@@ -284,23 +318,17 @@ export function EmbySettingsPage() {
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>
       ) : (
         <div className="flex flex-col gap-4" id="emby-settings">
-          <SettingSection title="提示">
-            <div className="mx-2 mb-2 flex items-start gap-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[13px] text-[var(--color-fg-muted)]">
-              <span aria-hidden>ℹ</span>
-              <span>
-                影音增强功能可能还存在问题，如遇到任何异常请在{' '}
-                <a
-                  href="https://github.com/lmixture/JavdBviewed/issues"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[var(--color-primary)] underline"
-                >
-                  GitHub Issues
-                </a>{' '}
-                反馈。
-              </span>
-            </div>
-          </SettingSection>
+          <SettingsHighlightNotice title="Emby/Jellyfin 功能仍在测试中">
+            影音增强、媒体库同步和播放状态写回仍在持续打磨。遇到识别、同步或播放异常，可以到{' '}
+            <a
+              href="https://github.com/lmixture/JavdBviewed/issues"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub Issues
+            </a>{' '}
+            反馈现象、截图和日志。
+          </SettingsHighlightNotice>
 
           <SettingSection title="基本设置">
             <SettingToggleRow
@@ -332,15 +360,14 @@ export function EmbySettingsPage() {
                   key={server.id || 'server-' + index}
                   server={server}
                   index={index}
-                  disabled={!enabled}
                   onEdit={() => setEditingServerIndex(index)}
+                  onRemove={() => requestRemoveServer(index)}
                 />
               ))}
             </div>
 
             <MediaServerCreateDialog
               draft={serverDraft}
-              disabled={!enabled}
               onChange={setServerDraft}
               onConfirm={() => void onConfirmCreate()}
               onCancel={onCancelCreate}
@@ -349,22 +376,24 @@ export function EmbySettingsPage() {
             <MediaServerEditDialog
               server={editingServer}
               index={editingServerIndex}
-              disabled={!enabled}
               onClose={() => setEditingServerIndex(null)}
               onChange={(index, patch) => onServerField(index, patch)}
-              onRemove={(index) => {
-                onRemoveServer(index);
-                setEditingServerIndex(null);
-              }}
+              onRemove={requestRemoveServer}
               onLoginSuccess={(index, patch) => onServerLoginSuccess(index, patch)}
               onLogout={(index) => onServerLogout(index)}
+            />
+
+            <MediaServerDeleteConfirmDialog
+              target={deleteTarget}
+              deleting={deletingServer}
+              onCancel={() => setDeleteTarget(null)}
+              onConfirm={() => void onConfirmRemoveServer()}
             />
 
             <div className="flex flex-wrap gap-2 px-2 py-2">
               <Button
                 id="add-emby-media-server"
                 variant="secondary"
-                disabled={!enabled}
                 onClick={onAddServer}
               >
                 添加服务器
@@ -611,15 +640,15 @@ type MediaServerRowProps = {
   disabled?: boolean;
   onChange: (patch: Partial<EmbyMediaServer>) => void;
   onRemove: () => void;
-  onLoginSuccess: (patch: Partial<EmbyMediaServer>) => void;
+  onLoginSuccess: (patch: Partial<EmbyMediaServer>) => Promise<SettingsPersistResult>;
   onLogout: () => void;
 };
 
 type MediaServerSummaryRowProps = {
   server: EmbyMediaServer;
   index: number;
-  disabled?: boolean;
   onEdit: () => void;
+  onRemove: () => void;
 };
 
 type MediaServerCreateDialogProps = {
@@ -637,15 +666,25 @@ type MediaServerEditDialogProps = {
   onClose: () => void;
   onChange: (index: number, patch: Partial<EmbyMediaServer>) => void;
   onRemove: (index: number) => void;
-  onLoginSuccess: (index: number, patch: Partial<EmbyMediaServer>) => void;
+  onLoginSuccess: (
+    index: number,
+    patch: Partial<EmbyMediaServer>,
+  ) => Promise<SettingsPersistResult>;
   onLogout: (index: number) => void;
+};
+
+type MediaServerDeleteConfirmDialogProps = {
+  target: ServerDeleteTarget;
+  deleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
 };
 
 function MediaServerSummaryRow({
   server,
   index,
-  disabled,
   onEdit,
+  onRemove,
 }: MediaServerSummaryRowProps) {
   const displayName = server.name.trim() || (server.type === 'jellyfin' ? 'Jellyfin' : 'Emby');
   const serverType = server.type === 'jellyfin' ? 'Jellyfin' : 'Emby';
@@ -688,10 +727,61 @@ function MediaServerSummaryRow({
           </span>
         </div>
       </div>
-      <Button variant="secondary" size="sm" disabled={disabled} onClick={onEdit}>
-        编辑
-      </Button>
+      <div className="flex shrink-0 gap-2">
+        <Button variant="secondary" size="sm" onClick={onEdit}>
+          编辑
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onRemove}>
+          删除
+        </Button>
+      </div>
     </div>
+  );
+}
+
+function MediaServerDeleteConfirmDialog({
+  target,
+  deleting,
+  onCancel,
+  onConfirm,
+}: MediaServerDeleteConfirmDialogProps) {
+  const displayName = target
+    ? target.server.name.trim() || (target.server.type === 'jellyfin' ? 'Jellyfin' : 'Emby')
+    : '';
+  const serverUrl = target?.server.url.trim() || '未填写服务器地址';
+
+  return (
+    <Modal
+      open={Boolean(target)}
+      title="确认删除媒体服务器"
+      onClose={deleting ? () => undefined : onCancel}
+      className="emby-server-delete-modal"
+      footer={
+        <>
+          <Button variant="secondary" disabled={deleting} onClick={onCancel}>
+            取消
+          </Button>
+          <Button variant="danger" disabled={deleting} onClick={onConfirm}>
+            {deleting ? '删除中…' : '确认删除'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="m-0 text-[13px] leading-6 text-[var(--color-fg)]">
+          将从扩展设置中删除来源“{displayName}”。
+        </p>
+        <div className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2">
+          <div className="font-semibold text-[var(--color-fg)]">{displayName}</div>
+          <div className="mt-1 break-all font-mono text-[12px] text-[var(--color-fg-muted)]">
+            {serverUrl}
+          </div>
+        </div>
+        <p className="m-0 text-[12px] leading-5 text-[var(--color-fg-muted)]">
+          此操作不会删除本地媒体索引，也不会删除服务器中的影片文件。
+        </p>
+      </div>
+    </Modal>
   );
 }
 
@@ -707,7 +797,7 @@ function MediaServerCreateDialog({
       open={Boolean(draft)}
       title="添加媒体服务器"
       onClose={onCancel}
-      className="emby-server-create-modal max-h-[calc(100vh-2rem)] max-w-3xl overflow-y-auto"
+      className="emby-server-create-modal max-h-[calc(100vh-2rem)] !max-w-[96rem] overflow-y-auto"
     >
       {draft ? (
         <MediaServerCreateRow
@@ -741,7 +831,7 @@ function MediaServerEditDialog({
       open={Boolean(server) && index != null}
       title={title}
       onClose={onClose}
-      className="emby-server-edit-modal max-h-[calc(100vh-2rem)] max-w-3xl overflow-y-auto"
+      className="emby-server-edit-modal max-h-[calc(100vh-2rem)] !max-w-[96rem] overflow-y-auto"
     >
       {server && index != null ? (
         <MediaServerRow
@@ -781,12 +871,16 @@ function SecretField({
   onChange: (value: string) => void;
 }) {
   const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    setVisible(false);
+  }, [id]);
+
   return (
     <SettingField id={id} label={label}>
-      <div className="flex gap-2">
+      <div className="relative">
         <Input
           id={id}
-          className="min-w-0 flex-1"
+          className="min-w-0 w-full pr-11"
           type={visible ? 'text' : 'password'}
           disabled={disabled}
           placeholder={placeholder}
@@ -796,14 +890,16 @@ function SecretField({
         />
         <Button
           type="button"
-          variant="secondary"
+          variant="ghost"
           size="sm"
+          className="absolute right-1 top-1/2 w-8 -translate-y-1/2 px-0"
           disabled={disabled}
           aria-label={visible ? `隐藏${label}` : `显示${label}`}
           title={visible ? `隐藏${label}` : `显示${label}`}
+          aria-pressed={visible}
           onClick={() => setVisible((v) => !v)}
         >
-          {visible ? '隐藏' : '显示'}
+          <i className={visible ? 'fas fa-eye-slash' : 'fas fa-eye'} aria-hidden="true" />
         </Button>
       </div>
     </SettingField>
@@ -821,7 +917,6 @@ function MediaServerRow({
 }: MediaServerRowProps) {
   const idBase = `emby-server-${server.id || index}`;
   const [loginUsername, setLoginUsername] = useState(server.username || '');
-  const [loginPassword, setLoginPassword] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const userLoggedIn = Boolean(server.accessToken && server.userId);
   const sessionLabel = userLoggedIn
@@ -839,21 +934,25 @@ function MediaServerRow({
       const result = await loginEmbyUser({
         serverUrl: server.url,
         username: loginUsername,
-        password: loginPassword,
+        password: server.password || '',
       });
       if (!result.ok) {
         await toast(`登录失败：${result.error}`, 'error');
         return;
       }
-      setLoginPassword('');
-      onLoginSuccess({
+      const saved = await onLoginSuccess({
         username: result.username,
+        password: server.password || '',
         accessToken: result.accessToken,
         userId: result.userId,
         userDisplayName: result.userName || result.username,
         tokenObtainedAt: result.tokenObtainedAt,
       });
-      await toast('用户登录成功，已保存访问令牌（可用于写回真实已看）', 'success');
+      if (!saved.ok) {
+        await toast(`登录成功，但来源配置保存失败：${saved.error || '请稍后重试'}`, 'error');
+        return;
+      }
+      await toast('用户登录成功，来源凭据与访问令牌已保存', 'success');
     } finally {
       setLoggingIn(false);
     }
@@ -958,10 +1057,10 @@ function MediaServerRow({
             id={`${idBase}-password`}
             label="密码"
             disabled={disabled || loggingIn}
-            placeholder="仅用于本次登录，不会写入设置"
+            placeholder="用于登录并保存到此来源"
             autoComplete="current-password"
-            value={loginPassword}
-            onChange={setLoginPassword}
+            value={server.password || ''}
+            onChange={(value) => onChange({ password: value })}
           />
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
@@ -983,7 +1082,7 @@ function MediaServerRow({
           </Button>
         </div>
         <p className="m-0 mt-2 text-[12px] leading-5 text-[var(--color-fg-muted)]">
-          API Key 负责扫库；用户登录后的 AccessToken 用于标记真实已看。密码仅用于本次登录请求，不会写入设置。
+          API Key 负责扫库；用户登录后的 AccessToken 用于标记真实已看。用户名和密码会随来源配置保存，用于重新登录和同步观看状态。
         </p>
       </div>
     </div>
