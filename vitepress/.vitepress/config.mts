@@ -20,12 +20,21 @@ export default withMermaid(defineConfig({
     nav: [
       { text: '首页', link: '/' },
       { text: '快速开始', link: '/guide/quick-start' },
+      { text: '下载', link: '/download/' },
       { text: '使用教程', link: '/guide/' },
       { text: '版本发布', link: '/reference/changelog' },
       { text: '开发文档', link: '/developer/' },
       { text: 'GitHub', link: 'https://github.com/lmixture/JavdBviewed' }
     ],
     sidebar: {
+      '/download/': [
+        {
+          text: '下载与更新',
+          items: [
+            { text: 'Cloud 容器', link: '/download/' }
+          ]
+        }
+      ],
       '/guide/': [
         {
           text: '开始使用',
