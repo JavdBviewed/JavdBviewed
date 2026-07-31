@@ -121,3 +121,7 @@ plans/
 
 # Local AI planning artifacts
 docs/superpowers/
+
+# Local browser profiles for extension E2E/manual testing
+.test-profiles/
+test-results/extension-e2e/

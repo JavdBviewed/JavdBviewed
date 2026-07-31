@@ -184,14 +184,16 @@ describe('Dashboard 9C navigation runtime', () => {
     expect(backupPage).toBeTruthy();
     expect(host.querySelector('.backup-panels')).toBeNull();
     expect(host.querySelectorAll('.backup-panel')).toHaveLength(0);
-    expect(backupPage?.querySelectorAll('.backup-section')).toHaveLength(2);
+    expect(backupPage?.querySelectorAll('.backup-section')).toHaveLength(3);
     expect(backupHtml).toContain('备份与恢复');
     expect(backupHtml).toContain('本地备份');
     expect(backupHtml).toContain('WebDAV 云端备份');
+    expect(backupHtml).toContain('数据维护');
     expect(backupHtml).toContain('id="importFile"');
     expect(backupHtml).toContain('id="exportBtn"');
     expect(backupHtml).toContain('id="syncNow"');
     expect(backupHtml).toContain('id="syncDown"');
+    expect(backupHtml).toContain('id="cleanupInjectedSourceTags"');
     expect(backupHtml).toContain('id="lastSyncTime"');
     expect(backupHtml).toContain('id="syncIndicator"');
   });

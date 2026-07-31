@@ -2,6 +2,7 @@
  * @file resumePrompt.test.ts
  * @description 恢复上次页面气泡：自动隐藏
  * @module dashboard/lastPage
+ * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
