@@ -62,6 +62,7 @@ javdb-backup_*.json
 !vitepress/.vitepress/
 !vitepress/.vitepress/*.mts
 vitepress/.vitepress/cache/
+vitepress/.vitepress/dist/
 
 # 参考文档
 !reference/
@@ -93,6 +94,7 @@ vitepress/.vitepress/cache/
 # Temp files
 temp/
 tmp/
+.tmp-emby-probe/
 *debug*.html
 *test*.html
 *temp*.html
@@ -124,4 +126,4 @@ docs/superpowers/
 
 # Local browser profiles for extension E2E/manual testing
 .test-profiles/
-test-results/extension-e2e/
+test-results/
