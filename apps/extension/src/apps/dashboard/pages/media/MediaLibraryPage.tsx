@@ -1598,6 +1598,7 @@ export function MediaLibraryPage() {
             onPlayCopy={(copy, opts) => {
               const it = detailItem;
               if (!it) return;
+              setDetailItem(null);
               playResolvedItem(mediaCopyToBrowseItem(it, copy), {
                 startTimeSeconds: opts?.startTimeSeconds,
                 highlights: opts?.highlights,

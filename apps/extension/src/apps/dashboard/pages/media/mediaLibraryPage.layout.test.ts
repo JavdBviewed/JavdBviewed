@@ -308,15 +308,14 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(source).toContain('不可播放的副本会保留在列表中，并说明原因');
   });
 
-  it('keeps source selection inside the detail window while card playback still uses the overlay', () => {
+  it('closes detail before opening the shared player from an exact source copy', () => {
     const detailSource = readFileSync(join(here, 'MediaItemDetailPanel.tsx'), 'utf-8');
     expect(detailSource).toContain('ml-detail-play-menu');
     expect(detailSource).toContain('选择播放来源');
     expect(detailSource).toContain('setShowPlaybackMenu');
     expect(detailSource).toContain('onPlayCopy?.(copy');
     expect(source).toContain('data-media-source-choice="1"');
-    expect(source).toContain('playResolvedItem(mediaCopyToBrowseItem(it, copy)');
-    expect(source).not.toContain('setDetailItem(null);\n              requestPlayback(mediaCopyToBrowseItem(it, copy)');
+    expect(source).toContain('setDetailItem(null);\n              playResolvedItem(mediaCopyToBrowseItem(it, copy)');
   });
 
   it('lists all card sources and lets the detail panel play an exact source copy', () => {
