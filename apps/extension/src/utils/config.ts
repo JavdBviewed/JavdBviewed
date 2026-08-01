@@ -72,6 +72,8 @@ export const STORAGE_KEYS = {
     DRIVE115_LIBRARY_INDEX_CHECKPOINT: 'drive115_library_index_checkpoint',
     // 115 片库上一轮索引结果明细报告（入库/跳过明细，供详情窗口下钻）
     DRIVE115_LIBRARY_INDEX_REPORT: 'drive115_library_index_report',
+    // 115 片库最近索引记录（仅本机诊断，用于回看暂停、失败和完成结果）
+    DRIVE115_LIBRARY_INDEX_HISTORY: 'drive115_library_index_history',
 
     // 媒体库：真实已看 → 115 待清理清单
     MEDIA_115_CLEANUP_LIST: 'media_115_cleanup_list',

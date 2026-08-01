@@ -170,6 +170,10 @@ export type Drive115IndexCheckpoint = {
   rootCids: string[];
   scanDepth: number;
   nextRootIndex: number;
+  /** 当前根目录的一级目录是否已全部按页发现。旧检查点默认为已完成，保持向后兼容。 */
+  rootListingComplete?: boolean;
+  /** 一级目录发现尚未读取的下一页 offset；只在 rootListingComplete=false 时有效。 */
+  nextRootOffset?: number;
   pendingQueue: Drive115IndexQueueItem[];
   stats: Drive115LibraryIndexStats;
   containerFoldersSeen: number;
@@ -204,16 +208,12 @@ export const DEFAULT_DRIVE115_LIBRARY_STATE: Drive115LibraryIndexState = {
 
 /** MVP 限频与保护参数 */
 export const DRIVE115_INDEX_LIMITS = {
-  /** 单次刷新最多扫描的影片文件夹数 */
-  maxFolders: 300,
   /** 根目录之间最小间隔 ms */
   rootIntervalMs: 400,
   /** 子目录 list 最小间隔 ms */
   folderIntervalMs: 250,
   /** 连续限流错误达到此数则熔断 */
   circuitBreakerThreshold: 3,
-  /** Maximum container/category folders to inspect in one run. */
-  maxContainerFolders: 600,
   /** listFiles 每页 limit */
   pageLimit: 1150,
 } as const;

@@ -325,12 +325,28 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
     '115 片库索引进行中进度只服务当前设备 Dashboard 实时展示。',
   ),
   chromeStorage(
+    'storage.drive115LibraryIndexCheckpoint',
+    STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_CHECKPOINT,
+    'runtime',
+    { backup: false, restore: false, restoreMode: 'skip' },
+    { full: false, incremental: false },
+    '115 片库限流暂停后的恢复位置只在当前设备有效，恢复后会自动清除。',
+  ),
+  chromeStorage(
     'storage.drive115LibraryIndexReport',
     STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_REPORT,
     'diagnostic',
     { backup: false, restore: false, restoreMode: 'skip' },
     { full: false, incremental: false },
     '115 片库上一轮索引报告用于本机排查，可重新索引生成。',
+  ),
+  chromeStorage(
+    'storage.drive115LibraryIndexHistory',
+    STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_HISTORY,
+    'diagnostic',
+    { backup: false, restore: false, restoreMode: 'skip' },
+    { full: false, incremental: false },
+    '115 片库索引记录用于本机回看完成、暂停与失败原因，不参与跨端同步。',
   ),
   chromeStorage(
     'storage.media115CleanupList',

@@ -19,6 +19,7 @@ import {
 } from './store';
 import type {
   Drive115IndexCheckpoint,
+  Drive115IndexReport,
   Drive115IndexProgressSnapshot,
   Drive115IndexResult,
   Drive115LibraryIndexState,
@@ -59,6 +60,7 @@ function readRawCode(raw: Drive115V2FileListResponse | undefined): number | unde
 let indexingPromise: Promise<Drive115IndexResult> | null = null;
 let cancelIndexRequested = false;
 let indexAbortController: AbortController | null = null;
+const INDEX_HISTORY_LIMIT = 20;
 
 function log115(level: 'info' | 'warn' | 'error' | 'debug', message: string, data?: unknown): void {
   const text = `[115] ${message}`;
@@ -167,6 +169,22 @@ async function clearScheduledIndexResume(): Promise<void> {
     await chrome?.alarms?.clear?.(DRIVE115_LIBRARY_INDEX_RESUME_ALARM);
   } catch {
     // alarm 不可用时仅清除持久化检查点
+  }
+}
+
+/** 仅保留最近 20 次本机索引记录，错误不再长期占据设置主面板。 */
+async function appendDrive115IndexHistory(report: Drive115IndexReport): Promise<void> {
+  try {
+    const previous = await getValue<unknown>(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_HISTORY, []);
+    const existing = Array.isArray(previous)
+      ? previous.filter((item): item is Drive115IndexReport => !!item && typeof item === 'object')
+      : [];
+    const history = [report, ...existing.filter((item) => (
+      item.startedAt !== report.startedAt || item.finishedAt !== report.finishedAt
+    ))].slice(0, INDEX_HISTORY_LIMIT);
+    await setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_HISTORY, history);
+  } catch (error) {
+    log115('debug', '写入索引记录失败', error);
   }
 }
 
@@ -460,6 +478,7 @@ export async function runDrive115MediaLibraryIndex(
       // 落盘本轮结果明细报告（走同一条链，最终态覆盖进行中快照），供设置页详情窗口下钻
       if (result.report) {
         await enqueueReport(result.report);
+        await appendDrive115IndexHistory(result.report);
       }
       return result;
     } catch (e: unknown) {

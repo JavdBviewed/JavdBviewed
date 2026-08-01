@@ -42,7 +42,9 @@ export type IndexDrive115RootsDeps = {
   listFiles: ListFilesFn;
   roots: Drive115MediaLibraryRoot[];
   previous?: Drive115LibraryIndexState | null;
+  /** @deprecated 保留调用兼容；索引不再按影片数量截断。 */
   maxFolders?: number;
+  /** @deprecated 保留调用兼容；索引不再按分类目录数量截断。 */
   maxContainerFolders?: number;
   scanDepth?: number;
   now?: () => number;
@@ -229,8 +231,6 @@ export async function indexDrive115Roots(
   deps: IndexDrive115RootsDeps,
 ): Promise<Drive115IndexResult> {
   const now = deps.now || (() => Date.now());
-  const maxFolders = deps.maxFolders ?? DRIVE115_INDEX_LIMITS.maxFolders;
-  const maxContainerFolders = deps.maxContainerFolders ?? DRIVE115_INDEX_LIMITS.maxContainerFolders;
   const scanDepth = clampScanDepth(deps.scanDepth);
   const enabledRoots = (deps.roots || []).filter((r) => r && r.enabled !== false && String(r.cid || '').trim());
   const previous = deps.previous || null;
@@ -258,6 +258,8 @@ export async function indexDrive115Roots(
   let containerFoldersSeen = checkpoint?.containerFoldersSeen || 0;
   let checkpointQueue: FolderQueueItem[] = checkpoint ? [...checkpoint.pendingQueue] : [];
   let checkpointRootIndex = checkpoint?.nextRootIndex || 0;
+  let checkpointRootListingComplete = checkpoint?.rootListingComplete ?? Boolean(checkpointQueue.length);
+  let checkpointRootOffset = checkpoint?.nextRootOffset || 0;
 
   // 结果明细报告：入库/跳过明细 + 分原因计数（明细列表有上限，总数不受截断影响）
   const REPORT_LIST_CAP = 500;
@@ -342,6 +344,8 @@ export async function indexDrive115Roots(
     rootCids: enabledRoots.map((root) => String(root.cid).trim()),
     scanDepth,
     nextRootIndex: checkpointRootIndex,
+    rootListingComplete: checkpointRootListingComplete,
+    nextRootOffset: checkpointRootOffset,
     pendingQueue: [...checkpointQueue],
     stats: { ...stats },
     containerFoldersSeen,
@@ -408,6 +412,7 @@ export async function indexDrive115Roots(
   const listFilesWithRetry = async (params: {
     cid: string;
     name: string;
+    offset?: number;
     fallbackMessage: string;
     beforeCall: () => Promise<void>;
   }): Promise<Awaited<ReturnType<ListFilesFn>> | null> => {
@@ -422,7 +427,7 @@ export async function indexDrive115Roots(
         result = await deps.listFiles({
           cid: params.cid,
           limit: DRIVE115_INDEX_LIMITS.pageLimit,
-          offset: 0,
+          offset: params.offset || 0,
           signal: deps.signal,
         });
       } catch (e: unknown) {
@@ -475,10 +480,14 @@ export async function indexDrive115Roots(
     }
   };
 
-  const listRoot = async (cid: string): Promise<Array<Record<string, unknown>> | null> => {
+  const listRootPage = async (
+    cid: string,
+    offset: number,
+  ): Promise<Array<Record<string, unknown>> | null> => {
     const rootList = await listFilesWithRetry({
       cid,
-      name: `根目录 ${cid}`,
+      name: `根目录 ${cid}（第 ${Math.floor(offset / DRIVE115_INDEX_LIMITS.pageLimit) + 1} 页）`,
+      offset,
       fallbackMessage: '列出根目录失败',
       beforeCall: () => rate.beforeRootCall(),
     });
@@ -554,27 +563,50 @@ export async function indexDrive115Roots(
     if (!root) continue;
     const rootCid = String(root.cid).trim();
     try {
-      const usesCheckpointQueue = checkpoint && rootIndex === checkpointRootIndex && checkpointQueue.length > 0;
-      const rootData = usesCheckpointQueue ? null : await listRoot(rootCid);
-      if (hardError) break outer;
-      if (!usesCheckpointQueue && !rootData) {
-        rootsDone += 1;
-        continue;
-      }
-
-      const queue: FolderQueueItem[] = usesCheckpointQueue
-        ? [...checkpointQueue]
-        : splitFolders(rootData || []).map((folder) => {
-        const cid = folderId(folder);
-        return {
-          cid,
-          name: folderName(folder) || cid,
-          depth: 1,
-          rootCid,
-        };
-        }).filter((item) => item.cid);
+      const resumesCurrentRoot = checkpoint && rootIndex === checkpointRootIndex;
+      const queue: FolderQueueItem[] = resumesCurrentRoot ? [...checkpointQueue] : [];
+      const queuedCids = new Set(queue.map((item) => item.cid));
+      let rootListingComplete = resumesCurrentRoot ? checkpointRootListingComplete : false;
+      let rootOffset = resumesCurrentRoot ? checkpointRootOffset : 0;
       checkpointRootIndex = rootIndex;
       checkpointQueue = [...queue];
+
+      // 先完整发现根目录的一级目录。每页最多 1150 项；限流时保存 offset 和已发现队列，
+      // 恢复后直接请求未完成页，不会重复读取已完成页。
+      while (!rootListingComplete) {
+        checkpointRootListingComplete = false;
+        checkpointRootOffset = rootOffset;
+        const rootData = await listRootPage(rootCid, rootOffset);
+        if (hardError) break outer;
+        if (!rootData) {
+          rootsDone += 1;
+          checkpointRootIndex = rootIndex + 1;
+          checkpointRootListingComplete = false;
+          checkpointRootOffset = 0;
+          checkpointQueue = [];
+          continue outer;
+        }
+        for (const folder of splitFolders(rootData)) {
+          const cid = folderId(folder);
+          if (!cid || queuedCids.has(cid)) continue;
+          queuedCids.add(cid);
+          queue.push({
+            cid,
+            name: folderName(folder) || cid,
+            depth: 1,
+            rootCid,
+          });
+        }
+        checkpointQueue = [...queue];
+        if (rootData.length < DRIVE115_INDEX_LIMITS.pageLimit) {
+          rootListingComplete = true;
+          checkpointRootListingComplete = true;
+          checkpointRootOffset = 0;
+        } else {
+          rootOffset += rootData.length;
+          checkpointRootOffset = rootOffset;
+        }
+      }
 
       for (let index = 0; index < queue.length; index += 1) {
         if (rate.isTripped()) {
@@ -582,11 +614,6 @@ export async function indexDrive115Roots(
           break outer;
         }
         if (requestCancel()) break outer;
-        if (stats.foldersSeen >= maxFolders) {
-          stats.truncatedFolders += queue.length - index;
-          bumpReason('max_folders', queue.length - index);
-          break outer;
-        }
         const item = queue[index];
         if (!item || !item.cid) continue;
         checkpointQueue = queue.slice(index);
@@ -611,11 +638,6 @@ export async function indexDrive115Roots(
         const childFolders = splitFolders(listed.data);
         const childFiles = splitFiles(listed.data);
         if (item.depth < scanDepth && childFolders.length > 0) {
-          if (containerFoldersSeen >= maxContainerFolders) {
-            stats.truncatedFolders += queue.length - index;
-            bumpReason('container_cap', queue.length - index);
-            break outer;
-          }
           containerFoldersSeen += 1;
           const nestedItems: FolderQueueItem[] = [];
           for (const child of childFolders) {
@@ -649,6 +671,8 @@ export async function indexDrive115Roots(
       rootsDone += 1;
       checkpointRootIndex = rootIndex + 1;
       checkpointQueue = [];
+      checkpointRootListingComplete = false;
+      checkpointRootOffset = 0;
       deps.onProgress?.({
         phase: 'root',
         message: `根目录完成：${root.path || root.name || rootCid}`,
@@ -705,7 +729,9 @@ export async function indexDrive115Roots(
       cancelled,
       state,
       report: finalizeReport(),
-      checkpoint: resumable && !cancelled && checkpointQueue.length ? buildCheckpoint() : undefined,
+      checkpoint: resumable && !cancelled && (checkpointQueue.length > 0 || !checkpointRootListingComplete)
+        ? buildCheckpoint()
+        : undefined,
       resumable: resumable && !cancelled,
       message: detail,
     };

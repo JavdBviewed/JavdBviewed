@@ -19,16 +19,25 @@ import { indexDrive115Roots } from './indexer';
 import { loadDrive115LibraryState, saveDrive115LibraryState } from './store';
 
 const storageMock = vi.hoisted(() => {
-  const state: { progress: unknown; checkpoint: unknown } = { progress: null, checkpoint: null };
-  const setValue = vi.fn(async (_key: string, value: unknown) => {
-    state.progress = value;
+  const state: { progress: unknown; checkpoint: unknown; history: unknown } = {
+    progress: null,
+    checkpoint: null,
+    history: null,
+  };
+  const setValue = vi.fn(async (key: string, value: unknown) => {
+    if (key === 'drive115_library_index_history') state.history = value;
+    else state.progress = value;
   });
-  return { state, setValue };
+  const getValue = vi.fn(async (key: string, fallback: unknown) => {
+    if (key === 'drive115_library_index_history') return state.history ?? fallback;
+    return state.progress ?? fallback;
+  });
+  return { state, setValue, getValue };
 });
 
 vi.mock('../../../utils/storage', () => ({
   getSettings: vi.fn(),
-  getValue: vi.fn(async (_key: string, fallback: unknown) => storageMock.state.progress ?? fallback),
+  getValue: storageMock.getValue,
   saveSettings: vi.fn(),
   setValue: storageMock.setValue,
 }));
@@ -100,6 +109,7 @@ describe('handleDrive115MediaLibraryCancelIndex', () => {
     vi.clearAllMocks();
     storageMock.state.progress = null;
     storageMock.state.checkpoint = null;
+    storageMock.state.history = null;
     vi.mocked(loadDrive115LibraryState).mockResolvedValue(emptyState);
     vi.mocked(saveDrive115LibraryState).mockResolvedValue(undefined);
     vi.mocked(getSettings).mockResolvedValue({
@@ -191,6 +201,7 @@ describe('handleDrive115MediaLibraryIndex incremental persistence', () => {
     vi.clearAllMocks();
     storageMock.state.progress = null;
     storageMock.state.checkpoint = null;
+    storageMock.state.history = null;
     vi.mocked(loadDrive115LibraryState).mockResolvedValue(emptyState);
     vi.mocked(saveDrive115LibraryState).mockResolvedValue(undefined);
     vi.mocked(getSettings).mockResolvedValue({
@@ -235,6 +246,76 @@ describe('handleDrive115MediaLibraryIndex incremental persistence', () => {
     expect(saveDrive115LibraryState).toHaveBeenCalledWith(finalState);
     const calls = vi.mocked(saveDrive115LibraryState).mock.calls.map((c) => c[0]);
     expect(calls.indexOf(partial)).toBeLessThan(calls.indexOf(finalState));
+  });
+
+  it('adds each completed index report to local history for later review', async () => {
+    const report = {
+      indexed: [],
+      skipped: [],
+      indexedTotal: 1,
+      skippedTotal: 0,
+      skipReasonCounts: {},
+      truncatedList: false,
+      rootsTotal: 1,
+      rootsDone: 1,
+      apiCalls: 2,
+      truncatedFolders: 0,
+      startedAt: 100,
+      finishedAt: 200,
+    };
+    vi.mocked(indexDrive115Roots).mockResolvedValue({
+      success: true,
+      keptPrevious: false,
+      state: { ...emptyState, updatedAt: 200 },
+      report,
+      message: '索引完成：1 条',
+    });
+
+    await callIndex();
+
+    expect(storageMock.setValue).toHaveBeenLastCalledWith(
+      STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_HISTORY,
+      [report],
+    );
+  });
+
+  it('keeps only the most recent 20 index reports', async () => {
+    const report = {
+      indexed: [],
+      skipped: [],
+      indexedTotal: 21,
+      skippedTotal: 0,
+      skipReasonCounts: {},
+      truncatedList: false,
+      rootsTotal: 1,
+      rootsDone: 1,
+      apiCalls: 21,
+      truncatedFolders: 0,
+      startedAt: 1000,
+      finishedAt: 1100,
+    };
+    const existing = Array.from({ length: 20 }, (_, index) => ({
+      ...report,
+      startedAt: index,
+      finishedAt: index + 1,
+    }));
+    storageMock.state.history = existing;
+    vi.mocked(indexDrive115Roots).mockResolvedValue({
+      success: true,
+      keptPrevious: false,
+      state: { ...emptyState, updatedAt: 1100 },
+      report,
+      message: '索引完成：21 条',
+    });
+
+    await callIndex();
+
+    const historyCall = vi.mocked(storageMock.setValue).mock.calls.find(
+      ([key]) => key === STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_HISTORY,
+    );
+    expect(historyCall?.[1]).toHaveLength(20);
+    expect((historyCall?.[1] as Array<typeof report>)[0]).toEqual(report);
+    expect((historyCall?.[1] as Array<typeof report>)[19]?.startedAt).toBe(18);
   });
 
   it('indexes selected root cids and preserves entries from unselected roots', async () => {

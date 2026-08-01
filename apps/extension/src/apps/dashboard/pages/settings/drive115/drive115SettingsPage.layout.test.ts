@@ -10,6 +10,10 @@ import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pageSource = readFileSync(join(here, 'Drive115SettingsPage.tsx'), 'utf8');
+const handlersSource = readFileSync(
+  join(here, '../../../../../features/drive115/mediaLibrary/handlers.ts'),
+  'utf8',
+);
 const driveCssSource = readFileSync(
   join(here, '../../../../../dashboard/styles/05-pages/settings/drive115.css'),
   'utf8',
@@ -73,11 +77,22 @@ describe('Drive115SettingsPage layout', () => {
   });
 
   it('exposes an index result detail window fed by the report storage key', () => {
-    expect(pageSource).toContain('id="drive115ViewIndexReport"');
+    expect(pageSource).toContain('id="drive115ViewLastIndexReport"');
     expect(pageSource).toContain('Drive115IndexReportModal');
     expect(pageSource).toContain('STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_REPORT');
     // 跳过原因分组标签存在
     expect(pageSource).toContain('SKIP_REASON_LABELS');
+  });
+
+  it('keeps completed index errors in an index history dialog instead of the main status panel', () => {
+    expect(pageSource).toContain('索引记录');
+    expect(pageSource).toContain('STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_HISTORY');
+    expect(handlersSource).toContain('INDEX_HISTORY_LIMIT = 20');
+    expect(pageSource).toContain('id="drive115ViewLastIndexReport"');
+    expect(pageSource).toContain('id="drive115ViewIndexHistory"');
+    expect(pageSource).toContain('上次记录');
+    expect(pageSource).toContain('索引历史');
+    expect(pageSource).not.toContain('单次最多 300 个影片文件夹');
   });
 
   it('keeps each skip reason together with its matching folder details', () => {

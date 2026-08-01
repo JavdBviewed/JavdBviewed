@@ -320,6 +320,156 @@ describe('indexDrive115Roots', () => {
     expect(listFiles).toHaveBeenCalledWith(expect.objectContaining({ cid: 'movie-1' }));
   });
 
+  it('indexes every discovered movie folder instead of stopping at the former 300-folder ceiling', async () => {
+    const directFolders = Array.from({ length: 301 }, (_, index) => ({
+      fc: '0',
+      cid: `movie-${index + 1}`,
+      fn: `SSIS-${String(index + 1).padStart(3, '0')}`,
+    }));
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles: async ({ cid }) => {
+        if (cid === 'root') return { success: true, data: directFolders };
+        return {
+          success: true,
+          data: [{ fc: '1', fid: `${cid}-video`, fn: `${cid}.mp4`, fs: 10, pc: `${cid}-pick` }],
+        };
+      },
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.state.entries).toHaveLength(301);
+    expect(result.state.stats.truncatedFolders).toBe(0);
+  });
+
+  it('continues root discovery from the next 1150-item page before indexing the full queue', async () => {
+    const firstPage = Array.from({ length: 1150 }, (_, index) => ({
+      fc: '0',
+      cid: `movie-${index + 1}`,
+      fn: `SSIS-${String(index + 1).padStart(4, '0')}`,
+    }));
+    const rootOffsets: number[] = [];
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles: async ({ cid, offset = 0 }) => {
+        if (cid === 'root') {
+          rootOffsets.push(offset);
+          return {
+            success: true,
+            data: offset === 0
+              ? firstPage
+              : offset === 1150
+                ? [{ fc: '0', cid: 'movie-1151', fn: 'SSIS-1151' }]
+                : [],
+          };
+        }
+        return {
+          success: true,
+          data: [{ fc: '1', fid: `${cid}-video`, fn: `${cid}.mp4`, fs: 10, pc: `${cid}-pick` }],
+        };
+      },
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(rootOffsets).toEqual([0, 1150]);
+    expect(result.state.entries).toHaveLength(1151);
+  });
+
+  it('saves the unfinished root page offset when pagination is rate limited and resumes from it', async () => {
+    const firstPage = Array.from({ length: 1150 }, () => ({
+      fc: '0',
+      cid: 'first-folder',
+      fn: 'SSIS-ROOT-001',
+    }));
+    const firstPassOffsets: number[] = [];
+    const firstPass = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles: async ({ cid, offset = 0 }) => {
+        if (cid !== 'root') return { success: true, data: [] };
+        firstPassOffsets.push(offset);
+        if (offset === 0) return { success: true, data: firstPage };
+        return { success: false, code: 429, message: '请求过于频繁，请稍后再试' };
+      },
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+      circuitBreakerThreshold: 1,
+    });
+
+    expect(firstPass.success).toBe(false);
+    expect(firstPassOffsets).toEqual([0, 1150]);
+    expect(firstPass.checkpoint).toMatchObject({
+      rootListingComplete: false,
+      nextRootOffset: 1150,
+      pendingQueue: [{ cid: 'first-folder', name: 'SSIS-ROOT-001' }],
+    });
+
+    const resumedRootOffsets: number[] = [];
+    const resumedCalls: string[] = [];
+    const resumed = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      previous: firstPass.state,
+      checkpoint: firstPass.checkpoint,
+      listFiles: async ({ cid, offset = 0 }) => {
+        resumedCalls.push(cid);
+        if (cid === 'root') {
+          resumedRootOffsets.push(offset);
+          return { success: true, data: [{ fc: '0', cid: 'second-folder', fn: 'SSIS-ROOT-002' }] };
+        }
+        if (cid === 'first-folder') {
+          return { success: true, data: [{ fc: '1', fid: 'v1', fn: 'SSIS-ROOT-001.mp4', fs: 10, pc: 'p1' }] };
+        }
+        return { success: true, data: [{ fc: '1', fid: 'v2', fn: 'SSIS-ROOT-002.mp4', fs: 10, pc: 'p2' }] };
+      },
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+    });
+
+    expect(resumed.success).toBe(true);
+    expect(resumedRootOffsets).toEqual([1150]);
+    expect(resumedCalls[0]).toBe('root');
+    expect(resumed.state.entries.map((entry) => entry.code).sort()).toEqual(['ROOT-001', 'ROOT-002']);
+  });
+
+  it('does not apply a container-folder count ceiling while scan depth still permits traversal', async () => {
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles: async ({ cid }) => {
+        if (cid === 'root') {
+          return {
+            success: true,
+            data: [
+              { fc: '0', cid: 'actor-a', fn: 'Actor A' },
+              { fc: '0', cid: 'actor-b', fn: 'Actor B' },
+            ],
+          };
+        }
+        if (cid === 'actor-a' || cid === 'actor-b') {
+          return { success: true, data: [{ fc: '0', cid: `${cid}-movie`, fn: cid === 'actor-a' ? 'SSIS-201' : 'SSIS-202' }] };
+        }
+        return {
+          success: true,
+          data: [{ fc: '1', fid: `${cid}-video`, fn: `${cid}.mp4`, fs: 10, pc: `${cid}-pick` }],
+        };
+      },
+      maxContainerFolders: 1,
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.state.entries.map((entry) => entry.code).sort()).toEqual(['SSIS-201', 'SSIS-202']);
+    expect(result.state.stats.truncatedFolders).toBe(0);
+  });
+
 
   it('respects scanDepth 1 for direct movie folders only', async () => {
     const listFiles = vi.fn(async ({ cid }: { cid: string }) => {

@@ -198,6 +198,8 @@ function normalizeCheckpoint(raw: unknown): Drive115IndexCheckpoint | null {
     rootCids,
     scanDepth: Math.max(1, Math.floor(Number(value.scanDepth) || 1)),
     nextRootIndex: Math.max(0, Math.floor(Number(value.nextRootIndex) || 0)),
+    rootListingComplete: value.rootListingComplete !== false,
+    nextRootOffset: Math.max(0, Math.floor(Number(value.nextRootOffset) || 0)),
     pendingQueue,
     stats: normalizeStats(value.stats),
     containerFoldersSeen: Math.max(0, Math.floor(Number(value.containerFoldersSeen) || 0)),

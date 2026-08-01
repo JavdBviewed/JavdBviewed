@@ -93,13 +93,30 @@ function readIndexResumeAt(raw: unknown): number {
 /** 索引结果详情窗口：概览 + 入库/跳过项目明细 */
 function Drive115IndexReportModal({
   open,
-  report,
+  mode,
+  report: latestReport,
+  history,
   onClose,
 }: {
   open: boolean;
+  mode: 'latest' | 'history';
   report: Drive115IndexReport | null;
+  history: Drive115IndexReport[];
   onClose: () => void;
 }) {
+  const reports = (mode === 'history' && history.length > 0 ? history : latestReport ? [latestReport] : [])
+    .filter((item): item is Drive115IndexReport => !!item && typeof item === 'object')
+    .filter((item, index, all) => all.findIndex((other) => (
+      other.startedAt === item.startedAt && other.finishedAt === item.finishedAt
+    )) === index)
+    .sort((a, b) => Math.max(b.finishedAt, b.startedAt) - Math.max(a.finishedAt, a.startedAt));
+  const [selectedStartedAt, setSelectedStartedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (open) setSelectedStartedAt(reports[0]?.startedAt ?? null);
+  }, [open, mode, latestReport?.startedAt, latestReport?.finishedAt, history.length]);
+
+  const report = reports.find((item) => item.startedAt === selectedStartedAt) || reports[0];
   if (!report) return null;
   const durationSec = formatReportDuration(report.startedAt, report.finishedAt);
   const reasonRows = (Object.keys(report.skipReasonCounts) as Drive115IndexSkipReason[])
@@ -123,8 +140,48 @@ function Drive115IndexReportModal({
   ];
 
   return (
-    <Modal open={open} title="索引结果详情" onClose={onClose} className="!max-w-3xl">
+    <Modal
+      open={open}
+      title={mode === 'history' ? '索引历史' : '上次索引记录'}
+      onClose={onClose}
+      className="!max-w-3xl"
+    >
       <div className="space-y-5 text-[13px] text-[var(--color-fg)]">
+        {mode === 'history' ? (
+          <section className="space-y-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-[13px] font-semibold">最近 {reports.length} 次索引</h3>
+              <span className="text-[11px] text-[var(--color-fg-muted)]">点击记录查看详细结果</span>
+            </div>
+            <div className="grid max-h-64 gap-1.5 overflow-auto pr-1">
+              {reports.map((item) => {
+                const at = item.finishedAt || item.startedAt;
+                const state = item.error ? '未完成' : item.cancelled ? '已取消' : '完成';
+                const selected = item.startedAt === report.startedAt;
+                return (
+                  <button
+                    key={`${item.startedAt}-${item.finishedAt}`}
+                    type="button"
+                    data-drive115-index-history-item="1"
+                    aria-pressed={selected}
+                    onClick={() => setSelectedStartedAt(item.startedAt)}
+                    className={
+                      'flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-[var(--radius-2)] border px-3 py-2 text-left text-[12px] transition-colors ' +
+                      (selected
+                        ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)]'
+                        : 'border-[var(--color-border)] bg-[var(--color-surface-2)] hover:border-[var(--color-primary)]')
+                    }
+                  >
+                    <span className="font-medium">{new Date(at || 0).toLocaleString()}</span>
+                    <span className="text-[var(--color-fg-muted)]">
+                      {state} · 入库 {item.indexedTotal} · 跳过 {item.skippedTotal} · API {item.apiCalls}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
         {/* 概览统计块 */}
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
           {stats.map((s) => (
@@ -415,9 +472,10 @@ export function Drive115SettingsPage() {
   const [indexProgressText, setIndexProgressText] = useState('');
   const [indexProgress, setIndexProgress] = useState<Drive115IndexProgressView | null>(null);
   const [indexReport, setIndexReport] = useState<Drive115IndexReport | null>(null);
+  const [indexHistory, setIndexHistory] = useState<Drive115IndexReport[]>([]);
   const [indexResumeAt, setIndexResumeAt] = useState(0);
   const [indexResumeNow, setIndexResumeNow] = useState(() => Date.now());
-  const [showIndexReport, setShowIndexReport] = useState(false);
+  const [indexDialogMode, setIndexDialogMode] = useState<'latest' | 'history' | null>(null);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [logStatsText, setLogStatsText] = useState('暂无日志');
   const [logsLoading, setLogsLoading] = useState(false);
@@ -462,6 +520,16 @@ export function Drive115SettingsPage() {
         /* ignore */
       }
       try {
+        const history = await getValue<unknown>(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_HISTORY, []);
+        if (!cancelled) {
+          setIndexHistory(Array.isArray(history)
+            ? history.filter((item): item is Drive115IndexReport => !!item && typeof item === 'object')
+            : []);
+        }
+      } catch {
+        /* ignore */
+      }
+      try {
         const checkpoint = await getValue<unknown>(
           STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_CHECKPOINT,
           null,
@@ -485,6 +553,13 @@ export function Drive115SettingsPage() {
       if (changes[reportKey]) {
         const next = changes[reportKey].newValue as Drive115IndexReport | undefined;
         setIndexReport(next && typeof next === 'object' ? next : null);
+      }
+      const historyKey = STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_HISTORY;
+      if (changes[historyKey]) {
+        const next = changes[historyKey].newValue;
+        setIndexHistory(Array.isArray(next)
+          ? next.filter((item): item is Drive115IndexReport => !!item && typeof item === 'object')
+          : []);
       }
       const checkpointKey = STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_CHECKPOINT;
       if (changes[checkpointKey]) {
@@ -1618,7 +1693,7 @@ export function Drive115SettingsPage() {
             <Drive115Field
               id="drive115MediaLibraryRoots"
               label="片库根目录"
-              description="支持多个根目录。误选整盘时索引会有上限保护，请尽量只选已整理的片库。"
+              description="支持多个根目录。请尽量只选已整理的片库；索引会按 115 接口限频执行，并在访问受限时保存位置后继续。"
             >
               <div className="flex flex-col gap-2">
                 {(form.mediaLibraryRoots || []).length === 0 ? (
@@ -1683,7 +1758,7 @@ export function Drive115SettingsPage() {
             <Drive115Field
               id="drive115MediaLibraryScanDepth"
               label="索引深度"
-              description="默认 2 层，适合“演员/番号/视频”结构；如果根目录下直接就是影片文件夹可选 1 层，最多 8 层；层数越大越可能误扫整盘，请配合上限保护谨慎使用。"
+              description="默认 2 层，适合“演员/番号/视频”结构；如果根目录下直接就是影片文件夹可选 1 层，最多 8 层。层数越大，需要扫描的目录和接口请求也越多。"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <Input
@@ -1732,7 +1807,7 @@ export function Drive115SettingsPage() {
                   </Drive115Btn>
                 ) : null}
                 <span className="text-[11.5px]">
-                  串行限频：按上方深度扫描，单次最多 300 个影片文件夹；中断会合并保存本轮已扫到的条目，若本轮 0 条则保留上一份索引。
+                  串行限频：先按页发现目录（115 单页最多 1150 项），再逐个扫描。遇到访问上限会保存目录清单和当前位置，冷却后从未完成位置继续。
                 </span>
               </div>
 
@@ -1748,7 +1823,7 @@ export function Drive115SettingsPage() {
                         ? 'text-[var(--color-primary,#e67e22)]'
                         : indexResumePending
                           ? 'text-[var(--color-warning,#d68910)]'
-                          : form.mediaLibraryLastIndexError
+                          : indexReport?.error
                           ? 'text-[var(--color-danger,#c0392b)]'
                           : 'text-[var(--color-fg-muted)]'
                     }
@@ -1757,8 +1832,8 @@ export function Drive115SettingsPage() {
                       ? '进行中'
                       : indexResumePending
                         ? '等待继续'
-                        : form.mediaLibraryLastIndexError
-                          ? '上次失败/中断'
+                        : indexReport?.error
+                          ? '上次未完成'
                         : form.mediaLibraryLastIndexAt
                           ? '空闲'
                           : '尚未索引'}
@@ -1808,30 +1883,38 @@ export function Drive115SettingsPage() {
                     </div>
                   </div>
                 ) : null}
-                {form.mediaLibraryLastIndexError ? (
-                  <div className={indexResumePending
-                    ? 'text-[var(--color-warning,#d68910)]'
-                    : 'text-[var(--color-danger,#c0392b)]'}>
-                    {indexResumePending ? '索引已暂停，已保存进度：' : '上次错误：'}
+                {indexResumePending && form.mediaLibraryLastIndexError ? (
+                  <div className="text-[var(--color-warning,#d68910)]">
+                    索引已暂停，已保存进度：
                     {form.mediaLibraryLastIndexError}
                   </div>
                 ) : null}
-                {indexReport ? (
+                {indexReport || indexHistory.length ? (
                   <div className="flex flex-wrap items-center gap-2 pt-1 text-[11.5px] text-[var(--color-fg-muted)]">
-                    <span>
-                      本轮结果：入库 {indexReport.indexedTotal}，跳过 {indexReport.skippedTotal}
-                      {indexReport.truncatedFolders
-                        ? `，截断 ${indexReport.truncatedFolders}`
-                        : ''}
-                    </span>
+                    {indexReport ? (
+                      <span>
+                        本轮结果：入库 {indexReport.indexedTotal}，跳过 {indexReport.skippedTotal}
+                      </span>
+                    ) : null}
+                    {indexReport ? (
+                      <Button
+                        id="drive115ViewLastIndexReport"
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setIndexDialogMode('latest')}
+                      >
+                        上次记录
+                      </Button>
+                    ) : null}
                     <Button
-                      id="drive115ViewIndexReport"
+                      id="drive115ViewIndexHistory"
                       type="button"
                       variant="secondary"
                       size="sm"
-                      onClick={() => setShowIndexReport(true)}
+                      onClick={() => setIndexDialogMode('history')}
                     >
-                      查看详情
+                      索引历史{indexHistory.length ? '（' + indexHistory.length + '）' : ''}
                     </Button>
                   </div>
                 ) : null}
@@ -1839,9 +1922,11 @@ export function Drive115SettingsPage() {
             </div>
 
             <Drive115IndexReportModal
-              open={showIndexReport}
+              open={indexDialogMode !== null}
+              mode={indexDialogMode || 'latest'}
               report={indexReport}
-              onClose={() => setShowIndexReport(false)}
+              history={indexHistory}
+              onClose={() => setIndexDialogMode(null)}
             />
 
           </Drive115Group>
