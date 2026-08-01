@@ -94,7 +94,7 @@ describe('CloudSettingsPage copy', () => {
     expect(pageSource).toContain('setPassword(state.settings.accountPassword || \'\')');
     expect(pageSource).toContain('identifier: identifier.trim()');
     expect(pageSource).toContain('password,');
-    expect(pageSource).toContain('已保存账号，登录后即可同步');
+    expect(pageSource).toContain('已保存账号，将自动连接并同步');
   });
 
   it('starts automatic connection and sync from saved credentials while retaining manual retry', () => {
@@ -110,6 +110,19 @@ describe('CloudSettingsPage copy', () => {
     expect(pageSource).toContain('正在与 Cloud 服务同步并合并数据');
     expect(pageSource).toContain('同步失败');
     expect(pageSource).toContain('重试同步');
+    expect(pageSource).not.toContain('sessionPreference.autoReconnect');
+    expect(pageSource).not.toContain('用户主动退出后保持本机未登录');
+  });
+
+  it('uses persisted account credentials without a logout or passwordless device-access path', () => {
+    expect(pageSource).not.toContain('退出登录');
+    expect(pageSource).not.toContain('申请设备接入');
+    expect(pageSource).not.toContain('检查允许结果');
+    expect(pageSource).not.toContain('取消本机申请');
+    expect(pageSource).not.toContain('没有账号密码？');
+    expect(pageSource).not.toContain('window.setInterval(() => void poll(), 5_000)');
+    expect(pageSource).toContain('已保存账号，将自动连接并同步');
+    expect(pageSource).not.toContain('已保存账号，登录后即可同步');
   });
 
   it('keeps the existing single CloudConnectionSettings contract', () => {

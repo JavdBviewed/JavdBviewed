@@ -447,24 +447,6 @@ export function CloudSettingsPage() {
     });
   };
 
-  const onLogout = () =>
-    void withBusy('logout', async () => {
-      try {
-        const state = await facade.logout();
-        setSettings(state.settings);
-        setAutoSync(state.autoSync);
-        setSession(state.session);
-        setDevices(state.devices);
-        setSyncReport(null);
-        setStatus('已退出本机 Cloud 会话', 'ok');
-        await toast('已退出登录', 'info');
-      } catch (e) {
-        const msg = humanizeCloudError(e);
-        setStatus(msg, 'err');
-        await toast(msg, 'error');
-      }
-    });
-
   const onRefreshDevices = () =>
     void withBusy('devices', async () => {
       try {
@@ -482,7 +464,7 @@ export function CloudSettingsPage() {
   const onRevokeDevice = (device: DeviceInfo) => {
     if (!settings) return;
     if (device.id === settings.deviceId) {
-      setStatus('不能踢掉本机，请使用「退出登录」', 'warn');
+      setStatus('不能移除本机设备', 'warn');
       void toast('不能踢出本机设备', 'warning');
       return;
     }
@@ -595,7 +577,7 @@ export function CloudSettingsPage() {
             )
           }
           detail={loginDetail}
-          meta={loggedIn ? '本机会话有效' : settings.accountIdentifier ? '已保存账号，登录后即可同步' : '完成下方账号登录'}
+          meta={loggedIn ? '本机会话有效' : settings.accountIdentifier ? '已保存账号，将自动连接并同步' : '完成下方账号登录'}
         />
         <OverviewCard
           label="上次同步"
@@ -738,7 +720,6 @@ export function CloudSettingsPage() {
           onProbe={onProbeHealth}
           onLogin={onLogin}
           onRegister={onRegister}
-          onLogout={onLogout}
         />
       </SettingSection>
 
@@ -746,7 +727,7 @@ export function CloudSettingsPage() {
       <SettingSection
         id={CLOUD_SECTION_IDS.devices}
         title="已登录设备"
-        description="同一 Cloud 账号下的客户端。可踢出其它设备（本机请用退出登录）。"
+        description="同一 Cloud 账号下的客户端。可移除其它设备；本机设备保持连接配置。"
       >
         <div className="flex flex-wrap gap-2 px-2 py-1">
           <Button
@@ -900,7 +881,11 @@ function CloudConnectionSummary(props: {
                     ? '重新连接并同步 Cloud'
                     : '请先配置账号密码'
             }
-            onClick={props.loggedIn ? props.onSync : props.hasSavedCredentials ? props.onReconnect : props.onEdit}
+            onClick={
+              props.loggedIn
+                ? props.onSync
+                : props.hasSavedCredentials ? props.onReconnect : props.onEdit
+            }
           >
             {props.autoConnectionState === 'connecting'
               ? '正在自动连接…'
@@ -908,9 +893,7 @@ function CloudConnectionSummary(props: {
                 ? '同步中…'
                 : props.loggedIn
                   ? '立即同步'
-                  : props.hasSavedCredentials
-                    ? '重新连接'
-                    : '配置账号'}
+                  : props.hasSavedCredentials ? '重新连接' : '配置账号'}
           </Button>
           <Button variant="secondary" size="sm" disabled={props.disabled} onClick={props.onEdit}>
             编辑连接
@@ -945,7 +928,6 @@ function CloudConnectionEditDialog(props: {
   onProbe: () => void;
   onLogin: () => void;
   onRegister: () => void;
-  onLogout: () => void;
 }) {
   const connectionBusy = props.busyAction != null;
 
@@ -1051,11 +1033,6 @@ function CloudConnectionEditDialog(props: {
                 <dd className="m-0 mt-0.5 font-semibold text-[var(--color-fg)]">本机会话有效</dd>
               </div>
             </dl>
-            <div className="mt-3">
-              <Button type="button" variant="ghost" size="sm" disabled={connectionBusy} onClick={props.onLogout}>
-                {props.busyAction === 'logout' ? '退出中…' : '退出登录'}
-              </Button>
-            </div>
           </div>
         ) : (
           <>

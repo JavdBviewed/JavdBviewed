@@ -6,10 +6,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { createMockCloudTransport } from '@javdb/sync-client';
 import { accountEntityTypesFromMatrix } from '@javdb/sync-protocol';
 import { getChromeStorageSnapshot, setChromeStorage } from '../setup/chrome';
-import { CLOUD_SESSION_STORAGE_KEY } from '../../apps/extension/src/features/cloudSync/chromeTokenStore';
 import { CLOUD_SETTINGS_STORAGE_KEY } from '../../apps/extension/src/features/cloudSync/cloudSettingsStorage';
 
 describe('Cloud sync extension facade', () => {
+  it('keeps Cloud credentials as the only extension connection path', async () => {
+    const { createExtensionCloudFacade } = await import(
+      '../../apps/extension/src/features/cloudSync/extensionCloudFacade'
+    );
+    const facade = createExtensionCloudFacade();
+
+    expect('logout' in facade).toBe(false);
+    expect('requestDeviceAccess' in facade).toBe(false);
+    expect('checkDeviceAccess' in facade).toBe(false);
+  });
+
   it('declares adapter support for every protocol account entity type', async () => {
     const mod = await import('../../apps/extension/src/features/cloudSync/extensionEntityStore');
     expect(mod.assertExtensionCloudAdapterCoverage).toBeTypeOf('function');
@@ -19,7 +29,7 @@ describe('Cloud sync extension facade', () => {
     expect(() => mod.assertExtensionCloudAdapterCoverage()).not.toThrow();
   });
 
-  it('exposes state, login and logout without leaking API client wiring to UI', async () => {
+  it('exposes state and credential login without leaking API client wiring to UI', async () => {
     const { transport } = createMockCloudTransport();
     const { createExtensionCloudFacade } = await import(
       '../../apps/extension/src/features/cloudSync/extensionCloudFacade'
@@ -57,11 +67,6 @@ describe('Cloud sync extension facade', () => {
       true,
     );
 
-    await facade.logout();
-    expect(getChromeStorageSnapshot()[CLOUD_SESSION_STORAGE_KEY]).toBeUndefined();
-    const afterLogout = await facade.loadState();
-    expect(afterLogout.loggedIn).toBe(false);
-    expect(afterLogout.devices).toEqual([]);
   });
 
   it('normalizes connection validation errors into UI-facing messages', async () => {
@@ -98,4 +103,5 @@ describe('Cloud sync extension facade', () => {
       },
     });
   });
+
 });

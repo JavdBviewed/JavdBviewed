@@ -64,7 +64,6 @@ export type ExtensionCloudFacade = {
   checkHealth(baseUrl?: string): Promise<CloudHealthResult>;
   register(input: CloudLoginInput): Promise<void>;
   login(input: CloudLoginInput): Promise<CloudFacadeState>;
-  logout(): Promise<CloudFacadeState>;
   listDevices(): Promise<DeviceInfo[]>;
   revokeDevice(deviceId: string): Promise<DeviceInfo[]>;
   syncNow(): Promise<CloudSyncNowResult>;
@@ -196,20 +195,6 @@ export function createExtensionCloudFacade(
     return loadState();
   }
 
-  async function logout(): Promise<CloudFacadeState> {
-    const settings = await loadCloudSettings();
-    const { api } = await createExtensionCloudClient(settings, {
-      transport: options.transport,
-    });
-    try {
-      await api.logout();
-    } catch {
-      await api.tokens.clear();
-    }
-    await setupAlarm(options);
-    return loadState();
-  }
-
   async function listDevices(): Promise<DeviceInfo[]> {
     const settings = await loadCloudSettings();
     const { api } = await createExtensionCloudClient(settings, {
@@ -221,7 +206,7 @@ export function createExtensionCloudFacade(
   async function revokeDevice(deviceId: string): Promise<DeviceInfo[]> {
     const settings = await loadCloudSettings();
     if (deviceId === settings.deviceId) {
-      throw new Error('不能踢掉本机，请使用「退出登录」');
+      throw new Error('不能移除本机设备');
     }
     const { api } = await createExtensionCloudClient(settings, {
       transport: options.transport,
@@ -244,7 +229,6 @@ export function createExtensionCloudFacade(
     checkHealth,
     register,
     login,
-    logout,
     listDevices,
     revokeDevice,
     syncNow: options.syncNow ?? runCloudSyncNow,

@@ -19,6 +19,12 @@ type PutCall = {
 
 const idbMock = vi.hoisted(() => ({
   stores: {} as Record<string, unknown[]>,
+  initDB: vi.fn(async () => ({
+    getAll: vi.fn(async (store: string) => idbMock.stores[store] ?? []),
+    put: vi.fn(async (store: string, value: Record<string, unknown>) => {
+      idbMock.putCalls.push({ store, value });
+    }),
+  })),
   putCalls: [] as PutCall[],
   bulk: {
     videos: [] as unknown[],
@@ -29,12 +35,7 @@ const idbMock = vi.hoisted(() => ({
 }));
 
 vi.mock('../../apps/extension/src/platform/storage/indexedDb', () => ({
-  initDB: vi.fn(async () => ({
-    getAll: vi.fn(async (store: string) => idbMock.stores[store] ?? []),
-    put: vi.fn(async (store: string, value: Record<string, unknown>) => {
-      idbMock.putCalls.push({ store, value });
-    }),
-  })),
+  initDB: idbMock.initDB,
   viewedBulkPut: vi.fn(async (records: unknown[]) => {
     idbMock.bulk.videos.push(...records);
   }),
@@ -60,6 +61,7 @@ function entityKey(entity: SyncEntity): string {
 describe('Cloud 全量资产同步', () => {
   beforeEach(() => {
     resetChromeMock();
+    idbMock.initDB.mockClear();
     idbMock.stores = {};
     idbMock.putCalls = [];
     idbMock.bulk = {
@@ -214,6 +216,20 @@ describe('Cloud 全量资产同步', () => {
         accountPassword: 'saved-password',
       },
     });
+  });
+
+  it('复用已采集快照准备首次同步队列，避免重复遍历本地资产', async () => {
+    const snapshot: SyncEntity[] = [
+      { id: 'ABC-001', type: 'video', revision: 1, updatedAt: 100, payload: { title: 'A' } },
+    ];
+    const { preparePushQueueStats } = await import(
+      '../../apps/extension/src/features/cloudSync/extensionEntityStore'
+    );
+
+    const result = await preparePushQueueStats(snapshot);
+
+    expect(result).toEqual({ enqueuedNow: 1, pendingCount: 1, localEntityCount: 1 });
+    expect(idbMock.initDB).not.toHaveBeenCalled();
   });
 
   it('应用远端新增类型时恢复到 IndexedDB 和 Chrome Storage', async () => {

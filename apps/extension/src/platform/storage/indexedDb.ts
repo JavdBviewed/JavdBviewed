@@ -11,6 +11,7 @@ import { buildNewWorksTrendPointsFromDailyMap, mergeNewWorksDailyStatForTrend } 
 import { getSettings } from '../../utils/storage';
 import { normalizeListRecordForUse } from '../../shared/utils/listRecordHelpers';
 import { cleanVideoRecordInjectedSourceTags } from '../../shared/utils/tagFilter';
+import { enqueueVideoChange } from '../../features/cloudSync/enqueueLocalChange';
 import type { ViewsDaily, ReportMonthly } from '../../types/insights';
 import { initDB, resetDBConnection } from './indexedDbConnection';
 import { buildLogsIndexedCursorSource, deriveLogCategory, deriveLogSource } from './indexedDbLogFields';
@@ -717,8 +718,8 @@ export async function viewedPut(record: VideoRecord): Promise<ViewedPutResult> {
   await syncViewedSecondaryIndexes(tx.objectStore('viewedByTag'), tx.objectStore('viewedByList'), oldRecord, normalized);
   await tx.done;
   try {
-    const { scheduleEnqueue, enqueueVideoChange } = await import('../../features/cloudSync/enqueueLocalChange');
-    scheduleEnqueue(() => enqueueVideoChange(normalized as VideoRecord));
+    // Queue before returning so a user-triggered sync cannot miss this update.
+    await enqueueVideoChange(normalized as VideoRecord);
   } catch { /* Cloud 可选 */ }
   return { success: true };
 }
