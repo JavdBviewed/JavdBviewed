@@ -119,6 +119,72 @@ test.describe('JavdBviewed extension browser smoke', () => {
     }
   });
 
+  test('opens the latest 115 index report directly and lists 20 history records', async ({}, testInfo) => {
+    const harnessOptions = resolveTestHarnessOptions(testInfo.outputPath('profile'));
+    const context = await launchExtensionContext(harnessOptions, {
+      headless: false,
+      channel: process.env.JAVDB_EXTENSION_CHANNEL ?? 'chromium',
+    });
+
+    try {
+      const extensionId = await readExtensionId(context);
+      await markReleaseAnnouncementSeenInContext(context);
+      const page = await context.newPage();
+      await page.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/drive115-settings'), {
+        waitUntil: 'domcontentloaded',
+      });
+      await dismissReleaseAnnouncementIfPresent(page);
+
+      await page.evaluate(() => {
+        const now = Date.now();
+        const makeReport = (index: number) => ({
+          indexed: [],
+          skipped: [],
+          indexedTotal: index + 1,
+          skippedTotal: index,
+          skipReasonCounts: {},
+          truncatedList: false,
+          rootsTotal: 1,
+          rootsDone: 1,
+          apiCalls: index + 2,
+          truncatedFolders: 0,
+          startedAt: now - index * 60_000,
+          finishedAt: now - index * 60_000 + 1_000,
+        });
+        const history = Array.from({ length: 20 }, (_, index) => makeReport(index));
+        return chrome.storage.local.set({
+          settings: {
+            drive115: {
+              enabled: true,
+              mediaLibraryRoots: [{ cid: 'e2e-history-root', name: 'E2E 片库', enabled: true }],
+            },
+          },
+          drive115_library_index_report: history[0],
+          drive115_library_index_history: history,
+        });
+      });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+
+      await expect(page.locator('#drive115ViewLastIndexReport')).toHaveText('上次记录');
+      await expect(page.locator('#drive115ViewIndexHistory')).toContainText('索引历史');
+
+      await page.locator('#drive115ViewLastIndexReport').click();
+      const latestDialog = page.getByRole('dialog', { name: '上次索引记录' });
+      await expect(latestDialog).toBeVisible();
+
+      await latestDialog.getByRole('button', { name: '关闭' }).click();
+      await page.locator('#drive115ViewIndexHistory').click();
+      const historyDialog = page.getByRole('dialog', { name: '索引历史' });
+      await expect(historyDialog).toBeVisible();
+      await expect(historyDialog.locator('[data-drive115-index-history-item="1"]')).toHaveCount(20);
+      await expect(historyDialog).toContainText('最近 20 次索引');
+      await historyDialog.locator('[data-drive115-index-history-item="1"]').nth(19).click();
+      await expect(historyDialog).toContainText('入库 1');
+    } finally {
+      await context.close();
+    }
+  });
+
   test('renders 115 progress on cards, resume list, and pending credential refresh toast', async ({}, testInfo) => {
     const harnessOptions = resolveTestHarnessOptions(testInfo.outputPath('profile'));
     const context = await launchExtensionContext(harnessOptions, {
@@ -1020,7 +1086,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
     }
   });
 
-  test('keeps detail open when choosing a source from its inline playback menu', async ({}, testInfo) => {
+  test('closes detail before opening player when choosing a source', async ({}, testInfo) => {
     const harnessOptions = resolveTestHarnessOptions(testInfo.outputPath('profile'));
     const context = await launchExtensionContext(harnessOptions, {
       headless: false,
@@ -1080,7 +1146,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await expect(detail).toBeVisible();
       await sourceMenu.getByRole('menuitem', { name: /115.*115 片库/ }).click();
 
-      await expect(detail).toBeVisible();
+      await expect(detail).toBeHidden();
       await expect(page.locator('[data-media-115-play-overlay="1"]')).toBeVisible();
     } finally {
       await context.close();
