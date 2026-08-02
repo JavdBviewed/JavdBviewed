@@ -75,8 +75,8 @@ const SKIP_REASON_LABELS: Record<Drive115IndexSkipReason, string> = {
   no_pickcode: '有视频但缺 pick_code',
   unrecognized_code: '番号未识别',
   list_failed: '列目录失败',
-  max_folders: '达影片文件夹上限（截断）',
-  container_cap: '达分类目录上限（截断）',
+  max_folders: '旧版影片数量上限（历史记录）',
+  container_cap: '旧版分类目录上限（历史记录）',
 };
 
 function formatReportDuration(startedAt: number, finishedAt: number): number {
@@ -500,6 +500,8 @@ export function Drive115SettingsPage() {
     if (snap.message) setIndexProgressText(snap.message);
     setIndexingMediaLibrary(snap.running);
   }, []);
+
+  const indexRunActive = indexingMediaLibrary || indexProgress?.running === true;
 
   useEffect(() => {
     let cancelled = false;
@@ -1843,7 +1845,7 @@ export function Drive115SettingsPage() {
                   上次索引：
                   <span className="text-[var(--color-fg)]">{mediaLibraryLastIndexLabel}</span>
                 </div>
-                {(indexingMediaLibrary || indexProgress?.running) && indexProgress ? (
+                {indexRunActive && indexProgress ? (
                   <div className="space-y-1 text-[var(--color-fg)]">
                     <div>{indexProgress.message || indexProgressText || '正在限频索引…'}</div>
                     <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11.5px] text-[var(--color-fg-muted)]">
@@ -1855,20 +1857,20 @@ export function Drive115SettingsPage() {
                       <span>跳过 {indexProgress.skipped || 0}</span>
                       <span>API {indexProgress.apiCalls || 0}</span>
                     </div>
-                    {indexReport && indexReport.skippedTotal > 0 ? (
-                      <div className="text-[11.5px] text-[var(--color-fg-muted)]">
-                        跳过原因：
-                        {(Object.keys(indexReport.skipReasonCounts) as Drive115IndexSkipReason[])
-                          .map((reason) => ({ reason, count: indexReport.skipReasonCounts[reason] || 0 }))
-                          .filter((row) => row.count > 0)
-                          .sort((a, b) => b.count - a.count)
-                          .map((row) => `${SKIP_REASON_LABELS[row.reason] || row.reason} ${row.count}`)
-                          .join(' · ')}
-                      </div>
-                    ) : null}
                   </div>
                 ) : indexProgressText ? (
                   <div className="text-[11.5px] text-[var(--color-fg)]">{indexProgressText}</div>
+                ) : null}
+                {!indexRunActive && indexReport && indexReport.skippedTotal > 0 ? (
+                  <div className="text-[11.5px] text-[var(--color-fg-muted)]">
+                    跳过原因：
+                    {(Object.keys(indexReport.skipReasonCounts) as Drive115IndexSkipReason[])
+                      .map((reason) => ({ reason, count: indexReport.skipReasonCounts[reason] || 0 }))
+                      .filter((row) => row.count > 0)
+                      .sort((a, b) => b.count - a.count)
+                      .map((row) => `${SKIP_REASON_LABELS[row.reason] || row.reason} ${row.count}`)
+                      .join(' · ')}
+                  </div>
                 ) : null}
                 {indexResumePending ? (
                   <div
@@ -1891,7 +1893,7 @@ export function Drive115SettingsPage() {
                 ) : null}
                 {indexReport || indexHistory.length ? (
                   <div className="flex flex-wrap items-center gap-2 pt-1 text-[11.5px] text-[var(--color-fg-muted)]">
-                    {indexReport ? (
+                    {!indexRunActive && indexReport ? (
                       <span>
                         本轮结果：入库 {indexReport.indexedTotal}，跳过 {indexReport.skippedTotal}
                       </span>

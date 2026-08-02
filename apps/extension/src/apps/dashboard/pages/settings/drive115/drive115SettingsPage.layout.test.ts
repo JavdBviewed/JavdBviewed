@@ -95,6 +95,11 @@ describe('Drive115SettingsPage layout', () => {
     expect(pageSource).not.toContain('单次最多 300 个影片文件夹');
   });
 
+  it('does not render the previous report as current skip details while indexing', () => {
+    expect(pageSource).toContain('!indexRunActive && indexReport && indexReport.skippedTotal > 0');
+    expect(pageSource).toContain('!indexRunActive && indexReport ?');
+  });
+
   it('keeps each skip reason together with its matching folder details', () => {
     expect(pageSource).toContain('skippedByReason');
     expect(pageSource).toContain('跳过项目');
