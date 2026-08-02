@@ -500,6 +500,8 @@ function matchAdvBasic(r: VideoRecord, adv: Array<{ field: string; op: string; v
       case 'releaseDate': return r.releaseDate || '';
       case 'createdAt': return r.createdAt;
       case 'updatedAt': return r.updatedAt;
+      case 'rating': return r.rating;
+      case 'userRating': return r.userRating;
       case 'javdbUrl': return r.javdbUrl || '';
       case 'javdbImage': return r.javdbImage || '';
       default: return undefined;
@@ -509,8 +511,16 @@ function matchAdvBasic(r: VideoRecord, adv: Array<{ field: string; op: string; v
     const v = get(c.field);
     const op = c.op;
     const val = c.value ?? '';
-    if (op === 'empty') { if (!(v == null || (Array.isArray(v) ? v.length === 0 : String(v).trim() === ''))) return false; continue; }
-    if (op === 'not_empty') { if (v == null || (Array.isArray(v) ? v.length === 0 : String(v).trim() === '')) return false; continue; }
+    const isRatingField = c.field === 'rating' || c.field === 'userRating';
+    const isRated = Number.isFinite(Number(v)) && Number(v) > 0;
+    if (op === 'empty') {
+      if (isRatingField ? isRated : !(v == null || (Array.isArray(v) ? v.length === 0 : String(v).trim() === ''))) return false;
+      continue;
+    }
+    if (op === 'not_empty') {
+      if (isRatingField ? !isRated : v == null || (Array.isArray(v) ? v.length === 0 : String(v).trim() === '')) return false;
+      continue;
+    }
 
     // 文本比较：与前端一致，忽略大小写
     if (op === 'contains' || op === 'equals' || op === 'starts_with' || op === 'ends_with') {
@@ -550,7 +560,8 @@ function matchAdvBasic(r: VideoRecord, adv: Array<{ field: string; op: string; v
     // 数值比较
     const num = Number(v);
     const cmp = Number(val);
-    if (!Number.isNaN(num) && !Number.isNaN(cmp)) {
+    if (['gt', 'gte', 'lt', 'lte', 'eq'].includes(op)) {
+      if ((isRatingField && !isRated) || Number.isNaN(num) || Number.isNaN(cmp)) return false;
       if (op === 'gt' && !(num > cmp)) return false;
       if (op === 'gte' && !(num >= cmp)) return false;
       if (op === 'lt' && !(num < cmp)) return false;

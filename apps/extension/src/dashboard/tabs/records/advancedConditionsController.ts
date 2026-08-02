@@ -37,6 +37,8 @@ const FIELD_OPTIONS: Array<{ key: RecordsAdvancedFieldKey; label: string }> = [
   { key: 'releaseDate', label: '发行日期(releaseDate)' },
   { key: 'createdAt', label: '创建时间(createdAt)' },
   { key: 'updatedAt', label: '更新时间(updatedAt)' },
+  { key: 'rating', label: '官方评分(rating)' },
+  { key: 'userRating', label: '我的评分(userRating)' },
   { key: 'javdbUrl', label: 'JavDB链接(javdbUrl)' },
   { key: 'javdbImage', label: '封面链接(javdbImage)' },
 ];
@@ -87,6 +89,21 @@ function setOperatorsForField(
       { value: 'empty', label: '为空' },
       { value: 'not_empty', label: '非空' },
     ]);
+  } else if (field === 'rating' || field === 'userRating') {
+    addOptions(opSelect, [
+      { value: 'eq', label: '等于' },
+      { value: 'gt', label: '大于' },
+      { value: 'gte', label: '大于等于' },
+      { value: 'lt', label: '小于' },
+      { value: 'lte', label: '小于等于' },
+      { value: 'empty', label: '未评分' },
+      { value: 'not_empty', label: '已评分' },
+    ]);
+    valueInput.type = 'number';
+    valueInput.min = '0';
+    valueInput.max = '5';
+    valueInput.step = '0.1';
+    valueInput.placeholder = '0-5 分';
   } else if (field === 'tags') {
     addOptions(opSelect, [
       { value: 'includes_all', label: '包含全部标签(子串, AND)' },
@@ -100,6 +117,13 @@ function setOperatorsForField(
       { value: 'not_empty', label: '非空' },
     ]);
     valueInput.placeholder = '多个值用 空格/逗号/分号 分隔 (子串匹配, 忽略大小写)';
+  }
+
+  if (field !== 'rating' && field !== 'userRating') {
+    valueInput.type = 'text';
+    valueInput.removeAttribute('min');
+    valueInput.removeAttribute('max');
+    valueInput.removeAttribute('step');
   }
 }
 

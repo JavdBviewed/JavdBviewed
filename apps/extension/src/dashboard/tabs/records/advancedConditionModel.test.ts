@@ -26,6 +26,23 @@ describe('records advanced condition model', () => {
     expect(evaluateRecordsAdvancedCondition(baseRecord, { id: 'c2', field: 'updatedAt', op: 'lt', value: '2000' })).toBe(false);
   });
 
+  it('evaluates official and personal rating comparators', () => {
+    const rated = { ...baseRecord, rating: 8.5, userRating: 4 };
+    expect(evaluateRecordsAdvancedCondition(rated, { id: 'c1', field: 'rating', op: 'gte', value: '8' })).toBe(true);
+    expect(evaluateRecordsAdvancedCondition(rated, { id: 'c2', field: 'rating', op: 'lt', value: '9' })).toBe(true);
+    expect(evaluateRecordsAdvancedCondition(rated, { id: 'c3', field: 'userRating', op: 'eq', value: '4' })).toBe(true);
+    expect(evaluateRecordsAdvancedCondition(rated, { id: 'c4', field: 'userRating', op: 'gt', value: '4' })).toBe(false);
+  });
+
+  it('treats zero, null, and undefined ratings as unrated', () => {
+    expect(evaluateRecordsAdvancedCondition({ ...baseRecord, rating: 0 }, { id: 'c1', field: 'rating', op: 'empty' })).toBe(true);
+    expect(evaluateRecordsAdvancedCondition({ ...baseRecord, userRating: undefined }, { id: 'c2', field: 'userRating', op: 'empty' })).toBe(true);
+    expect(evaluateRecordsAdvancedCondition({ ...baseRecord, rating: null as unknown as number }, { id: 'c3', field: 'rating', op: 'empty' })).toBe(true);
+    expect(evaluateRecordsAdvancedCondition({ ...baseRecord, rating: 0 }, { id: 'c4', field: 'rating', op: 'not_empty' })).toBe(false);
+    expect(evaluateRecordsAdvancedCondition({ ...baseRecord, rating: 0 }, { id: 'c5', field: 'rating', op: 'gte', value: '0' })).toBe(false);
+    expect(evaluateRecordsAdvancedCondition({ ...baseRecord, rating: undefined }, { id: 'c6', field: 'rating', op: 'eq', value: '8' })).toBe(false);
+  });
+
   it('evaluates tag inclusion and length comparators', () => {
     expect(evaluateRecordsAdvancedCondition(baseRecord, { id: 'c1', field: 'tags', op: 'includes_all', value: '中文 高清' })).toBe(true);
     expect(evaluateRecordsAdvancedCondition(baseRecord, { id: 'c2', field: 'tags', op: 'includes_any', value: '蓝光,高清' })).toBe(true);

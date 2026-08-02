@@ -111,6 +111,32 @@ describe('records query model', () => {
     });
   });
 
+  it('passes rating advanced conditions through query mode', () => {
+    const params = buildRecordsViewedQueryParams({
+      parsedTokens: emptyTokens,
+      selectedTags: new Set(),
+      selectedListIds: new Set(),
+      listNameById: new Map(),
+      status: 'all',
+      sort: { orderBy: 'updatedAt', order: 'desc' },
+      offset: 0,
+      limit: 20,
+      advancedConditions: [{ id: 'rating', field: 'rating', op: 'gte', value: '8' }],
+      favoritesFilterActive: false,
+    });
+
+    expect(shouldUseRecordsQueryMode({
+      searchTerm: '',
+      selectedTags: new Set(),
+      selectedListIds: new Set(),
+      parsedTokens: emptyTokens,
+      advancedConditions: [{ id: 'rating', field: 'rating', op: 'gte', value: '8' }],
+      sort: { orderBy: 'updatedAt', order: 'desc' },
+      favoritesFilterActive: false,
+    })).toBe(true);
+    expect(params.adv).toEqual([{ field: 'rating', op: 'gte', value: '8' }]);
+  });
+
   it('builds page params only for page-safe sort fields', () => {
     expect(buildRecordsViewedPageParams({
       status: 'all',

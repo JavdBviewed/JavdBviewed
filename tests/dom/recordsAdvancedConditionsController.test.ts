@@ -65,6 +65,37 @@ describe('records advanced conditions controller', () => {
     expect(controller.parseFromUI()).toEqual([{ id: 'cond-1', field: 'id', op: 'empty', value: undefined }]);
   });
 
+  it('offers rating fields with numeric operators and score input constraints', () => {
+    const { controller } = createController();
+    controller.addCondition({ id: 'cond-rating', field: 'rating', op: 'gte', value: '8' });
+
+    const field = document.querySelector('.adv-field') as HTMLSelectElement;
+    const operator = document.querySelector('.adv-operator') as HTMLSelectElement;
+    const input = document.querySelector('.adv-value') as HTMLInputElement;
+
+    expect(field.value).toBe('rating');
+    expect(Array.from(operator.options).map(option => option.value)).toEqual(['eq', 'gt', 'gte', 'lt', 'lte', 'empty', 'not_empty']);
+    expect(input.type).toBe('number');
+    expect(input.min).toBe('0');
+    expect(input.max).toBe('5');
+    expect(input.step).toBe('0.1');
+  });
+
+  it('uses the personal rating scale and labels score presence clearly', () => {
+    const { controller } = createController();
+    controller.addCondition({ id: 'cond-user-rating', field: 'userRating', op: 'empty' });
+
+    const field = document.querySelector('.adv-field') as HTMLSelectElement;
+    const operator = document.querySelector('.adv-operator') as HTMLSelectElement;
+    const input = document.querySelector('.adv-value') as HTMLInputElement;
+
+    expect(field.value).toBe('userRating');
+    expect(Array.from(operator.options).map(option => option.textContent)).toContain('未评分');
+    expect(Array.from(operator.options).map(option => option.textContent)).toContain('已评分');
+    expect(input.max).toBe('5');
+    expect(input.style.display).toBe('none');
+  });
+
   it('removes rows and notifies caller', () => {
     const { controller, onConditionsChange, conditions } = createController([
       { id: 'cond-1', field: 'id', op: 'contains', value: 'ABC' },

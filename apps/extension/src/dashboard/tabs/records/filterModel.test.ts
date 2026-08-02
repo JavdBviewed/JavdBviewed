@@ -120,4 +120,30 @@ describe('records filter model', () => {
 
     expect(result.map(item => item.id)).toEqual(['A-001', 'B-001']);
   });
+
+  it('filters records by official and personal ratings', () => {
+    const result = filterAndSortRecords({
+      records: [
+        record({ id: 'R-8', rating: 8.5, userRating: 4 }),
+        record({ id: 'R-0', rating: 0, userRating: 0 }),
+        record({ id: 'R-7', rating: 7, userRating: undefined }),
+      ],
+      searchTerm: '',
+      status: 'all',
+      selectedTags: new Set(),
+      selectedListIds: new Set(),
+      selectedSeriesIds: new Set(),
+      selectedLabelIds: new Set(),
+      seriesIdToRecord: new Map(),
+      labelIdToRecord: new Map(),
+      advancedConditions: [
+        { id: 'rating', field: 'rating', op: 'gte', value: '8' },
+        { id: 'user-rating', field: 'userRating', op: 'not_empty' },
+      ],
+      favoritesFilterActive: false,
+      sortValue: 'id_asc',
+    });
+
+    expect(result.map(item => item.id)).toEqual(['R-8']);
+  });
 });

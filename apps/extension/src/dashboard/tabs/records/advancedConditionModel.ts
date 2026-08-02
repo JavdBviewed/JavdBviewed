@@ -8,6 +8,8 @@ export type RecordsAdvancedFieldKey =
   | 'releaseDate'
   | 'createdAt'
   | 'updatedAt'
+  | 'rating'
+  | 'userRating'
   | 'javdbUrl'
   | 'javdbImage';
 
@@ -47,6 +49,8 @@ function getRecordAdvancedField(record: VideoRecord, key: RecordsAdvancedFieldKe
     case 'releaseDate': return record.releaseDate ?? '';
     case 'createdAt': return record.createdAt;
     case 'updatedAt': return record.updatedAt;
+    case 'rating': return record.rating;
+    case 'userRating': return record.userRating;
     case 'javdbUrl': return record.javdbUrl ?? '';
     case 'javdbImage': return record.javdbImage ?? '';
   }
@@ -57,6 +61,15 @@ function isEmptyAdvancedValue(value: unknown): boolean {
   if (value === null || value === undefined) return true;
   if (typeof value === 'string') return value.trim() === '';
   return false;
+}
+
+function isRatingField(field: RecordsAdvancedFieldKey): boolean {
+  return field === 'rating' || field === 'userRating';
+}
+
+function isRatedScore(value: unknown): boolean {
+  const score = Number(value);
+  return Number.isFinite(score) && score > 0;
 }
 
 const TEXT_FIELDS = new Set<RecordsAdvancedFieldKey>([
@@ -72,8 +85,12 @@ export function evaluateRecordsAdvancedCondition(record: VideoRecord, condition:
   const value = getRecordAdvancedField(record, condition.field);
   const compareValue = condition.value ?? '';
 
-  if (condition.op === 'empty') return isEmptyAdvancedValue(value);
-  if (condition.op === 'not_empty') return !isEmptyAdvancedValue(value);
+  if (condition.op === 'empty') {
+    return isRatingField(condition.field) ? !isRatedScore(value) : isEmptyAdvancedValue(value);
+  }
+  if (condition.op === 'not_empty') {
+    return isRatingField(condition.field) ? isRatedScore(value) : !isEmptyAdvancedValue(value);
+  }
 
   if (TEXT_FIELDS.has(condition.field)) {
     const source = String(value).toLowerCase();
@@ -91,6 +108,21 @@ export function evaluateRecordsAdvancedCondition(record: VideoRecord, condition:
     const source = Number(value);
     const expected = Number(compareValue);
     if (Number.isNaN(source)) return false;
+    switch (condition.op) {
+      case 'eq': return source === expected;
+      case 'gt': return source > expected;
+      case 'gte': return source >= expected;
+      case 'lt': return source < expected;
+      case 'lte': return source <= expected;
+      default: return true;
+    }
+  }
+
+  if (isRatingField(condition.field)) {
+    if (!isRatedScore(value)) return false;
+    const source = Number(value);
+    const expected = Number(compareValue);
+    if (Number.isNaN(expected)) return false;
     switch (condition.op) {
       case 'eq': return source === expected;
       case 'gt': return source > expected;

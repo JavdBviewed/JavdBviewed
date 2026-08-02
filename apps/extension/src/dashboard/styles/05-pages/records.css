@@ -3642,6 +3642,78 @@
     width: 100%;
 }
 
+/* 高级搜索操作：用颜色区分新增、执行和清空条件，避免按钮都呈现为同一种灰色。 */
+.records-page {
+    --records-adv-add-bg: #0891b2;
+    --records-adv-add-hover: #0e7490;
+    --records-adv-add-fg: #ffffff;
+    --records-adv-apply-bg: #059669;
+    --records-adv-apply-hover: #047857;
+    --records-adv-apply-fg: #ffffff;
+    --records-adv-reset-bg: #d97706;
+    --records-adv-reset-hover: #b45309;
+    --records-adv-reset-fg: #ffffff;
+}
+
+[data-theme="dark"] .records-page {
+    --records-adv-add-bg: #22d3ee;
+    --records-adv-add-hover: #67e8f9;
+    --records-adv-add-fg: #083344;
+    --records-adv-apply-bg: #10b981;
+    --records-adv-apply-hover: #34d399;
+    --records-adv-apply-fg: #052e16;
+    --records-adv-reset-bg: #f59e0b;
+    --records-adv-reset-hover: #fbbf24;
+    --records-adv-reset-fg: #451a03;
+}
+
+.records-page .advanced-search-panel .adv-controls #addConditionBtn,
+.records-page .advanced-search-panel .adv-controls #applyConditionsBtn,
+.records-page .advanced-search-panel .adv-controls #resetConditionsBtn {
+    border-color: transparent;
+    font-weight: 800;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
+.records-page .advanced-search-panel .adv-controls #addConditionBtn {
+    background: var(--records-adv-add-bg);
+    color: var(--records-adv-add-fg);
+}
+
+.records-page .advanced-search-panel .adv-controls #applyConditionsBtn {
+    background: var(--records-adv-apply-bg);
+    color: var(--records-adv-apply-fg);
+}
+
+.records-page .advanced-search-panel .adv-controls #resetConditionsBtn {
+    background: var(--records-adv-reset-bg);
+    color: var(--records-adv-reset-fg);
+}
+
+.records-page .advanced-search-panel .adv-controls #addConditionBtn:hover:not(:disabled),
+.records-page .advanced-search-panel .adv-controls #applyConditionsBtn:hover:not(:disabled),
+.records-page .advanced-search-panel .adv-controls #resetConditionsBtn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 7px 16px rgba(15, 23, 42, 0.18);
+}
+
+.records-page .advanced-search-panel .adv-controls #addConditionBtn:hover:not(:disabled) {
+    background: var(--records-adv-add-hover);
+}
+
+.records-page .advanced-search-panel .adv-controls #applyConditionsBtn:hover:not(:disabled) {
+    background: var(--records-adv-apply-hover);
+}
+
+.records-page .advanced-search-panel .adv-controls #resetConditionsBtn:hover:not(:disabled) {
+    background: var(--records-adv-reset-hover);
+}
+
+.records-page .advanced-search-panel .adv-controls button:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--records-primary) 42%, transparent);
+    outline-offset: 2px;
+}
+
 @media (max-width: 1320px) {
     .records-page .search-and-filter.records-toolbar .filter-row {
         grid-template-columns: repeat(2, minmax(0, 1fr));
