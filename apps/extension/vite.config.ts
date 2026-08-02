@@ -63,5 +63,7 @@ export default defineConfig({
     // Keep dist at monorepo root for existing scripts / load-unpacked habits
     outDir: path.resolve(repoRoot, 'dist'),
     emptyOutDir: true,
+    // MV3 扩展页面可能将 Vite 的 modulepreload 判定为跨 world 资源不匹配；动态导入仍会按需加载分包。
+    modulePreload: false,
   },
 });

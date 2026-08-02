@@ -61,6 +61,20 @@ async function main() {
         });
         console.log('Vite build finished successfully.');
 
+        // MV3 扩展页面的 isolated world 不适合使用 modulepreload，避免产生跨 world 预加载警告。
+        const extensionHtmlFiles = [
+            resolve(distDir, 'dashboard/dashboard.html'),
+            resolve(distDir, 'popup/popup.html'),
+        ];
+        for (const htmlPath of extensionHtmlFiles) {
+            if (!fs.existsSync(htmlPath)) continue;
+            const html = await fs.readFile(htmlPath, 'utf8');
+            if (/<link[^>]+rel=["']modulepreload["']/i.test(html)) {
+                throw new Error(`[build] MV3 extension page still contains modulepreload: ${htmlPath}`);
+            }
+        }
+        console.log('[build] MV3 modulepreload compatibility gate passed.');
+
         // Gate: 1.x must not ship manifest.key; 2.0.0+ must ship the locked fixed ID key
         const distManifestPath = resolve(distDir, 'manifest.json');
         if (await fs.pathExists(distManifestPath)) {
