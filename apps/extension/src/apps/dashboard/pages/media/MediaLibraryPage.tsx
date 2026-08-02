@@ -56,8 +56,6 @@ import {
 } from './mediaBrowseModel';
 import {
   formatWatchPercent,
-  hasLibraryIndex,
-  hasDrive115LibraryIndex,
   mapLibraryStateToBrowseItems,
   mapDrive115LibraryStateToBrowseItems,
   mergeBrowseCatalogs,
@@ -68,6 +66,7 @@ import {
 import { Media115PlayPanel, type Media115ResolvedStream } from './Media115PlayPanel';
 import { MediaCleanupPanel } from './MediaCleanupPanel';
 import { MediaItemDetailPanel } from './MediaItemDetailPanel';
+import { ProgressiveMediaGrid } from './ProgressiveMediaGrid';
 import {
   enqueueCompletedPlayback,
   importHistoricalWatchedFromCurrentLibrary,
@@ -260,6 +259,12 @@ export function MediaLibraryPage() {
   const play115StartTimeRef = useRef(0);
   const [showCleanupPanel, setShowCleanupPanel] = useState(false);
   const [cleanupRefreshKey, setCleanupRefreshKey] = useState(0);
+  const catalogReloadInFlightRef = useRef(false);
+  const catalogReloadPendingRef = useRef(false);
+  const catalogReloadTimerRef = useRef<number | null>(null);
+  const pendingCatalogReloadRef = useRef(false);
+  const drive115IndexRunningRef = useRef(false);
+  const pendingDrive115CatalogRefreshRef = useRef(false);
   /** Emby/JF 扩展内播放：用设置里 token 取流，不依赖浏览器网页登录 */
   const [embyStream, setEmbyStream] = useState<{
     code: string;
@@ -310,7 +315,12 @@ export function MediaLibraryPage() {
   /**
    * 从 storage 读取本地索引并刷新目录
    */
-  const reloadCatalogFromStorage = async () => {
+  const reloadCatalogFromStorage = useCallback(async () => {
+    if (catalogReloadInFlightRef.current) {
+      catalogReloadPendingRef.current = true;
+      return;
+    }
+    catalogReloadInFlightRef.current = true;
     setLoadingIndex(true);
     try {
       const [state, drive115State, evidence] = await Promise.all([
@@ -321,10 +331,9 @@ export function MediaLibraryPage() {
         ),
         loadWatchEvidenceMap().catch(() => ({})),
       ]);
-      const embyItems = hasLibraryIndex(state) ? mapLibraryStateToBrowseItems(state) : [];
-      const drive115Items = hasDrive115LibraryIndex(drive115State)
-        ? mapDrive115LibraryStateToBrowseItems(drive115State as any)
-        : [];
+      // 适配器本身会返回空数组；不要先用 has* 再映射一次完整索引。
+      const embyItems = mapLibraryStateToBrowseItems(state);
+      const drive115Items = mapDrive115LibraryStateToBrowseItems(drive115State as any);
       const merged = mergeBrowseCatalogs(embyItems, drive115Items);
       if (merged.length > 0) {
         setCatalog(mergeLocalWatchEvidence(merged, evidence));
@@ -343,8 +352,25 @@ export function MediaLibraryPage() {
       setIndexUpdatedAt(0);
     } finally {
       setLoadingIndex(false);
+      catalogReloadInFlightRef.current = false;
+      if (catalogReloadPendingRef.current) {
+        catalogReloadPendingRef.current = false;
+        window.setTimeout(() => {
+          void reloadCatalogFromStorage();
+        }, 0);
+      }
     }
-  };
+  }, []);
+
+  const scheduleCatalogReload = useCallback((delayMs = 600) => {
+    if (catalogReloadTimerRef.current) {
+      clearTimeout(catalogReloadTimerRef.current);
+    }
+    catalogReloadTimerRef.current = window.setTimeout(() => {
+      catalogReloadTimerRef.current = null;
+      void reloadCatalogFromStorage();
+    }, delayMs);
+  }, [reloadCatalogFromStorage]);
 
   const reloadSyncTargetsFromSettings = useCallback(async () => {
     try {
@@ -375,9 +401,17 @@ export function MediaLibraryPage() {
 
   // 首次进入读取索引与可同步服务器
   useEffect(() => {
+    void getValue<{ running?: boolean } | null>(
+      STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS,
+      null,
+    ).then((progress) => {
+      drive115IndexRunningRef.current = Boolean(progress?.running);
+    }).catch(() => {
+      drive115IndexRunningRef.current = false;
+    });
     void reloadCatalogFromStorage();
     void reloadSyncTargetsFromSettings();
-  }, [reloadSyncTargetsFromSettings]);
+  }, [reloadCatalogFromStorage, reloadSyncTargetsFromSettings]);
 
   // 索引写入后实时刷新目录：115 增量入库 / Emby 同步都会更新本地库，无需重进页面
   useEffect(() => {
@@ -387,27 +421,64 @@ export function MediaLibraryPage() {
       STORAGE_KEYS.EMBY_LIBRARY_STATE,
       STORAGE_KEYS.MEDIA_WATCH_EVIDENCE,
       STORAGE_KEYS.SETTINGS,
+      STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS,
     ];
-    let timer: ReturnType<typeof setTimeout> | null = null;
     const onChanged = (
       changes: Record<string, chrome.storage.StorageChange>,
       areaName: string,
     ) => {
       if (areaName !== 'local') return;
       if (!watchedKeys.some((key) => key in changes)) return;
-      // 防抖：增量入库会连续触发多次变更，合并为一次刷新，避免抖动
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        void reloadCatalogFromStorage();
+
+      const settingsChanged = STORAGE_KEYS.SETTINGS in changes;
+      const drive115StateChanged = STORAGE_KEYS.DRIVE115_LIBRARY_STATE in changes;
+      const progressChanged = STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS in changes;
+      const progress = progressChanged
+        ? changes[STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS]?.newValue as { running?: boolean } | null
+        : null;
+
+      if (progressChanged) {
+        drive115IndexRunningRef.current = Boolean(progress?.running);
+        if (!drive115IndexRunningRef.current && pendingDrive115CatalogRefreshRef.current) {
+          pendingDrive115CatalogRefreshRef.current = false;
+          scheduleCatalogReload(0);
+        }
+      }
+
+      if (drive115StateChanged) {
+        if (drive115IndexRunningRef.current) {
+          // 索引期间只保留最新的最终刷新请求，避免每个增量快照都重建整目录。
+          pendingDrive115CatalogRefreshRef.current = true;
+        } else {
+          scheduleCatalogReload();
+        }
+      }
+
+      if (STORAGE_KEYS.EMBY_LIBRARY_STATE in changes || STORAGE_KEYS.MEDIA_WATCH_EVIDENCE in changes) {
+        const playbackActive = Boolean(embyStreamRef.current || drive115StreamRef.current);
+        const watchEvidenceChanged = STORAGE_KEYS.MEDIA_WATCH_EVIDENCE in changes;
+        if (watchEvidenceChanged && playbackActive) {
+          // 播放器打开时进度会定期写 storage；关闭播放器前无需反复重建整个目录模型。
+          pendingCatalogReloadRef.current = true;
+        } else {
+          scheduleCatalogReload();
+        }
+      }
+
+      // 设置变化只需要更新来源摘要/筛选项，不应因索引快照变化反复读取设置。
+      if (settingsChanged) {
         void reloadSyncTargetsFromSettings();
-      }, 400);
+      }
     };
     chrome.storage.onChanged.addListener(onChanged);
     return () => {
-      if (timer) clearTimeout(timer);
+      if (catalogReloadTimerRef.current) {
+        clearTimeout(catalogReloadTimerRef.current);
+        catalogReloadTimerRef.current = null;
+      }
       chrome.storage.onChanged.removeListener(onChanged);
     };
-  }, [reloadSyncTargetsFromSettings]);
+  }, [reloadCatalogFromStorage, reloadSyncTargetsFromSettings, scheduleCatalogReload]);
 
   // 卡片/工具栏打开 115 播放面板
   useEffect(() => {
@@ -491,6 +562,7 @@ export function MediaLibraryPage() {
     const duration = lastProgressDurationRef.current;
     // 先快照再清 UI，避免 re-render 清空 ref 后 Stop 发不出去
     const streamSnap = embyStreamRef.current;
+    pendingCatalogReloadRef.current = false;
     setEmbyStream(null);
     void (async () => {
       // 即使进度 <1s 也要 Stop，否则会话靠超时才清（常几十秒）
@@ -760,6 +832,7 @@ export function MediaLibraryPage() {
     const streamSnap = drive115StreamRef.current;
     const position = drive115LastProgressPosRef.current;
     const duration = drive115LastProgressDurationRef.current;
+    pendingCatalogReloadRef.current = false;
     setDrive115Stream(null);
     void (async () => {
       if (streamSnap && (duration > 0 || position > 0)) {
@@ -986,92 +1059,19 @@ export function MediaLibraryPage() {
             {heroWindow.map(({ virtualIndex, itemIndex, position }) => {
               const item = heroes[itemIndex];
               if (!item) return null;
-              const posAttr = Math.abs(position) <= MEDIA_HERO_VISIBLE_RADIUS
-                ? String(position)
-                : position < 0 ? 'before' : 'after';
-              const pos = position;
-              const isActive = pos === 0;
-              const heroCover = resolveCoverImage(item, coverView);
-              const canPlay = usingPreview || resolvePlaybackChoice(item).kind !== 'unavailable';
               return (
-                <div
+                <MediaHeroCard
                   key={`hero:${virtualIndex}:${item.source}:${item.itemId || item.code}`}
-                  className="ml-hero-card"
-                  data-pos={posAttr}
-                  data-virtual-index={virtualIndex}
-                  data-item-index={itemIndex}
-                  data-cover-mode={coverView}
-                  data-active={isActive ? '1' : '0'}
-                >
-                  <button
-                    type="button"
-                    className="ml-hero-hit"
-                    title={isActive ? `查看详情 · ${item.code}` : `切换到 ${item.code}`}
-                    onClick={() => {
-                      if (!isActive) {
-                        setHeroStep(virtualIndex);
-                        return;
-                      }
-                      setDetailItem(item);
-                    }}
-                  >
-                    <MediaCover
-                      hoverZoom={false}
-                      showPlayHint={false}
-                      fit="cover"
-                      imageUrl={heroCover.url}
-                      fallbackImageUrl={heroCover.fallbackUrl}
-                      artStyle={coverArtStyle(item, coverView)}
-                      alt={item.code}
-                      footer={
-                        <>
-                          <span className="ml-code">{item.code}</span>
-                          <div className="ml-card-title">{item.title}</div>
-                          {isActive ? (
-                            <div className="ml-hero-meta-inline">
-                              {sourceLabel(item.source)}
-                              {item.year ? ` · ${item.year}` : ''}
-                              {item.serverName ? ` · ${item.serverName}` : ''}
-                              {usingPreview ? ' · 预览' : ''}
-                              {heroCover.fellBack && coverView === 'thumb' ? ' · 无缩略图' : ''}
-                            </div>
-                          ) : null}
-                        </>
-                      }
-                    />
-                  </button>
-                  {isActive ? (
-                    <div className="ml-hero-actions">
-                      {canPlay ? (
-                        <button
-                          type="button"
-                          className="ml-hero-play"
-                          title="使用已登录令牌在扩展内播放"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            requestPlayback(item);
-                          }}
-                        >
-                          <span aria-hidden="true">▶</span>
-                          <span>播放</span>
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="ml-hero-detail"
-                        title={`查看详情 · ${item.code}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setDetailItem(item);
-                        }}
-                      >
-                        详情
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
+                  item={item}
+                  virtualIndex={virtualIndex}
+                  itemIndex={itemIndex}
+                  position={position}
+                  coverView={coverView}
+                  usingPreview={usingPreview}
+                  onSetHeroStep={setHeroStep}
+                  onRequestPlayback={requestPlayback}
+                  onOpenDetail={setDetailItem}
+                />
               );
             })}
           </div>
@@ -1653,10 +1653,12 @@ export function MediaLibraryPage() {
             }
           />
         ) : (
-          <div className="ml-grid" id="mediaLibraryGrid" data-layout-check="media-grid">
-            {list.map((item) => (
+          <ProgressiveMediaGrid
+            items={list}
+            itemKey={(item) => `${item.source}:${item.itemId || item.code}`}
+            priorityItem={(item) => item.watchState === 'in_progress'}
+            renderItem={(item) => (
               <MediaCard
-                key={`${item.source}:${item.itemId || item.code}`}
                 item={item}
                 usingPreview={usingPreview}
                 coverView={coverView}
@@ -1671,8 +1673,8 @@ export function MediaLibraryPage() {
                 onPlayItem={(it) => requestPlayback(it)}
                 onOpenDetail={(it) => setDetailItem(it)}
               />
-            ))}
-          </div>
+            )}
+          />
         )}
       </section>
 
@@ -1681,6 +1683,120 @@ export function MediaLibraryPage() {
           ? '当前展示预览数据。完成 Emby/Jellyfin 媒体库同步后，将自动改用本地索引。'
           : '当前展示本地媒体库索引。点卡片打开扩展内详情，点播放在弹窗播放器中播放（令牌取流）。'}
       </div>
+    </div>
+  );
+}
+
+function MediaHeroCard({
+  item,
+  virtualIndex,
+  itemIndex,
+  position,
+  coverView,
+  usingPreview,
+  onSetHeroStep,
+  onRequestPlayback,
+  onOpenDetail,
+}: {
+  item: MediaBrowseItem;
+  virtualIndex: number;
+  itemIndex: number;
+  position: number;
+  coverView: MediaCoverViewMode;
+  usingPreview: boolean;
+  onSetHeroStep: (step: number) => void;
+  onRequestPlayback: (item: MediaBrowseItem) => void;
+  onOpenDetail: (item: MediaBrowseItem) => void;
+}) {
+  const { ref: d115HeroCoverRef, coverUrl: d115HeroCover } = useDrive115Cover(item);
+  const posAttr = Math.abs(position) <= MEDIA_HERO_VISIBLE_RADIUS
+    ? String(position)
+    : position < 0 ? 'before' : 'after';
+  const isActive = position === 0;
+  const heroCover = resolveCoverImage(item, coverView);
+  const heroImageUrl = item.source === '115' && d115HeroCover
+    ? d115HeroCover
+    : heroCover.url;
+  const canPlay = usingPreview || resolvePlaybackChoice(item).kind !== 'unavailable';
+
+  return (
+    <div
+      ref={d115HeroCoverRef}
+      className="ml-hero-card"
+      data-pos={posAttr}
+      data-virtual-index={virtualIndex}
+      data-item-index={itemIndex}
+      data-cover-mode={coverView}
+      data-active={isActive ? '1' : '0'}
+    >
+      <button
+        type="button"
+        className="ml-hero-hit"
+        title={isActive ? `查看详情 · ${item.code}` : `切换到 ${item.code}`}
+        onClick={() => {
+          if (!isActive) {
+            onSetHeroStep(virtualIndex);
+            return;
+          }
+          onOpenDetail(item);
+        }}
+      >
+        <MediaCover
+          hoverZoom={false}
+          showPlayHint={false}
+          fit="cover"
+          imageUrl={heroImageUrl}
+          fallbackImageUrl={heroCover.fallbackUrl}
+          artStyle={coverArtStyle(item, coverView)}
+          alt={item.code}
+          footer={
+            <>
+              <span className="ml-code">{item.code}</span>
+              <div className="ml-card-title">{item.title}</div>
+              {isActive ? (
+                <div className="ml-hero-meta-inline">
+                  {sourceLabel(item.source)}
+                  {item.year ? ` · ${item.year}` : ''}
+                  {item.serverName ? ` · ${item.serverName}` : ''}
+                  {usingPreview ? ' · 预览' : ''}
+                  {heroCover.fellBack && !d115HeroCover && coverView === 'thumb' ? ' · 无缩略图' : ''}
+                </div>
+              ) : null}
+            </>
+          }
+        />
+      </button>
+      {isActive ? (
+        <div className="ml-hero-actions">
+          {canPlay ? (
+            <button
+              type="button"
+              className="ml-hero-play"
+              title="使用已登录令牌在扩展内播放"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRequestPlayback(item);
+              }}
+            >
+              <span aria-hidden="true">▶</span>
+              <span>播放</span>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="ml-hero-detail"
+            title={`查看详情 · ${item.code}`}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onOpenDetail(item);
+            }}
+          >
+            详情
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

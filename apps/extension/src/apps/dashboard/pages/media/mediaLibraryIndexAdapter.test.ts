@@ -10,6 +10,7 @@ import {
   buildServerPlayUrl,
   hasLibraryIndex,
   hueFromCode,
+  buildWatchEvidenceLookup,
   mapLibraryStateToBrowseItems,
   mergeLocalWatchEvidence,
   mapDrive115LibraryStateToBrowseItems,
@@ -19,6 +20,36 @@ import {
 } from './mediaLibraryIndexAdapter';
 
 describe('mediaLibraryIndexAdapter', () => {
+  it('builds reusable watch evidence indexes for copy and legacy lookups', () => {
+    const legacy = {
+      source: 'drive115' as const,
+      sourceItemId: 'pick-legacy',
+      percent: 25,
+      watched: false,
+      lastPlayedAt: 1,
+      fileName: 'LEGACY-001.mp4',
+    };
+    const copy = {
+      source: 'drive115' as const,
+      sourceItemId: 'pick-copy',
+      fileId: 'file-copy',
+      copyId: '115:file-copy',
+      percent: 50,
+      watched: false,
+      lastPlayedAt: 2,
+    };
+
+    const lookup = buildWatchEvidenceLookup({
+      'LEGACY-001': legacy,
+      'COPY-001::115:file-copy': copy,
+    });
+
+    expect(lookup.byExactKey.get('LEGACY-001')).toBe(legacy);
+    expect(lookup.byCopyId.get('115:file-copy')).toBe(copy);
+    expect(lookup.bySourceId.get('drive115|pick-copy')).toBe(copy);
+    expect(lookup.byAlias.get('LEGACY-001.MP4')).toBe(legacy);
+  });
+
   it('maps library state entries to browse items', () => {
     const state: EmbyLibraryState = {
       updatedAt: 1,

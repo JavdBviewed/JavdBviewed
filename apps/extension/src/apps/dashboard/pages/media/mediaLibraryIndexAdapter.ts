@@ -151,17 +151,38 @@ function collectEvidenceAliases(item: MediaBrowseItem): string[] {
   return Array.from(aliases);
 }
 
-function findLocalWatchEvidence(
-  item: MediaBrowseItem,
+export type WatchEvidenceLookup = {
+  byExactKey: Map<string, MediaWatchEvidenceMap[string]>;
+  byCopyId: Map<string, MediaWatchEvidenceMap[string]>;
+  bySourceId: Map<string, MediaWatchEvidenceMap[string]>;
+  byAlias: Map<string, MediaWatchEvidenceMap[string]>;
+};
+
+function evidenceSourceKey(source: MediaWatchEvidenceMap[string]['source']): string {
+  return source;
+}
+
+function setFirst<T>(map: Map<string, T>, key: string, value: T): void {
+  if (key && !map.has(key)) map.set(key, value);
+}
+
+/**
+ * 将观看证据一次性建立索引，避免每个媒体副本都扫描完整 evidenceMap。
+ * 证据表可能包含数千个条目，媒体库刷新属于高频路径，不能在卡片循环中重复 Object.values。
+ */
+export function buildWatchEvidenceLookup(
   evidenceMap: MediaWatchEvidenceMap,
-): MediaWatchEvidenceMap[string] | undefined {
-  const aliases = collectEvidenceAliases(item);
-  for (const alias of aliases) {
-    const direct = evidenceMap[alias];
-    if (direct) return direct;
-  }
-  return Object.entries(evidenceMap).find(([rawKey, evidence]) => {
-    const evidenceAliases = [
+): WatchEvidenceLookup {
+  const lookup: WatchEvidenceLookup = {
+    byExactKey: new Map(),
+    byCopyId: new Map(),
+    bySourceId: new Map(),
+    byAlias: new Map(),
+  };
+
+  for (const [rawKey, evidence] of Object.entries(evidenceMap)) {
+    setFirst(lookup.byExactKey, rawKey, evidence);
+    const aliases = [
       rawKey,
       evidence.sourceItemId,
       evidence.pickCode,
@@ -169,31 +190,49 @@ function findLocalWatchEvidence(
       evidence.fileName,
       withoutCommonVideoExtension(evidence.fileName),
     ].map(normalizeEvidenceAlias);
-    return evidenceAliases.some((alias) => alias && aliases.includes(alias));
-  })?.[1];
+    for (const alias of aliases) setFirst(lookup.byAlias, alias, evidence);
+
+    const copyId = String(evidence.copyId || '').trim();
+    if (copyId) setFirst(lookup.byCopyId, copyId, evidence);
+
+    const source = evidenceSourceKey(evidence.source);
+    for (const sourceId of [evidence.sourceItemId, evidence.fileId, evidence.pickCode]) {
+      const normalizedId = String(sourceId || '').trim();
+      if (normalizedId) setFirst(lookup.bySourceId, `${source}|${normalizedId}`, evidence);
+    }
+  }
+  return lookup;
+}
+
+function findLocalWatchEvidence(
+  item: MediaBrowseItem,
+  lookup: WatchEvidenceLookup,
+): MediaWatchEvidenceMap[string] | undefined {
+  const aliases = collectEvidenceAliases(item);
+  for (const alias of aliases) {
+    const direct = lookup.byExactKey.get(alias);
+    if (direct) return direct;
+  }
+  return aliases.map((alias) => lookup.byAlias.get(alias)).find(Boolean);
 }
 
 function findCopyWatchEvidence(
   code: string,
   copy: MediaSourceCopy,
-  evidenceMap: MediaWatchEvidenceMap,
+  lookup: WatchEvidenceLookup,
 ): MediaWatchEvidenceMap[string] | undefined {
-  const direct = evidenceMap[`${normalizeEvidenceAlias(code)}::${copy.copyId}`];
+  const direct = lookup.byExactKey.get(`${normalizeEvidenceAlias(code)}::${copy.copyId}`);
   if (direct) return direct;
-  return Object.values(evidenceMap).find((evidence) => {
-    if (evidence.copyId) return evidence.copyId === copy.copyId;
-    const sourceMatches = copy.source === '115'
-      ? evidence.source === 'drive115'
-      : evidence.source === copy.source;
-    if (!sourceMatches) return false;
-    const sourceIds = [evidence.sourceItemId, evidence.fileId, evidence.pickCode]
-      .map((value) => String(value || '').trim())
-      .filter(Boolean);
-    const copyIds = [copy.itemId, copy.fileId, copy.pickCode]
-      .map((value) => String(value || '').trim())
-      .filter(Boolean);
-    return sourceIds.some((sourceId) => copyIds.includes(sourceId));
-  });
+  const byCopyId = lookup.byCopyId.get(copy.copyId);
+  if (byCopyId) return byCopyId;
+
+  const evidenceSource = copy.source === '115' ? 'drive115' : copy.source;
+  const copyIds = [copy.itemId, copy.fileId, copy.pickCode]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  return copyIds
+    .map((copyId) => lookup.bySourceId.get(`${evidenceSource}|${copyId}`))
+    .find((evidence) => !evidence?.copyId);
 }
 
 function mergeEvidenceIntoUserData(
@@ -290,9 +329,10 @@ export function mergeLocalWatchEvidence(
   evidenceMap: MediaWatchEvidenceMap | null | undefined,
 ): MediaBrowseItem[] {
   if (!evidenceMap || !Object.keys(evidenceMap).length) return items;
+  const lookup = buildWatchEvidenceLookup(evidenceMap);
   return items.map((item) => {
     const copies = item.copies?.map((copy) => {
-      const evidence = findCopyWatchEvidence(item.code, copy, evidenceMap);
+      const evidence = findCopyWatchEvidence(item.code, copy, lookup);
       const userData = mergeEvidenceIntoUserData(copy.userData, evidence);
       return {
         ...copy,
@@ -300,7 +340,7 @@ export function mergeLocalWatchEvidence(
         watchState: userData ? computeWatchState(userData) : copy.watchState,
       };
     });
-    const legacyEvidence = findLocalWatchEvidence(item, evidenceMap);
+    const legacyEvidence = findLocalWatchEvidence(item, lookup);
     const legacyUserData = legacyEvidence?.copyId
       ? undefined
       : mergeEvidenceIntoUserData(item.userData, legacyEvidence);

@@ -3,7 +3,7 @@
  * @description 115 卡片封面视窗懒加载：进入可视区才现取直链，配合内存缓存复用。
  * @module apps/dashboard/pages/media
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { resolveDrive115CoverUrl } from './drive115CoverCache';
 import type { MediaBrowseItem } from './mediaBrowseModel';
 
@@ -16,7 +16,7 @@ export function useDrive115Cover(item: Pick<MediaBrowseItem, 'source' | 'coverPi
   ref: (node: HTMLElement | null) => void;
   coverUrl: string;
 } {
-  const nodeRef = useRef<HTMLElement | null>(null);
+  const [node, setNode] = useState<HTMLElement | null>(null);
   const [coverUrl, setCoverUrl] = useState('');
   const pickCode = item.source === '115' ? item.coverPickCode : undefined;
 
@@ -24,13 +24,15 @@ export function useDrive115Cover(item: Pick<MediaBrowseItem, 'source' | 'coverPi
     setCoverUrl('');
     if (!pickCode) return undefined;
     let cancelled = false;
+    let loaded = false;
     const load = () => {
+      if (loaded) return;
+      loaded = true;
       void resolveDrive115CoverUrl(pickCode).then((url) => {
         if (!cancelled && url) setCoverUrl(url);
       });
     };
-    const el = nodeRef.current;
-    if (!el || typeof IntersectionObserver === 'undefined') {
+    if (!node || typeof IntersectionObserver === 'undefined') {
       load();
       return () => {
         cancelled = true;
@@ -48,15 +50,30 @@ export function useDrive115Cover(item: Pick<MediaBrowseItem, 'source' | 'coverPi
       },
       { rootMargin: '200px' },
     );
-    io.observe(el);
+    io.observe(node);
+
+    // IntersectionObserver 的首次回调不是同步保证；节点已经在视口内时直接触发，
+    // 避免轮播切换或首屏卡片因观察器调度延迟一直显示占位图。
+    const rect = node.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    const nearViewport = rect.bottom >= -200
+      && rect.right >= -200
+      && rect.top <= viewportHeight + 200
+      && rect.left <= viewportWidth + 200;
+    if (nearViewport) {
+      load();
+      io.disconnect();
+    }
+
     return () => {
       cancelled = true;
       io.disconnect();
     };
-  }, [pickCode]);
+  }, [node, pickCode]);
 
-  const ref = (node: HTMLElement | null) => {
-    nodeRef.current = node;
-  };
+  const ref = useCallback((nextNode: HTMLElement | null) => {
+    setNode(nextNode);
+  }, []);
   return { ref, coverUrl };
 }

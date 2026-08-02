@@ -852,6 +852,37 @@
   isolation: isolate;
 }
 
+.ml-grid-item {
+  min-width: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 360px;
+}
+
+.ml-grid-load-more {
+  grid-column: 1 / -1;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 16px;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+}
+
+.ml-grid-load-more-button {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  color: var(--color-fg);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.ml-grid-load-more-button:hover,
+.ml-grid-load-more-button:focus-visible {
+  border-color: var(--color-primary);
+  color: var(--color-primary-active);
+}
+
 /* 海报竖版：列更窄，避免 2:3 卡过高（168×1.15≈193） */
 .ml-page[data-cover-view='poster'] .ml-grid {
   grid-template-columns: repeat(auto-fill, minmax(193px, 1fr)) !important;

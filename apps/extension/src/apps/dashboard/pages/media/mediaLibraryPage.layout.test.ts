@@ -20,6 +20,7 @@ describe('MediaLibraryPage 实时刷新', () => {
   it('监听 115 与 Emby 本地库状态键', () => {
     expect(source).toContain('STORAGE_KEYS.DRIVE115_LIBRARY_STATE');
     expect(source).toContain('STORAGE_KEYS.EMBY_LIBRARY_STATE');
+    expect(source).toContain('STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS');
   });
 
   it('监听本地观看证据变化以刷新 115 续看和所有卡片进度', () => {
@@ -38,14 +39,30 @@ describe('MediaLibraryPage 实时刷新', () => {
   });
 
   it('变更回调走防抖后调用目录刷新', () => {
-    // 防抖 setTimeout + 复用既有 reloadCatalogFromStorage
+    // 防抖调度 + 复用既有 reloadCatalogFromStorage
     expect(source).toMatch(/setTimeout\([\s\S]*reloadCatalogFromStorage/);
     expect(source).toContain('clearTimeout');
+    expect(source).toContain('catalogReloadInFlightRef');
+    expect(source).toContain('pendingDrive115CatalogRefreshRef');
+  });
+
+  it('does not map a complete media index twice just to check whether it is empty', () => {
+    expect(source).not.toContain('hasLibraryIndex(state) ? mapLibraryStateToBrowseItems(state)');
+    expect(source).not.toContain('hasDrive115LibraryIndex(drive115State)');
+    expect(source).toContain('const embyItems = mapLibraryStateToBrowseItems(state)');
+    expect(source).toContain('const drive115Items = mapDrive115LibraryStateToBrowseItems(drive115State');
+  });
+
+  it('defers watch-evidence catalog rebuilds while a player is open', () => {
+    expect(source).toContain('const playbackActive = Boolean(embyStreamRef.current || drive115StreamRef.current)');
+    expect(source).toContain('pendingCatalogReloadRef.current = true');
   });
 
   it('仅响应 local 区且命中监听键', () => {
     expect(source).toContain("areaName !== 'local'");
     expect(source).toContain('watchedKeys.some');
+    expect(source).toContain('if (settingsChanged)');
+    expect(source).toContain('reloadSyncTargetsFromSettings');
   });
   it('shows actionable 115 metadata states instead of silently swallowing missing cover/NFO', () => {
     const detailSource = readFileSync(join(here, 'MediaItemDetailPanel.tsx'), 'utf-8');
@@ -97,6 +114,7 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(detailCss).not.toContain('overscroll-behavior-y: none;');
     expect(scrollerSource).toContain('if (e.shiftKey && absY > 0)');
     expect(scrollerSource).toContain('普通竖向滚轮：完全不拦截');
+    expect(scrollerSource).toContain("closest('button,a,[role=button],input,select,textarea')");
   });
 
   it('routes 115 playback through the shared overlay MediaPlayer instead of an inline video', () => {
@@ -211,10 +229,26 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(mediaCss).toContain('.ml-view-settings-footer');
   });
 
+  it('renders the media grid progressively instead of mounting every card at once', () => {
+    const gridSource = readFileSync(join(here, 'ProgressiveMediaGrid.tsx'), 'utf-8');
+    expect(source).toContain('ProgressiveMediaGrid');
+    expect(source).not.toMatch(/<div className="ml-grid"[\s\S]{0,400}\{list\.map\(/);
+    expect(gridSource).toContain('index < visibleCount');
+    expect(gridSource).toContain('IntersectionObserver');
+    expect(gridSource).toContain('PROGRESSIVE_MEDIA_BATCH_SIZE');
+    expect(gridSource).toContain('priorityItem');
+  });
+
   it('exposes the unbounded carousel step for stable transition diagnostics', () => {
     expect(source).toContain('data-hero-step={heroStep}');
     expect(source).toContain('window.setTimeout(() =>');
     expect(source).toContain('}, [heroStep, heroes.length]);');
+  });
+
+  it('uses the 115 cover loader for carousel items instead of only static metadata', () => {
+    expect(source).toContain('MediaHeroCard');
+    expect(source).toContain('useDrive115Cover(item)');
+    expect(source).toContain('d115HeroCover');
   });
 
   it('renders source filters from configured media channels instead of fixed source types', () => {
