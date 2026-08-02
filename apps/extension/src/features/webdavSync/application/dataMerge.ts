@@ -222,10 +222,15 @@ function mergeVideoRecords(
 
     switch (options.strategy) {
         case 'cloud-priority':
-            // 云端优先：直接使用云端数据
-            Object.assign(merged, cloudRecords);
-            added = diff.cloudOnly.length;
-            updated = diff.conflicts.length;
+            // 云端优先：资料以云端为准，但本地用户标签不能被覆盖。
+            for (const record of diff.cloudOnly) {
+                merged[record.id] = record;
+                added++;
+            }
+            for (const conflict of diff.conflicts) {
+                merged[conflict.id] = mergeVideoRecordKeepingUserTags(conflict.local, conflict.cloud);
+                updated++;
+            }
             break;
 
         case 'local-priority':
@@ -249,7 +254,7 @@ function mergeVideoRecords(
                 const resolution = options.customConflictResolutions?.[conflict.id] || 'merge';
                 switch (resolution) {
                     case 'cloud':
-                        merged[conflict.id] = conflict.cloud;
+                        merged[conflict.id] = mergeVideoRecordKeepingUserTags(conflict.local, conflict.cloud);
                         updated++;
                         break;
                     case 'local':
@@ -276,7 +281,7 @@ function mergeVideoRecords(
             for (const conflict of diff.conflicts) {
                 switch (conflict.recommendation) {
                     case 'cloud':
-                        merged[conflict.id] = conflict.cloud;
+                        merged[conflict.id] = mergeVideoRecordKeepingUserTags(conflict.local, conflict.cloud);
                         updated++;
                         break;
                     case 'local':
@@ -321,6 +326,7 @@ function smartMergeVideoRecord(local: VideoRecord, cloud: VideoRecord): VideoRec
 
         // 标签合并去重
         tags: [...new Set([...(local.tags || []), ...(cloud.tags || [])])],
+        userTags: mergeUserTags(local.userTags, cloud.userTags),
 
         // 选择更完整的数据
         title: (cloud.title && cloud.title.length > (local.title?.length || 0)) ? cloud.title : local.title,
@@ -334,6 +340,25 @@ function smartMergeVideoRecord(local: VideoRecord, cloud: VideoRecord): VideoRec
         // 合并增强数据
         enhancedData: mergeEnhancedData(local.enhancedData, cloud.enhancedData)
     };
+}
+
+function mergeUserTags(localTags?: string[], cloudTags?: string[]): string[] | undefined {
+    const tags = [...(localTags || []), ...(cloudTags || [])]
+        .map(tag => String(tag).trim())
+        .filter(Boolean);
+    const uniqueTags = [...new Set(tags)];
+    return uniqueTags.length > 0 ? uniqueTags : undefined;
+}
+
+function mergeVideoRecordKeepingUserTags(local: VideoRecord, cloud: VideoRecord): VideoRecord {
+    const merged: VideoRecord = { ...cloud };
+    const userTags = mergeUserTags(local.userTags, cloud.userTags);
+    if (userTags) {
+        merged.userTags = userTags;
+    } else {
+        delete merged.userTags;
+    }
+    return merged;
 }
 
 /**

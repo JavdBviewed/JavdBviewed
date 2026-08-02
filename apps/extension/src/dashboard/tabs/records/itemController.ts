@@ -34,7 +34,7 @@ export interface CreateRecordsItemElementOptions {
 
 function bindRecordsItemRowSelection(row: HTMLLIElement, options: CreateRecordsItemElementOptions): void {
   row.addEventListener('click', (event) => {
-    if ((event.target as HTMLElement).closest('button, a, .video-tag, .video-list-tag, .video-list-more')) {
+    if ((event.target as HTMLElement).closest('button, a, .video-tag, .video-user-tag, .video-list-tag, .video-list-more')) {
       return;
     }
 
@@ -44,10 +44,10 @@ function bindRecordsItemRowSelection(row: HTMLLIElement, options: CreateRecordsI
 }
 
 function bindRecordsItemFilterTags(row: HTMLLIElement, options: CreateRecordsItemElementOptions): void {
-  row.querySelectorAll('.video-tag').forEach((tagElement) => {
+  row.querySelectorAll('.video-tag, .video-user-tag').forEach((tagElement) => {
     tagElement.addEventListener('click', (event) => {
       event.stopPropagation();
-      const tag = tagElement.getAttribute('data-tag');
+      const tag = tagElement.getAttribute('data-tag') || tagElement.getAttribute('data-user-tag');
       if (tag) options.onToggleTagFilter(tag);
     });
   });

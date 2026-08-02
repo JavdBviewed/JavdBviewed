@@ -1432,6 +1432,33 @@
     border-color: #1976d2;
 }
 
+.video-user-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 4px 0;
+}
+
+.video-user-tag {
+    display: inline-block;
+    padding: 2px 6px;
+    background-color: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fed7aa;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+}
+
+.video-user-tag:hover,
+.video-user-tag.selected {
+    background-color: #ea580c;
+    color: #fff;
+    border-color: #ea580c;
+}
+
 .video-lists {
     display: flex;
     flex-wrap: wrap;
@@ -2876,6 +2903,264 @@
 .batch-progress-details {
     color: #6c757d;
     font-size: 14px;
+}
+
+/* 批量番号导入弹窗 */
+.batch-import-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10020;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.batch-import-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, .58);
+    backdrop-filter: blur(3px);
+}
+
+.batch-import-content {
+    position: relative;
+    width: min(680px, calc(100vw - 32px));
+    max-height: min(760px, calc(100vh - 32px));
+    overflow: auto;
+    border: 1px solid var(--border-primary, #e2e8f0);
+    border-radius: 14px;
+    background: var(--surface-primary, #fff);
+    box-shadow: 0 24px 80px rgba(15, 23, 42, .3);
+}
+
+.batch-import-header,
+.batch-import-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border-primary, #e2e8f0);
+}
+
+.batch-import-footer {
+    justify-content: flex-end;
+    border-top: 1px solid var(--border-primary, #e2e8f0);
+    border-bottom: 0;
+}
+
+.batch-import-eyebrow {
+    color: #ea580c;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.batch-import-header h3 {
+    margin: 3px 0 0;
+    font-size: 20px;
+}
+
+.batch-import-close {
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary, #64748b);
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.batch-import-body {
+    display: grid;
+    gap: 14px;
+    padding: 22px;
+}
+
+.batch-import-field {
+    display: grid;
+    gap: 7px;
+    color: var(--text-primary, #1e293b);
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.batch-import-field small {
+    color: var(--text-secondary, #64748b);
+    font-weight: 400;
+}
+
+.batch-import-field input,
+.batch-import-field select,
+.batch-import-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--border-primary, #cbd5e1);
+    border-radius: 8px;
+    padding: 9px 11px;
+    background: var(--surface-secondary, #f8fafc);
+    color: var(--text-primary, #1e293b);
+    font: inherit;
+}
+
+.batch-import-field textarea {
+    resize: vertical;
+    line-height: 1.5;
+}
+
+.batch-import-hint,
+.batch-import-progress,
+.batch-import-error {
+    margin: 0;
+    color: var(--text-secondary, #64748b);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.batch-import-progress {
+    min-height: 20px;
+    color: #0369a1;
+    font-weight: 600;
+}
+
+.batch-import-resume {
+    justify-self: start;
+    border: 1px solid #bae6fd;
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: #f0f9ff;
+    color: #0369a1;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.batch-import-resume:hover {
+    background: #e0f2fe;
+}
+
+.batch-import-resume[hidden],
+.batch-import-results-toolbar[hidden],
+.batch-import-results-toolbar button[hidden] {
+    display: none !important;
+}
+
+.batch-import-error {
+    color: #b91c1c;
+}
+
+.batch-import-results-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 4px;
+    color: var(--text-secondary, #64748b);
+    font-size: 12px;
+}
+
+.batch-import-results-toolbar select,
+.batch-import-results-toolbar button,
+.batch-import-result-retry {
+    border: 1px solid var(--border-primary, #cbd5e1);
+    border-radius: 7px;
+    padding: 5px 8px;
+    background: var(--surface-secondary, #f8fafc);
+    color: var(--text-primary, #1e293b);
+    font: inherit;
+    cursor: pointer;
+}
+
+.batch-import-results-toolbar button {
+    margin-left: auto;
+}
+
+.batch-import-results {
+    display: grid;
+    gap: 7px;
+    max-height: 220px;
+    overflow: auto;
+}
+
+.batch-import-result-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 10px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--border-primary, #e2e8f0);
+    border-radius: 8px;
+    background: var(--surface-secondary, #f8fafc);
+    font-size: 12px;
+}
+
+.batch-import-result-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.batch-import-result-summary strong,
+.batch-import-result-title,
+.batch-import-result-error {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.batch-import-result-status {
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.batch-import-result-status.is-imported,
+.batch-import-result-status.is-existing {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.batch-import-result-status.is-placeholder {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.batch-import-result-status.is-failed,
+.batch-import-result-status.is-not-found {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.batch-import-result-title,
+.batch-import-result-error {
+    color: var(--text-secondary, #64748b);
+}
+
+.batch-import-result-error {
+    grid-column: 1 / -1;
+    color: #b91c1c;
+}
+
+.batch-import-result-retry {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    color: #0369a1;
+}
+
+@media (max-width: 560px) {
+    .batch-import-content {
+        width: calc(100vw - 20px);
+        max-height: calc(100vh - 20px);
+    }
+
+    .batch-import-header,
+    .batch-import-body,
+    .batch-import-footer {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
 }
 
 /* JSON Tooltip */

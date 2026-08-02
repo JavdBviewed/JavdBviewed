@@ -5,6 +5,7 @@ import {
   buildRecordsItemListBadgesHtml,
   buildRecordsItemStarsHtml,
   buildRecordsItemTagsHtml,
+  buildRecordsItemUserTagsHtml,
   buildRecordsItemTimeDisplay,
   buildRecordsItemVideoIdHtml,
 } from './recordItemViewModel';
@@ -14,6 +15,7 @@ const record: VideoRecord = {
   title: '测试标题',
   status: 'viewed',
   tags: ['中文字幕', '高清'],
+  userTags: ['精选', '待整理'],
   createdAt: new Date(2026, 4, 27, 1, 2).getTime(),
   updatedAt: new Date(2026, 4, 28, 3, 4).getTime(),
   javdbUrl: 'https://javdb.com/v/test',
@@ -59,6 +61,13 @@ describe('records item view model', () => {
     });
     expect(listsHtml).toContain('video-list-tag selected');
     expect(listsHtml).toContain('另有 1 个清单');
+  });
+
+  it('renders local user tags separately from scraped tags', () => {
+    const html = buildRecordsItemUserTagsHtml(record, new Set(['精选']));
+    expect(html).toContain('video-user-tag selected');
+    expect(html).toContain('待整理');
+    expect(html).not.toContain('中文字幕');
   });
 
   it('builds card and list base html', () => {

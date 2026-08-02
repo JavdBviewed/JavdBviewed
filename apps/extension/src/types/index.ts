@@ -180,6 +180,7 @@ export interface VideoRecord {
   categories?: string[];
   userRating?: number;                                // 用户自定义评分
   userNotes?: string;
+  userTags?: string[];                                // 扩展内用户自定义标签
   isFavorite?: boolean;
   favoriteIndexed?: number;
   listIds?: string[];                                 // 所属清单 ID 列表

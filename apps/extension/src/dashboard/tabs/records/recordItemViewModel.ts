@@ -101,6 +101,25 @@ export function buildRecordsItemTagsHtml(record: Pick<VideoRecord, 'tags'>, sele
   return `<div class="video-tags">${tagsHtml}</div>`;
 }
 
+export function buildRecordsItemUserTagsHtml(
+  record: Pick<VideoRecord, 'userTags'>,
+  selectedTags: Set<string>,
+  escapeHtml = defaultEscapeHtml,
+): string {
+  if (!record.userTags || record.userTags.length === 0) return '';
+
+  const selectedTokensLower = Array.from(selectedTags).map((tag) => String(tag).toLowerCase());
+  const tagsHtml = record.userTags.map((tag) => {
+    const tagText = String(tag);
+    const tagLower = tagText.toLowerCase();
+    const isSelected = selectedTokensLower.length > 0 && selectedTokensLower.some((token) => tagLower.includes(token));
+    const safeTag = escapeHtml(tagText);
+    return `<span class="video-user-tag ${isSelected ? 'selected' : ''}" data-user-tag="${safeTag}" title="点击筛选此用户标签">${safeTag}</span>`;
+  }).join('');
+
+  return `<div class="video-user-tags" title="我的标签">${tagsHtml}</div>`;
+}
+
 export function buildRecordsItemListBadgesHtml(record: Pick<VideoRecord, 'listIds'>, options: RecordsItemListBadgesOptions): string {
   const escapeHtml = options.escapeHtml || defaultEscapeHtml;
   const listIds = Array.isArray(record.listIds) ? record.listIds.map((id) => String(id)) : [];
@@ -126,6 +145,7 @@ export function buildRecordsItemBaseHtml(record: VideoRecord, options: RecordsIt
   const videoIdHtml = buildRecordsItemVideoIdHtml(record, escapeHtml);
   const starsHtml = buildRecordsItemStarsHtml(record);
   const tagsHtml = buildRecordsItemTagsHtml(record, options.selectedTags, escapeHtml);
+  const userTagsHtml = buildRecordsItemUserTagsHtml(record, options.selectedTags, escapeHtml);
   const listsHtml = buildRecordsItemListBadgesHtml(record, {
     selectedListIds: options.selectedListIds,
     listNameById: options.listNameById,
@@ -141,6 +161,7 @@ export function buildRecordsItemBaseHtml(record: VideoRecord, options: RecordsIt
           ${starsHtml}
         </div>
         ${tagsHtml}
+        ${userTagsHtml}
         ${listsHtml}
         ${titleHtml}
       </div>
@@ -155,6 +176,7 @@ export function buildRecordsItemBaseHtml(record: VideoRecord, options: RecordsIt
         ${starsHtml}
       </div>
       ${tagsHtml}
+      ${userTagsHtml}
       ${listsHtml}
       ${titleHtml}
     </div>

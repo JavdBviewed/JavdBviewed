@@ -33,25 +33,21 @@ export async function executeRecordsBatchAddTags(
         continue;
       }
 
-      const existingTags = new Set<string>(Array.isArray(record.tags) ? record.tags : []);
-      input.newTags.forEach(tag => existingTags.add(tag));
-
-      const lockedFields = new Set<string>(
-        Array.isArray(record.manuallyEditedFields) ? record.manuallyEditedFields : [],
-      );
-      lockedFields.add('tags');
+      const existingUserTags = new Set<string>(Array.isArray(record.userTags) ? record.userTags : []);
+      input.newTags
+        .map(tag => String(tag).trim())
+        .filter(Boolean)
+        .forEach(tag => existingUserTags.add(tag));
 
       const updated: VideoRecord = {
         ...record,
-        tags: Array.from(existingTags),
-        manuallyEditedFields: Array.from(lockedFields),
+        userTags: Array.from(existingUserTags),
         updatedAt: now(),
       };
 
       await input.putRecord(updated);
 
-      record.tags = updated.tags;
-      record.manuallyEditedFields = updated.manuallyEditedFields;
+      record.userTags = updated.userTags;
       record.updatedAt = updated.updatedAt;
 
       successCount++;

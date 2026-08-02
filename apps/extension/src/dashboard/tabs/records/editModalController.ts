@@ -213,6 +213,11 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
 
             <h4>标签与分类</h4>
             ${generateFormGroupWithLock(record, 'tags', '标签 (用逗号分隔)', `<textarea id="edit-tags" rows="2" placeholder="中出, 巨乳, 单体作品">${record.tags ? record.tags.join(', ') : ''}</textarea>`)}
+            <div class="form-group">
+              <label for="edit-user-tags">我的标签 (用逗号分隔):</label>
+              <textarea id="edit-user-tags" rows="2" placeholder="精选, 待整理">${record.userTags ? record.userTags.join(', ') : ''}</textarea>
+              <small class="form-hint">仅保存在扩展中，不会修改 JavDB 的影片标签。</small>
+            </div>
             ${generateFormGroupWithLock(record, 'categories', '类别 (用逗号分隔)', `<textarea id="edit-categories" rows="2" placeholder="已婚婦女, 出軌, 巨乳">${record.categories ? record.categories.join(', ') : ''}</textarea>`)}
             ${generateFormGroupWithLock(record, 'actors', '演员 (用逗号分隔)', `<textarea id="edit-actors" rows="2" placeholder="演员1, 演员2">${record.actors ? record.actors.join(', ') : ''}</textarea>`)}
           </div>
@@ -234,6 +239,7 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
   const javdbUrlInput = modal.querySelector('#edit-javdb-url') as HTMLInputElement;
   const javdbImageInput = modal.querySelector('#edit-javdb-image') as HTMLInputElement;
   const tagsInput = modal.querySelector('#edit-tags') as HTMLTextAreaElement;
+  const userTagsInput = modal.querySelector('#edit-user-tags') as HTMLTextAreaElement;
   const categoriesInput = modal.querySelector('#edit-categories') as HTMLTextAreaElement;
   const actorsInput = modal.querySelector('#edit-actors') as HTMLTextAreaElement;
   const directorInput = modal.querySelector('#edit-director') as HTMLInputElement;
@@ -262,6 +268,7 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
       javdbUrl: javdbUrlInput.value || undefined,
       javdbImage: javdbImageInput.value || undefined,
       tags: splitCommaList(tagsInput.value),
+      userTags: splitCommaList(userTagsInput.value),
       categories: categoriesInput.value ? splitCommaList(categoriesInput.value) : undefined,
       actors: actorsInput.value ? splitCommaList(actorsInput.value) : undefined,
       director: directorInput.value.trim() || undefined,
@@ -293,6 +300,7 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
       javdbUrlInput.value = jsonData.javdbUrl || '';
       javdbImageInput.value = jsonData.javdbImage || '';
       tagsInput.value = jsonData.tags ? jsonData.tags.join(', ') : '';
+      userTagsInput.value = jsonData.userTags ? jsonData.userTags.join(', ') : '';
       categoriesInput.value = jsonData.categories ? jsonData.categories.join(', ') : '';
       actorsInput.value = jsonData.actors ? jsonData.actors.join(', ') : '';
       directorInput.value = jsonData.director || '';
@@ -393,6 +401,7 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
     javdbUrlInput,
     javdbImageInput,
     tagsInput,
+    userTagsInput,
     categoriesInput,
     actorsInput,
     directorInput,

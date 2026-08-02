@@ -109,7 +109,8 @@ export function filterAndSortRecords(input: FilterAndSortRecordsInput): VideoRec
     if (!record || typeof record !== 'object') return false;
 
     const tags = Array.isArray(record.tags) ? record.tags : [];
-    const tagsLower = tags.map(tag => String(tag).toLowerCase());
+    const userTags = Array.isArray(record.userTags) ? record.userTags : [];
+    const tagsLower = [...tags, ...userTags].map(tag => String(tag).toLowerCase());
     const matchesStatus = input.status === 'all' || record.status === input.status;
     const matchesFavorite = !input.favoritesFilterActive || record.isFavorite === true;
 

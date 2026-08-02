@@ -2,20 +2,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { executeRecordsBatchAddTags } from './batchTagService';
 import type { VideoRecord } from '../../../types';
 
-function record(id: string, tags: string[] = [], manuallyEditedFields: string[] = []): VideoRecord {
+function record(id: string, tags: string[] = [], manuallyEditedFields: string[] = [], userTags: string[] = []): VideoRecord {
   return {
     id,
     title: id,
     status: 'browsed',
     tags,
+    userTags,
     manuallyEditedFields,
     updatedAt: 1,
   };
 }
 
 describe('records batch tag service', () => {
-  it('adds unique tags, locks the tags field, persists records, and updates visible records', async () => {
-    const visibleRecord = record('A', ['old'], ['title']);
+  it('adds unique local tags without changing scraped tags or locking the scraped field', async () => {
+    const visibleRecord = record('A', ['中文字幕'], ['title'], ['old']);
     const putRecord = vi.fn(async () => undefined);
 
     const result = await executeRecordsBatchAddTags({
@@ -30,12 +31,14 @@ describe('records batch tag service', () => {
     expect(result).toEqual({ successCount: 1, failCount: 0 });
     expect(putRecord).toHaveBeenCalledWith(expect.objectContaining({
       id: 'A',
-      tags: ['old', 'new'],
-      manuallyEditedFields: ['title', 'tags'],
+      tags: ['中文字幕'],
+      userTags: ['old', 'new'],
+      manuallyEditedFields: ['title'],
       updatedAt: 1000,
     }));
-    expect(visibleRecord.tags).toEqual(['old', 'new']);
-    expect(visibleRecord.manuallyEditedFields).toEqual(['title', 'tags']);
+    expect(visibleRecord.tags).toEqual(['中文字幕']);
+    expect(visibleRecord.userTags).toEqual(['old', 'new']);
+    expect(visibleRecord.manuallyEditedFields).toEqual(['title']);
     expect(visibleRecord.updatedAt).toBe(1000);
   });
 

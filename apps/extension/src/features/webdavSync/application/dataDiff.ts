@@ -267,6 +267,13 @@ function findVideoRecordDifferences(local: VideoRecord, cloud: VideoRecord): str
         differences.push('tags');
     }
 
+    const localUserTags = new Set(local.userTags || []);
+    const cloudUserTags = new Set(cloud.userTags || []);
+    if (localUserTags.size !== cloudUserTags.size ||
+        ![...localUserTags].every(tag => cloudUserTags.has(tag))) {
+        differences.push('userTags');
+    }
+
     // 比较时间戳
     if (local.updatedAt !== cloud.updatedAt) differences.push('updatedAt');
 
@@ -287,7 +294,7 @@ function getVideoRecordRecommendation(
     }
 
     // 如果只有标签不同，建议合并
-    if (differences.length === 1 && differences[0] === 'tags') {
+    if (differences.length === 1 && (differences[0] === 'tags' || differences[0] === 'userTags')) {
         return 'merge';
     }
 

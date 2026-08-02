@@ -3,7 +3,7 @@ import { VIDEO_STATUS, STORAGE_KEYS } from '../../utils/config';
 import type { VideoRecord, VideoStatus } from '../../types';
 import { showMessage } from '../ui/toast';
 import { showConfirmationModal } from '../ui/modal';
-import { dbViewedPage, dbViewedStats, dbViewedDelete, dbViewedBulkDelete, dbViewedQuery, dbViewedPut } from '../dbClient';
+import { dbViewedPage, dbViewedStats, dbViewedDelete, dbViewedBulkDelete, dbViewedQuery, dbViewedPut, dbViewedGet } from '../dbClient';
 import { dbListsGetAllNormalized, dbViewedPatchList, dbViewedBulkPatchList } from '../dbClient';
 import {
     parseRecordsSearchTokens,
@@ -30,6 +30,18 @@ import { createRecordsFilterRuntime, type RecordsFilterRuntime } from './records
 import { createRecordsViewRuntime, type RecordsViewRuntime } from './records/viewRuntime';
 import { createRecordsLifecycleRuntime } from './records/lifecycleRuntime';
 import { type RecordsAdvancedCondition as AdvCondition } from './records/advancedConditionModel';
+import { createRecordsBatchImportController, type RecordsBatchImportSubmission } from './records/batchImportController';
+import { normalizeBatchNumbers } from './records/batchImportModel';
+import { processBatchImportItem, type BatchImportMode } from './records/batchImportService';
+import { runBatchImportTask } from './records/batchImportRunner';
+import {
+    BATCH_IMPORT_TASK_STORAGE_KEY,
+    clearBatchImportTask,
+    loadBatchImportTask,
+    saveBatchImportTask,
+    type BatchImportTaskSnapshot,
+} from './records/batchImportTaskStore';
+import { fetchHtml, parseDetailPage, parseSearchResults } from '../../features/records';
 
 // 防重复初始化（避免多次绑定事件导致重复行为）
 let RECORDS_TAB_INITIALIZED = false;
@@ -78,6 +90,7 @@ export function initRecordsTab(): void {
         toggleCoversBtn,
         toggleViewModeBtn,
         myFavoritesBtn,
+        batchImportBtn,
     } = pageElements.toolbar;
     let currentViewMode: 'list' | 'card' = STATE.settings.recordsViewMode || 'list'; // 从设置中读取，默认列表视图
     let favoritesFilterActive = false;
@@ -424,11 +437,193 @@ export function initRecordsTab(): void {
         updateBatchUI,
     });
 
+    let batchImportCancelRequested = false;
+    const batchImportStorage = {
+        get: async (key: string): Promise<unknown> => {
+            const result = await chrome.storage.local.get(key);
+            return result[key];
+        },
+        set: async (key: string, value: unknown): Promise<void> => {
+            await chrome.storage.local.set({ [key]: value });
+        },
+        remove: async (key: string): Promise<void> => {
+            await chrome.storage.local.remove(key);
+        },
+    };
+
+    const syncImportedRecordToState = (record: VideoRecord) => {
+        const index = STATE.records.findIndex(item => item.id === record.id);
+        if (index >= 0) {
+            STATE.records[index] = record;
+        } else {
+            STATE.records.push(record);
+        }
+        allTagsStale = true;
+    };
+
+    const batchImportController = createRecordsBatchImportController({
+        onClose: () => {
+            batchImportCancelRequested = true;
+        },
+        onSubmit: async (submission: RecordsBatchImportSubmission) => {
+            const normalized = normalizeBatchNumbers(submission.input);
+            if (normalized.length === 0) throw new Error('没有识别到可处理的番号。');
+
+            const task: BatchImportTaskSnapshot = {
+                version: 1,
+                id: `batch-import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                mode: submission.mode,
+                userTags: submission.userTags,
+                items: normalized.map(item => ({
+                    code: item.code,
+                    sourceText: item.sourceText,
+                    status: item.status === 'ready' ? 'pending' : item.status,
+                })),
+                cursor: 0,
+                status: 'running',
+                updatedAt: Date.now(),
+            };
+            batchImportCancelRequested = false;
+            activeBatchImportTask = task;
+            await runBatchImportTaskWithUI(task);
+        },
+        onRetryItem: (index: number) => {
+            const task = activeBatchImportTask;
+            const item = task?.items[index];
+            if (!task || !item || item.status !== 'failed') return;
+            item.status = 'pending';
+            delete item.error;
+            task.cursor = index;
+            task.status = 'paused';
+            void runBatchImportTaskWithUI(task);
+        },
+        onExportFailures: (codes: string[]) => {
+            if (codes.length === 0) {
+                showMessage('当前没有失败的番号可导出', 'info');
+                return;
+            }
+            const blob = new Blob([`${codes.join('\n')}\n`], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `batch-import-failures-${new Date().toISOString().slice(0, 10)}.txt`;
+            anchor.click();
+            URL.revokeObjectURL(url);
+            showMessage(`已导出 ${codes.length} 个失败番号`, 'success');
+        },
+    });
+
+    let activeBatchImportTask: BatchImportTaskSnapshot | null = null;
+
+    async function runBatchImportTaskWithUI(task: BatchImportTaskSnapshot): Promise<void> {
+        batchImportCancelRequested = false;
+        batchImportController.setBusy(true);
+        const updateProgress = (snapshot: BatchImportTaskSnapshot) => {
+            const completed = snapshot.items.filter(item => !['pending', 'searching'].includes(item.status)).length;
+            const failed = snapshot.items.filter(item => item.status === 'failed').length;
+            batchImportController.setProgress(`已处理 ${completed}/${snapshot.items.length}${failed > 0 ? `，失败 ${failed}` : ''}`);
+            batchImportController.setResults(snapshot.items);
+        };
+
+        const dependencies = {
+            processItem: async (code: string, mode: BatchImportMode, userTags: string[]) => processBatchImportItem(
+                code,
+                mode,
+                userTags,
+                {
+                    findExactMatch: async (itemCode: string) => {
+                        const searchUrl = `https://javdb.com/search?q=${encodeURIComponent(itemCode)}&f=all`;
+                        const html = await fetchHtml(searchUrl);
+                        return parseSearchResults(html, itemCode);
+                    },
+                    fetchMatchMetadata: async (match: { href: string; title: string }) => {
+                        const html = await fetchHtml(match.href);
+                        return {
+                            ...parseDetailPage(html),
+                            title: match.title,
+                            javdbUrl: match.href,
+                        };
+                    },
+                    getRecord: dbViewedGet,
+                    putRecord: async (record: VideoRecord) => {
+                        await dbViewedPut(record);
+                        syncImportedRecordToState(record);
+                    },
+                },
+            ),
+            findExactMatch: async (code: string) => {
+                const searchUrl = `https://javdb.com/search?q=${encodeURIComponent(code)}&f=all`;
+                const html = await fetchHtml(searchUrl);
+                return parseSearchResults(html, code);
+            },
+            fetchMatchMetadata: async (match: { href: string; title: string }) => {
+                const html = await fetchHtml(match.href);
+                return {
+                    ...parseDetailPage(html),
+                    title: match.title,
+                    javdbUrl: match.href,
+                };
+            },
+            getRecord: dbViewedGet,
+            putRecord: async (record: VideoRecord) => {
+                await dbViewedPut(record);
+                syncImportedRecordToState(record);
+            },
+            shouldCancel: () => batchImportCancelRequested,
+            saveTask: async (snapshot: BatchImportTaskSnapshot) => {
+                await saveBatchImportTask(batchImportStorage, snapshot);
+                updateProgress(snapshot);
+                render();
+            },
+        };
+
+        await saveBatchImportTask(batchImportStorage, task);
+        batchImportController.setResults(task.items);
+        try {
+            const result = await runBatchImportTask(task, dependencies);
+            if (result.status === 'completed') {
+                await clearBatchImportTask(batchImportStorage);
+                batchImportController.setResults(result.items);
+                const failed = result.items.filter(item => item.status === 'failed').length;
+                const notFound = result.items.filter(item => item.status === 'not-found').length;
+                const placeholders = result.items.filter(item => item.status === 'placeholder').length;
+                const imported = result.items.filter(item => ['imported', 'existing'].includes(item.status)).length;
+                const skipped = result.items.filter(item => ['duplicate', 'invalid'].includes(item.status)).length;
+                batchImportController.setProgress(`处理完成：${imported} 项已加入收藏，${placeholders} 项待补全，${notFound} 项未找到，${skipped} 项跳过，${failed} 项失败。`);
+                showMessage(failed > 0 ? `批量导入完成，有 ${failed} 项失败` : '批量导入完成', failed > 0 ? 'warning' : 'success');
+            } else {
+                batchImportController.setProgress(`已暂停：下次打开“批量导入收藏”可继续（${result.cursor}/${result.items.length}）。`);
+                showMessage('批量导入已暂停，可以稍后继续。', 'warning');
+            }
+            stateRefreshController.resetAndRender();
+        } finally {
+            batchImportController.setBusy(false);
+        }
+    }
+
+    batchImportBtn.addEventListener('click', () => {
+        batchImportCancelRequested = false;
+        batchImportController.open();
+        void loadBatchImportTask(batchImportStorage).then((task) => {
+            if (!task || task.status === 'completed' || task.cursor >= task.items.length) return;
+            batchImportController.setResumeAvailable(
+                `继续上次任务（已处理 ${task.cursor}/${task.items.length} 项）`,
+                () => {
+                    batchImportCancelRequested = false;
+                    void runBatchImportTaskWithUI(task);
+                },
+            );
+        });
+    });
+
     function collectAllTags() {
         allTags.clear();
         STATE.records.forEach(record => {
             if (record.tags && Array.isArray(record.tags)) {
                 record.tags.forEach(tag => allTags.add(tag));
+            }
+            if (record.userTags && Array.isArray(record.userTags)) {
+                record.userTags.forEach(tag => allTags.add(tag));
             }
         });
     }

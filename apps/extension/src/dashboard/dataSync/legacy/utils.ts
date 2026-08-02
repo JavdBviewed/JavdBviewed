@@ -212,6 +212,7 @@ export function sanitizeSyncData(records: Record<string, VideoRecord>): VideoRec
             title: record.title,
             status: record.status,
             tags: record.tags || [],
+            userTags: record.userTags || [],
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
             releaseDate: record.releaseDate,

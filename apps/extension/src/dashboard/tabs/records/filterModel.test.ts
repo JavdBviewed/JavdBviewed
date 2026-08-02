@@ -9,6 +9,9 @@ function record(partial: Partial<VideoRecord>): VideoRecord {
     title: partial.title || '测试标题',
     status: partial.status || 'browsed',
     tags: partial.tags || [],
+    userTags: partial.userTags,
+    rating: partial.rating,
+    userRating: partial.userRating,
     listIds: partial.listIds,
     series: partial.series,
     seriesUrl: partial.seriesUrl,
@@ -66,6 +69,28 @@ describe('records filter model', () => {
     });
 
     expect(result.map(item => item.id)).toEqual(['FC2-123']);
+  });
+
+  it('matches search text and selected tags against local user tags', () => {
+    const result = filterAndSortRecords({
+      records: [
+        record({ id: 'ABC-001', userTags: ['精选'] }),
+        record({ id: 'ABC-002', userTags: ['待整理'] }),
+      ],
+      searchTerm: '精选',
+      status: 'all',
+      selectedTags: new Set(['精选']),
+      selectedListIds: new Set(),
+      selectedSeriesIds: new Set(),
+      selectedLabelIds: new Set(),
+      seriesIdToRecord: new Map(),
+      labelIdToRecord: new Map(),
+      advancedConditions: [],
+      favoritesFilterActive: false,
+      sortValue: 'id_asc',
+    });
+
+    expect(result.map(item => item.id)).toEqual(['ABC-001']);
   });
 
   it('applies advanced conditions and sort order', () => {

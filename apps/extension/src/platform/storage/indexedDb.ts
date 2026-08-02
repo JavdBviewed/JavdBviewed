@@ -363,12 +363,18 @@ export async function viewedQuery(params: ViewedQueryParams): Promise<{ items: V
         if (lower) {
           const idS = (r.id || '').toLowerCase();
           const titleS = (r.title || '').toLowerCase();
-          const tagsArr = Array.isArray(r.tags) ? r.tags : [];
+          const tagsArr = [
+            ...(Array.isArray(r.tags) ? r.tags : []),
+            ...(Array.isArray(r.userTags) ? r.userTags : []),
+          ];
           const inTags = tagsArr.some(t => String(t || '').toLowerCase().includes(lower));
           if (!idS.includes(lower) && !titleS.includes(lower) && !inTags) continue;
         }
         if (needTags) {
-          const arr = Array.isArray(r.tags) ? r.tags : [];
+          const arr = [
+            ...(Array.isArray(r.tags) ? r.tags : []),
+            ...(Array.isArray(r.userTags) ? r.userTags : []),
+          ];
           const arrLower = arr.map(s => String(s).toLowerCase());
           const queryLower = tags.map(s => String(s).toLowerCase());
           if (!queryLower.every(qt => arrLower.some(t => t.includes(qt)))) continue;
@@ -446,12 +452,18 @@ export async function viewedQuery(params: ViewedQueryParams): Promise<{ items: V
     if (lower) {
       const idS = (r.id || '').toLowerCase();
       const titleS = (r.title || '').toLowerCase();
-      const tagsArr = Array.isArray(r.tags) ? r.tags : [];
+      const tagsArr = [
+        ...(Array.isArray(r.tags) ? r.tags : []),
+        ...(Array.isArray(r.userTags) ? r.userTags : []),
+      ];
       const inTags = tagsArr.some(t => String(t || '').toLowerCase().includes(lower));
       if (!idS.includes(lower) && !titleS.includes(lower) && !inTags) continue;
     }
     if (needTags) {
-      const arr = Array.isArray(r.tags) ? r.tags : [];
+      const arr = [
+        ...(Array.isArray(r.tags) ? r.tags : []),
+        ...(Array.isArray(r.userTags) ? r.userTags : []),
+      ];
       const arrLower = arr.map(s => String(s).toLowerCase());
       const queryLower = tags.map(s => String(s).toLowerCase());
       if (!queryLower.every(qt => arrLower.some(t => t.includes(qt)))) continue;

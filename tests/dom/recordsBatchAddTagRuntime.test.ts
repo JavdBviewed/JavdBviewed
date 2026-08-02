@@ -36,7 +36,8 @@ describe('records batch add tag runtime', () => {
     await runtime.executeBatchAddTag(['A'], ['tag-a', 'tag-b']);
 
     expect(putRecord).toHaveBeenCalledTimes(1);
-    expect(visible[0].tags).toEqual(['old', 'tag-a', 'tag-b']);
+    expect(visible[0].tags).toEqual(['old']);
+    expect(visible[0].userTags).toEqual(['tag-a', 'tag-b']);
     expect(showMessage).toHaveBeenCalledWith('已为 1 条视频追加标签', 'success');
     expect(render).toHaveBeenCalledTimes(1);
   });
