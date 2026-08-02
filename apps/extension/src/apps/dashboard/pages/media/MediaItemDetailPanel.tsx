@@ -27,7 +27,7 @@ import {
   resolveCoverImage,
   sourceLabel,
 } from './mediaBrowseModel';
-import { formatWatchPercent, watchStateLabel } from './mediaLibraryIndexAdapter';
+import { buildServerOpenUrl, formatWatchPercent, watchStateLabel } from './mediaLibraryIndexAdapter';
 import { HorizontalScroller } from './HorizontalScroller';
 import './mediaItemDetail.css';
 
@@ -111,6 +111,14 @@ export function MediaItemDetailPanel({
   const detailServerId = preferredDetailCopy?.serverId ?? item.serverId;
   const detailServerName = preferredDetailCopy?.serverName ?? item.serverName;
   const is115Detail = detailSource === '115';
+  const resolvedDetailServerUrl = detail?.serverUrl || detailServerUrl;
+  const resolvedDetailServerId = detail?.serverId || detailServerId;
+  const serverOpenUrl = buildServerOpenUrl({
+    source: detailSource,
+    serverUrl: resolvedDetailServerUrl,
+    itemId: detail?.itemId || detailItemId,
+    serverId: resolvedDetailServerId,
+  });
 
   const fallbackCover = resolveCoverImage(item, 'poster');
   const effectivePlayed =
@@ -328,7 +336,9 @@ export function MediaItemDetailPanel({
   };
 
   const openRelated = (rel: EmbyRelatedItemView) => {
-    if (!onOpenItem || !detailServerUrl) return;
+    const relatedServerUrl = detail?.serverUrl || detailServerUrl;
+    const relatedServerId = detail?.serverId || detailServerId;
+    if (!relatedServerUrl) return;
     const next: MediaBrowseItem = {
       code: rel.name,
       title: rel.name,
@@ -336,13 +346,18 @@ export function MediaItemDetailPanel({
       year: rel.year ? String(rel.year) : '',
       hue: item.hue || 210,
       itemId: rel.itemId,
-      serverUrl: detailServerUrl,
-      serverId: detailServerId || detail?.serverId,
+      serverUrl: relatedServerUrl,
+      serverId: relatedServerId,
       serverName: detailServerName,
       coverImageUrl: rel.primaryImageUrl,
       imageUrls: rel.primaryImageUrl ? { Primary: rel.primaryImageUrl } : undefined,
     };
-    onOpenItem(next);
+    if (onOpenItem) {
+      onOpenItem(next);
+      return;
+    }
+    const url = buildServerOpenUrl(next);
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const playChapter = (ch: EmbyItemChapterView) => {
@@ -525,6 +540,18 @@ export function MediaItemDetailPanel({
                 {playedBusy ? '写入中…' : effectivePlayed ? '✓ 已看' : '标记已看'}
               </button>
             ) : null}
+            {serverOpenUrl ? (
+              <a
+                className="ml-detail-btn ml-detail-btn-link"
+                data-media-external-server-link="1"
+                href={serverOpenUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={`在 ${detailServerName || sourceLabel(detailSource)} 中打开此影片`}
+              >
+                ↗ 在媒体服务器中打开
+              </a>
+            ) : null}
             {onClose ? (
               <button type="button" className="ml-detail-btn" onClick={onClose}>
                 关闭
@@ -580,6 +607,7 @@ export function MediaItemDetailPanel({
                 const copyProgress = formatWatchPercent(copy.userData);
                 const playbackStatus = getMediaSourceCopyPlaybackStatus(copy);
                 const copyLabel = formatMediaSourceCopyLabel(copy);
+                const copyOpenUrl = buildServerOpenUrl(copy);
                 return (
                   <div key={copy.copyId} className="ml-detail-copy-row">
                     <span className="ml-detail-copy-source">{sourceLabel(copy.source)}</span>
@@ -593,6 +621,18 @@ export function MediaItemDetailPanel({
                     </span>
                     {copyProgress ? (
                       <span className="ml-detail-copy-progress">已播放 {copyProgress}</span>
+                    ) : null}
+                    {copyOpenUrl ? (
+                      <a
+                        className="ml-detail-copy-play ml-detail-copy-open"
+                        data-media-source-open-link="1"
+                        href={copyOpenUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={`在 ${copyLabel} 中打开此影片`}
+                      >
+                        ↗ 打开网页
+                      </a>
                     ) : null}
                     <button
                       type="button"
@@ -709,6 +749,7 @@ export function MediaItemDetailPanel({
                   key={`col-${c.itemId}`}
                   type="button"
                   className="ml-detail-related"
+                  data-media-related-item="1"
                   onClick={() => openRelated(c)}
                   title={c.overview || c.name}
                 >
@@ -736,6 +777,7 @@ export function MediaItemDetailPanel({
                   key={`sim-${s.itemId}`}
                   type="button"
                   className="ml-detail-related"
+                  data-media-related-item="1"
                   onClick={() => openRelated(s)}
                   title={s.overview || s.name}
                 >

@@ -93,6 +93,14 @@ export function useHorizontalScroller<T extends HTMLElement = HTMLDivElement>(
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
+      // 可点击卡片（章节、合集、相似内容、外部链接）交给自身处理，
+      // 不要因为横向拖拽的 pointer capture 吞掉一次普通点击。
+      if (
+        e.target instanceof Element
+        && e.target.closest('button,a,[role=button],input,select,textarea')
+      ) {
+        return;
+      }
       if (el.scrollWidth <= el.clientWidth + 2) return;
       active = true;
       moved = false;

@@ -1072,6 +1072,10 @@ test.describe('JavdBviewed extension browser smoke', () => {
       const overlayBody = page.locator('.ui-overlay-shell__body').filter({ has: page.locator('[data-media-detail="1"]') });
       const peopleRow = page.locator('.ml-detail-people-row');
       await expect(peopleRow).toHaveAttribute('data-hscroll-overflow', '1');
+      const firstRelated = page.locator('[data-media-related-item="1"]').first();
+      await expect(firstRelated).toBeVisible();
+      await firstRelated.click();
+      await expect(page.locator('.ml-detail-code')).toHaveText('合集 1');
       await peopleRow.evaluate((element) => element.scrollIntoView({ block: 'center' }));
       await peopleRow.hover();
       const before = await overlayBody.evaluate((element) => ({
@@ -1139,6 +1143,10 @@ test.describe('JavdBviewed extension browser smoke', () => {
         .evaluate((element: HTMLButtonElement) => element.click());
       const detail = page.locator('[data-media-detail="1"]');
       await expect(detail).toBeVisible();
+      await expect(detail.getByRole('link', { name: /在媒体服务器中打开/ })).toHaveAttribute(
+        'href',
+        /source-choice\.e2e\.local:8096\/web\/index\.html#!\/item\?id=source-choice-emby/,
+      );
       await detail.getByRole('button', { name: /选择播放来源/ }).click();
 
       const sourceMenu = detail.getByRole('menu', { name: '选择播放来源' });
