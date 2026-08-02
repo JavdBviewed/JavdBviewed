@@ -14,6 +14,8 @@ import {
   type Drive115StreamType,
 } from './streamResponse';
 import { emitDrive115TokenRefreshEvent } from './tokenRefreshEvents';
+import { normalizeDrive115TokenExpiry } from './tokenExpiry';
+export { normalizeDrive115TokenExpiry } from './tokenExpiry';
 
 /**
  * drive115v2: 基于 access_token/refresh_token 的新版 115 服务骨架
@@ -556,7 +558,10 @@ class Drive115V2Service {
       const token: TokenPair = {
         access_token: at,
         refresh_token: newRt || rt,
-        expires_at: expiresIn && !isNaN(expiresIn) ? nowSec + Math.max(0, expiresIn) : null,
+        expires_at: normalizeDrive115TokenExpiry({
+          expires_at: data?.expires_at ?? json?.expires_at,
+          expires_in: data?.expires_in ?? json?.expires_in,
+        }, nowSec),
       };
 
       // 立刻持久化：确保任何入口刷新都会保存
@@ -648,7 +653,7 @@ class Drive115V2Service {
     const drv = (settings?.drive115 || {}) as any;
     const accessToken: string = (drv.v2AccessToken || '').trim();
     const refreshToken: string = (drv.v2RefreshToken || '').trim();
-    const expiresAt: number | null | undefined = drv.v2TokenExpiresAt;
+    const rawExpiresAt: unknown = drv.v2TokenExpiresAt;
     const rtStatus: string = drv.v2RefreshTokenStatus || 'unknown';
     const autoRefreshSetting: boolean = drv.v2AutoRefresh !== false; // 默认开启
     const autoRefresh: boolean = (opts?.forceAutoRefresh !== undefined) ? !!opts.forceAutoRefresh : autoRefreshSetting;
@@ -661,6 +666,7 @@ class Drive115V2Service {
     if (!accessToken && !refreshToken) return { success: false, message: '缺少 access_token/refresh_token' };
 
     const now = Math.floor(Date.now() / 1000);
+    const expiresAt = normalizeDrive115TokenExpiry({ expires_at: rawExpiresAt }, now);
 
     // 优化：如果有 access_token 且过期时间未知或未过期，先尝试使用
     if (accessToken) {

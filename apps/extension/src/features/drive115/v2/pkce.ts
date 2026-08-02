@@ -3,6 +3,8 @@
  * @description pkce
  * @module features/drive115
  */
+import { normalizeDrive115TokenExpiry } from './tokenExpiry';
+
 const DRIVE115_AUTH_DEVICE_URL = 'https://passportapi.115.com/open/authDeviceCode';
 const DRIVE115_QR_STATUS_URL = 'https://qrcodeapi.115.com/get/status/';
 const DRIVE115_TOKEN_URL = 'https://passportapi.115.com/open/deviceCodeToToken';
@@ -218,7 +220,10 @@ export async function exchangeDrive115DeviceCode(
     access_token: accessToken,
     refresh_token: refreshToken,
     expires_in: expiresIn || undefined,
-    expires_at: expiresIn > 0 ? nowSec + expiresIn : null,
+    expires_at: normalizeDrive115TokenExpiry({
+      expires_at: data?.expires_at,
+      expires_in: data?.expires_in,
+    }, nowSec),
     raw,
   };
 }

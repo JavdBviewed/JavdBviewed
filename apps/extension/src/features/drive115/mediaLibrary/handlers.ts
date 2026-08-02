@@ -61,6 +61,7 @@ let indexingPromise: Promise<Drive115IndexResult> | null = null;
 let cancelIndexRequested = false;
 let indexAbortController: AbortController | null = null;
 const INDEX_HISTORY_LIMIT = 20;
+const PARTIAL_STATE_PERSIST_INTERVAL_MS = 2_000;
 
 function log115(level: 'info' | 'warn' | 'error' | 'debug', message: string, data?: unknown): void {
   const text = `[115] ${message}`;
@@ -363,6 +364,16 @@ export async function runDrive115MediaLibraryIndex(
           .catch((err) => log115('debug', '媒体库索引增量落盘失败', err));
         return saveChain;
       };
+      let lastPartialStatePersistAt = 0;
+      const enqueuePartialSave = (state: Drive115LibraryIndexState): void => {
+        const now = Date.now();
+        if (lastPartialStatePersistAt > 0
+          && now - lastPartialStatePersistAt < PARTIAL_STATE_PERSIST_INTERVAL_MS) {
+          return;
+        }
+        lastPartialStatePersistAt = now;
+        void enqueueSave(state);
+      };
       // 结果报告串行写链：进行中实时更新 + 收尾最终写，最终态最后入队。
       let reportChain: Promise<void> = Promise.resolve();
       const enqueueReport = (rep: unknown): Promise<void> => {
@@ -379,7 +390,7 @@ export async function runDrive115MediaLibraryIndex(
         shouldCancel: () => cancelIndexRequested || !!indexAbortController?.signal.aborted,
         signal: indexAbortController.signal,
         onPartialState: (state) => {
-          void enqueueSave(mergePartialState(state));
+          enqueuePartialSave(mergePartialState(state));
         },
         onReport: (rep) => {
           void enqueueReport(rep);
