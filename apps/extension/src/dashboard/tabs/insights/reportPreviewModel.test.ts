@@ -60,4 +60,29 @@ describe('insights report preview model', () => {
     expect(result).toContain('<script src="assets/templates/echarts.min.js"></script>');
     expect(result).toContain('<script src="assets/templates/insights-runtime.js"></script>');
   });
+
+  it('removes remote scripts and stylesheets before loading preview HTML in the extension iframe', () => {
+    const html = `
+      <html>
+        <head>
+          <link rel="stylesheet" href="https://javdb.com/packs/css/app-900db544.css">
+          <link rel="stylesheet" href="assets/templates/report.css">
+        </head>
+        <body>
+          <script src="https://javdb.com/packs/js/app-0ed1a0b82950def4a68b.js"></script>
+          <script src="assets/templates/insights-runtime.js"></script>
+        </body>
+      </html>
+    `;
+
+    const result = prepareInsightsPreviewHtml(html, {
+      baseUrl: 'chrome-extension://id/',
+      themeName: 'light',
+    });
+
+    expect(result).not.toContain('https://javdb.com/packs/css/app-900db544.css');
+    expect(result).not.toContain('https://javdb.com/packs/js/app-0ed1a0b82950def4a68b.js');
+    expect(result).toContain('assets/templates/report.css');
+    expect(result).toContain('assets/templates/insights-runtime.js');
+  });
 });

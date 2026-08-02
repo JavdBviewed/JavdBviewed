@@ -21,6 +21,31 @@ function resolveBaseUrl(options?: PrepareInsightsPreviewHtmlOptions): string {
   }
 }
 
+function isLocalPreviewResource(url: string): boolean {
+  const normalized = url.trim();
+  if (!normalized) return false;
+  return !/^(?:[a-z][a-z\d+\-.]*:|\/\/)/i.test(normalized);
+}
+
+function removeRemotePreviewResources(html: string): string {
+  let result = html;
+
+  // srcdoc 与扩展页共享扩展 CSP，外部脚本不能在这里执行。
+  result = result.replace(/<script\b([^>]*)>[\s\S]*?<\/script>/gi, (tag, attrs: string) => {
+    const source = attrs.match(/\bsrc\s*=\s*["']([^"']+)["']/i)?.[1] || '';
+    return source && isLocalPreviewResource(source) ? tag : '';
+  });
+
+  // 外部样式表同样会触发扩展页 style-src 拦截；保留扩展内的相对资源。
+  result = result.replace(/<link\b[^>]*>/gi, (tag) => {
+    if (!/\brel\s*=\s*["'][^"']*stylesheet[^"']*["']/i.test(tag)) return tag;
+    const source = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1] || '';
+    return source && isLocalPreviewResource(source) ? tag : '';
+  });
+
+  return result;
+}
+
 export function prepareInsightsPreviewHtml(
   html: string,
   options?: PrepareInsightsPreviewHtmlOptions,
@@ -31,7 +56,7 @@ export function prepareInsightsPreviewHtml(
     const baseUrl = resolveBaseUrl(options);
 
     try {
-      result = result.replace(/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/gi, '');
+      result = removeRemotePreviewResources(result);
     } catch {}
 
     if (/<base[^>]*>/i.test(result)) {
