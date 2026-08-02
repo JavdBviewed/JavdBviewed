@@ -7,14 +7,13 @@
  */
 
 import { LogController, type LogControllerConfig, type LogEntry } from '../platform/logging/logController';
+import { enqueuePersistentLog } from '../platform/logging/persistentLogQueue';
 import { getSettings } from './storage';
 
 function persistLog(entry: LogEntry): void {
-  try {
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
-      chrome.runtime.sendMessage({ type: 'DB:LOGS_ADD', payload: { entry } });
-    }
-  } catch {}
+  // consoleProxy 已经负责持久化；这里仅为未安装代理的旧上下文保留兜底。
+  if ((globalThis as { __JDB_CONSOLE__?: unknown }).__JDB_CONSOLE__) return;
+  enqueuePersistentLog(entry);
 }
 
 async function loadLogControllerConfig(): Promise<Partial<LogControllerConfig>> {

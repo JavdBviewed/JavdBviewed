@@ -13,7 +13,7 @@ import { STORAGE_KEYS } from '../../utils/config';
 export function installConsoleProxyWithSettings(): void {
   // 安装统一控制台代理（仅控制显示层，不改变入库逻辑）
   installConsoleProxy({
-    level: 'DEBUG',
+    level: 'INFO',
     format: { showTimestamp: true, timestampStyle: 'hms', timeZone: 'Asia/Shanghai', showSource: true, color: true },
     categories: {
       general: { enabled: true, match: () => true, label: 'BG', color: '#2c3e50' },

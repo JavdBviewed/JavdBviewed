@@ -1,29 +1,15 @@
 /**
  * @file mediaLibraryLogger.ts
- * @description 媒体库统一日志：控制台分类 [MEDIA]/[EMBY]/[PLAYER] + 持久化 log-message
+ * @description 媒体库统一日志：控制台分类 [MEDIA]/[EMBY]/[PLAYER]，持久化由 consoleProxy 统一处理
  * @module features/embyLibrary
  *
- * 注意：勿 import dashboard/logger（路径/循环依赖不稳）；直接 runtime 发 log-message。
+ * 注意：日志统一交给 consoleProxy 处理持久化，避免同一条日志同时写入两次。
  */
 
 type Level = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 
 function prefix(scope: 'MEDIA' | 'EMBY' | 'PLAYER', message: string): string {
   return `[${scope}] ${message}`;
-}
-
-function persist(level: Level, message: string, data?: unknown): void {
-  try {
-    if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
-    chrome.runtime.sendMessage(
-      { type: 'log-message', payload: { level, message, data } },
-      () => {
-        void chrome.runtime.lastError;
-      },
-    );
-  } catch {
-    /* ignore */
-  }
 }
 
 function emit(level: Level, scope: 'MEDIA' | 'EMBY' | 'PLAYER', message: string, data?: unknown): void {
@@ -36,7 +22,6 @@ function emit(level: Level, scope: 'MEDIA' | 'EMBY' | 'PLAYER', message: string,
   } catch {
     /* ignore */
   }
-  persist(level, text, data);
 }
 
 export const mediaLog = {

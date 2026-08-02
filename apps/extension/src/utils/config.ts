@@ -406,7 +406,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
         showPrivacyLogs: false, // 显示隐私相关日志（默认关闭）
         showStorageLogs: false, // 显示存储相关日志（默认关闭）
         // 统一控制台代理默认配置
-        consoleLevel: 'DEBUG',
+        // 默认只输出信息及以上；DEBUG 需要用户在日志设置中主动开启，避免媒体库/115运行时放大控制台与日志写入。
+        consoleLevel: 'INFO',
         consoleFormat: {
             showTimestamp: true,
             showSource: true,

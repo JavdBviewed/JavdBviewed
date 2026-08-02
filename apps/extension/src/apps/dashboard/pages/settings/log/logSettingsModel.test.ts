@@ -16,7 +16,7 @@ import {
 
 describe('logSettingsModel', () => {
   it('defaults match legacy logging defaults', () => {
-    expect(DEFAULT_LOG_SETTINGS_FORM.consoleLevel).toBe('DEBUG');
+    expect(DEFAULT_LOG_SETTINGS_FORM.consoleLevel).toBe('INFO');
     expect(DEFAULT_LOG_SETTINGS_FORM.maxLogEntries).toBe(10000);
     expect(DEFAULT_LOG_SETTINGS_FORM.timeZone).toBe('Asia/Shanghai');
     expect(DEFAULT_LOG_SETTINGS_FORM.showTimestamp).toBe(true);
@@ -24,7 +24,7 @@ describe('logSettingsModel', () => {
 
   it('maps empty settings to defaults', () => {
     const form = mapSettingsToLogForm(undefined);
-    expect(form.consoleLevel).toBe('DEBUG');
+    expect(form.consoleLevel).toBe('INFO');
     expect(form.maxLogEntries).toBe(10000);
     expect(form.modules.core).toBe(false);
   });

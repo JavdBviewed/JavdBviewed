@@ -65,7 +65,7 @@ export const DEFAULT_LOG_MODULES: LogModulesState = {
 };
 
 export const DEFAULT_LOG_SETTINGS_FORM: LogSettingsFormState = {
-  consoleLevel: 'DEBUG',
+  consoleLevel: 'INFO',
   maxLogEntries: 10000,
   maxMagnetPushEntries: 10000,
   retentionDays: 0,
@@ -167,11 +167,11 @@ export function mapSettingsToLogForm(
   const modules = (logging.logModules || {}) as Record<string, unknown>;
   const cats = (logging.consoleCategories || {}) as Record<string, unknown>;
   const fmt = logging.consoleFormat || {};
-  const level = String(logging.consoleLevel || 'DEBUG') as ConsoleLevel;
+  const level = String(logging.consoleLevel || 'INFO') as ConsoleLevel;
   const validLevels: ConsoleLevel[] = ['OFF', 'ERROR', 'WARN', 'INFO', 'DEBUG'];
 
   return {
-    consoleLevel: validLevels.includes(level) ? level : 'DEBUG',
+    consoleLevel: validLevels.includes(level) ? level : 'INFO',
     maxLogEntries: n(logging.maxLogEntries ?? logging.maxEntries, 10000),
     maxMagnetPushEntries: n(logging.maxMagnetPushEntries, 10000),
     retentionDays: n(logging.retentionDays, 0),

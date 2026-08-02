@@ -254,7 +254,7 @@ export class LoggingSettings extends BaseSettingsPanel {
         if (this.retentionDays) this.retentionDays.value = String((logging as any).retentionDays ?? 0);
 
         // 控制台代理设置
-        if (this.consoleLevel) this.consoleLevel.value = (logging as any).consoleLevel || 'DEBUG';
+        if (this.consoleLevel) this.consoleLevel.value = (logging as any).consoleLevel || 'INFO';
         const fmt = (logging as any).consoleFormat || {};
         if (this.consoleShowTimestamp) this.consoleShowTimestamp.checked = fmt.showTimestamp ?? true;
         if (this.consoleShowSource) this.consoleShowSource.checked = fmt.showSource ?? true;
@@ -332,7 +332,7 @@ export class LoggingSettings extends BaseSettingsPanel {
                     showPrivacyLogs: this.showPrivacyLogs ? this.showPrivacyLogs.checked : false,
                     showStorageLogs: this.showStorageLogs ? this.showStorageLogs.checked : false,
                     retentionDays: this.retentionDays ? parseInt(this.retentionDays.value || '0', 10) : (STATE.settings?.logging as any)?.retentionDays,
-                    consoleLevel: (this.consoleLevel?.value as any) || 'DEBUG',
+                    consoleLevel: (this.consoleLevel?.value as any) || 'INFO',
                     consoleFormat: {
                         showTimestamp: this.consoleShowTimestamp ? this.consoleShowTimestamp.checked : true,
                         showSource: this.consoleShowSource ? this.consoleShowSource.checked : true,
@@ -438,7 +438,7 @@ export class LoggingSettings extends BaseSettingsPanel {
                 showPrivacyLogs: this.showPrivacyLogs ? this.showPrivacyLogs.checked : false,
                 showStorageLogs: this.showStorageLogs ? this.showStorageLogs.checked : false,
                 ...(this.retentionDays ? { retentionDays: parseInt(this.retentionDays.value || '0', 10) } : {}),
-                consoleLevel: (this.consoleLevel?.value as any) || 'DEBUG',
+                consoleLevel: (this.consoleLevel?.value as any) || 'INFO',
                 consoleFormat: {
                     showTimestamp: this.consoleShowTimestamp ? this.consoleShowTimestamp.checked : true,
                     showSource: this.consoleShowSource ? this.consoleShowSource.checked : true,

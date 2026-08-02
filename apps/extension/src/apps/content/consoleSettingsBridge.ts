@@ -42,7 +42,7 @@ async function applyConsoleSettingsFromStorage(): Promise<void> {
 
 export function installContentConsoleSettingsBridge(): void {
     installConsoleProxy({
-        level: 'DEBUG',
+        level: 'INFO',
         format: { showTimestamp: true, timestampStyle: 'hms', timeZone: 'Asia/Shanghai', showSource: true, color: true },
         categories: {
             general: { enabled: true, match: () => true, label: 'CS', color: '#27ae60' },

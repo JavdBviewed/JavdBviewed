@@ -8,7 +8,7 @@ import { installConsoleProxy } from '../../platform/logging/consoleProxy';
 
 export function installDashboardConsoleProxy(): void {
   installConsoleProxy({
-    level: 'DEBUG',
+    level: 'INFO',
     format: { showTimestamp: true, timestampStyle: 'hms', timeZone: 'Asia/Shanghai', showSource: true, color: true },
     categories: {
       general: { enabled: true, match: () => true, label: 'DB', color: '#8e44ad' },

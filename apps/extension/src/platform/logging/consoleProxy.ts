@@ -3,8 +3,10 @@
  * @description 统一控制台代理 —— 拦截 console.* 输出，实现级别过滤、分类过滤、时间戳格式化、彩色输出
  * @module platform/logging
  *
- * 仅控制显示层，不负责日志持久化。幂等安装，多次调用安全。
+ * 控制台显示与轻量日志持久化。幂等安装，多次调用安全。
  */
+
+import { enqueuePersistentLog } from './persistentLogQueue';
 
 export type LogLevel = 'OFF' | 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
 
@@ -204,35 +206,57 @@ function getLocalTimeHHMMSS(tz?: string): string {
   }
 }
 
-function safeToString(x: any): string {
-  try {
-    if (x == null) return String(x);
-    if (typeof x === 'string') return x;
-    if (typeof x === 'number' || typeof x === 'boolean') return String(x);
-    if (typeof x === 'function') return '[Function]';
-    if (typeof x === 'object') {
-      // Avoid circular reference issues
-      const cache = new WeakSet();
-      return JSON.stringify(x, (_k, v) => {
-        if (typeof v === 'object' && v !== null) {
-          if (cache.has(v)) return '[Circular]';
-          cache.add(v);
-        }
-        return v;
-      });
+function compactLogValue(value: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (value == null || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value.length > 512 ? `${value.slice(0, 512)}…` : value;
+  if (typeof value === 'bigint') return `${String(value)}n`;
+  if (typeof value === 'function') return '[Function]';
+  if (depth >= 2 || typeof value !== 'object') return '[Object]';
+  if (seen.has(value)) return '[Circular]';
+  seen.add(value);
+  if (Array.isArray(value)) return value.slice(0, 20).map((item) => compactLogValue(item, depth + 1, seen));
+  const output: Record<string, unknown> = {};
+  for (const key of Object.keys(value).slice(0, 40)) {
+    try {
+      output[key] = compactLogValue((value as Record<string, unknown>)[key], depth + 1, seen);
+    } catch {
+      output[key] = '[Unserializable]';
     }
-    return String(x);
+  }
+  return output;
+}
+
+function safeToString(x: unknown): string {
+  try {
+    const value = compactLogValue(x, 0, new WeakSet<object>());
+    const result = typeof value === 'string' ? value : JSON.stringify(value);
+    return result.length > 8192 ? `${result.slice(0, 8192)}…` : result;
   } catch {
     return '[Unserializable]';
   }
 }
 
+/**
+ * 分类只需要识别日志前缀，不需要读取 payload 的完整内容。
+ * 避免为每条日志 JSON 序列化大对象，尤其是被级别过滤的 DEBUG 日志。
+ */
+export function buildLogCategorySample(args: unknown[]): string {
+  return args
+    .slice(0, 3)
+    .map((value) => {
+      if (typeof value === 'string') return value;
+      if (value == null) return String(value);
+      if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+        return String(value);
+      }
+      return '[object]';
+    })
+    .join(' ');
+}
+
 function pickCategory(args: any[], categories: Record<string, CategoryRule>): string {
   // try match by scanning first 2-3 args as string
-  const sample = args
-    .slice(0, 3)
-    .map((x) => safeToString(x))
-    .join(' ');
+  const sample = buildLogCategorySample(args);
 
   for (const [key, rule] of Object.entries(categories)) {
     if (typeof rule.match === 'function') {
@@ -358,7 +382,7 @@ function wrapMethod(level: Exclude<LogLevel, 'OFF'>, native: (...args: any[]) =>
             level,
             message: serialized,
           };
-          chrome.runtime.sendMessage({ type: 'DB:LOGS_ADD', payload: { entry } });
+          enqueuePersistentLog(entry);
         }
       } catch {}
     } catch (e) {
