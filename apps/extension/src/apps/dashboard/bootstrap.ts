@@ -187,7 +187,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const id = e?.detail?.tabId;
                 if (id === 'tab-home') {
                     try { bindHomeChartsRangeControls(); } catch {}
-                    try { await refreshHomeOverview(); } catch {}
                 }
             });
             (window as any).__HOME_TAB_SHOW_BOUND__ = true;

@@ -4,6 +4,7 @@ import { dbViewedStats, dbNewWorksStats, dbInsViewsRange, dbTrendsRecordsRange, 
 import { aggregateMonthly } from '../../features/insights';
 import { initStatsOverview, initHomeSectionsOverview } from './overview';
 import { themeManager } from '../services/themeManager';
+import { shouldRefreshHomeOverview } from './homeRefreshPolicy';
 
 function installCanvasDirectionGuard(): void {
   try {
@@ -210,6 +211,7 @@ function clearChartEmptyState(el: HTMLElement): void {
 
 let homeChartsThemeListenerBound = false;
 let homeOverviewRefreshPromise: Promise<void> | null = null;
+let homeOverviewInitialized = false;
 function bindHomeChartsThemeListener(): void {
   if (homeChartsThemeListenerBound) return;
   homeChartsThemeListenerBound = true;
@@ -926,13 +928,15 @@ export async function initOrUpdateHomeCharts(): Promise<void> {
   } catch {}
 }
 
-export async function refreshHomeOverview(): Promise<void> {
+export async function refreshHomeOverview(options: { force?: boolean } = {}): Promise<void> {
+  if (!shouldRefreshHomeOverview({ initialized: homeOverviewInitialized, force: options.force })) return;
   if (homeOverviewRefreshPromise) return homeOverviewRefreshPromise;
   homeOverviewRefreshPromise = (async () => {
     try {
       await initStatsOverview();
       await initHomeSectionsOverview();
       try { await initOrUpdateHomeCharts(); } catch {}
+      homeOverviewInitialized = true;
     } finally {
       homeOverviewRefreshPromise = null;
     }
@@ -948,7 +952,7 @@ export function bindHomeRefreshButton(): void {
     try {
       btn.disabled = true;
       btn.classList.add('loading');
-      await refreshHomeOverview();
+      await refreshHomeOverview({ force: true });
     } finally {
       btn.disabled = false;
       btn.classList.remove('loading');
