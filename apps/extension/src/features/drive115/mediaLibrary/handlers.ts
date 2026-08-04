@@ -17,6 +17,7 @@ import {
   saveDrive115IndexCheckpoint,
   saveDrive115LibraryState,
 } from './store';
+import { createLatestValueWriter, type LatestValueWriter } from './latestValueWriter';
 import type {
   Drive115IndexCheckpoint,
   Drive115IndexReport,
@@ -62,6 +63,7 @@ let cancelIndexRequested = false;
 let indexAbortController: AbortController | null = null;
 const INDEX_HISTORY_LIMIT = 20;
 const PARTIAL_STATE_PERSIST_INTERVAL_MS = 2_000;
+const INDEX_PROGRESS_PERSIST_INTERVAL_MS = 500;
 
 function log115(level: 'info' | 'warn' | 'error' | 'debug', message: string, data?: unknown): void {
   const text = `[115] ${message}`;
@@ -71,14 +73,28 @@ function log115(level: 'info' | 'warn' | 'error' | 'debug', message: string, dat
   else mediaLog.info(text, data);
 }
 
-async function writeIndexProgress(
+const indexProgressWriter = createLatestValueWriter<Drive115IndexProgressSnapshot | null>(
+  (snapshot) => setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS, snapshot),
+  (error) => log115('debug', '写入索引进度失败', error),
+);
+let lastIndexProgressPersistAt = 0;
+
+function enqueueIndexProgress(
   snapshot: Drive115IndexProgressSnapshot | null,
-): Promise<void> {
-  try {
-    await setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS, snapshot);
-  } catch (e) {
-    log115('debug', '写入索引进度失败', e);
+  options: { force?: boolean } = {},
+): void {
+  const now = Date.now();
+  if (!options.force
+    && lastIndexProgressPersistAt > 0
+    && now - lastIndexProgressPersistAt < INDEX_PROGRESS_PERSIST_INTERVAL_MS) {
+    return;
   }
+  lastIndexProgressPersistAt = now;
+  indexProgressWriter.enqueue(snapshot);
+}
+
+async function flushIndexProgress(): Promise<void> {
+  await indexProgressWriter.flush();
 }
 
 async function stopPersistedIndexProgress(message: string): Promise<void> {
@@ -87,7 +103,7 @@ async function stopPersistedIndexProgress(message: string): Promise<void> {
     null,
   );
   const base = previous && typeof previous === 'object' ? previous : null;
-  await writeIndexProgress({
+  enqueueIndexProgress({
     phase: 'error',
     rootsTotal: base?.rootsTotal,
     rootsDone: base?.rootsDone,
@@ -98,7 +114,8 @@ async function stopPersistedIndexProgress(message: string): Promise<void> {
     message,
     running: false,
     updatedAt: Date.now(),
-  });
+  }, { force: true });
+  await flushIndexProgress();
 }
 
 /** 规范化片库根目录（不依赖 dashboard model，避免 features→apps） */
@@ -241,6 +258,7 @@ export async function runDrive115MediaLibraryIndex(
 
   cancelIndexRequested = false;
   indexAbortController = new AbortController();
+  let stateSaveQueue: LatestValueWriter<Drive115LibraryIndexState> | undefined;
   indexingPromise = (async () => {
     const previous = await loadDrive115LibraryState();
     try {
@@ -266,12 +284,13 @@ export async function runDrive115MediaLibraryIndex(
         await patchDrive115IndexMeta({
           mediaLibraryLastIndexError: result.message || null,
         });
-        await writeIndexProgress({
+        enqueueIndexProgress({
           phase: 'error',
           message: result.message || message,
           running: false,
           updatedAt: Date.now(),
-        });
+        }, { force: true });
+        await flushIndexProgress();
         return result;
       }
 
@@ -311,12 +330,13 @@ export async function runDrive115MediaLibraryIndex(
           message: msg,
         };
         await patchDrive115IndexMeta({ mediaLibraryLastIndexError: msg });
-        await writeIndexProgress({
+        enqueueIndexProgress({
           phase: 'error',
           message: msg,
           running: false,
           updatedAt: Date.now(),
-        });
+        }, { force: true });
+        await flushIndexProgress();
         return result;
       }
       if (!tokenRet.accessToken) {
@@ -328,12 +348,13 @@ export async function runDrive115MediaLibraryIndex(
           message: msg,
         };
         await patchDrive115IndexMeta({ mediaLibraryLastIndexError: msg });
-        await writeIndexProgress({
+        enqueueIndexProgress({
           phase: 'error',
           message: msg,
           running: false,
           updatedAt: Date.now(),
-        });
+        }, { force: true });
+        await flushIndexProgress();
         return result;
       }
       const accessToken = tokenRet.accessToken;
@@ -343,7 +364,7 @@ export async function runDrive115MediaLibraryIndex(
         scanDepth,
         checkpoint,
       });
-      await writeIndexProgress({
+      enqueueIndexProgress({
         phase: 'start',
         message: `开始索引 ${enabled.length} 个片库根目录${scanDepth ? `，深度 ${scanDepth} 层` : ''}`,
         rootsTotal: enabled.length,
@@ -354,15 +375,19 @@ export async function runDrive115MediaLibraryIndex(
         apiCalls: 0,
         running: true,
         updatedAt: Date.now(),
-      });
+      }, { force: true });
+      await flushIndexProgress();
 
-      // 串行落盘链：增量快照与最终态按入队顺序依次写，最终态最后入队 → 覆盖增量态。
-      let saveChain: Promise<void> = Promise.resolve();
-      const enqueueSave = (state: Drive115LibraryIndexState): Promise<void> => {
-        saveChain = saveChain
-          .then(() => saveDrive115LibraryState(state))
-          .catch((err) => log115('debug', '媒体库索引增量落盘失败', err));
-        return saveChain;
+      // 只保留正在写入的快照和最新待写快照，避免 storage 慢时积压完整索引副本。
+      stateSaveQueue = createLatestValueWriter(
+        saveDrive115LibraryState,
+        (error) => log115('debug', '媒体库索引增量落盘失败', error),
+      );
+      const enqueueSave = (state: Drive115LibraryIndexState): void => {
+        stateSaveQueue?.enqueue(state);
+      };
+      const flushSave = async (): Promise<void> => {
+        await stateSaveQueue?.flush();
       };
       let lastPartialStatePersistAt = 0;
       const enqueuePartialSave = (state: Drive115LibraryIndexState): void => {
@@ -372,15 +397,15 @@ export async function runDrive115MediaLibraryIndex(
           return;
         }
         lastPartialStatePersistAt = now;
-        void enqueueSave(state);
+        enqueueSave(state);
       };
-      // 结果报告串行写链：进行中实时更新 + 收尾最终写，最终态最后入队。
-      let reportChain: Promise<void> = Promise.resolve();
-      const enqueueReport = (rep: unknown): Promise<void> => {
-        reportChain = reportChain
-          .then(() => setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_REPORT, rep))
-          .catch((err) => log115('debug', '媒体库索引报告落盘失败', err));
-        return reportChain;
+      // 报告同样只需保留最新快照，避免高频进度报告形成 Promise 长链。
+      const reportWriter = createLatestValueWriter(
+        (report: unknown) => setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_REPORT, report),
+        (error) => log115('debug', '媒体库索引报告落盘失败', error),
+      );
+      const enqueueReport = (report: unknown): void => {
+        reportWriter.enqueue(report);
       };
 
       const indexedResult = await indexDrive115Roots({
@@ -393,7 +418,7 @@ export async function runDrive115MediaLibraryIndex(
           enqueuePartialSave(mergePartialState(state));
         },
         onReport: (rep) => {
-          void enqueueReport(rep);
+          enqueueReport(rep);
         },
         listFiles: async ({ cid, limit, offset, signal }) => {
           const ret = await svc.listFiles({
@@ -416,11 +441,11 @@ export async function runDrive115MediaLibraryIndex(
         },
         onProgress: (p) => {
           const running = p.phase !== 'done' && p.phase !== 'error';
-          void writeIndexProgress({
+          enqueueIndexProgress({
             ...p,
             running,
             updatedAt: Date.now(),
-          });
+          }, { force: p.phase === 'start' || p.phase === 'root' || p.phase === 'done' || p.phase === 'error' });
           if (
             p.phase === 'start' ||
             p.phase === 'root' ||
@@ -441,9 +466,11 @@ export async function runDrive115MediaLibraryIndex(
         ...indexedResult,
         state: mergePartialState(indexedResult.state),
       };
+      await flushIndexProgress();
 
       if (result.cancelled) {
-        await enqueueSave(result.state);
+        enqueueSave(result.state);
+        await flushSave();
         await patchDrive115IndexMeta({
           mediaLibraryLastIndexError: result.message || '索引已取消',
           ...(result.partialMerged
@@ -457,14 +484,16 @@ export async function runDrive115MediaLibraryIndex(
           stats: result.state.stats,
         });
       } else if (result.success) {
-        await enqueueSave(result.state);
+        enqueueSave(result.state);
+        await flushSave();
         await patchDrive115IndexMeta({
           mediaLibraryLastIndexAt: result.state.updatedAt,
           mediaLibraryLastIndexError: null,
         });
         log115('info', result.message || '索引完成', result.state.stats);
       } else {
-        await enqueueSave(result.state);
+        enqueueSave(result.state);
+        await flushSave();
         await patchDrive115IndexMeta({
           mediaLibraryLastIndexError: result.message || '索引失败',
           // 部分合并时也刷新 lastIndexAt，表示有可用索引更新
@@ -486,9 +515,10 @@ export async function runDrive115MediaLibraryIndex(
         await clearDrive115IndexCheckpoint();
         await clearScheduledIndexResume();
       }
-      // 落盘本轮结果明细报告（走同一条链，最终态覆盖进行中快照），供设置页详情窗口下钻
+      // 落盘本轮结果明细报告，供设置页详情窗口下钻。
       if (result.report) {
-        await enqueueReport(result.report);
+        enqueueReport(result.report);
+        await reportWriter.flush();
         await appendDrive115IndexHistory(result.report);
       }
       return result;
@@ -502,14 +532,20 @@ export async function runDrive115MediaLibraryIndex(
         message: msg,
       };
       try {
-        await saveDrive115LibraryState(result.state);
+        if (stateSaveQueue) {
+          stateSaveQueue.enqueue(result.state);
+          await stateSaveQueue.flush();
+        } else {
+          await saveDrive115LibraryState(result.state);
+        }
         await patchDrive115IndexMeta({ mediaLibraryLastIndexError: msg });
-        await writeIndexProgress({
+        enqueueIndexProgress({
           phase: 'error',
           message: msg,
           running: false,
           updatedAt: Date.now(),
-        });
+        }, { force: true });
+        await flushIndexProgress();
       } catch {
         /* ignore */
       }
@@ -572,12 +608,12 @@ export function handleDrive115MediaLibraryCancelIndex(
       } catch {
         /* ignore */
       }
-      await writeIndexProgress({
+      enqueueIndexProgress({
         phase: 'folder',
         message: '正在取消索引…',
         running: true,
         updatedAt: Date.now(),
-      });
+      }, { force: true });
       sendResponse({ success: true, running: true, message: '正在取消索引…' });
     } catch (e: unknown) {
       sendResponse({ success: false, message: getErrorMessage(e) });
