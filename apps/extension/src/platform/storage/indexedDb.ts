@@ -31,6 +31,7 @@ import {
   normalizeViewedRecord,
   syncViewedSecondaryIndexes,
 } from './indexedDbViewedIndexes';
+import { loadActorsForTrend } from './actorTrendQuery';
 
 export { initDB } from './indexedDbConnection';
 export type {
@@ -131,8 +132,10 @@ export async function trendsRecordsRange(startDate: string, endDate: string, mod
 export interface ActorsTrendPoint { date: string; total: number; female: number; male: number; blacklisted: number; }
 export async function trendsActorsRange(startDate: string, endDate: string, mode: DateMode = 'cumulative'): Promise<ActorsTrendPoint[]> {
   const db = await initDB();
-  const all = await db.getAll('actors');
   const days = eachDate(startDate, endDate);
+  const lastDate = days[days.length - 1];
+  if (!lastDate) return [];
+  const all = await loadActorsForTrend(db, lastDate.endMs);
   const points: ActorsTrendPoint[] = [];
   
   // 预处理：提取时间戳并排序

@@ -328,7 +328,7 @@ export function registerDbMessageRouter(): void {
         return true;
       }
       if (message.type === 'DB:GET_ALL_TAGS') {
-        handleGetAllTags(message, sendResponse);
+        handleGetAllTags(message, sendResponse, { tagIndexIsCanonical: true });
         return true;
       }
       return false;

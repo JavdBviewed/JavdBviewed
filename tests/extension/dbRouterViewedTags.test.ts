@@ -56,7 +56,7 @@ describe('DB:GET_ALL_TAGS route', () => {
         { name: '中出', count: 1 },
       ],
     });
-    expect(viewedGetAll).toHaveBeenCalledTimes(1);
+    expect(viewedGetAll).not.toHaveBeenCalled();
     expect(viewedTagIndexGetAll).toHaveBeenCalledTimes(1);
   });
 });

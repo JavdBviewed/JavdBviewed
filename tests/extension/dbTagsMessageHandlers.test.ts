@@ -55,6 +55,30 @@ describe('db tags message handlers', () => {
       ],
     });
   });
+
+  it('skips the full viewed-record scan when the canonical tag index is available', async () => {
+    const sendResponse = vi.fn();
+    const viewedGetAll = vi.fn(async () => [{ id: 'A', tags: ['剧情'] }]);
+
+    await handleGetAllTags(
+      { payload: { limit: 10 } },
+      sendResponse,
+      {
+        viewedGetAll,
+        viewedTagIndexGetAll: vi.fn(async () => [
+          { key: '巨乳::B', tag: '巨乳', videoId: 'B' },
+        ]),
+        getLegacyViewedRecords: vi.fn(async () => ({})),
+        tagIndexIsCanonical: true,
+      },
+    );
+
+    expect(viewedGetAll).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      tags: [{ name: '巨乳', count: 1 }],
+    });
+  });
 });
 
 function awaitChromeStorageClear(): void {

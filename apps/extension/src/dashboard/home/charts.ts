@@ -5,6 +5,10 @@ import { aggregateMonthly } from '../../features/insights';
 import { initStatsOverview, initHomeSectionsOverview } from './overview';
 import { themeManager } from '../services/themeManager';
 import { shouldRefreshHomeOverview } from './homeRefreshPolicy';
+import { createRefreshCoordinator } from './refreshCoordinator';
+import { loadHomeOverviewData } from './homeOverviewLoader';
+import { buildHomeStatusData } from './homeChartData';
+import { yieldToBrowser } from './homeRenderScheduler';
 
 function installCanvasDirectionGuard(): void {
   try {
@@ -209,9 +213,158 @@ function clearChartEmptyState(el: HTMLElement): void {
   if (empty) empty.remove();
 }
 
+function hideChartLoading(el: HTMLElement): void {
+  const loadingDiv = el.querySelector('.chart-loading-overlay');
+  if (loadingDiv) loadingDiv.remove();
+}
+
+function updateG2Plot(
+  charts: Record<string, any>,
+  key: string,
+  Plot: any,
+  el: HTMLElement,
+  options: Record<string, any>,
+  data: any[],
+): any {
+  const current = charts[key];
+  if (current?.changeData && charts[`${key}Element`] === el) {
+    try {
+      current.changeData(data);
+      return current;
+    } catch {}
+  }
+  try { current?.destroy?.(); } catch {}
+  try { current?.dispose?.(); } catch {}
+  const plot = new Plot(el, { animation: false, ...options, data });
+  plot.render();
+  charts[key] = plot;
+  charts[`${key}Element`] = el;
+  return plot;
+}
+
+interface HomeTrendRenderArgs {
+  recordsTrendEl: HTMLElement | null;
+  actorsTrendEl: HTMLElement | null;
+  newWorksTrendEl: HTMLElement | null;
+  range: { start: string; end: string };
+  records: any[];
+  actors: any[];
+  newWorks: any[];
+  colors: Record<string, string>;
+  linePlot: any;
+  charts: Record<string, any>;
+}
+
+async function renderHomeTrendCharts(args: HomeTrendRenderArgs): Promise<void> {
+  const { recordsTrendEl, actorsTrendEl, newWorksTrendEl, range, records, actors, newWorks, colors, linePlot, charts } = args;
+  try {
+    if (recordsTrendEl) {
+      await yieldToBrowser();
+      hideChartLoading(recordsTrendEl);
+      let data = ([] as any[]).concat(
+        records.map((point: any) => ({ date: point.date, type: '总记录', value: point.total })),
+        records.map((point: any) => ({ date: point.date, type: '已观看', value: point.viewed })),
+        records.map((point: any) => ({ date: point.date, type: '已浏览', value: point.browsed })),
+        records.map((point: any) => ({ date: point.date, type: '想看', value: point.want })),
+      );
+      const sum = data.reduce((total, point) => total + Number(point.value || 0), 0);
+      if (!data.length) {
+        data = [
+          { date: range.start, type: '总记录', value: 0 },
+          { date: range.end, type: '总记录', value: 0 },
+          { date: range.start, type: '已观看', value: 0 },
+          { date: range.end, type: '已观看', value: 0 },
+          { date: range.start, type: '已浏览', value: 0 },
+          { date: range.end, type: '已浏览', value: 0 },
+          { date: range.start, type: '想看', value: 0 },
+          { date: range.end, type: '想看', value: 0 },
+        ];
+      }
+      const yAxis = sum <= 0 ? { min: 0, max: 1 } : { min: 0, nice: true };
+      updateG2Plot(charts, 'recordsTrend', linePlot, recordsTrendEl, {
+        xField: 'date', yField: 'value', seriesField: 'type', smooth: true, autoFit: true,
+        legend: { position: 'top' }, tooltip: { shared: true }, yAxis,
+        color: (datum: any) => ({
+          '总记录': colors.primary,
+          '已观看': colors.success,
+          '已浏览': colors.info,
+          '想看': colors.warning,
+        } as Record<string, string>)[String(datum?.type)] || colors.primary,
+      }, data);
+    }
+
+    if (actorsTrendEl) {
+      await yieldToBrowser();
+      hideChartLoading(actorsTrendEl);
+      let data = ([] as any[]).concat(
+        actors.map((point: any) => ({ date: point.date, type: '总演员数', value: point.total })),
+        actors.map((point: any) => ({ date: point.date, type: '女性', value: point.female })),
+        actors.map((point: any) => ({ date: point.date, type: '男性', value: point.male })),
+        actors.map((point: any) => ({ date: point.date, type: '拉黑', value: point.blacklisted })),
+      );
+      const sum = data.reduce((total, point) => total + Number(point.value || 0), 0);
+      if (!data.length) {
+        data = [
+          { date: range.start, type: '总演员数', value: 0 },
+          { date: range.end, type: '总演员数', value: 0 },
+          { date: range.start, type: '女性', value: 0 },
+          { date: range.end, type: '女性', value: 0 },
+          { date: range.start, type: '男性', value: 0 },
+          { date: range.end, type: '男性', value: 0 },
+          { date: range.start, type: '拉黑', value: 0 },
+          { date: range.end, type: '拉黑', value: 0 },
+        ];
+      }
+      const yAxis = sum <= 0 ? { min: 0, max: 1 } : { min: 0, nice: true };
+      updateG2Plot(charts, 'actorsTrend', linePlot, actorsTrendEl, {
+        xField: 'date', yField: 'value', seriesField: 'type', smooth: true, autoFit: true,
+        legend: { position: 'top' }, tooltip: { shared: true }, yAxis,
+        color: (datum: any) => ({
+          '总演员数': colors.primary,
+          '女性': colors.success,
+          '男性': colors.info,
+          '拉黑': colors.danger,
+        } as Record<string, string>)[String(datum?.type)] || colors.primary,
+      }, data);
+    }
+
+    if (newWorksTrendEl) {
+      await yieldToBrowser();
+      hideChartLoading(newWorksTrendEl);
+      let data = ([] as any[]).concat(
+        newWorks.map((point: any) => ({ date: point.date, type: '当天总量', value: point.total })),
+        newWorks.map((point: any) => ({ date: point.date, type: '未读', value: point.unread })),
+        newWorks.map((point: any) => ({ date: point.date, type: '已读', value: Math.max(0, (point.total || 0) - (point.unread || 0)) })),
+      );
+      const sum = data.reduce((total, point) => total + Number(point.value || 0), 0);
+      if (!data.length) {
+        data = [
+          { date: range.start, type: '当天总量', value: 0 },
+          { date: range.end, type: '当天总量', value: 0 },
+          { date: range.start, type: '未读', value: 0 },
+          { date: range.end, type: '未读', value: 0 },
+          { date: range.start, type: '已读', value: 0 },
+          { date: range.end, type: '已读', value: 0 },
+        ];
+      }
+      const yAxis = sum <= 0 ? { min: 0, max: 1 } : { min: 0, nice: true };
+      updateG2Plot(charts, 'newWorksTrend', linePlot, newWorksTrendEl, {
+        xField: 'date', yField: 'value', seriesField: 'type', smooth: true, autoFit: true,
+        legend: { position: 'top' }, tooltip: { shared: true }, yAxis,
+        color: (datum: any) => ({
+          '当天总量': colors.primary,
+          '未读': colors.warning,
+          '已读': colors.success,
+        } as Record<string, string>)[String(datum?.type)] || colors.primary,
+      }, data);
+    }
+  } catch {}
+}
+
 let homeChartsThemeListenerBound = false;
 let homeOverviewRefreshPromise: Promise<void> | null = null;
 let homeOverviewInitialized = false;
+let homeNewWorksDailyStatRefreshed = false;
 function bindHomeChartsThemeListener(): void {
   if (homeChartsThemeListenerBound) return;
   homeChartsThemeListenerBound = true;
@@ -305,9 +458,7 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
       const prevArr = await dbInsViewsRange(fmtDate(prevStart), fmtDate(prevEnd));
       viewsArrRange = await dbInsViewsRange(startStr, endStr);
       insRange = aggregateMonthly(viewsArrRange || [], { topN: 8, previousDays: prevArr || [] });
-      const allViews = await dbInsViewsRange('1970-01-01', '2999-12-31');
-      insAll = aggregateMonthly(allViews || [], { topN: 10 });
-      try { console.info('[INSIGHTS] home echarts range', { start: startStr, end: endStr, views: (viewsArrRange || []).length, trend: Array.isArray(insRange?.trend) ? insRange.trend.length : 0, tagsTop: Array.isArray(insAll?.tagsTop) ? insAll.tagsTop.length : 0 }); } catch {}
+      try { console.info('[INSIGHTS] home echarts range', { start: startStr, end: endStr, views: (viewsArrRange || []).length, trend: Array.isArray(insRange?.trend) ? insRange.trend.length : 0 }); } catch {}
     } catch {}
 
     try {
@@ -493,7 +644,7 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
   } catch {}
 }
 
-export async function initOrUpdateHomeCharts(): Promise<void> {
+async function renderHomeCharts(): Promise<void> {
   try {
     installCanvasDirectionGuard();
     bindHomeChartsThemeListener();
@@ -517,8 +668,9 @@ export async function initOrUpdateHomeCharts(): Promise<void> {
     const actorsTrendEl = getChartBody(actorsTrendShell);
     const newWorksTrendEl = getChartBody(newWorksTrendShell);
     if (!statusEl && !barsEl && !trendEl && !tagsEl && !changeEl && !newTagsEl && !recordsTrendEl && !actorsTrendEl && !newWorksTrendEl) return;
-    if (newWorksTrendEl) {
+    if (newWorksTrendEl && !homeNewWorksDailyStatRefreshed) {
       try { await dbNewWorksDailyStatRefresh(); } catch {}
+      homeNewWorksDailyStatRefreshed = true;
     }
     
     // 显示加载动画（使用绝对定位覆盖层，不清空容器）
@@ -545,7 +697,7 @@ export async function initOrUpdateHomeCharts(): Promise<void> {
     chartElements.forEach(showLoading);
     const G2P: any = await ensureG2PlotLoaded();
     if (!G2P) { await renderHomeChartsWithEcharts(); return; }
-    const { Column, Line, Bar } = G2P;
+    const { Column, Line, Bar, Pie } = G2P;
     const W: any = window as any;
     const HC: any = (W.__HOME_CHARTS__ = W.__HOME_CHARTS__ || {});
     const getVar = (name: string, fallback: string) => {
@@ -566,139 +718,93 @@ export async function initOrUpdateHomeCharts(): Promise<void> {
       surface: getVar('--surface', '#ffffff'),
       pieBorder: getVar('--bg-primary', '#f5f7fb')
     } as any;
-    const msDay = 24 * 60 * 60 * 1000;
-    const fmt = (d: Date) => {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
-    };
-    const parse = (s: string) => { try { const [Y,M,D] = String(s||'').split('-').map((n) => Number(n)); return new Date(Y, (M||1)-1, D||1); } catch { return new Date(); } };
-    let s: any = null, w: any = null, ins: any = null, viewsArr: any[] = [], insAllG2: any = null;
-    try { s = await dbViewedStats(); } catch {}
-    try { w = await dbNewWorksStats(); } catch {}
+    const r = getHomeChartsRange();
+    let s: any = null, w: any = null, ins: any = null, homeTagsTop: Array<{ name: string; count: number }> = [];
+    let homeTrendRecords: any[] = [], homeTrendActors: any[] = [], homeTrendNewWorks: any[] = [];
     try {
-      const r = getHomeChartsRange();
-      const sDate = parse(r.start), eDate = parse(r.end);
-      const span = Math.max(1, Math.round((eDate.getTime() - sDate.getTime()) / msDay) + 1);
-      const prevEnd = new Date(sDate.getTime() - msDay);
-      const prevStart = new Date(prevEnd.getTime() - (span - 1) * msDay);
-      const prevArr = await dbInsViewsRange(fmt(prevStart), fmt(prevEnd));
-      viewsArr = await dbInsViewsRange(r.start, r.end);
-      ins = aggregateMonthly(viewsArr || [], { topN: 8, previousDays: prevArr || [] });
-      const allViews = await dbInsViewsRange('1970-01-01', '2999-12-31');
-      insAllG2 = aggregateMonthly(allViews || [], { topN: 10 });
-      try { console.info('[INSIGHTS] home g2plot range', { start: r.start, end: r.end, views: (viewsArr || []).length, trend: Array.isArray(ins?.trend) ? ins.trend.length : 0, tagsTop: Array.isArray(insAllG2?.tagsTop) ? insAllG2.tagsTop.length : 0 }); } catch {}
+      const homeData = await loadHomeOverviewData(r, {
+        viewedStats: () => dbViewedStats().catch(() => ({})),
+        newWorksStats: () => dbNewWorksStats().catch(() => ({})),
+        previousViews: (startDate, endDate) => dbInsViewsRange(startDate, endDate).catch(() => []),
+        currentViews: (startDate, endDate) => dbInsViewsRange(startDate, endDate).catch(() => []),
+        tagsTop: (limit) => getTagsTopFromRecords(limit),
+        recordsTrend: (startDate, endDate, mode) => dbTrendsRecordsRange(startDate, endDate, mode).catch(() => []),
+        actorsTrend: (startDate, endDate, mode) => dbTrendsActorsRange(startDate, endDate, mode).catch(() => []),
+        newWorksTrend: (startDate, endDate, mode) => dbTrendsNewWorksRange(startDate, endDate, mode).catch(() => []),
+      });
+      s = homeData.viewedStats;
+      w = homeData.newWorksStats;
+      ins = homeData.insights;
+      homeTagsTop = homeData.tagsTop;
+      homeTrendRecords = homeData.trends.records;
+      homeTrendActors = homeData.trends.actors;
+      homeTrendNewWorks = homeData.trends.newWorks;
+      try { console.info('[INSIGHTS] home g2plot range', { start: r.start, end: r.end, trend: Array.isArray(ins?.trend) ? ins.trend.length : 0, tagsTop: homeTagsTop.length }); } catch {}
     } catch {}
+
+    // 趋势行位于页面首屏，先完成它，避免下方图表阻塞用户看到的核心数据。
+    await renderHomeTrendCharts({
+      recordsTrendEl,
+      actorsTrendEl,
+      newWorksTrendEl,
+      range: r,
+      records: homeTrendRecords,
+      actors: homeTrendActors,
+      newWorks: homeTrendNewWorks,
+      colors: COLORS,
+      linePlot: Line,
+      charts: HC,
+    });
 
     try {
       if (statusEl) {
-        // 统一用 ECharts 渲染以获得圆角扇区
-        const ech = await ensureEchartsLoaded();
-        if (ech) {
-          try {
-            if (HC['statusDonut']?.destroy) { HC['statusDonut'].destroy(); }
-          } catch {}
-          try {
-            if (HC['statusDonut']?.dispose) { HC['statusDonut'].dispose(); }
-          } catch {}
-          
-          hideLoading(statusEl);
-          
-          const inst = ech.init(statusEl);
-          const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-          const data = [
-            { name: '已观看', value: s?.byStatus?.viewed ?? 0, color: isDark ? '#4ade80' : COLORS.success },
-            { name: '已浏览', value: s?.byStatus?.browsed ?? 0, color: isDark ? '#2dd4bf' : COLORS.info },
-            { name: '想看', value: s?.byStatus?.want ?? 0, color: isDark ? '#fbbf24' : COLORS.warning },
-          ];
-          const total = data.reduce((s, d) => s + Number(d.value || 0), 0);
-          inst.setOption({
-            tooltip: { trigger: 'item', confine: true },
-            legend: {
-              orient: 'horizontal',
-              left: 'center',
-              bottom: 2,
-              itemWidth: 10,
-              itemHeight: 10,
-              icon: 'circle',
-              textStyle: { color: COLORS.muted, fontSize: 12 }
-            },
-            graphic: [{
-              type: 'text', left: 'center', top: 'middle', z: 10,
-              style: {
-                text: `总数\n${total}`,
-                textAlign: 'center',
-                fill: COLORS.text,
-                lineHeight: 18,
-                fontSize: 14,
-                fontWeight: 700,
-              }
-            }],
-            series: [
-              {
-                type: 'pie',
-                radius: ['46%', '72%'],
-                center: ['50%', '42%'],
-                avoidLabelOverlap: false,
-                minAngle: 6,
-                itemStyle: {
-                  borderRadius: 12,
-                  borderWidth: 2,
-                  borderColor: COLORS.pieBorder,
-                  shadowBlur: isDark ? 10 : 6,
-                  shadowColor: isDark ? 'rgba(15, 23, 42, 0.35)' : 'rgba(15, 23, 42, 0.10)',
-                },
-                label: { show: true, position: 'inside', color: '#fff', fontWeight: 700, formatter: ({ value }: any) => `${value ?? 0}` },
-                labelLine: { show: false },
-                emphasis: { label: { show: true, fontWeight: 'bold' } },
-                data: data.map(d => ({ name: d.name, value: d.value, itemStyle: { color: d.color } }))
-              }
-            ]
-          });
-          HC['statusDonut'] = inst;
-          
-          // 简单的自适应
-          if (!(HC as any)._statusDonutResizeBound) {
-            try {
-              window.addEventListener('resize', () => { try { HC['statusDonut']?.resize?.(); } catch {} });
-              (HC as any)._statusDonutResizeBound = true;
-            } catch {}
-          }
-        }
+        await yieldToBrowser();
+        hideLoading(statusEl);
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        const data = buildHomeStatusData(s, COLORS, isDark);
+        const total = data.reduce((sum, datum) => sum + Number(datum.value || 0), 0);
+        updateG2Plot(HC, 'statusDonut', Pie, statusEl, {
+          angleField: 'value',
+          colorField: 'name',
+          radius: 0.72,
+          innerRadius: 0.46,
+          legend: { position: 'bottom', itemName: { style: { fill: COLORS.muted, fontSize: 12 } } },
+          label: { type: 'inner', offset: '-50%', content: 'value', style: { fill: '#fff', fontWeight: 700 } },
+          statistic: {
+            title: { content: '总数', style: { fill: COLORS.muted, fontSize: 12 } },
+            content: { content: String(total), style: { fill: COLORS.text, fontSize: 16, fontWeight: 700 } },
+          },
+          tooltip: { showTitle: false },
+          color: data.map((datum) => datum.color),
+        }, data);
       }
     } catch {}
 
     try {
       if (barsEl) {
-        if (HC['newWorksBars']?.destroy) { try { HC['newWorksBars'].destroy(); } catch {} }
-        
+        await yieldToBrowser();
         hideLoading(barsEl);
-        
-        const plot = new Column(barsEl, {
-          data: [
-            { type: '今日发现', value: w?.today ?? 0 },
-            { type: '本周发现', value: w?.week ?? 0 },
-            { type: '未读', value: w?.unread ?? 0 },
-          ],
+        const data = [
+          { type: '今日发现', value: w?.today ?? 0 },
+          { type: '本周发现', value: w?.week ?? 0 },
+          { type: '未读', value: w?.unread ?? 0 },
+        ];
+        updateG2Plot(HC, 'newWorksBars', Column, barsEl, {
           xField: 'type',
           yField: 'value',
           columnStyle: { radius: [6,6,0,0] },
           color: COLORS.primary,
           label: { position: 'top' },
-          autoFit: true,
-        });
-        plot.render();
-        HC['newWorksBars'] = plot;
+    autoFit: true,
+    animation: false,
+        }, data);
       }
     } catch {}
 
     try {
       if (tagsEl) {
-        if (HC['tagsTop']?.destroy) { try { HC['tagsTop'].destroy(); } catch {} }
-        HC['tagsTop'] = null;
-        
-        const full = await getTagsTopFromRecords(50);
+        await yieldToBrowser();
+        const full = homeTagsTop;
         const pageSize = 10;
         const totalPages = Math.max(1, Math.ceil(full.length / pageSize));
         const pageText = document.getElementById('homeTagsPageText') as HTMLSpanElement | null;
@@ -733,7 +839,7 @@ export async function initOrUpdateHomeCharts(): Promise<void> {
                   this.isFirstRender = false;
                 }
                 
-                const plot = new Bar(tagsEl, buildHomeTagsBarOptions(list, tagTheme));
+                 const plot = new Bar(tagsEl, { animation: false, ...buildHomeTagsBarOptions(list, tagTheme) });
                 plot.render();
                 HC['tagsTop'] = plot;
               }
@@ -746,7 +852,7 @@ export async function initOrUpdateHomeCharts(): Promise<void> {
                 this.isFirstRender = false;
               }
               
-              const plot = new Bar(tagsEl, buildHomeTagsBarOptions(list, tagTheme));
+               const plot = new Bar(tagsEl, { animation: false, ...buildHomeTagsBarOptions(list, tagTheme) });
               plot.render();
               HC['tagsTop'] = plot;
             }
@@ -782,8 +888,7 @@ export async function initOrUpdateHomeCharts(): Promise<void> {
 
     try {
       if (changeEl) {
-        if (HC['tagsChange']?.destroy) { try { HC['tagsChange'].destroy(); } catch {} }
-        
+        await yieldToBrowser();
         hideLoading(changeEl);
         
         const rising = Array.isArray((ins as any)?.changes?.risingDetailed) ? (ins as any).changes.risingDetailed : [];
@@ -793,139 +898,39 @@ export async function initOrUpdateHomeCharts(): Promise<void> {
           .concat(falling.map((d: any) => ({ name: d.name, value: Number((d.diffRatio || 0) * 100) })))
           .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
           .slice(0, 10);
-        const plot = new Bar(changeEl, {
-          data: changes,
+        updateG2Plot(HC, 'tagsChange', Bar, changeEl, {
           xField: 'value', yField: 'name', legend: false, autoFit: true,
           barStyle: { radius: [0, 6, 6, 0] }, label: { position: 'right', formatter: (d: any) => `${d.value > 0 ? '+' : ''}${(d.value as number).toFixed ? (d.value as number).toFixed(2) : d.value}%` }, tooltip: { showTitle: false },
           xAxis: { nice: true }, yAxis: { label: { autoHide: true, autoEllipsis: true } },
           color: (d: any) => d.value >= 0 ? '#16a34a' : '#ef4444',
-        });
-        plot.render();
-        HC['tagsChange'] = plot;
+        }, changes);
       }
     } catch {}
 
     // 新增标签 Top 5（G2Plot）
     try {
       if (newTagsEl) {
-        if (HC['newTagsTop']?.destroy) { try { HC['newTagsTop'].destroy(); } catch {} }
-        
+        await yieldToBrowser();
         hideLoading(newTagsEl);
         
         const list = Array.isArray((ins as any)?.changes?.newTagsDetailed) ? (ins as any).changes.newTagsDetailed : [];
         const top = list.slice(0, 5).map((d: any, i: number) => ({ name: d.name, value: Number(d.count || 0), color: ['#60a5fa','#34d399','#fbbf24','#f472b6','#a78bfa'][i % 5] }));
-        const plot = new Bar(newTagsEl, {
-          data: top,
+        updateG2Plot(HC, 'newTagsTop', Bar, newTagsEl, {
           xField: 'value', yField: 'name', legend: false, autoFit: true,
           barStyle: { radius: [0, 6, 6, 0] }, label: { position: 'right' }, tooltip: { showTitle: false },
           xAxis: { min: 0, nice: true }, yAxis: { label: { autoHide: true, autoEllipsis: true } },
           color: (d: any) => d.color,
-        });
-        plot.render();
-        HC['newTagsTop'] = plot;
+        }, top);
       }
     } catch {}
 
-    try {
-      const r = getHomeChartsRange();
-      if (recordsTrendEl) {
-        if (HC['recordsTrend']?.destroy) { try { HC['recordsTrend'].destroy(); } catch {} }
-        
-        hideLoading(recordsTrendEl);
-        
-        const rec = await dbTrendsRecordsRange(r.start, r.end, 'cumulative');
-        let data = ([] as any[]).concat(
-          rec.map((p: any) => ({ date: p.date, type: '总记录', value: p.total })),
-          rec.map((p: any) => ({ date: p.date, type: '已观看', value: p.viewed })),
-          rec.map((p: any) => ({ date: p.date, type: '已浏览', value: p.browsed })),
-          rec.map((p: any) => ({ date: p.date, type: '想看', value: p.want }))
-        );
-        const sum = data.reduce((s, d) => s + Number(d.value || 0), 0);
-        // 若无数据点，构造起止两点的0值基线，确保折线可绘制
-        if (!data.length) {
-          data = [
-            { date: r.start, type: '总记录', value: 0 },
-            { date: r.end,   type: '总记录', value: 0 },
-            { date: r.start, type: '已观看', value: 0 },
-            { date: r.end,   type: '已观看', value: 0 },
-            { date: r.start, type: '已浏览', value: 0 },
-            { date: r.end,   type: '已浏览', value: 0 },
-            { date: r.start, type: '想看',   value: 0 },
-            { date: r.end,   type: '想看',   value: 0 },
-          ];
-        }
-        try { recordsTrendEl.style.display = ''; } catch {}
-        const yAxisCfg: any = (sum <= 0) ? { min: 0, max: 1 } : { min: 0, nice: true };
-        const plot = new Line(recordsTrendEl, { data, xField: 'date', yField: 'value', seriesField: 'type', smooth: true, autoFit: true, legend: { position: 'top' }, tooltip: { shared: true }, yAxis: yAxisCfg, color: (t: any) => {
-          const m: any = { '总记录': COLORS.primary, '已观看': COLORS.success, '已浏览': COLORS.info, '想看': COLORS.warning }; return m[t?.type] || COLORS.primary; } });
-        plot.render();
-        HC['recordsTrend'] = plot;
-      }
-      if (actorsTrendEl) {
-        if (HC['actorsTrend']?.destroy) { try { HC['actorsTrend'].destroy(); } catch {} }
-        
-        hideLoading(actorsTrendEl);
-        
-        const act = await dbTrendsActorsRange(r.start, r.end, 'cumulative');
-        let data = ([] as any[]).concat(
-          act.map((p: any) => ({ date: p.date, type: '总演员数', value: p.total })),
-          act.map((p: any) => ({ date: p.date, type: '女性', value: p.female })),
-          act.map((p: any) => ({ date: p.date, type: '男性', value: p.male })),
-          act.map((p: any) => ({ date: p.date, type: '拉黑', value: p.blacklisted })),
-        );
-        const sum = data.reduce((s, d) => s + Number(d.value || 0), 0);
-        // 若无数据点，构造起止两点的0值基线，确保折线可绘制
-        if (!data.length) {
-          data = [
-            { date: r.start, type: '总演员数', value: 0 },
-            { date: r.end,   type: '总演员数', value: 0 },
-            { date: r.start, type: '女性',     value: 0 },
-            { date: r.end,   type: '女性',     value: 0 },
-            { date: r.start, type: '男性',     value: 0 },
-            { date: r.end,   type: '男性',     value: 0 },
-            { date: r.start, type: '拉黑',     value: 0 },
-            { date: r.end,   type: '拉黑',     value: 0 },
-          ];
-        }
-        try { actorsTrendEl.style.display = ''; } catch {}
-        const yAxisCfg: any = (sum <= 0) ? { min: 0, max: 1 } : { min: 0, nice: true };
-        const plot = new Line(actorsTrendEl, { data, xField: 'date', yField: 'value', seriesField: 'type', smooth: true, autoFit: true, legend: { position: 'top' }, tooltip: { shared: true }, yAxis: yAxisCfg, color: (t: any) => {
-          const m: any = { '总演员数': COLORS.primary, '女性': COLORS.success, '男性': COLORS.info, '拉黑': COLORS.danger }; return m[t?.type] || COLORS.primary; } });
-        plot.render();
-        HC['actorsTrend'] = plot;
-      }
-      if (newWorksTrendEl) {
-        if (HC['newWorksTrend']?.destroy) { try { HC['newWorksTrend'].destroy(); } catch {} }
-        
-        hideLoading(newWorksTrendEl);
-        
-        const nw = await dbTrendsNewWorksRange(r.start, r.end, 'daily');
-        let data = ([] as any[]).concat(
-          nw.map((p: any) => ({ date: p.date, type: '当天总量', value: p.total })),
-          nw.map((p: any) => ({ date: p.date, type: '未读', value: p.unread })),
-          nw.map((p: any) => ({ date: p.date, type: '已读', value: Math.max(0, (p.total || 0) - (p.unread || 0)) })),
-        );
-        const sum = data.reduce((s, d) => s + Number(d.value || 0), 0);
-        // 若无数据点，构造起止两点的0值基线，确保折线可绘制
-        if (!data.length) {
-          data = [
-            { date: r.start, type: '当天总量', value: 0 },
-            { date: r.end,   type: '当天总量', value: 0 },
-            { date: r.start, type: '未读',   value: 0 },
-            { date: r.end,   type: '未读',   value: 0 },
-            { date: r.start, type: '已读',   value: 0 },
-            { date: r.end,   type: '已读',   value: 0 },
-          ];
-        }
-        try { newWorksTrendEl.style.display = ''; } catch {}
-        const yAxisCfg: any = (sum <= 0) ? { min: 0, max: 1 } : { min: 0, nice: true };
-        const plot = new Line(newWorksTrendEl, { data, xField: 'date', yField: 'value', seriesField: 'type', smooth: true, autoFit: true, legend: { position: 'top' }, tooltip: { shared: true }, yAxis: yAxisCfg, color: (t: any) => {
-          const m: any = { '当天总量': COLORS.primary, '未读': COLORS.warning, '已读': COLORS.success }; return m[t?.type] || COLORS.primary; } });
-        plot.render();
-        HC['newWorksTrend'] = plot;
-      }
-    } catch {}
   } catch {}
+}
+
+const requestHomeChartsRefresh = createRefreshCoordinator(renderHomeCharts);
+
+export function initOrUpdateHomeCharts(): Promise<void> {
+  return requestHomeChartsRefresh();
 }
 
 export async function refreshHomeOverview(options: { force?: boolean } = {}): Promise<void> {
@@ -933,6 +938,7 @@ export async function refreshHomeOverview(options: { force?: boolean } = {}): Pr
   if (homeOverviewRefreshPromise) return homeOverviewRefreshPromise;
   homeOverviewRefreshPromise = (async () => {
     try {
+      if (options.force) homeNewWorksDailyStatRefreshed = false;
       await initStatsOverview();
       await initHomeSectionsOverview();
       try { await initOrUpdateHomeCharts(); } catch {}

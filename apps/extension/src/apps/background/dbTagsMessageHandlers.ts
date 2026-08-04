@@ -51,6 +51,7 @@ export interface GetAllTagsDependencies {
   viewedGetAll?: typeof defaultViewedGetAll;                                // IndexedDB 观看记录全量查询
   viewedTagIndexGetAll?: typeof defaultViewedTagIndexGetAll;               // 标签索引全量查询
   getLegacyViewedRecords?: () => Promise<Record<string, unknown>>;         // 旧版分块存储兼容读取
+  tagIndexIsCanonical?: boolean;                                             // 生产索引已覆盖当前记录时跳过全量记录读取
 }
 
 /**
@@ -65,11 +66,12 @@ export async function handleGetAllTags(
   const viewedGetAll = deps.viewedGetAll ?? defaultViewedGetAll;
   const viewedTagIndexGetAll = deps.viewedTagIndexGetAll ?? defaultViewedTagIndexGetAll;
   const getLegacyViewedRecords = deps.getLegacyViewedRecords ?? getLegacyViewedRecordsFromStorage;
+  const tagIndexIsCanonical = deps.tagIndexIsCanonical === true;
 
   const limit = Number(message?.payload?.limit ?? 50);
   try {
     const [idbRecords, tagIndexRows, legacyRecords] = await Promise.all([
-      viewedGetAll().catch(() => []),
+      tagIndexIsCanonical ? Promise.resolve([]) : viewedGetAll().catch(() => []),
       viewedTagIndexGetAll().catch(() => []),
       getLegacyViewedRecords().catch(() => ({})),
     ]);
