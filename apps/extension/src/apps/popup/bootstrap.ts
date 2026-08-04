@@ -6,6 +6,7 @@
 import { getSettings, saveSettings } from '../../utils/storage';
 import type { ExtensionSettings } from '../../types';
 import { getDisplayVersionInfo } from '../../shared/utils/versionInfo';
+import { openOrFocusDashboardTab } from './dashboardTab';
 
 const DOCS_URL = 'https://docs.we-together.club/';
 
@@ -309,11 +310,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (dashboardButton) {
         dashboardButton.title = '高级设置 & 数据管理';
         dashboardButton.addEventListener('click', () => {
-            if (chrome.runtime.openOptionsPage) {
-                chrome.runtime.openOptionsPage();
-            } else {
-                window.open(chrome.runtime.getURL('dashboard/dashboard.html'));
-            }
+            void openOrFocusDashboardTab({
+                dashboardUrl: chrome.runtime.getURL('dashboard/dashboard.html'),
+                tabs: chrome.tabs,
+                windows: chrome.windows,
+            }).catch((error) => {
+                console.warn('[Popup] Failed to focus Dashboard tab, falling back to options page:', error);
+                if (chrome.runtime.openOptionsPage) {
+                    void chrome.runtime.openOptionsPage();
+                } else {
+                    window.open(chrome.runtime.getURL('dashboard/dashboard.html'));
+                }
+            });
         });
     }
 

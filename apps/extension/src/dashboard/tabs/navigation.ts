@@ -12,6 +12,7 @@ import {
   type DashboardNavState,
 } from './navModel';
 import { prefetchedTabs, prefetchTabResources } from './resources';
+import { createLatestActivationScheduler } from './activationScheduler';
 
 type NavigationRuntime = {
   mainTabsRoot: HTMLElement;
@@ -248,7 +249,14 @@ function switchTabContent(runtime: NavigationRuntime, tabId: string): boolean {
   return true;
 }
 
-async function activateState(runtime: NavigationRuntime, state: DashboardNavState, options: ActivateOptions): Promise<void> {
+type ScheduleActivation = (state: DashboardNavState, options: ActivateOptions) => Promise<void>;
+
+async function activateState(
+  runtime: NavigationRuntime,
+  state: DashboardNavState,
+  options: ActivateOptions,
+  scheduleActivation: ScheduleActivation,
+): Promise<void> {
   const group = findGroup(state.groupId);
   if (!group) {
     return;
@@ -266,7 +274,7 @@ async function activateState(runtime: NavigationRuntime, state: DashboardNavStat
       return;
     }
 
-    void activateState(runtime, createState(groupToActivate, defaultItem), { updateHash: true });
+    void scheduleActivation(createState(groupToActivate, defaultItem), { updateHash: true });
   });
   const switched = switchTabContent(runtime, resolvedState.tabId);
   if (!switched) {
@@ -280,7 +288,7 @@ async function activateState(runtime: NavigationRuntime, state: DashboardNavStat
   await mountTabIfNeeded(resolvedState.tabId);
   placeSectionTabsInActivePage(runtime, resolvedState.tabId);
   renderSectionTabs(runtime, resolvedState, nextState => {
-    void activateState(runtime, nextState, { updateHash: true });
+    void scheduleActivation(nextState, { updateHash: true });
   });
   await initializeTabById(resolvedState.tabId);
 
@@ -288,6 +296,12 @@ async function activateState(runtime: NavigationRuntime, state: DashboardNavStat
     window.dispatchEvent(new CustomEvent('home:init-required'));
   }
 }
+
+type ActivationRequest = {
+  runtime: NavigationRuntime;
+  state: DashboardNavState;
+  options: ActivateOptions;
+};
 
 export async function initTabs(): Promise<void> {
   try {
@@ -298,12 +312,18 @@ export async function initTabs(): Promise<void> {
 
     const initialState = resolveDashboardNavState(window.location.hash);
 
+    const activationScheduler = createLatestActivationScheduler(async ({ runtime: nextRuntime, state, options }: ActivationRequest) => {
+      await activateState(nextRuntime, state, options, scheduleActivation);
+    });
+    const scheduleActivation: ScheduleActivation = (state, options) =>
+      activationScheduler.schedule({ runtime, state, options });
+
     window.addEventListener('hashchange', () => {
       const nextState = resolveDashboardNavState(window.location.hash);
-      void activateState(runtime, nextState, { updateHash: false });
+      void scheduleActivation(nextState, { updateHash: false });
     });
 
-    await activateState(runtime, initialState, { updateHash: true });
+    await scheduleActivation(initialState, { updateHash: true });
   } catch (error) {
     console.error('初始化标签页时出错:', error);
   }

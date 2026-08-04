@@ -9,6 +9,7 @@ import { flushSync } from 'react-dom';
 import { SettingsIndexPage } from './SettingsIndexPage';
 import {
   clearSettingsReactRoot,
+  getSettingsReactRoot,
   setSettingsReactRoot,
 } from './settingsReactRoots';
 import '../../../../ui/styles/globals.css';
@@ -20,6 +21,11 @@ export function mountSettingsIndexPage(hostSelector = '#tab-settings'): void {
   const host = document.querySelector(hostSelector);
   if (!host) {
     throw new Error(`[SettingsIndex] missing host ${hostSelector}`);
+  }
+
+  const existing = getSettingsReactRoot(host);
+  if (existing?.kind === 'index' && existing.mountEl.matches('[data-settings-react-root="1"]')) {
+    return;
   }
 
   clearSettingsReactRoot(host);

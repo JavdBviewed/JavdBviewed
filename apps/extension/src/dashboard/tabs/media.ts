@@ -27,6 +27,8 @@ export async function initMediaTab(): Promise<void> {
     host.appendChild(mount);
     root = createRoot(mount);
     roots.set(host, root);
+  } else {
+    return;
   }
 
   root.render(createElement(MediaLibraryPage));

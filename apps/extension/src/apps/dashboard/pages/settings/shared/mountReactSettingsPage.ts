@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import {
   clearSettingsReactRoot,
+  getSettingsReactRoot,
   setSettingsReactRoot,
   type SettingsReactKind,
 } from '../settingsReactRoots';
@@ -34,6 +35,14 @@ export function mountReactSettingsPage(options: MountReactSettingsPageOptions): 
   const host = document.querySelector(hostSelector);
   if (!host) {
     throw new Error(`[mountReactSettingsPage] missing host ${hostSelector}`);
+  }
+
+  const existing = getSettingsReactRoot(host);
+  const existingMount = existing?.mountEl;
+  const sameMarker = !options.markerAttr
+    || existingMount?.getAttribute(options.markerAttr) === (options.markerValue ?? '1');
+  if (existing?.kind === kind && existingMount && sameMarker) {
+    return;
   }
 
   clearSettingsReactRoot(host);
