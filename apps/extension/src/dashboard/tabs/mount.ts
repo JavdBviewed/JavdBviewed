@@ -55,6 +55,12 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
               console.debug('[mount] 设置子页：React 全页 emby-settings');
               return;
             }
+            if (subSection === 'update-settings') {
+              const { mountUpdateSettingsPage } = await import('../../apps/dashboard/pages/settings/update/mountUpdateSettingsPage');
+              mountUpdateSettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 update-settings');
+              return;
+            }
           }
         } catch (e) {
           console.warn('[mount] React 全页设置挂载失败，回退 partial（若有）', e);

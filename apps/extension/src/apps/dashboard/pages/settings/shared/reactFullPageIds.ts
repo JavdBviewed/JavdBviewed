@@ -18,6 +18,8 @@ export const REACT_FULL_SETTINGS_PAGE_IDS = new Set<string>([
   'drive115-settings',
   // 媒体服务器配置已迁移为摘要列表 + 弹窗编辑
   'emby-settings',
+  // 版本与关于页面包含系列产品入口，使用 React 内容页
+  'update-settings',
 ]);
 
 /**

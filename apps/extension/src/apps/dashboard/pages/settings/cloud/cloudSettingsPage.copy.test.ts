@@ -56,6 +56,8 @@ describe('CloudSettingsPage copy', () => {
     );
     expect(pageSource).toContain('SettingsHighlightNotice');
     expect(pageSource).toContain('功能仍在测试中');
+    expect(pageSource).toContain('Cloud 部署文档');
+    expect(pageSource).toContain('https://docs.we-together.club/download/#cloud-deploy');
     expect(pageSource).toContain('GitHub Issues');
     expect(pageSource).toContain('https://github.com/JavdBviewed/JavdBviewed/issues');
     expect(styleSource).not.toContain('.cloud-beta-notice');

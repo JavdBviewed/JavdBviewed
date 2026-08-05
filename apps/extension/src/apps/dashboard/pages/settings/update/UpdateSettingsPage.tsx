@@ -9,6 +9,7 @@ import { SettingSection } from '../../../../../ui/patterns/SettingSection/Settin
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import type { SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import {
   getCurrentVersion,
   markLastUpdateCheckNow,
@@ -27,6 +28,22 @@ import {
   type UpdateSettingsFormState,
 } from './updateSettingsModel';
 import { getSettings } from '../shared/settingsPersist';
+
+const UPDATE_SECTION_IDS = {
+  version: 'update-section-version',
+  automatic: 'update-section-automatic',
+  products: 'update-section-products',
+  community: 'update-section-community',
+  details: 'update-section-details',
+} as const;
+
+const UPDATE_SECTION_NAV_ITEMS: SettingsSectionNavItem[] = [
+  { id: UPDATE_SECTION_IDS.version, label: '版本检查', shortLabel: '版本' },
+  { id: UPDATE_SECTION_IDS.automatic, label: '自动检查设置', shortLabel: '自动检查' },
+  { id: UPDATE_SECTION_IDS.products, label: '系列产品', shortLabel: '产品' },
+  { id: UPDATE_SECTION_IDS.community, label: '社区与文档', shortLabel: '社区' },
+  { id: UPDATE_SECTION_IDS.details, label: '版本详情', shortLabel: '详情' },
+];
 
 /**
  * 版本与关于完整页面
@@ -163,12 +180,14 @@ export function UpdateSettingsPage() {
       title="版本与关于"
       description="检查更新、查看版本与项目链接。"
       rootDataAttrs={{ 'data-update-settings-react': '1' }}
+      sectionNavItems={UPDATE_SECTION_NAV_ITEMS}
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>
       ) : (
         <div className="flex flex-col gap-4" id="update-settings">
           <SettingSection
+            id={UPDATE_SECTION_IDS.version}
             title="版本检查"
             description="进入此页面会实时检查 GitHub 最新发布，自动检查间隔只用于顶部徽标和后台提醒。"
           >
@@ -245,6 +264,7 @@ export function UpdateSettingsPage() {
           </SettingSection>
 
           <SettingSection
+            id={UPDATE_SECTION_IDS.automatic}
             title="自动检查设置"
             description="用于 dashboard 顶部徽标和自动提醒，不影响本页面实时检查"
           >
@@ -281,7 +301,82 @@ export function UpdateSettingsPage() {
             />
           </SettingSection>
 
-          <SettingSection title="项目信息">
+          <SettingSection
+            id={UPDATE_SECTION_IDS.products}
+            title="JavdBviewed 系列产品"
+            description="围绕媒体收藏、跨端观看与自建同步服务持续建设。"
+          >
+            <div className="grid gap-2 px-2 py-2 sm:grid-cols-2">
+              <div className="flex min-h-[74px] items-center gap-3 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-2)] bg-[var(--color-fg)] text-[10px] font-extrabold text-[var(--color-surface)]">WEB</span>
+                <span className="min-w-0 flex-1">
+                  <strong className="block text-[13px] text-[var(--color-fg)]">浏览器扩展</strong>
+                  <span className="block truncate text-[11px] text-[var(--color-fg-muted)]">媒体库、收藏与播放</span>
+                </span>
+                <span className="shrink-0 rounded-[5px] bg-[var(--color-primary-soft)] px-2 py-1 text-[10px] font-extrabold text-[var(--color-primary-active)]">当前使用</span>
+              </div>
+              <a
+                className="flex min-h-[74px] items-center gap-3 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3 no-underline hover:border-[var(--color-primary)]"
+                href="https://docs.we-together.club/download/#cloud-deploy"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-2)] bg-[var(--color-warning,#cc6c32)] text-[12px] font-extrabold text-white">C</span>
+                <span className="min-w-0 flex-1">
+                  <strong className="block text-[13px] text-[var(--color-fg)]">JavdBviewed Cloud</strong>
+                  <span className="block truncate text-[11px] text-[var(--color-fg-muted)]">自建服务 · 多端数据同步 · 查看部署文档</span>
+                </span>
+                <span className="shrink-0 rounded-[5px] bg-[var(--color-primary-soft)] px-2 py-1 text-[10px] font-extrabold text-[var(--color-primary-active)]">测试中</span>
+              </a>
+              <div className="flex min-h-[74px] items-center gap-3 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-2)] bg-[var(--color-fg-muted)] text-[10px] font-extrabold text-white">DESK</span>
+                <span className="min-w-0 flex-1">
+                  <strong className="block text-[13px] text-[var(--color-fg)]">桌面端</strong>
+                  <span className="block truncate text-[11px] text-[var(--color-fg-muted)]">独立窗口与本地媒体体验</span>
+                </span>
+                <span className="shrink-0 rounded-[5px] bg-[var(--color-surface)] px-2 py-1 text-[10px] font-extrabold text-[var(--color-fg-muted)]">开发中</span>
+              </div>
+              <div className="flex min-h-[74px] items-center gap-3 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-2)] bg-[var(--color-fg-muted)] text-[12px] font-extrabold text-white">A</span>
+                <span className="min-w-0 flex-1">
+                  <strong className="block text-[13px] text-[var(--color-fg)]">Android</strong>
+                  <span className="block truncate text-[11px] text-[var(--color-fg-muted)]">移动端媒体库与观看</span>
+                </span>
+                <span className="shrink-0 rounded-[5px] bg-[var(--color-surface)] px-2 py-1 text-[10px] font-extrabold text-[var(--color-fg-muted)]">开发中</span>
+              </div>
+            </div>
+            <a
+              data-product-support="star"
+              className="mx-2 mb-2 flex items-center gap-3 rounded-[var(--radius-2)] border border-[var(--color-primary)] bg-[var(--color-primary-soft)] px-3 py-3 no-underline hover:bg-[var(--color-primary-soft-hover,var(--color-primary-soft))]"
+              href="https://github.com/JavdBviewed/JavdBviewed"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-2)] bg-[var(--color-primary)] text-lg text-white"
+                aria-hidden="true"
+              >
+                ★
+              </span>
+              <span className="min-w-0 flex-1">
+                <strong className="block text-[13px] text-[var(--color-fg)]">
+                  喜欢这个项目？欢迎在 GitHub 点个 Star 支持我们
+                </strong>
+                <span className="mt-0.5 block text-[11px] text-[var(--color-fg-muted)]">
+                  你的支持会帮助我们持续完善扩展和更多客户端。
+                </span>
+              </span>
+              <span className="shrink-0 text-[12px] font-bold text-[var(--color-primary-active)]">
+                给项目一个 Star
+              </span>
+            </a>
+          </SettingSection>
+
+          <SettingSection
+            id={UPDATE_SECTION_IDS.community}
+            title="社区与文档"
+            description="获取使用帮助、加入社区或反馈问题。"
+          >
             <div className="grid gap-2 px-2 py-2 sm:grid-cols-3">
               <a
                 className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3 text-center text-[13px] font-semibold text-[var(--color-fg)] no-underline hover:border-[var(--color-primary)]"
@@ -310,7 +405,7 @@ export function UpdateSettingsPage() {
             </div>
           </SettingSection>
 
-          <SettingSection title="版本详情">
+          <SettingSection id={UPDATE_SECTION_IDS.details} title="版本详情">
             <div ref={versionInfoRef} className="dashboard-version-info px-2 py-2" />
           </SettingSection>
         </div>

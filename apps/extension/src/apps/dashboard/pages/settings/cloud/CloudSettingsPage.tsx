@@ -548,7 +548,14 @@ export function CloudSettingsPage() {
     >
       <div id="cloud-settings" className="cloud-settings">
         <SettingsHighlightNotice title="Cloud 功能仍在测试中">
-          多端同步已开放给自建服务使用，但仍可能遇到连接、合并或兼容问题。遇到异常可以到{' '}
+          多端同步已开放给自建服务使用。首次使用请先阅读{' '}
+          <a
+            href="https://docs.we-together.club/download/#cloud-deploy"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Cloud 部署文档
+          </a>{' '}，完成服务部署后再连接。仍可能遇到连接、合并或兼容问题；遇到异常可以到{' '}
           <a
             href="https://github.com/JavdBviewed/JavdBviewed/issues"
             target="_blank"
