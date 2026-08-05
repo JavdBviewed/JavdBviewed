@@ -4,6 +4,7 @@
  * @module apps/dashboard/pages/settings/drive115
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import '../settingsSubpageShell.css';
 import { SettingsSectionNavLayout, type SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import '../../../../../dashboard/styles/05-pages/settings/settings.css';
@@ -11,7 +12,6 @@ import '../../../../../dashboard/styles/05-pages/settings/drive115.css';
 import { Badge } from '../../../../../ui/primitives/Badge/Badge';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
-import { Modal } from '../../../../../ui/primitives/Modal/Modal';
 import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 import { STORAGE_KEYS } from '../../../../../utils/config';
 import { getValue } from '../../../../../utils/storage';
@@ -111,13 +111,21 @@ function Drive115IndexReportModal({
     )) === index)
     .sort((a, b) => Math.max(b.finishedAt, b.startedAt) - Math.max(a.finishedAt, a.startedAt));
   const [selectedStartedAt, setSelectedStartedAt] = useState<number | null>(null);
+  const [detailQuery, setDetailQuery] = useState('');
 
   useEffect(() => {
-    if (open) setSelectedStartedAt(reports[0]?.startedAt ?? null);
+    if (open) {
+      setSelectedStartedAt(reports[0]?.startedAt ?? null);
+      setDetailQuery('');
+    }
   }, [open, mode, latestReport?.startedAt, latestReport?.finishedAt, history.length]);
 
+  useEffect(() => {
+    if (open) setDetailQuery('');
+  }, [open, selectedStartedAt]);
+
   const report = reports.find((item) => item.startedAt === selectedStartedAt) || reports[0];
-  if (!report) return null;
+  if (!open || !report) return null;
   const durationSec = formatReportDuration(report.startedAt, report.finishedAt);
   const reasonRows = (Object.keys(report.skipReasonCounts) as Drive115IndexSkipReason[])
     .map((reason) => ({ reason, count: report.skipReasonCounts[reason] || 0 }))
@@ -129,6 +137,16 @@ function Drive115IndexReportModal({
       report.skipped.filter((item) => item.reason === row.reason),
     ]),
   );
+  const normalizedDetailQuery = detailQuery.trim().toLocaleLowerCase();
+  const filteredIndexed = normalizedDetailQuery
+    ? report.indexed.filter((item) => [
+        item.code,
+        item.title,
+        item.folderName,
+        item.coverFileName,
+        item.nfoFileName,
+      ].some((value) => value?.toLocaleLowerCase().includes(normalizedDetailQuery)))
+    : report.indexed;
 
   const stats: Array<{ label: string; value: string | number; accent?: 'ok' | 'skip' }> = [
     { label: '入库', value: report.indexedTotal, accent: 'ok' },
@@ -139,14 +157,22 @@ function Drive115IndexReportModal({
     { label: '耗时', value: `${durationSec}s` },
   ];
 
-  return (
-    <Modal
-      open={open}
-      title={mode === 'history' ? '索引历史' : '上次索引记录'}
-      onClose={onClose}
-      className="!max-w-3xl"
-    >
-      <div className="space-y-5 text-[13px] text-[var(--color-fg)]">
+  const title = mode === 'history' ? '索引历史' : '上次索引记录';
+  const panel = (
+    <div className="pointer-events-none fixed inset-x-4 top-16 bottom-4 z-[var(--z-modal)] flex justify-center">
+      <section
+        role="dialog"
+        aria-label={title}
+        className="pointer-events-auto flex h-full w-full max-w-3xl flex-col overflow-hidden rounded-[var(--radius-3)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg)] shadow-[var(--shadow-3)]"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--color-border)] px-4 py-3">
+          <h2 className="text-base font-bold tracking-tight">{title}</h2>
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="关闭">
+            ✕
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto px-4 py-3 text-sm text-[var(--color-fg-muted)]">
+          <div className="space-y-5 text-[13px] text-[var(--color-fg)]">
         {mode === 'history' ? (
           <section className="space-y-2">
             <div className="flex items-baseline justify-between gap-2">
@@ -223,31 +249,48 @@ function Drive115IndexReportModal({
             <h3 className="flex items-baseline justify-between text-[13px] font-semibold">
               <span>入库明细</span>
               <span className="text-[11px] font-normal text-[var(--color-fg-muted)]">
-                {report.indexedTotal > report.indexed.length
-                  ? `显示 ${report.indexed.length} / 共 ${report.indexedTotal}`
-                  : `共 ${report.indexed.length}`}
+                {normalizedDetailQuery
+                  ? `匹配 ${filteredIndexed.length} / 显示 ${report.indexed.length} / 共 ${report.indexedTotal}`
+                  : report.indexedTotal > report.indexed.length
+                    ? `显示 ${report.indexed.length} / 共 ${report.indexedTotal}`
+                    : `共 ${report.indexed.length}`}
               </span>
             </h3>
+            <label className="block">
+              <span className="sr-only">搜索入库明细</span>
+              <input
+                type="search"
+                value={detailQuery}
+                onChange={(event) => setDetailQuery(event.currentTarget.value)}
+                placeholder="搜索番号 / 标题 / 文件夹 / 封面 / NFO"
+                aria-label="搜索入库明细"
+                className="h-9 w-full rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus-visible:border-[var(--color-primary)] focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)]"
+              />
+            </label>
             <div className="max-h-56 overflow-auto rounded-[var(--radius-2)] border border-[var(--color-border)]">
-              {report.indexed.map((item, i) => (
-                <div
-                  key={`indexed-${i}`}
-                  className={
-                    'flex items-baseline gap-2 px-3 py-1.5 ' +
-                    (i > 0 ? 'border-t border-[var(--color-border)]' : '')
-                  }
-                >
-                  <span className="shrink-0 font-medium">{item.code || '(未识别)'}</span>
-                  <span className="truncate text-[var(--color-fg-muted)]">
-                    {item.title || item.folderName}
-                  </span>
-                  <span className="ml-auto shrink-0 text-[11px] text-[var(--color-fg-muted)]">
-                    封面 {item.coverFileName ? `${item.coverFileName}${item.hasCoverPickCode ? '' : '（无 pick_code）'}` : '未发现'}
-                    {' · '}
-                    NFO {item.nfoFileName ? `${item.nfoFileName}${item.hasNfoPickCode ? '' : '（无 pick_code）'}` : '未发现'}
-                  </span>
-                </div>
-              ))}
+              {filteredIndexed.length ? filteredIndexed.map((item, i) => (
+                  <div
+                    key={`indexed-${i}`}
+                    className={
+                      'flex items-baseline gap-2 px-3 py-1.5 ' +
+                      (i > 0 ? 'border-t border-[var(--color-border)]' : '')
+                    }
+                  >
+                    <span className="shrink-0 font-medium">{item.code || '(未识别)'}</span>
+                    <span className="truncate text-[var(--color-fg-muted)]">
+                      {item.title || item.folderName}
+                    </span>
+                    <span className="ml-auto shrink-0 text-[11px] text-[var(--color-fg-muted)]">
+                      封面 {item.coverFileName ? `${item.coverFileName}${item.hasCoverPickCode ? '' : '（无 pick_code）'}` : '未发现'}
+                      {' · '}
+                      NFO {item.nfoFileName ? `${item.nfoFileName}${item.hasNfoPickCode ? '' : '（无 pick_code）'}` : '未发现'}
+                    </span>
+                  </div>
+                )) : (
+                  <div className="px-3 py-4 text-center text-[12px] text-[var(--color-fg-muted)]">
+                    没有匹配的入库记录
+                  </div>
+                )}
             </div>
           </section>
         ) : null}
@@ -306,9 +349,13 @@ function Drive115IndexReportModal({
         {report.truncatedList ? (
           <p className="text-[11px] text-[var(--color-fg-muted)]">明细过多，仅显示前若干条。</p>
         ) : null}
-      </div>
-    </Modal>
+          </div>
+        </div>
+      </section>
+    </div>
   );
+  if (typeof document === 'undefined') return panel;
+  return createPortal(panel, document.body);
 }
 
 

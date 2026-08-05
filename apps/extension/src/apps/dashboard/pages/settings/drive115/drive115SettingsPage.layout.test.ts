@@ -84,6 +84,18 @@ describe('Drive115SettingsPage layout', () => {
     expect(pageSource).toContain('SKIP_REASON_LABELS');
   });
 
+  it('renders index history without the broken full-screen overlay and supports indexed entry search', () => {
+    const modalStart = pageSource.indexOf('function Drive115IndexReportModal');
+    const modalEnd = pageSource.indexOf('type Drive115GroupProps');
+    const reportModalSource = pageSource.slice(modalStart, modalEnd);
+
+    expect(reportModalSource).not.toContain('<Modal');
+    expect(reportModalSource).toContain('role="dialog"');
+    expect(reportModalSource).toContain('搜索入库明细');
+    expect(reportModalSource).toContain('detailQuery');
+    expect(reportModalSource).toContain('filteredIndexed');
+  });
+
   it('keeps completed index errors in an index history dialog instead of the main status panel', () => {
     expect(pageSource).toContain('索引记录');
     expect(pageSource).toContain('STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_HISTORY');
