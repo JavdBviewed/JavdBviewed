@@ -34,7 +34,6 @@ import {
   MEDIA_CARD_SIZE_OPTIONS,
   MEDIA_HERO_VISIBLE_RADIUS,
   MEDIA_COVER_VIEW_MODES,
-  MEDIA_PREVIEW_ITEMS,
   partitionMediaSyncTargets,
   readMediaViewSettings,
   resolveCoverImage,
@@ -72,6 +71,10 @@ import {
   importHistoricalWatchedFromCurrentLibrary,
 } from '../../../../features/mediaCleanup/mediaCleanupStorage';
 import { loadWatchEvidenceMap } from '../../../../features/media/mediaWatchEvidence';
+import {
+  readMediaClientPreviewHidden,
+  writeMediaClientPreviewHidden,
+} from './mediaClientPreview';
 import './mediaPage.css';
 
 const WATCH_FILTERS: { id: MediaWatchFilter; label: string }[] = [
@@ -239,10 +242,11 @@ export function MediaLibraryPage() {
   const [watchFilter, setWatchFilter] = useState<MediaWatchFilter>('all');
   const [viewSettings, setViewSettings] = useState<MediaViewSettings>(() => readMediaViewSettings());
   const [showViewSettings, setShowViewSettings] = useState(false);
+  const [showClientPreview, setShowClientPreview] = useState(() => !readMediaClientPreviewHidden());
   const coverView = viewSettings.coverView;
   const [query, setQuery] = useState('');
   const [heroStep, setHeroStep] = useState(0);
-  const [catalog, setCatalog] = useState<MediaBrowseItem[]>(MEDIA_PREVIEW_ITEMS);
+  const [catalog, setCatalog] = useState<MediaBrowseItem[]>([]);
   const [usingPreview, setUsingPreview] = useState(true);
   const [indexUpdatedAt, setIndexUpdatedAt] = useState(0);
   const [loadingIndex, setLoadingIndex] = useState(true);
@@ -342,12 +346,12 @@ export function MediaLibraryPage() {
           Math.max(Number(state.updatedAt) || 0, Number(drive115State?.updatedAt) || 0),
         );
       } else {
-        setCatalog(MEDIA_PREVIEW_ITEMS);
+        setCatalog([]);
         setUsingPreview(true);
         setIndexUpdatedAt(0);
       }
     } catch {
-      setCatalog(MEDIA_PREVIEW_ITEMS);
+      setCatalog([]);
       setUsingPreview(true);
       setIndexUpdatedAt(0);
     } finally {
@@ -1029,6 +1033,16 @@ export function MediaLibraryPage() {
     writeMediaViewSettings(nextSettings);
   };
 
+  const hideClientPreview = () => {
+    setShowClientPreview(false);
+    writeMediaClientPreviewHidden(true);
+  };
+
+  const restoreClientPreview = () => {
+    setShowClientPreview(true);
+    writeMediaClientPreviewHidden(false);
+  };
+
   const openDrive115ManualPlay = () => {
     setPlay115Query(query.trim());
     setPlay115PickCode('');
@@ -1052,6 +1066,35 @@ export function MediaLibraryPage() {
       data-cover-view={coverView}
       data-card-size={viewSettings.cardSize}
     >
+      {showClientPreview ? (
+        <section className="ml-client-preview" aria-label="客户端预告">
+          <div className="ml-client-preview-icon" aria-hidden="true">▦</div>
+          <div className="ml-client-preview-body">
+            <strong>更多客户端正在准备中</strong>
+            <p>同一份媒体库数据，未来也可以在桌面端和 Android 端继续使用。</p>
+            <div className="ml-client-preview-chips" aria-label="客户端状态">
+              <span><b>桌面端</b><em>开发中</em></span>
+              <span><b>Android</b><em>开发中</em></span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="ml-client-preview-link"
+            onClick={() => { window.location.hash = '#tab-settings/update-settings'; }}
+          >
+            查看系列产品
+          </button>
+          <button
+            type="button"
+            className="ml-client-preview-dismiss"
+            aria-label="隐藏客户端预告"
+            title="隐藏客户端预告"
+            onClick={hideClientPreview}
+          >
+            ×
+          </button>
+        </section>
+      ) : null}
 
       {heroes.length > 0 ? (
         <section className="ml-hero" aria-label="推荐轮播" data-hero-step={heroStep}>
@@ -1100,7 +1143,7 @@ export function MediaLibraryPage() {
           <div className="ml-view-shell">
             <div className="ml-view-summary" aria-live="polite">
               <span className="ml-view-summary-count">{list.length} 项</span>
-              <span>{usingPreview ? '预览数据' : `索引 ${catalog.length}`}</span>
+            <span>{usingPreview ? '尚未同步' : `索引 ${catalog.length}`}</span>
               <span>{toolbarUpdatedAtLabel}</span>
             </div>
 
@@ -1492,6 +1535,21 @@ export function MediaLibraryPage() {
               ))}
             </div>
           </section>
+          {!showClientPreview ? (
+            <section className="ml-view-settings-card" aria-labelledby="media-view-client-preview-title">
+              <div className="ml-view-settings-head">
+                <h3 id="media-view-client-preview-title">客户端预告</h3>
+                <p>重新显示桌面端和 Android 端的产品进展提示。</p>
+              </div>
+              <button
+                type="button"
+                className="ml-view-btn ml-view-btn-primary"
+                onClick={restoreClientPreview}
+              >
+                恢复显示预告
+              </button>
+            </section>
+          ) : null}
           <div className="ml-view-settings-footer">
             <button
               type="button"
@@ -1626,30 +1684,59 @@ export function MediaLibraryPage() {
           </span>
         </div>
 
-        {list.length === 0 ? (
+        {loadingIndex ? (
+          <EmptyState
+            className="ml-empty"
+            id="mediaLibraryLoading"
+            title="正在读取媒体库索引"
+            description="正在读取本地媒体库数据，请稍候。"
+          />
+        ) : list.length === 0 ? (
           <EmptyState
             className="ml-empty"
             id="mediaLibraryEmpty"
-            title="这里还没有可展示的条目"
+            title="还没有同步任何媒体库内容"
             description={
               usingPreview
-                ? '可先到设置中配置 Emby / Jellyfin 并完成媒体库同步，或在 115 设置配置片库目录并索引。'
+                ? '请先配置一个媒体库来源，再回到这里点击「同步媒体库」。你也可以同时使用 Emby / Jellyfin 和 115。'
                 : filter === '115'
                   ? '115 筛选下无条目。请到 115 设置配置片库根目录并点击「立即索引」。'
                   : '当前筛选下无结果，可切换来源或清空搜索。'
             }
             action={
-              <Button
-                size="sm"
-                onClick={() => {
-                  window.location.hash =
-                    filter === '115'
-                      ? '#tab-settings/drive115-settings'
-                      : '#tab-settings/emby-settings';
-                }}
-              >
-                {filter === '115' ? '前往 115 设置' : '前往 Emby / Jellyfin 设置'}
-              </Button>
+              usingPreview ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      window.location.hash = '#tab-settings/emby-settings';
+                    }}
+                  >
+                    配置 Emby / Jellyfin
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      window.location.hash = '#tab-settings/drive115-settings';
+                    }}
+                  >
+                    配置 115 片库
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    window.location.hash =
+                      filter === '115'
+                        ? '#tab-settings/drive115-settings'
+                        : '#tab-settings/emby-settings';
+                  }}
+                >
+                  {filter === '115' ? '前往 115 设置' : '前往 Emby / Jellyfin 设置'}
+                </Button>
+              )
             }
           />
         ) : (
@@ -1680,7 +1767,7 @@ export function MediaLibraryPage() {
 
       <div className="ml-note" role="note">
         {usingPreview
-          ? '当前展示预览数据。完成 Emby/Jellyfin 媒体库同步后，将自动改用本地索引。'
+          ? '尚未同步媒体库。配置来源后，点击上方「同步媒体库」即可开始建立本地索引。'
           : '当前展示本地媒体库索引。点卡片打开扩展内详情，点播放在弹窗播放器中播放（令牌取流）。'}
       </div>
     </div>

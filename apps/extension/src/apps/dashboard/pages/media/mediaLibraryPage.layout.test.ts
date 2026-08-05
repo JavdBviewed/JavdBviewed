@@ -12,6 +12,30 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, 'MediaLibraryPage.tsx'), 'utf-8');
 
 describe('MediaLibraryPage 实时刷新', () => {
+  it('首次使用没有本地索引时显示配置引导，不展示内置示例数据', () => {
+    expect(source).toContain('useState<MediaBrowseItem[]>([])');
+    expect(source).toContain('正在读取媒体库索引');
+    expect(source).toContain('还没有同步任何媒体库内容');
+    expect(source).toContain('配置 Emby / Jellyfin');
+    expect(source).toContain('配置 115 片库');
+    expect(source).not.toContain('useState<MediaBrowseItem[]>(MEDIA_PREVIEW_ITEMS)');
+    expect(source).not.toContain('setCatalog(MEDIA_PREVIEW_ITEMS)');
+  });
+
+  it('renders a dismissible client preview outside the carousel and card grid', () => {
+    expect(source).toContain('ml-client-preview');
+    expect(source).toContain('更多客户端正在准备中');
+    expect(source).toContain('隐藏客户端预告');
+    expect(source).toContain('writeMediaClientPreviewHidden(true)');
+    expect(source).toContain("window.location.hash = '#tab-settings/update-settings'");
+  });
+
+  it('offers a restore action in view settings after the preview is hidden', () => {
+    expect(source).toContain('恢复显示预告');
+    expect(source).toContain('writeMediaClientPreviewHidden(false)');
+    expect(source).toContain('!showClientPreview');
+  });
+
   it('订阅 chrome.storage.onChanged 以在索引写入后刷新目录', () => {
     expect(source).toContain('chrome.storage.onChanged.addListener');
     expect(source).toContain('chrome.storage.onChanged.removeListener');

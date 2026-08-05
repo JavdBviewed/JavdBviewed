@@ -28,6 +28,112 @@
   box-sizing: border-box;
 }
 
+/* 客户端预告：独立于轮播与影片卡片，隐藏后不保留占位。 */
+.ml-client-preview {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  padding: 14px 46px 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--color-primary, var(--primary)) 30%, var(--color-border, var(--border-primary)));
+  border-left: 4px solid var(--color-primary, var(--primary));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-primary, var(--primary)) 8%, var(--color-surface, var(--surface-primary)));
+}
+
+.ml-client-preview-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  background: var(--color-primary, var(--primary));
+  color: var(--color-on-primary, #fff);
+  font-size: 18px;
+  font-weight: 850;
+}
+
+.ml-client-preview-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.ml-client-preview-body strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--color-fg, var(--text-primary));
+  font-size: 13px;
+}
+
+.ml-client-preview-body p {
+  margin: 0;
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 12px;
+}
+
+.ml-client-preview-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.ml-client-preview-chips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--color-border, var(--border-primary)) 80%, transparent);
+  border-radius: 6px;
+  background: var(--color-surface, var(--surface-primary));
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 11px;
+}
+
+.ml-client-preview-chips b { color: var(--color-fg, var(--text-primary)); }
+.ml-client-preview-chips em { color: var(--color-warning, #b45309); font-style: normal; }
+
+.ml-client-preview-link {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--color-fg, var(--text-primary));
+  color: var(--color-surface, var(--surface-primary));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ml-client-preview-link:hover { background: var(--color-primary, var(--primary)); }
+
+.ml-client-preview-dismiss {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-fg-muted, var(--text-secondary));
+  font: inherit;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ml-client-preview-dismiss:hover { background: var(--color-surface, var(--surface-primary)); color: var(--color-fg, var(--text-primary)); }
+.ml-client-preview-dismiss:focus-visible { outline: none; box-shadow: var(--ring-focus, 0 0 0 3px rgba(59, 130, 246, 0.18)); }
+
 /* 工具栏：位于轮播下方、片库网格上方 */
 .ml-toolbar {
   display: grid;
@@ -2375,6 +2481,8 @@ button.ml-resume-card {
 }
 
 @media (max-width: 720px) {
+  .ml-client-preview { align-items: flex-start; flex-wrap: wrap; }
+  .ml-client-preview-link { margin-left: 52px; }
   .ml-view-search {
     min-width: 0;
     width: 100%;
