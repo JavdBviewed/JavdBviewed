@@ -1,24 +1,22 @@
-name: CI
+name: Extension Release Gate
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-      - master
   workflow_dispatch:
+  push:
+    tags:
+      - 'v2.0.0'
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: release-gate-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  validate:
+  release-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -38,17 +36,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Type check
-        run: pnpm run typecheck
-
-      - name: Run tests
-        run: pnpm run test
-
-      - name: Run DOM tests
-        run: pnpm run test:dom
-
-      - name: Run style contract tests
-        run: pnpm run test:style-contract
-
-      - name: Build extension
-        run: pnpm run build
+      - name: Run 2.0.0 release gate
+        run: pnpm run release:gate

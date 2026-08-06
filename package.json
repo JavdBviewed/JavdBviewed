@@ -8,6 +8,7 @@
   "scripts": {
     "build": "rimraf dist-zip && node --import tsx scripts/build.ts",
     "build:extension": "pnpm --filter @javdb/extension build",
+    "release:gate": "node --import tsx scripts/releaseGate.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm --filter @javdb/sync-protocol typecheck && pnpm --filter @javdb/sync-client typecheck",
     "test": "pnpm run test:unit && pnpm run test:regression && pnpm run test:extension",
     "test:unit": "vitest run --config vitest.unit.config.cjs",

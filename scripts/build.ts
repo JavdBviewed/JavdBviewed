@@ -45,14 +45,18 @@ async function main() {
     try {
         console.log('Starting build process...');
 
-        // Refresh version/build identifiers for this build
-        try {
-            execSync('node --import tsx scripts/version.ts', {
-                cwd: root,
-                stdio: 'inherit',
-            });
-        } catch (e) {
-            console.warn('[build] Failed to refresh build id via scripts/version.ts. Proceeding with existing env/version files.');
+        // 发布门禁需要可重复构建，显式跳过版本文件递增，避免验证本身污染工作区。
+        if (process.env.JAVDB_BUILD_SKIP_VERSION_BUMP === '1') {
+            console.log('[build] Skipping version/build bump for release gate.');
+        } else {
+            try {
+                execSync('node --import tsx scripts/version.ts', {
+                    cwd: root,
+                    stdio: 'inherit',
+                });
+            } catch (e) {
+                console.warn('[build] Failed to refresh build id via scripts/version.ts. Proceeding with existing env/version files.');
+            }
         }
 
         // Run Vite build against apps/extension (dist still lands at monorepo root)

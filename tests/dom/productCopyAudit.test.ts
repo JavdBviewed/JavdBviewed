@@ -39,8 +39,8 @@ describe('product copy audit', () => {
     const source = readAuditedSource();
 
     expect(source).toContain('媒体库');
-    // 媒体库预览态文案（React 页；旧 partial 的「界面预览数据」已下线）
-    expect(source).toMatch(/预览数据|界面预览数据/);
+    // 媒体库首次使用引导应明确告诉用户下一步，而不是暴露内部预览实现。
+    expect(source).toContain('尚未同步媒体库');
     expect(source).toContain('生成自己的月报时');
     expect(source).toContain('Markdown 导出还在整理中，目前可先导出 HTML 报告');
     expect(source).toContain('解析测试暂未开放');

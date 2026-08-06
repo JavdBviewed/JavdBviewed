@@ -5,7 +5,6 @@
  *
  * 包含：视频记录、清单、日志、演员、新作、磁力缓存、Insights 等全部表的操作方法。
  */
-
 import type { VideoRecord, ActorRecord, LogEntry, ListRecord, NewWorkRecord } from '../../types';
 import { buildNewWorksTrendPointsFromDailyMap, mergeNewWorksDailyStatForTrend } from './trendUtils';
 import { getSettings } from '../../utils/storage';
@@ -32,7 +31,6 @@ import {
   syncViewedSecondaryIndexes,
 } from './indexedDbViewedIndexes';
 import { loadActorsForTrend } from './actorTrendQuery';
-
 export { initDB } from './indexedDbConnection';
 export type {
   MagnetCacheRecord,
