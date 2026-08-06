@@ -32,6 +32,7 @@ describe('background user profile message handler', () => {
       getValue: vi.fn(async () => ({ email: 'old@example.com' })),
       setValue,
       requestScheduler: requestScheduler as any,
+      getJavDBRoute: vi.fn(async () => 'https://javdb.com'),
       now: () => 123456,
     });
 
@@ -58,12 +59,46 @@ describe('background user profile message handler', () => {
     );
   });
 
+  it('uses the configured JavDB route for profile requests and referer', async () => {
+    const html = `
+      <a href="/users/profile">amixture</a>
+      <span class="label">电邮地址:</span> user@example.com
+    `;
+    const requestScheduler = {
+      enqueue: vi.fn(async (url: string, options: RequestInit) => ({
+        ok: true,
+        status: 200,
+        url,
+        text: async () => html,
+        requestOptions: options,
+      })),
+    };
+
+    await fetchUserProfileFromJavDB({
+      getValue: vi.fn(async () => null),
+      setValue: vi.fn(),
+      requestScheduler: requestScheduler as any,
+      getJavDBRoute: vi.fn(async () => 'https://javdb570.com/'),
+      now: () => 123456,
+    });
+
+    expect(requestScheduler.enqueue).toHaveBeenCalledWith(
+      'https://javdb570.com/users/profile',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Referer: 'https://javdb570.com/',
+        }),
+      }),
+    );
+    expect(requestScheduler.enqueue).toHaveBeenCalledTimes(2);
+  });
+
   it('throws when the profile page is not logged in', async () => {
     const requestScheduler = {
       enqueue: vi.fn(async () => ({
         ok: true,
         status: 200,
-        url: 'https://javdb.com/users/sign_in',
+        url: 'https://javdb.com/login',
         text: async () => '<form>login</form>',
       })),
     };
@@ -74,5 +109,40 @@ describe('background user profile message handler', () => {
       requestScheduler: requestScheduler as any,
       now: () => 123456,
     })).rejects.toThrow('未登录 JavDB');
+  });
+
+  it('falls back to a JavDB page request when the background request is blocked', async () => {
+    const html = `
+      <a href="/users/profile">amixture</a>
+      <a href="/users/want_watch_videos">想看 (2)</a>
+      <span class="label">电邮地址:</span> user@example.com
+    `;
+    const requestScheduler = {
+      enqueue: vi.fn(async () => ({
+        ok: false,
+        status: 403,
+        url: 'https://javdb.com/users/profile',
+        text: async () => 'Forbidden',
+      })),
+    };
+    const fetchFromJavDBTab = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      finalUrl: 'https://javdb.com/users/profile',
+      html,
+    }));
+
+    const profile = await fetchUserProfileFromJavDB({
+      getValue: vi.fn(async () => null),
+      setValue: vi.fn(),
+      requestScheduler: requestScheduler as any,
+      getJavDBRoute: vi.fn(async () => 'https://javdb.com'),
+      fetchFromJavDBTab,
+      now: () => 123456,
+    });
+
+    expect(profile.email).toBe('user@example.com');
+    expect(profile.serverStats.wantCount).toBe(2);
+    expect(fetchFromJavDBTab).toHaveBeenCalledWith('https://javdb.com/users/profile');
   });
 });

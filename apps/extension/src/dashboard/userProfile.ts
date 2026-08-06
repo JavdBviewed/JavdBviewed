@@ -9,6 +9,7 @@ import { describe115Error } from '../features/drive115/v2/errorCodes';
 import { showToast } from '../platform/browser/toast';
 import { normalizeDrive115Settings, isDrive115EnabledState } from '../features/drive115/app';
 import { buildDrive115UserInfoFailureCopy } from './userProfileDrive115Feedback';
+import { getJavDBRoute } from '../features/routeManagement';
 
 // 115 加载并发保护
 let isLoadingDrive115 = false;
@@ -241,7 +242,8 @@ async function handleLogin(): Promise<void> {
             // 获取到了 profile 但没有邮箱，说明可能未登录或信息不完整
             showMessage('未能获取完整账号信息，请确保已在 JavDB 登录', 'warning');
         } else {
-            showMessage('获取账号信息失败，请确保已登录 JavDB', 'error');
+            await openJavDBLoginPage();
+            showMessage('已打开 JavDB 登录页，请登录后再次点击此按钮', 'info');
         }
     } catch (error: any) {
         showMessage('获取账号信息时发生错误', 'error');
@@ -250,6 +252,24 @@ async function handleLogin(): Promise<void> {
         loginBtn.disabled = false;
         loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> 登录获取账号信息';
     }
+}
+
+async function openJavDBLoginPage(): Promise<void> {
+    let loginUrl = 'https://javdb.com/login';
+    try {
+        const route = await getJavDBRoute();
+        const origin = new URL(route).origin;
+        loginUrl = `${origin}/login`;
+    } catch {
+        // 线路读取失败时使用主域名登录页。
+    }
+
+    if (typeof chrome !== 'undefined' && chrome.tabs?.create) {
+        chrome.tabs.create({ url: loginUrl, active: true });
+        return;
+    }
+
+    window.open(loginUrl, '_blank', 'noopener,noreferrer');
 }
 
 /**
