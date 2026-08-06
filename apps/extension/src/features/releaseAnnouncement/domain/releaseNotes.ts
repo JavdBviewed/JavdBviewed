@@ -15,7 +15,19 @@ import type { ReleaseNote } from './types';
 // 1.21.2: v1.21.1..v1.21.2
 // 1.21.3: v1.21.2..v1.21.3
 // 1.21.4: v1.21.3..v1.21.4
+// 2.0.0: 1.21.4..2.0.0
 export const RELEASE_NOTES: ReleaseNote[] = [
+  {
+    version: '2.0.0',
+    highlights: [
+      '固定扩展 ID。',
+      '新增本地 ZIP 备份与恢复，兼容历史 JSON 备份。',
+      '本地与 WebDAV 使用统一 ZIP 格式，迁移恢复更稳。',
+      '媒体库聚合 Emby、Jellyfin 与 115 等多个来源。',
+      '115 索引支持断点续作、访问限频和失败后自动恢复。',
+      'Cloud 自建服务支持多端同步，数据由用户自行管理。',
+    ],
+  },
   {
     version: '1.21.4',
     highlights: [
