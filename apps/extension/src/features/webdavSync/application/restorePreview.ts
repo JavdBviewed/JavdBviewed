@@ -3,8 +3,8 @@
  * @description restorePreview
  * @module features/webdavSync
  */
-import JSZip from 'jszip';
 import { byteSizeOf } from './backupCollector';
+import { readBackupFileContent } from './backupArchive';
 
 export interface WebDAVRestorePreviewOptions {
   getSettings: () => Promise<any>;
@@ -39,22 +39,11 @@ export async function parseBackupFromUrl(
   });
   if (!response.ok) throw new Error(`Download failed with status: ${response.status}`);
   const isZip = /\.zip$/i.test(finalUrl);
-  if (isZip) {
-    const arrayBuf = await response.arrayBuffer();
-    onProgress?.({ stage: 'download', status: 'done', message: '云端备份下载完成' });
-    onProgress?.({ stage: 'parse', status: 'running', message: '正在解析备份文件...' });
-    const zip = await JSZip.loadAsync(arrayBuf);
-    const jsonFile = zip.file('backup.json') || zip.file(/\.json$/i)[0];
-    if (!jsonFile) throw new Error('ZIP 中未找到 JSON 备份文件');
-    const jsonText = await jsonFile.async('text');
-    const data = JSON.parse(jsonText);
-    onProgress?.({ stage: 'parse', status: 'done', message: '备份文件解析完成' });
-    return data;
-  }
-  const fileContents = await response.text();
+  const fileContents = isZip ? await response.arrayBuffer() : await response.text();
   onProgress?.({ stage: 'download', status: 'done', message: '云端备份下载完成' });
   onProgress?.({ stage: 'parse', status: 'running', message: '正在解析备份文件...' });
-  const data = JSON.parse(fileContents);
+  const jsonText = await readBackupFileContent(finalUrl, fileContents);
+  const data = JSON.parse(jsonText);
   onProgress?.({ stage: 'parse', status: 'done', message: '备份文件解析完成' });
   return data;
 }

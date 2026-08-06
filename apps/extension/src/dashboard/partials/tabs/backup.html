@@ -19,7 +19,7 @@
         </div>
         <div>
           <h4>本地备份</h4>
-          <p>导出完整备份文件，或从本机 JSON 文件恢复数据。</p>
+          <p>导出统一 ZIP 备份文件，也兼容导入历史 JSON 备份。</p>
         </div>
       </div>
 
@@ -29,10 +29,10 @@
             <i class="fas fa-file-import"></i>
             <span>导入本地备份</span>
           </label>
-          <input type="file" id="importFile" class="backup-file-input" accept=".json">
+          <input type="file" id="importFile" class="backup-file-input" accept=".zip,.json,application/zip,application/json">
           <button id="exportBtn" type="button" class="backup-action-btn backup-action-btn-primary">
             <i class="fas fa-file-export"></i>
-            <span>导出本地备份</span>
+            <span>导出 ZIP 备份</span>
           </button>
         </div>
         <p class="backup-section-note">导入前会显示备份信息并请求确认，避免误覆盖现有数据。</p>

@@ -9,6 +9,7 @@ import { showImportModal } from '../import';
 import { sendRuntimeMessage } from '../../platform/browser/runtimeMessages';
 import { showConfirm } from '../components/confirmModal';
 import { dbViewedCleanInjectedSourceTags } from '../dbClient';
+import { createBackupArchive, readBackupFileContent } from '../../features/webdavSync/application/backupArchive';
 
 type BackupActionResponse = {
   success?: boolean;
@@ -182,12 +183,11 @@ export function initBackupActions(root: ParentNode = document): void {
       try {
         const response = await sendRuntimeMessage<BackupActionResponse>({ type: 'collect-backup-data' });
         if (!response?.success) throw new Error(response?.error || '获取备份数据失败');
-        const dataStr = JSON.stringify(response.data, null, 2);
-        const dataBlob = new Blob([dataStr], { type: 'application/json' });
-        const url = URL.createObjectURL(dataBlob);
+        const backupBlob = await createBackupArchive(response.data);
+        const url = URL.createObjectURL(backupBlob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `javdb-extension-backup-${new Date().toISOString().split('T')[0]}.json`;
+        anchor.download = `javdb-extension-backup-${new Date().toISOString().replace(/[:.]/g, '-').split('Z')[0]}.zip`;
         anchor.click();
         URL.revokeObjectURL(url);
         showMessage('数据导出成功', 'success');
@@ -209,13 +209,20 @@ export function initBackupActions(root: ParentNode = document): void {
       const file = (event.target as HTMLInputElement).files?.[0];
       if (!file) { logAsync('WARN', '用户取消了文件选择'); return; }
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result;
-        if (typeof text === 'string') showImportModal(text);
-        else { showMessage('Failed to read file content.', 'error'); logAsync('ERROR', '无法读取文件内容，内容非字符串'); }
+      reader.onload = async (e) => {
+        try {
+          const input = e.target?.result;
+          if (!(input instanceof ArrayBuffer)) throw new Error('无法读取备份文件内容');
+          const jsonData = await readBackupFileContent(file.name, input);
+          showImportModal(jsonData);
+        } catch (error: unknown) {
+          const message = getBackupActionErrorMessage(error, '备份文件读取失败');
+          showMessage(`读取备份失败：${message}`, 'error');
+          logAsync('ERROR', '本地备份文件读取失败', { error: message, fileName: file.name });
+        }
       };
-      reader.onerror = () => { showMessage(`Error reading file: ${reader.error}`, 'error'); logAsync('ERROR', '读取导入文件时发生错误', { error: reader.error as any }); };
-      reader.readAsText(file);
+      reader.onerror = () => { showMessage(`读取备份失败：${reader.error || '未知错误'}`, 'error'); logAsync('ERROR', '读取导入文件时发生错误', { error: reader.error as any }); };
+      reader.readAsArrayBuffer(file);
       importFileInput.value = '';
     });
   }

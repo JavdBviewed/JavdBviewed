@@ -3,7 +3,6 @@
  * @description uploadService
  * @module features/webdavSync
  */
-import JSZip from 'jszip';
 import { buildUploadId, DEFAULT_UPLOAD_INDEX_LIMIT, normalizeWebDavBaseUrl } from '../domain/paths';
 import type { WebDAVKnownDevice, WebDAVUploadIndexItem } from '../domain/types';
 import type { WebDAVClientLog } from '../infrastructure/webdavClient';
@@ -11,6 +10,7 @@ import { ensureWebDAVSupportDirs } from '../infrastructure/webdavClient';
 import { getWebDAVClientProfile } from './clientIdentity';
 import { updateWebDAVClientRegistry } from './clientRegistry';
 import { byteSizeOf, collectBackupData } from './backupCollector';
+import { createBackupArchive } from './backupArchive';
 import { appendWebDAVUploadIndex } from './uploadIndex';
 import { cleanupOldBackups } from './cleanupService';
 import { mergeKnownDevices, type WebDAVKnownDeviceSourceInput } from './deviceRegistry';
@@ -137,11 +137,9 @@ export async function performWebDAVUpload(options: WebDAVUploadServiceOptions): 
 
     fileUrl += filename.startsWith('/') ? filename.substring(1) : filename;
 
-    const zip = new JSZip();
     const backupJson = JSON.stringify(dataToExport, null, 2);
     const backupJsonBytes = byteSizeOf(backupJson);
-    zip.file('backup.json', backupJson);
-    const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    const zipBlob = await createBackupArchive(dataToExport);
     try { logger?.('INFO', 'Backup package prepared', { jsonBytes: backupJsonBytes, zipBytes: (zipBlob as any)?.size }); } catch {}
     try { logger?.('DEBUG', 'Backup stats summary', (dataToExport as any)?.stats || {}); } catch {}
 

@@ -35,6 +35,11 @@ vi.mock('../../apps/extension/src/dashboard/dbClient', () => ({
   dbViewedCleanInjectedSourceTags: actionMocks.dbViewedCleanInjectedSourceTags,
 }));
 
+vi.mock('../../apps/extension/src/features/webdavSync/application/backupArchive', () => ({
+  createBackupArchive: vi.fn(async () => new Blob(['zip'], { type: 'application/zip' })),
+  readBackupFileContent: vi.fn(),
+}));
+
 vi.mock('../../apps/extension/src/utils/storage', () => ({
   getValue: actionMocks.getValue,
   setValue: actionMocks.setValue,
@@ -214,10 +219,10 @@ function mountBackupActionDom(): void {
         <i class="fas fa-file-import"></i>
         <span>导入本地备份</span>
       </label>
-      <input type="file" id="importFile" class="backup-file-input" accept=".json">
+      <input type="file" id="importFile" class="backup-file-input" accept=".zip,.json,application/zip,application/json">
       <button id="exportBtn" type="button" class="backup-action-btn backup-action-btn-primary">
         <i class="fas fa-file-export"></i>
-        <span>导出本地备份</span>
+        <span>导出 ZIP 备份</span>
       </button>
       <button id="syncNow" type="button" class="backup-action-btn backup-action-btn-primary">
         <i class="fas fa-cloud-upload-alt"></i>
@@ -264,4 +269,5 @@ async function flushAsyncAction(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }

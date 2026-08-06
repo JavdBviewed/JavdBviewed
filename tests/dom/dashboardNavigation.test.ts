@@ -191,6 +191,7 @@ describe('Dashboard 9C navigation runtime', () => {
     expect(backupHtml).toContain('数据维护');
     expect(backupHtml).toContain('id="importFile"');
     expect(backupHtml).toContain('id="exportBtn"');
+    expect(backupHtml).toContain('accept=".zip,.json,application/zip,application/json"');
     expect(backupHtml).toContain('id="syncNow"');
     expect(backupHtml).toContain('id="syncDown"');
     expect(backupHtml).toContain('id="cleanupInjectedSourceTags"');
