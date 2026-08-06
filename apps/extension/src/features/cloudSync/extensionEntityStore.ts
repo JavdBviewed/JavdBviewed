@@ -582,17 +582,17 @@ export function createExtensionEntityStore(): LocalEntityStore {
   };
 }
 
-export async function preparePushQueueStats(): Promise<{
+export async function preparePushQueueStats(snapshot?: SyncEntity[]): Promise<{
   enqueuedNow: number;
   pendingCount: number;
   localEntityCount: number;
 }> {
-  const snapshot = await collectLocalSyncEntities();
-  const enqueuedNow = await ensureInitialPending(snapshot);
+  const localSnapshot = snapshot ?? await collectLocalSyncEntities();
+  const enqueuedNow = await ensureInitialPending(localSnapshot);
   const pending = await listCloudPending();
   return {
     enqueuedNow,
     pendingCount: pending.length,
-    localEntityCount: snapshot.length,
+    localEntityCount: localSnapshot.length,
   };
 }

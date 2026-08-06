@@ -1,10 +1,8 @@
 ﻿import { showMessage } from './ui/toast';
 import { logAsync } from './logger';
 import type { VideoRecord, OldVideoRecord, VideoStatus } from '../types';
-import { STORAGE_KEYS } from '../utils/config';
-import { setValue } from '../utils/storage';
-import { dbActorsBulkPut } from './dbClient';
 import { showConfirm } from './components/confirmModal';
+import { sendRuntimeMessage } from '../platform/browser/runtimeMessages';
 
 /**
  * 检测备份数据的版本
@@ -185,38 +183,79 @@ export async function applyImportedData(
       importData = migrateBackupData(importData);
       showMessage('✓ 旧版本数据迁移成功', 'success');
     }
-    
-    let actorsChanged = false;
 
-    // 仅处理演员库，其他数据留待后续完整恢复
-    let actorObj: Record<string, any> | undefined;
-    if (importData && typeof importData === 'object') {
-      if ((importData as any).actorRecords && typeof (importData as any).actorRecords === 'object') {
-        actorObj = (importData as any).actorRecords as Record<string, any>;
-      } else if ((importData as any).data && typeof (importData as any).data === 'object') {
-        const dataObj: any = (importData as any).data;
-        actorObj = dataObj && (dataObj[STORAGE_KEYS.ACTOR_RECORDS] || dataObj.actorRecords);
-      }
-    }
-    if (actorObj && typeof actorObj === 'object') {
-      await setValue(STORAGE_KEYS.ACTOR_RECORDS, actorObj);
-      try {
-        const arr = Object.values(actorObj || {});
-        if (Array.isArray(arr) && arr.length > 0) {
-          await dbActorsBulkPut(arr as any);
-        }
-      } catch (e) {
-        console.warn('[Import Stub] 写入 IDB 演员库失败：', (e as any)?.message || e);
-      }
-      actorsChanged = true;
-    }
+    const request = buildImportRestoreRequest(importData, importType, mode);
+    const response = await sendRuntimeMessage<ImportRestoreResponse>(request);
+    if (!response?.success) throw new Error(response?.error || '导入失败');
 
-    showMessage('导入文件已解析（简化模式，浏览记录/设置导入稍后恢复）', 'info');
-    await logAsync('INFO', 'Import stub executed', { importType, mode, actorsChanged, detectedVersion: version });
+    const issues = getImportResponseIssues(response);
+    if (issues.errors.length > 0) {
+      throw new Error(`部分数据恢复失败：${issues.errors.join('；')}`);
+    }
+    const categories = response.summary?.categories || {};
+    const written = Object.values(categories).reduce(
+      (total, item) => total + Number(item?.written || item?.added || item?.updated || 0),
+      0,
+    );
+    const message = issues.missing.length > 0
+      ? `导入完成，已处理 ${written} 条数据；未找到：${issues.missing.join('、')}`
+      : `导入成功，已处理 ${written} 条数据`;
+    showMessage(message, issues.missing.length > 0 ? 'warn' : 'success');
+    await logAsync('INFO', '本地备份导入完成', { importType, mode, detectedVersion: version, categories });
   } catch (e: any) {
     showMessage(`解析导入数据失败：${e?.message || e}`, 'error');
-    await logAsync('ERROR', 'Import stub failed', { error: e?.message || String(e) });
+    await logAsync('ERROR', '本地备份导入失败', { error: e?.message || String(e) });
   }
+}
+
+export function buildImportRestoreRequest(
+  importData: unknown,
+  importType: 'data' | 'settings' | 'all',
+  mode: 'merge' | 'overwrite',
+): { type: 'restore-from-json'; jsonData: string; categories: Record<string, boolean>; categoryModes: Record<string, 'merge' | 'replace'> } {
+  const allCategories = ['settings', 'userProfile', 'viewed', 'actors', 'newWorks', 'lists', 'magnets', 'logs', 'magnetPushLogs', 'importStats'];
+  const categories = Object.fromEntries(allCategories.map((category) => [category, false]));
+  const selectedCategories = importType === 'settings'
+    ? ['settings']
+    : importType === 'data'
+      ? ['userProfile', 'viewed', 'actors', 'newWorks', 'lists', 'magnets', 'logs', 'magnetPushLogs', 'importStats']
+      : ['settings', 'userProfile', 'viewed', 'actors', 'newWorks', 'lists', 'magnets', 'logs', 'magnetPushLogs', 'importStats'];
+  selectedCategories.forEach((category) => { categories[category] = true; });
+  const categoryModes = Object.fromEntries(
+    selectedCategories.map((category) => [category, category === 'settings' ? 'replace' : mode === 'overwrite' ? 'replace' : 'merge']),
+  ) as Record<string, 'merge' | 'replace'>;
+
+  return {
+    type: 'restore-from-json',
+    jsonData: JSON.stringify(importData),
+    categories,
+    categoryModes,
+  };
+}
+
+export interface ImportRestoreResponse {
+  success?: boolean;
+  error?: string;
+  summary?: {
+    categories?: Record<string, {
+      written?: number;
+      added?: number;
+      updated?: number;
+      reason?: 'missing' | 'error';
+      error?: string;
+    }>;
+  };
+}
+
+export function getImportResponseIssues(response: ImportRestoreResponse): { errors: string[]; missing: string[] } {
+  const categories = response.summary?.categories || {};
+  const errors: string[] = [];
+  const missing: string[] = [];
+  for (const [category, result] of Object.entries(categories)) {
+    if (result.reason === 'error') errors.push(`${category}：${result.error || '未知错误'}`);
+    if (result.reason === 'missing') missing.push(category);
+  }
+  return { errors, missing };
 }
 
 export function initModal(): void {
@@ -250,12 +289,20 @@ export function showImportModal(jsonData: string): void {
     showMessage('正在导入数据，请稍候...', 'info');
     logAsync('INFO', '用户确认导入本地备份', { viewedCount, actorCount });
 
-    chrome.runtime.sendMessage({ type: 'restore-from-json', jsonData }, (response) => {
+    const request = buildImportRestoreRequest(importData, 'all', 'overwrite');
+    sendRuntimeMessage<ImportRestoreResponse>(request).then((response) => {
+      const issues = getImportResponseIssues(response);
+      if (issues.errors.length > 0) {
+        showMessage(`导入失败：${issues.errors.join('；')}`, 'error');
+        logAsync('ERROR', '本地备份导入部分失败', { errors: issues.errors, summary: response?.summary });
+        return;
+      }
       if (response?.success) {
         const s = response.summary?.categories || {};
         const viewedWritten = s.viewed?.written ?? 0;
         const actorsWritten = s.actors?.written ?? 0;
-        showMessage(`导入成功：观看记录 ${viewedWritten} 条，演员库 ${actorsWritten} 条`, 'success');
+        const missingText = issues.missing.length > 0 ? `；未找到：${issues.missing.join('、')}` : '';
+        showMessage(`导入完成：观看记录 ${viewedWritten} 条，演员库 ${actorsWritten} 条${missingText}`, issues.missing.length > 0 ? 'warn' : 'success');
         logAsync('INFO', '本地备份导入成功', response.summary);
         // 刷新页面以加载新数据
         setTimeout(() => window.location.reload(), 1500);
@@ -263,6 +310,10 @@ export function showImportModal(jsonData: string): void {
         showMessage(`导入失败：${response?.error || '未知错误'}`, 'error');
         logAsync('ERROR', '本地备份导入失败', { error: response?.error });
       }
+    }).catch((error: unknown) => {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      showMessage(`导入失败：${errorMessage}`, 'error');
+      logAsync('ERROR', '本地备份导入失败', { error: errorMessage });
     });
   });
 }
