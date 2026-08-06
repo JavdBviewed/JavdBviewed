@@ -16,7 +16,7 @@
 
 Jav 助手是一个功能强大的浏览器扩展，专为 JavDB 等 Jav 视频网站设计。它能够在列表页和详情页标记视频的“已浏览”或“我看过”状态，并提供丰富的数据管理功能，包括 WebDAV 同步、数据导入导出、115 v2 离线下载集成等高级特性。
 
-📚 **[查看详细使用教程](https://javd-bviewed-docs.vercel.app/guide/)** - 包含完整的功能说明和使用指南
+📚 **[查看详细使用教程](https://docs.we-together.club/guide/)** - 包含完整的功能说明和使用指南
 
 ---
 ### ⭐ 如果您觉得这个项目对您有帮助，请给它一个 Star！
@@ -53,7 +53,19 @@ Jav 助手是一个功能强大的浏览器扩展，专为 JavDB 等 Jav 视频�
 - 🎬 **Emby增强** - Emby服务器集成和快捷跳转
 - 🤖 **AI翻译** - 支持多种AI模型的内容翻译
 
-> 📖 **查看完整功能清单**: [功能总览](https://javd-bviewed-docs.vercel.app/reference/features) - 按当前真实功能整理
+> 📖 **查看完整功能清单**: [功能总览](https://docs.we-together.club/reference/features) - 按当前真实功能整理
+
+## 🔄 2.0.0 升级与数据迁移
+
+2.0.0 是固定扩展 ID 的主版本升级。Chrome 不会自动把旧 1.x 扩展 ID 的本地数据迁移到新版本，首次安装前请先完成备份。
+
+1. 在旧版扩展中打开“备份与恢复”，选择“导出 ZIP 备份”，确认文件已经下载并可正常保存。
+   如果已经配置 WebDAV，再执行一次云端上传，把 ZIP 作为第二份恢复点。
+2. 在浏览器扩展管理页保留旧版扩展，不要先卸载；安装并加载 2.0.0 的解压目录。
+3. 打开 2.0.0 的“备份与恢复”，选择“导入本地备份”，优先导入 ZIP；历史 JSON 备份也兼容，确认备份范围后完成恢复。
+4. 确认番号库、观看记录、演员库、清单和设置恢复正常后，再决定是否移除旧版扩展。
+
+导入失败时不要删除旧版扩展或清理浏览器数据。继续使用旧版导出备份，或从 2.0.0 的“高级配置”导出当前状态后再排查。完整使用说明请查看[在线文档](https://docs.we-together.club/)。
 
 ## 🖼️ 界面预览（以实际为准，不会及时更新）
 
@@ -129,9 +141,9 @@ Jav 助手是一个功能强大的浏览器扩展，专为 JavDB 等 Jav 视频�
 
 技术文档现已统一迁移到在线文档中心：
 
-- [二次开发指南](https://javd-bviewed-docs.vercel.app/developer/development)
-- [架构说明](https://javd-bviewed-docs.vercel.app/developer/architecture)
-- [开发文档首页](https://javd-bviewed-docs.vercel.app/developer/)
+- [二次开发指南](https://docs.we-together.club/developer/development)
+- [架构说明](https://docs.we-together.club/developer/architecture)
+- [开发文档首页](https://docs.we-together.club/developer/)
 
 ### 部署与打包
 
