@@ -6,12 +6,14 @@
 export const REPO_OWNER = 'JavdBviewed';
 export const REPO_NAME = 'JavdBviewed';
 export const REPO_SLUG = `${REPO_OWNER}/${REPO_NAME}`;
+export const RELEASE_REPO_NAME = 'JavdBviewed-release';
+export const RELEASE_REPO_SLUG = `${REPO_OWNER}/${RELEASE_REPO_NAME}`;
 
 export const REPO_URL = `https://github.com/${REPO_SLUG}`;
-export const REPO_RELEASES_URL = `${REPO_URL}/releases`;
+export const REPO_RELEASES_URL = `https://github.com/${RELEASE_REPO_SLUG}/releases`;
 export const REPO_RELEASES_LATEST_URL = `${REPO_RELEASES_URL}/latest`;
 export const REPO_ISSUES_URL = `${REPO_URL}/issues`;
-export const REPO_API_RELEASES_URL = `https://api.github.com/repos/${REPO_SLUG}/releases`;
+export const REPO_API_RELEASES_URL = `https://api.github.com/repos/${RELEASE_REPO_SLUG}/releases`;
 export const REPO_RAW_PREFIX = `https://raw.githubusercontent.com/${REPO_SLUG}`;
 export const REPO_JSDELIVR_PACKAGE_URL = `https://data.jsdelivr.com/v1/packages/gh/${REPO_SLUG}`;
 
