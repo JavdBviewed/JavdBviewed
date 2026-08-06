@@ -12,6 +12,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SNAPSHOT_REFRESH_DAYS = 10;
 const TEST_PROFILE_MARKER = '.javdb-extension-test-profile.json';
 const FILE_SYSTEM_RETRY_OPTIONS = { attempts: 8, delayMs: 250 } as const;
+const RELEASE_ANNOUNCEMENT_STATE_KEY = 'release_announcement_state';
+const RELEASE_ANNOUNCEMENT_POLL_INTERVAL_MS = 100;
+const RELEASE_ANNOUNCEMENT_SUPPRESSION_TIMEOUT_MS = 5_000;
 
 export interface ChromeDataSnapshotSettings {
   sourceUserDataDir: string;
@@ -343,6 +346,67 @@ export async function readExtensionId(context: BrowserContext, timeoutMs = 15_00
   }
 
   return url.hostname;
+}
+
+/**
+ * 等待扩展安装事件落盘后，再标记公告已读，避免测试启动竞态把标记覆盖掉。
+ */
+export async function suppressReleaseAnnouncementForTest(
+  context: BrowserContext,
+  timeoutMs = RELEASE_ANNOUNCEMENT_SUPPRESSION_TIMEOUT_MS,
+): Promise<void> {
+  const worker = context.serviceWorkers().find((candidate) => isExtensionWorker(candidate))
+    ?? await context.waitForEvent('serviceworker', { timeout: timeoutMs });
+  const announcementKey = await worker.evaluate(() => chrome.runtime.getManifest?.().version || 'release-announcement-current');
+  const deadline = Date.now() + Math.max(1_000, timeoutMs);
+  const stateWaitDeadline = Math.min(deadline, Date.now() + 2_000);
+
+  let state = await readReleaseAnnouncementStateFromWorker(worker);
+  while (!hasReleaseAnnouncementState(state) && Date.now() < stateWaitDeadline) {
+    await delay(RELEASE_ANNOUNCEMENT_POLL_INTERVAL_MS);
+    state = await readReleaseAnnouncementStateFromWorker(worker);
+  }
+
+  while (Date.now() < deadline) {
+    await worker.evaluate(({ storageKey, announcementKey: key }) => chrome.storage.local.set({
+      [storageKey]: {
+        lastSeenAnnouncementKey: key,
+        lastSeenAt: Date.now(),
+      },
+    }), {
+      storageKey: RELEASE_ANNOUNCEMENT_STATE_KEY,
+      announcementKey,
+    });
+
+    const nextState = await readReleaseAnnouncementStateFromWorker(worker);
+    if (nextState?.lastSeenAnnouncementKey === announcementKey && !nextState.pending) {
+      return;
+    }
+    await delay(RELEASE_ANNOUNCEMENT_POLL_INTERVAL_MS);
+  }
+
+  throw new Error('测试启动器无法稳定隐藏版本公告：安装事件可能仍在覆盖公告状态。');
+}
+
+async function readReleaseAnnouncementStateFromWorker(worker: Worker): Promise<{
+  pending?: unknown;
+  lastSeenAnnouncementKey?: unknown;
+} | undefined> {
+  const state = await worker.evaluate(async (key) => {
+    const result = await chrome.storage.local.get(key);
+    return result?.[key];
+  }, RELEASE_ANNOUNCEMENT_STATE_KEY);
+  return state as {
+    pending?: unknown;
+    lastSeenAnnouncementKey?: unknown;
+  } | undefined;
+}
+
+function hasReleaseAnnouncementState(state: {
+  pending?: unknown;
+  lastSeenAnnouncementKey?: unknown;
+} | undefined): boolean {
+  return Boolean(state?.pending || state?.lastSeenAnnouncementKey);
 }
 
 export function extensionPageUrl(extensionId: string, pagePath: string): string {

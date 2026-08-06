@@ -3,7 +3,13 @@
  * @description 启动带 JavdBviewed 拓展的持久化 Chromium，供人工/AI 联合探索测试
  * @module scripts
  */
-import { extensionPageUrl, launchExtensionContext, readExtensionId, resolveExtensionHarnessOptions } from './extensionHarness';
+import {
+  extensionPageUrl,
+  launchExtensionContext,
+  readExtensionId,
+  resolveExtensionHarnessOptions,
+  suppressReleaseAnnouncementForTest,
+} from './extensionHarness';
 
 interface CliOptions {
   url?: string;
@@ -73,6 +79,7 @@ async function main(): Promise<void> {
 
   try {
     const extensionId = await readExtensionId(context);
+    await suppressReleaseAnnouncementForTest(context);
     const startupUrl = resolveStartupUrl(harnessOptions.startupUrl, extensionId);
     const page = await context.newPage();
     await page.goto(startupUrl, { waitUntil: 'domcontentloaded' });

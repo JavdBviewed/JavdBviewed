@@ -10,6 +10,7 @@ import {
   launchExtensionContext,
   readExtensionId,
   resolveExtensionHarnessOptions,
+  suppressReleaseAnnouncementForTest,
 } from '../../scripts/extensionHarness';
 
 test.describe('JavdBviewed extension browser smoke', () => {
@@ -204,6 +205,23 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await page.evaluate(() => {
         const now = Date.now();
         return chrome.storage.local.set({
+          settings: {
+            emby: {
+              enabled: true,
+              mediaServers: [{
+                id: 'e2e-cleanup-emby',
+                type: 'emby',
+                name: 'E2E Emby',
+                url: 'http://emby.e2e.local:8096',
+                apiKey: 'e2e-cleanup-emby-key',
+                enabled: true,
+              }],
+            },
+            drive115: {
+              enabled: true,
+              mediaLibraryRoots: [{ cid: 'e2e-cleanup-root', name: 'E2E 115 片库', enabled: true }],
+            },
+          },
           drive115_library_state: {
             updatedAt: now,
             entries: [
@@ -1192,6 +1210,9 @@ async function assertExtensionPageHealthy(
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('body')).toBeVisible();
   await expect(page.locator('body')).not.toBeEmpty();
+  if (url.includes('dashboard/dashboard.html')) {
+    await expect(page.locator('#jdb-release-announcement-modal')).toHaveCount(0);
+  }
   expect(pageErrors, `page errors while opening ${url}`).toEqual([]);
   expect(consoleErrors, `console errors while opening ${url}`).toEqual([]);
 
@@ -1199,20 +1220,14 @@ async function assertExtensionPageHealthy(
 }
 
 async function dismissReleaseAnnouncementIfPresent(page: Page): Promise<void> {
-  const startButton = page.getByRole('button', { name: '开始使用' });
-  if (await startButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-    await startButton.click();
-  }
+  const modal = page.locator('#jdb-release-announcement-modal');
+  const closeButton = modal.locator('[data-action="release-announcement-close"]');
+  await modal.waitFor({ state: 'visible', timeout: 1_000 }).catch(() => undefined);
+  if (!await closeButton.isVisible().catch(() => false)) return;
+  await closeButton.click();
+  await modal.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
 }
 
 async function markReleaseAnnouncementSeenInContext(context: BrowserContext): Promise<void> {
-  const worker = context.serviceWorkers().find((w) => w.url().startsWith('chrome-extension://'))
-    ?? await context.waitForEvent('serviceworker', { timeout: 15_000 });
-
-  await worker.evaluate(() => chrome.storage.local.set({
-    release_announcement_state: {
-      lastSeenAnnouncementKey: chrome.runtime.getManifest?.().version || '2.0.0',
-      lastSeenAt: Date.now(),
-    },
-  }));
+  await suppressReleaseAnnouncementForTest(context);
 }

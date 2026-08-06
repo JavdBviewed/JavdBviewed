@@ -12,6 +12,7 @@ import {
   launchExtensionContext,
   readExtensionId,
   resolveExtensionHarnessOptions,
+  suppressReleaseAnnouncementForTest,
 } from '../../scripts/extensionHarness';
 
 const cloudBaseUrl = process.env.CLOUD_E2E_BASE_URL?.trim();
@@ -192,14 +193,7 @@ async function closeCompletedSyncDialog(page: Page): Promise<void> {
 }
 
 async function markReleaseAnnouncementSeen(context: BrowserContext): Promise<void> {
-  const worker = context.serviceWorkers().find((candidate) => candidate.url().startsWith('chrome-extension://'))
-    ?? await context.waitForEvent('serviceworker', { timeout: 15_000 });
-  await worker.evaluate(() => chrome.storage.local.set({
-    release_announcement_state: {
-      lastSeenAnnouncementKey: chrome.runtime.getManifest?.().version || '2.0.0',
-      lastSeenAt: Date.now(),
-    },
-  }));
+  await suppressReleaseAnnouncementForTest(context);
 }
 
 async function resetCloudConnectionForIsolatedTest(context: BrowserContext): Promise<void> {
@@ -227,8 +221,10 @@ async function resetCloudConnectionForIsolatedTest(context: BrowserContext): Pro
 }
 
 async function dismissReleaseAnnouncementIfPresent(page: Page): Promise<void> {
-  const startButton = page.getByRole('button', { name: '开始使用' });
-  if (await startButton.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await startButton.click();
-  }
+  const modal = page.locator('#jdb-release-announcement-modal');
+  const closeButton = modal.locator('[data-action="release-announcement-close"]');
+  await modal.waitFor({ state: 'visible', timeout: 1_000 }).catch(() => undefined);
+  if (!await closeButton.isVisible().catch(() => false)) return;
+  await closeButton.click();
+  await modal.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
 }

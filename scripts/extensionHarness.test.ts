@@ -6,7 +6,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   createChromiumExtensionArgs,
   defaultExtensionProfileDir,
@@ -17,6 +17,7 @@ import {
   retryTransientFileSystemOperation,
   shouldCopyChromeProfilePath,
   shouldRefreshChromeSnapshot,
+  suppressReleaseAnnouncementForTest,
 } from './extensionHarness';
 
 const temporaryDirectories: string[] = [];
@@ -78,6 +79,38 @@ describe('extensionHarness', () => {
       `--disable-extensions-except=${extensionDir}`,
       `--load-extension=${extensionDir}`,
     ]);
+  });
+
+  test('waits for the install announcement state before suppressing it', async () => {
+    let state: unknown = {};
+    let evaluateCall = 0;
+    const worker = {
+      evaluate: vi.fn(async (_callback: unknown, argument?: unknown) => {
+        evaluateCall += 1;
+        if (evaluateCall === 1) return '2.0.0';
+        if (evaluateCall === 2) return state;
+        if (evaluateCall === 3) {
+          state = { pending: { type: 'install', version: '2.0.0' } };
+          return state;
+        }
+        if (evaluateCall === 4) {
+          state = {
+            lastSeenAnnouncementKey: (argument as { announcementKey: string }).announcementKey,
+            lastSeenAt: 1,
+          };
+          return undefined;
+        }
+        return state;
+      }),
+    };
+    const context = {
+      serviceWorkers: () => [{ ...worker, url: () => 'chrome-extension://test/background.js' }],
+    };
+
+    await suppressReleaseAnnouncementForTest(context as never);
+
+    expect(state).toEqual({ lastSeenAnnouncementKey: '2.0.0', lastSeenAt: expect.any(Number) });
+    expect(worker.evaluate).toHaveBeenCalledTimes(5);
   });
 
   test('refreshes a Chrome snapshot only when it is missing, stale, or points to another source', () => {
