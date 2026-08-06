@@ -6,9 +6,9 @@
 
 **Jav 视频浏览助手**
 
-[![GitHub release](https://img.shields.io/github/v/release/JavdBviewed/JavdBviewed)](https://github.com/JavdBviewed/JavdBviewed/releases)
+[![GitHub release](https://img.shields.io/github/v/release/JavdBviewed/JavdBviewed-release)](https://github.com/JavdBviewed/JavdBviewed-release/releases)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Chrome Web Store](https://img.shields.io/badge/Chrome-Extension-green.svg)](https://github.com/JavdBviewed/JavdBviewed/releases)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome-Extension-green.svg)](https://github.com/JavdBviewed/JavdBviewed-release/releases)
 
 </div>
 
@@ -127,9 +127,9 @@ Jav 助手是一个功能强大的浏览器扩展，专为 JavDB 等 Jav 视频�
 
 **安装步骤：**
 
-1. 访问 [Releases 页面](https://github.com/JavdBviewed/JavdBviewed/releases)
+1. 访问 [Releases 页面](https://github.com/JavdBviewed/JavdBviewed-release/releases)
 2. 下载最新版本的 `javdb-extension-v*.zip` 文件
-3. 解压到本地文件夹
+3. 使用发布说明中提供的密码解压到本地文件夹；2.0.0 的解压密码是 `我已备份数据`
 4. 打开浏览器扩展管理页面：
    - Chrome: `chrome://extensions/`
    - Edge: `edge://extensions/`

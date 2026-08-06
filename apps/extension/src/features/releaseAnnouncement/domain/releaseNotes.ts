@@ -20,7 +20,7 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: '2.0.0',
     highlights: [
-      '固定扩展 ID。',
+      '固定扩展 ID，升级前请先备份数据。',
       '新增本地 ZIP 备份与恢复，兼容历史 JSON 备份。',
       '本地与 WebDAV 使用统一 ZIP 格式，迁移恢复更稳。',
       '媒体库聚合 Emby、Jellyfin 与 115 等多个来源。',
