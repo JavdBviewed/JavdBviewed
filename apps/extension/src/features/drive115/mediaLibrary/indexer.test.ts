@@ -911,6 +911,31 @@ describe('indexDrive115Roots', () => {
     expect(report?.apiCalls).toBe(result.state.stats.apiCalls);
   });
 
+  it('keeps a checkpoint when a directory listing reports an invalid access token', async () => {
+    const result = await indexDrive115Roots({
+      roots: [{ cid: 'root', enabled: true }],
+      listFiles: async ({ cid }) => {
+        if (cid === 'root') {
+          return { success: true, data: [{ fc: '0', cid: 'movie', fn: 'SSIS-001' }] };
+        }
+        return {
+          success: false,
+          code: 40140125,
+          message: '错误 40140125: access_token 无效',
+        };
+      },
+      maxListRetries: 0,
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.resumable).toBe(true);
+    expect(result.checkpoint?.pendingQueue[0]?.cid).toBe('movie');
+    expect(result.state.entries).toEqual([]);
+  });
+
   it('flushes live report snapshots during indexing', async () => {
     // 造 12 个叶子目录（10 无视频 + 2 有视频），触发至少一次 REPORT_FLUSH_EVERY=10 的快照
     const leaves = Array.from({ length: 12 }, (_, i) => ({

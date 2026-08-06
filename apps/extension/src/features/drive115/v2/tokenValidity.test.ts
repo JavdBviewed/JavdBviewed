@@ -48,6 +48,27 @@ describe('Drive115V2Service token validity', () => {
     expect(mocks.saveSettings).not.toHaveBeenCalled();
   });
 
+  it('force refreshes the token when a long-running task reports the current token as invalid', async () => {
+    const service = getDrive115V2Service();
+    const refreshSpy = vi.spyOn(service, 'refreshToken').mockResolvedValue({
+      success: true,
+      token: {
+        access_token: 'refreshed-access-token',
+        refresh_token: 'refreshed-refresh-token',
+        expires_at: Math.floor(Date.now() / 1000) + 7200,
+      },
+    });
+
+    const result = await service.getValidAccessToken({
+      forceAutoRefresh: true,
+      forceRefresh: true,
+    });
+
+    expect(result).toEqual({ success: true, accessToken: 'refreshed-access-token' });
+    expect(refreshSpy).toHaveBeenCalledWith('refresh-token', { source: 'auto' });
+    expect(mocks.saveSettings).toHaveBeenCalled();
+  });
+
   it('normalizes absolute and relative expiry values to a seconds timestamp', () => {
     const nowSec = 1_800_000_000;
 

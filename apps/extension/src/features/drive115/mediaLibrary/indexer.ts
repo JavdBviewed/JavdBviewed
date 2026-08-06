@@ -12,6 +12,7 @@ import {
 } from './classifyFolderEntries';
 import { resolveEntryCode, resolveEntryTitle } from './parseEntryMeta';
 import { createRateLimitController, isLikelyRateLimitError } from './rateLimit';
+import { is115TokenInvalidCode } from '../v2/errorCodes';
 import {
   DEFAULT_DRIVE115_LIBRARY_STATS,
   DRIVE115_INDEX_LIMITS,
@@ -90,7 +91,7 @@ function clampScanDepth(raw: number | undefined): number {
 }
 
 function isTransientDirectoryListError(message: string | null | undefined, code?: number): boolean {
-  if (typeof code === 'number' && (code === 408 || code === 425 || code === 429 || code >= 500)) {
+  if (typeof code === 'number' && (code === 408 || code === 425 || code === 429 || code >= 500 || is115TokenInvalidCode(code))) {
     return true;
   }
   const text = String(message || '').toLowerCase();
@@ -99,7 +100,9 @@ function isTransientDirectoryListError(message: string | null | undefined, code?
     || text.includes('network')
     || text.includes('failed to fetch')
     || text.includes('gateway')
-    || text.includes('service unavailable');
+    || text.includes('service unavailable')
+    || text.includes('access_token')
+    || text.includes('refresh_token');
 }
 
 function isTruthyFolderFlag(value: unknown): boolean {

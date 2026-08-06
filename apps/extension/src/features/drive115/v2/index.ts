@@ -648,7 +648,7 @@ class Drive115V2Service {
   /**
    * 获取有效的 access_token。若已过期且允许自动刷新，将使用 refresh_token 刷新并持久化。
    */
-  async getValidAccessToken(opts?: { forceAutoRefresh?: boolean }): Promise<{ success: true; accessToken: string } | { success: false; message: string }>{
+  async getValidAccessToken(opts?: { forceAutoRefresh?: boolean; forceRefresh?: boolean }): Promise<{ success: true; accessToken: string } | { success: false; message: string }>{
     const settings = await getSettings();
     const drv = (settings?.drive115 || {}) as any;
     const accessToken: string = (drv.v2AccessToken || '').trim();
@@ -657,6 +657,7 @@ class Drive115V2Service {
     const rtStatus: string = drv.v2RefreshTokenStatus || 'unknown';
     const autoRefreshSetting: boolean = drv.v2AutoRefresh !== false; // 默认开启
     const autoRefresh: boolean = (opts?.forceAutoRefresh !== undefined) ? !!opts.forceAutoRefresh : autoRefreshSetting;
+    const forceRefresh = opts?.forceRefresh === true;
     const skewSec: number = Math.max(0, Number(drv.v2AutoRefreshSkewSec ?? 60) || 0);
     // 最小刷新间隔（分钟），配置项：v2MinRefreshIntervalMin，范围 60-120；默认 60
     const cfgMinMin: number = Math.min(120, Math.max(60, Number(drv.v2MinRefreshIntervalMin ?? 60) || 60));
@@ -669,7 +670,7 @@ class Drive115V2Service {
     const expiresAt = normalizeDrive115TokenExpiry({ expires_at: rawExpiresAt }, now);
 
     // 优化：如果有 access_token 且过期时间未知或未过期，先尝试使用
-    if (accessToken) {
+    if (accessToken && !forceRefresh) {
       // 情况1：有明确的过期时间且未过期
       if (typeof expiresAt === 'number' && expiresAt - skewSec > now) {
         await addLogV2({ timestamp: Date.now(), level: 'debug', message: 'access_token 仍在有效期内（v2）' });
@@ -693,7 +694,7 @@ class Drive115V2Service {
     }
 
     // 检查是否需要刷新
-    const needRefresh = !accessToken || (typeof expiresAt === 'number' && expiresAt - skewSec <= now);
+    const needRefresh = forceRefresh || !accessToken || (typeof expiresAt === 'number' && expiresAt - skewSec <= now);
 
     if (!needRefresh) {
       return { success: true, accessToken };
@@ -737,7 +738,7 @@ class Drive115V2Service {
     }
 
     // 刷新频率限制：最小间隔
-    if (lastRefreshAtSec > 0 && (nowSec - lastRefreshAtSec) < minIntervalSec) {
+    if (!forceRefresh && lastRefreshAtSec > 0 && (nowSec - lastRefreshAtSec) < minIntervalSec) {
       const remain = minIntervalSec - (nowSec - lastRefreshAtSec);
       const mins = Math.ceil(remain / 60);
       const msg = `距离上次自动刷新不足最小间隔（${cfgMinMin}分钟），请稍后再试（剩余约 ${mins} 分钟）`;

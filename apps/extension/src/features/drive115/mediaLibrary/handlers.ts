@@ -7,6 +7,7 @@ import { STORAGE_KEYS } from '../../../utils/config';
 import { getSettings, getValue, saveSettings, setValue } from '../../../utils/storage';
 import { mediaLog } from '../../embyLibrary/mediaLibraryLogger';
 import { getDrive115V2Service, type Drive115V2FileListResponse } from '../v2';
+import { is115TokenInvalidCode } from '../v2/errorCodes';
 import type { ExtensionSettings } from '../../../types';
 import { indexDrive115Roots } from './indexer';
 import { NFO_SUMMARY_SCHEMA_VERSION, parseNfoSummary } from './parseEntryMeta';
@@ -64,6 +65,7 @@ let indexAbortController: AbortController | null = null;
 const INDEX_HISTORY_LIMIT = 20;
 const PARTIAL_STATE_PERSIST_INTERVAL_MS = 2_000;
 const INDEX_PROGRESS_PERSIST_INTERVAL_MS = 500;
+const INDEX_TOKEN_RECHECK_INTERVAL_MS = 30_000;
 
 function log115(level: 'info' | 'warn' | 'error' | 'debug', message: string, data?: unknown): void {
   const text = `[115] ${message}`;
@@ -357,7 +359,9 @@ export async function runDrive115MediaLibraryIndex(
         await flushIndexProgress();
         return result;
       }
-      const accessToken = tokenRet.accessToken;
+      let accessToken = tokenRet.accessToken;
+      let lastAccessTokenCheckAt = Date.now();
+      let tokenRecoveryFailed = false;
 
       log115('info', `开始索引，根目录 ${enabled.length} 个`, {
         roots: enabled.map((r) => r.cid),
@@ -421,7 +425,24 @@ export async function runDrive115MediaLibraryIndex(
           enqueueReport(rep);
         },
         listFiles: async ({ cid, limit, offset, signal }) => {
-          const ret = await svc.listFiles({
+          const now = Date.now();
+          if (now - lastAccessTokenCheckAt >= INDEX_TOKEN_RECHECK_INTERVAL_MS) {
+            let refreshedByExpiry = await svc.getValidAccessToken({ forceAutoRefresh: true });
+            if (!refreshedByExpiry.success) {
+              // 旧 token 恰好在最小刷新间隔内过期时，允许仅此处强制续期一次。
+              refreshedByExpiry = await svc.getValidAccessToken({
+                forceAutoRefresh: true,
+                forceRefresh: true,
+              });
+            }
+            lastAccessTokenCheckAt = now;
+            if (!refreshedByExpiry.success) {
+              return { success: false, message: refreshedByExpiry.message, code: 40140125 };
+            }
+            accessToken = refreshedByExpiry.accessToken;
+          }
+
+          let ret = await svc.listFiles({
             accessToken,
             cid,
             limit,
@@ -432,6 +453,33 @@ export async function runDrive115MediaLibraryIndex(
             signal,
             skipBackgroundProxy: true,
           });
+          const responseCode = readRawCode(ret.raw) ?? ret.statusCode;
+          if (!ret.success && is115TokenInvalidCode(responseCode) && !tokenRecoveryFailed) {
+            const refreshedAfter401 = await svc.getValidAccessToken({
+              forceAutoRefresh: true,
+              forceRefresh: true,
+            });
+            if (!refreshedAfter401.success) {
+              tokenRecoveryFailed = true;
+              return { success: false, message: refreshedAfter401.message, code: responseCode };
+            }
+            accessToken = refreshedAfter401.accessToken;
+            lastAccessTokenCheckAt = Date.now();
+            ret = await svc.listFiles({
+              accessToken,
+              cid,
+              limit,
+              offset,
+              show_dir: 1,
+              stdir: 1,
+              cur: 1,
+              signal,
+              skipBackgroundProxy: true,
+            });
+          }
+          const finalResponseCode = readRawCode(ret.raw) ?? ret.statusCode;
+          if (ret.success) tokenRecoveryFailed = false;
+          else if (is115TokenInvalidCode(finalResponseCode)) tokenRecoveryFailed = true;
           return {
             success: !!ret.success,
             message: ret.message,

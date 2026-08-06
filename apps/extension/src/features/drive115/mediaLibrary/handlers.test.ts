@@ -248,6 +248,72 @@ describe('handleDrive115MediaLibraryIndex incremental persistence', () => {
     expect(calls.indexOf(partial)).toBeLessThan(calls.indexOf(finalState));
   });
 
+  it('refreshes an expired access token and retries the current directory listing', async () => {
+    const getValidAccessToken = vi.fn()
+      .mockResolvedValueOnce({ success: true, accessToken: 'initial-token' })
+      .mockResolvedValueOnce({ success: true, accessToken: 'refreshed-token' });
+    const listFiles = vi.fn()
+      .mockResolvedValueOnce({
+        success: false,
+        message: '错误 40140125: access_token 无效',
+        raw: { code: 40140125 },
+      })
+      .mockResolvedValueOnce({ success: true, data: [] });
+    vi.mocked(getDrive115V2Service).mockReturnValue({
+      getValidAccessToken,
+      listFiles,
+    } as any);
+    vi.mocked(indexDrive115Roots).mockImplementation(async (deps: any) => {
+      const listed = await deps.listFiles({ cid: 'root' });
+      expect(listed).toMatchObject({ success: true, data: [] });
+      return {
+        success: true,
+        keptPrevious: false,
+        state: emptyState,
+        message: '索引完成：0 条',
+      };
+    });
+
+    await callIndex();
+
+    expect(listFiles).toHaveBeenNthCalledWith(1, expect.objectContaining({ accessToken: 'initial-token' }));
+    expect(listFiles).toHaveBeenNthCalledWith(2, expect.objectContaining({ accessToken: 'refreshed-token' }));
+    expect(getValidAccessToken).toHaveBeenCalledWith({ forceAutoRefresh: true, forceRefresh: true });
+  });
+
+  it('falls back to forced refresh when the periodic token check hits the minimum interval', async () => {
+    let now = 1_000;
+    const dateNowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const getValidAccessToken = vi.fn()
+      .mockResolvedValueOnce({ success: true, accessToken: 'initial-token' })
+      .mockResolvedValueOnce({ success: false, message: '距离上次自动刷新不足最小间隔' })
+      .mockResolvedValueOnce({ success: true, accessToken: 'forced-token' });
+    const listFiles = vi.fn().mockResolvedValue({ success: true, data: [] });
+    vi.mocked(getDrive115V2Service).mockReturnValue({ getValidAccessToken, listFiles } as any);
+    vi.mocked(indexDrive115Roots).mockImplementation(async (deps: any) => {
+      await deps.listFiles({ cid: 'root' });
+      now = 31_000;
+      const listed = await deps.listFiles({ cid: 'root' });
+      expect(listed).toMatchObject({ success: true, data: [] });
+      return {
+        success: true,
+        keptPrevious: false,
+        state: emptyState,
+        message: '索引完成：0 条',
+      };
+    });
+
+    try {
+      await callIndex();
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+
+    expect(getValidAccessToken).toHaveBeenNthCalledWith(2, { forceAutoRefresh: true });
+    expect(getValidAccessToken).toHaveBeenNthCalledWith(3, { forceAutoRefresh: true, forceRefresh: true });
+    expect(listFiles).toHaveBeenLastCalledWith(expect.objectContaining({ accessToken: 'forced-token' }));
+  });
+
   it('adds each completed index report to local history for later review', async () => {
     const report = {
       indexed: [],
