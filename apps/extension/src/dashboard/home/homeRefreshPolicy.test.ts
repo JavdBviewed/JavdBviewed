@@ -10,6 +10,10 @@ describe('shouldRefreshHomeOverview', () => {
     expect(shouldRefreshHomeOverview({ initialized: true })).toBe(false);
   });
 
+  it('redraws a completed overview when the page needs a visible redraw', () => {
+    expect(shouldRefreshHomeOverview({ initialized: true, needsRender: true })).toBe(true);
+  });
+
   it('allows an explicit refresh to reload a completed overview', () => {
     expect(shouldRefreshHomeOverview({ initialized: true, force: true })).toBe(true);
   });

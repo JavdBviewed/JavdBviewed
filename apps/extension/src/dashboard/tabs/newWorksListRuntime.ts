@@ -1,4 +1,5 @@
 import type { NewWorkRecord } from '../../types';
+import type { NewWorksStats } from '../../types';
 import type { NewWorksFilters } from './newWorksFilterTypes';
 import {
   buildNewWorkItemHtml,
@@ -18,6 +19,7 @@ export interface NewWorksListRuntimeHandlers {
 export interface RenderNewWorksListResult {
   works: NewWorkRecord[];
   total: number;
+  stats?: NewWorksStats;
 }
 
 export interface RenderNewWorksListRuntimeDeps extends NewWorksListRuntimeHandlers {
@@ -39,12 +41,12 @@ export interface RenderNewWorksListRuntimeInput {
   doc?: Document;
 }
 
-export async function renderNewWorksListRuntime(input: RenderNewWorksListRuntimeInput): Promise<void> {
+export async function renderNewWorksListRuntime(input: RenderNewWorksListRuntimeInput): Promise<RenderNewWorksListResult | undefined> {
   const { filters, page, pageSize, selectedWorks, deps, doc = document } = input;
   const container = doc.getElementById('newWorksList');
   if (!container) {
     deps.logWarn('未找到新作品列表容器');
-    return;
+    return undefined;
   }
 
   try {
@@ -63,7 +65,7 @@ export async function renderNewWorksListRuntime(input: RenderNewWorksListRuntime
       deps.logInfo('没有新作品数据，显示空状态');
       container.innerHTML = buildNewWorksEmptyHtml();
       renderNewWorksPagination({ total: 0, page, pageSize, deps, doc });
-      return;
+      return result;
     }
 
     deps.logInfo(`开始渲染 ${result.works.length} 个新作品`);
@@ -74,9 +76,11 @@ export async function renderNewWorksListRuntime(input: RenderNewWorksListRuntime
     deps.updateBatchOpenUnreadButton();
     attachNewWorkItemListeners(selectedWorks, deps, doc);
     deps.logInfo('新作品列表渲染完成');
+    return result;
   } catch (error) {
     deps.logError('渲染新作品列表失败:', error);
     container.innerHTML = buildNewWorksErrorHtml();
+    return undefined;
   }
 }
 

@@ -1,3 +1,5 @@
+import { MAX_NEW_WORKS_BATCH_OPEN_COUNT } from './newWorksBatchOpenPolicy';
+
 type MessageType = 'success' | 'error' | 'info' | 'warn' | 'warning';
 type ConfirmType = 'danger' | 'warning' | 'info';
 
@@ -32,7 +34,7 @@ export interface SelectedBatchOpenWorkflowDeps {
   findWorkById(workId: string): Promise<ResolvedSelectedWork | undefined>;
   openWorkUrl(url: string): Promise<void>;
   markAsRead(workIds: string[]): Promise<void>;
-  clearSelection(): void;
+  removeSelection(workIds: string[]): void;
   render(): Promise<void>;
   showMessage(message: string, type: MessageType): void;
   updateBatchOperations(): void;
@@ -52,9 +54,12 @@ export async function runSelectedBatchOpenWorkflow(input: RunSelectedBatchOpenWo
     return;
   }
 
+  const selectedIdsToOpen = selectedIds.slice(0, MAX_NEW_WORKS_BATCH_OPEN_COUNT);
   const confirmed = await deps.confirm({
     title: '批量打开（已选）',
-    message: `将打开 ${selectedIds.length} 个已选作品的新标签页，并为未读项标记为已读，继续吗？`,
+    message: selectedIds.length > MAX_NEW_WORKS_BATCH_OPEN_COUNT
+      ? `已选 ${selectedIds.length} 个作品，本次将打开前 ${selectedIdsToOpen.length} 个新标签页，并为未读项标记为已读，继续吗？`
+      : `将打开 ${selectedIdsToOpen.length} 个已选作品的新标签页，并为未读项标记为已读，继续吗？`,
     confirmText: '继续',
     cancelText: '取消',
     type: 'warning',
@@ -63,7 +68,7 @@ export async function runSelectedBatchOpenWorkflow(input: RunSelectedBatchOpenWo
 
   deps.setLoading(true);
   try {
-    const worksToOpen = await resolveSelectedWorks(selectedIds, deps);
+    const worksToOpen = await resolveSelectedWorks(selectedIdsToOpen, deps);
     if (worksToOpen.length === 0) {
       deps.showMessage('未找到可打开的作品链接', 'warn');
       return;
@@ -84,7 +89,7 @@ export async function runSelectedBatchOpenWorkflow(input: RunSelectedBatchOpenWo
       } catch {}
     }
 
-    deps.clearSelection();
+    deps.removeSelection(worksToOpen.map(work => work.id));
     await deps.render();
     deps.showMessage(
       `已打开 ${worksToOpen.length} 个已选作品${unreadIds.length > 0 ? '（并标记未读为已读）' : ''}`,

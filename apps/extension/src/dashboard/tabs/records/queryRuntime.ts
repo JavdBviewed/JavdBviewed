@@ -30,6 +30,7 @@ export interface CreateRecordsQueryRuntimeOptions {
   renderPagination: () => void;
   updateSearchResultCount: () => void;
   showMessage: (message: string, type?: ToastType, duration?: number) => void;
+  isActive?: () => boolean;
   logWarning?: (message: string, error: unknown) => void;
   loadServerPage?: (input: LoadRecordsServerPageInput) => Promise<{
     items: VideoRecord[];
@@ -42,10 +43,16 @@ export interface RecordsQueryRuntime {
   shouldUseIDB: () => boolean;
   parseSort: () => RecordsSort | null;
   renderServerPage: () => Promise<void>;
+  invalidate: () => void;
 }
 
 export function createRecordsQueryRuntime(options: CreateRecordsQueryRuntimeOptions): RecordsQueryRuntime {
   const loadServerPage = options.loadServerPage || loadRecordsServerPage;
+  let requestGeneration = 0;
+
+  const isCurrentRequest = (generation: number): boolean => (
+    generation === requestGeneration && (options.isActive?.() ?? true)
+  );
 
   const shouldUseIDB = (): boolean => {
     return options.selectedSeriesIds.size === 0 && options.selectedLabelIds.size === 0;
@@ -56,6 +63,7 @@ export function createRecordsQueryRuntime(options: CreateRecordsQueryRuntimeOpti
   };
 
   const renderServerPage = async (): Promise<void> => {
+    const generation = ++requestGeneration;
     try {
       options.setServerModeActive(true);
       const sort = parseSort();
@@ -78,6 +86,9 @@ export function createRecordsQueryRuntime(options: CreateRecordsQueryRuntimeOpti
         pageRecords: options.pageRecords,
       });
 
+      // 页面切走后，旧查询结果不得重新装配列表和图片。
+      if (!isCurrentRequest(generation)) return;
+
       options.setLastQueryDurationMs(pageResult.durationMs);
       options.setServerPageItems(pageResult.items);
       options.setServerTotal(pageResult.total);
@@ -85,6 +96,7 @@ export function createRecordsQueryRuntime(options: CreateRecordsQueryRuntimeOpti
       options.renderPagination();
       options.updateSearchResultCount();
     } catch (error) {
+      if (!isCurrentRequest(generation)) return;
       options.setLastQueryDurationMs(null);
       if (options.logWarning) {
         options.logWarning('[RecordsTab] IDB 查询/分页失败', error);
@@ -100,5 +112,8 @@ export function createRecordsQueryRuntime(options: CreateRecordsQueryRuntimeOpti
     shouldUseIDB,
     parseSort,
     renderServerPage,
+    invalidate: () => {
+      requestGeneration += 1;
+    },
   };
 }

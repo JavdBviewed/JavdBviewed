@@ -7,7 +7,9 @@ export interface CreateRecordsRenderCoordinatorOptions {
   renderVideoList: () => void;
   renderPagination: () => void;
   updateStats: () => void | Promise<void>;
+  isActive?: () => boolean;
   showLoading?: () => void;
+  scheduleStats?: (callback: () => void) => void;
 }
 
 export interface RecordsRenderCoordinator {
@@ -20,9 +22,21 @@ function defaultShowLoading(videoList: HTMLElement): void {
   } catch {}
 }
 
+function defaultScheduleStats(callback: () => void): void {
+  const scheduler = globalThis as typeof globalThis & {
+    requestIdleCallback?: (idleCallback: () => void, options?: { timeout: number }) => number;
+  };
+  if (typeof scheduler.requestIdleCallback === 'function') {
+    scheduler.requestIdleCallback(callback, { timeout: 500 });
+    return;
+  }
+  setTimeout(callback, 0);
+}
+
 export function createRecordsRenderCoordinator(
   options: CreateRecordsRenderCoordinatorOptions,
 ): RecordsRenderCoordinator {
+  const scheduleStats = options.scheduleStats || defaultScheduleStats;
   const render = () => {
     const useIDB = options.shouldUseIDB();
     options.setServerModeActive(useIDB);
@@ -31,7 +45,11 @@ export function createRecordsRenderCoordinator(
       if (options.showLoading) options.showLoading();
       else defaultShowLoading(options.videoList);
       options.renderServerPage().finally(() => {
-        void options.updateStats();
+        if (options.isActive && !options.isActive()) return;
+        scheduleStats(() => {
+          if (options.isActive && !options.isActive()) return;
+          void options.updateStats();
+        });
       });
       return;
     }

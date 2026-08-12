@@ -1,6 +1,7 @@
 // src/dashboard/listeners/insights.ts
 
-import { initOrUpdateHomeCharts } from '../home/charts';
+import { initOrUpdateHomeCharts, invalidateHomeOverview } from '../home/charts';
+import { shouldRefreshHomeCharts } from './insightsRefreshPolicy';
 
 export function createInsightsRefreshScheduler(
   refresh: () => void | Promise<void>,
@@ -30,6 +31,21 @@ export function createInsightsRefreshScheduler(
   return schedule;
 }
 
+export type InsightsViewsChangedContext = {
+  activeTabId: string | null;
+  visibilityState: DocumentVisibilityState;
+};
+
+export function handleInsightsViewsChanged(
+  context: InsightsViewsChangedContext,
+  invalidate: () => void,
+  schedule: () => void,
+): void {
+  if (!shouldRefreshHomeCharts(context)) return;
+  invalidate();
+  schedule();
+}
+
 export function bindInsightsListeners(): void {
   try {
     const W: any = window as any;
@@ -38,7 +54,12 @@ export function bindInsightsListeners(): void {
       chrome.runtime.onMessage.addListener((msg: any) => {
         try {
           if (msg && msg.type === 'DB:INSIGHTS_VIEWS_CHANGED') {
-            scheduleRefresh();
+            const activeTabId = document.querySelector<HTMLElement>('.tab-content.active')?.id ?? null;
+            handleInsightsViewsChanged(
+              { activeTabId, visibilityState: document.visibilityState },
+              invalidateHomeOverview,
+              scheduleRefresh,
+            );
           }
         } catch {}
       });

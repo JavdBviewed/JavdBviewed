@@ -1,14 +1,31 @@
 // src/dashboard/home/charts.ts
 
-import { dbViewedStats, dbNewWorksStats, dbInsViewsRange, dbTrendsRecordsRange, dbTrendsActorsRange, dbTrendsNewWorksRange, dbNewWorksDailyStatRefresh, ensureBackgroundReady } from '../dbClient';
+import { dbInsViewsRange, dbTrendsRecordsRange, dbTrendsActorsRange, dbTrendsNewWorksRange, dbNewWorksDailyStatRefresh, ensureBackgroundReady } from '../dbClient';
 import { aggregateMonthly } from '../../features/insights';
 import { initStatsOverview, initHomeSectionsOverview } from './overview';
 import { themeManager } from '../services/themeManager';
 import { shouldRefreshHomeOverview } from './homeRefreshPolicy';
 import { createRefreshCoordinator } from './refreshCoordinator';
-import { loadHomeOverviewData } from './homeOverviewLoader';
+import {
+  loadHomeOverviewStages,
+} from './homeOverviewLoader';
 import { buildHomeStatusData } from './homeChartData';
-import { yieldToBrowser } from './homeRenderScheduler';
+import { createHomeChartRenderQueue, scheduleHomeChartRender, yieldToBrowser } from './homeRenderScheduler';
+import {
+  createHomeChartLifecycle,
+  disposeChartRegistry,
+  type HomeChartSession,
+} from './homeChartLifecycle';
+import { invalidateHomeStatsSnapshot, loadHomeStatsSnapshot } from './homeStatsSnapshot';
+import {
+  getHomeChartRenderPlan,
+  readHomeChartDiagnosticConfig,
+  type HomeChartRenderPlan,
+} from './homeChartDiagnosticMode';
+import {
+  getHomeEchartsInitOptions,
+  withHomeChartRenderPolicy,
+} from './homeChartRenderPolicy';
 
 function installCanvasDirectionGuard(): void {
   try {
@@ -235,7 +252,7 @@ function updateG2Plot(
   }
   try { current?.destroy?.(); } catch {}
   try { current?.dispose?.(); } catch {}
-  const plot = new Plot(el, { animation: false, ...options, data });
+  const plot = new Plot(el, withHomeChartRenderPolicy({ ...options, data }));
   plot.render();
   charts[key] = plot;
   charts[`${key}Element`] = el;
@@ -253,13 +270,15 @@ interface HomeTrendRenderArgs {
   colors: Record<string, string>;
   linePlot: any;
   charts: Record<string, any>;
+  canRender: () => boolean;
 }
 
 async function renderHomeTrendCharts(args: HomeTrendRenderArgs): Promise<void> {
-  const { recordsTrendEl, actorsTrendEl, newWorksTrendEl, range, records, actors, newWorks, colors, linePlot, charts } = args;
+  const { recordsTrendEl, actorsTrendEl, newWorksTrendEl, range, records, actors, newWorks, colors, linePlot, charts, canRender } = args;
   try {
     if (recordsTrendEl) {
       await yieldToBrowser();
+      if (!canRender()) return;
       hideChartLoading(recordsTrendEl);
       let data = ([] as any[]).concat(
         records.map((point: any) => ({ date: point.date, type: '总记录', value: point.total })),
@@ -295,6 +314,7 @@ async function renderHomeTrendCharts(args: HomeTrendRenderArgs): Promise<void> {
 
     if (actorsTrendEl) {
       await yieldToBrowser();
+      if (!canRender()) return;
       hideChartLoading(actorsTrendEl);
       let data = ([] as any[]).concat(
         actors.map((point: any) => ({ date: point.date, type: '总演员数', value: point.total })),
@@ -330,6 +350,7 @@ async function renderHomeTrendCharts(args: HomeTrendRenderArgs): Promise<void> {
 
     if (newWorksTrendEl) {
       await yieldToBrowser();
+      if (!canRender()) return;
       hideChartLoading(newWorksTrendEl);
       let data = ([] as any[]).concat(
         newWorks.map((point: any) => ({ date: point.date, type: '当天总量', value: point.total })),
@@ -362,23 +383,85 @@ async function renderHomeTrendCharts(args: HomeTrendRenderArgs): Promise<void> {
 }
 
 let homeChartsThemeListenerBound = false;
+let homeChartsPageLifecycleBound = false;
 let homeOverviewRefreshPromise: Promise<void> | null = null;
 let homeOverviewInitialized = false;
+let homeOverviewNeedsRender = false;
+let homeOverviewHasRendered = false;
 let homeNewWorksDailyStatRefreshed = false;
-function bindHomeChartsThemeListener(): void {
-  if (homeChartsThemeListenerBound) return;
-  homeChartsThemeListenerBound = true;
+
+const homeChartLifecycle = createHomeChartLifecycle();
+
+function isHomeTabActive(): boolean {
   try {
-    themeManager.onThemeChange(() => {
-      try { initOrUpdateHomeCharts(); } catch {}
+    const activeTab = document.querySelector<HTMLElement>('.tab-content.active');
+    return document.visibilityState !== 'hidden' && (!activeTab || activeTab.id === 'tab-home');
+  } catch {
+    return false;
+  }
+}
+
+function isHomeChartSessionActive(session: HomeChartSession): boolean {
+  return homeChartLifecycle.isCurrent(session) && isHomeTabActive();
+}
+
+export function disposeHomeCharts(options: { preserveOverviewRender?: boolean } = {}): void {
+  homeChartLifecycle.dispose();
+  if (options.preserveOverviewRender !== true) homeOverviewNeedsRender = false;
+  homeOverviewHasRendered = false;
+  const charts = (window as any).__HOME_CHARTS__ as Record<string, unknown> | undefined;
+  if (!charts) return;
+  try {
+    const trendRenderTask = charts.__trendRenderTask as { cancel?: () => void } | undefined;
+    trendRenderTask?.cancel?.();
+    delete charts.__trendRenderTask;
+  } catch {}
+  try {
+    const resizeCleanup = charts._resizeCleanup;
+    if (typeof resizeCleanup === 'function') resizeCleanup();
+  } catch {}
+  disposeChartRegistry(charts);
+}
+
+function bindHomeChartsPageLifecycle(): void {
+  if (homeChartsPageLifecycleBound) return;
+  homeChartsPageLifecycleBound = true;
+  try {
+    window.addEventListener('pagehide', () => disposeHomeCharts());
+    window.addEventListener('tab:hide', (event: Event) => {
+      const detail = (event as CustomEvent<{ tabId?: string }>).detail;
+      if (detail?.tabId !== 'tab-home') return;
+      // 隐藏时使未完成的异步渲染失效，但保留已绘制的图表表面供恢复时复用。
+      homeChartLifecycle.cancel();
     });
   } catch {}
 }
 
-async function renderHomeChartsWithEcharts(): Promise<void> {
+function bindHomeChartsThemeListener(): void {
+  if (homeChartsThemeListenerBound) return;
+  homeChartsThemeListenerBound = true;
   try {
+    const onThemeChange = () => {
+      if (!isHomeTabActive()) {
+        homeOverviewNeedsRender = true;
+        return;
+      }
+      try { initOrUpdateHomeCharts(); } catch {}
+    };
+    themeManager.onThemeChange(onThemeChange);
+  } catch {}
+}
+
+async function renderHomeChartsWithEcharts(
+  session: HomeChartSession,
+  plan: HomeChartRenderPlan,
+): Promise<void> {
+  try {
+    const canRender = () => isHomeChartSessionActive(session);
+    if (!canRender()) return;
     installCanvasDirectionGuard();
     try { await ensureBackgroundReady(); } catch {}
+    if (!canRender()) return;
     const statusShell = getChartShell('homeStatusDonut') as HTMLDivElement | null;
     const barsShell = getChartShell('homeNewWorksBars') as HTMLDivElement | null;
     const recordsTrendShell = getChartShell('homeRecordsTrend') as HTMLDivElement | null;
@@ -387,14 +470,14 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
     const tagsShell = getChartShell('homeTagsTop') as HTMLDivElement | null;
     const changeShell = getChartShell('homeTagsChange') as HTMLDivElement | null;
     const newTagsShell = getChartShell('homeNewTagsTop') as HTMLDivElement | null;
-    const statusEl = getChartBody(statusShell);
-    const barsEl = getChartBody(barsShell);
-    const recordsTrendEl = getChartBody(recordsTrendShell);
-    const actorsTrendEl = getChartBody(actorsTrendShell);
-    const newWorksTrendEl = getChartBody(newWorksTrendShell);
-    const tagsEl = getChartBody(tagsShell);
-    const changeEl = getChartBody(changeShell);
-    const newTagsEl = getChartBody(newTagsShell);
+    const statusEl = plan.enabled.status ? getChartBody(statusShell) : null;
+    const barsEl = plan.enabled.bars ? getChartBody(barsShell) : null;
+    const recordsTrendEl = plan.enabled.recordsTrend ? getChartBody(recordsTrendShell) : null;
+    const actorsTrendEl = plan.enabled.actorsTrend ? getChartBody(actorsTrendShell) : null;
+    const newWorksTrendEl = plan.enabled.newWorksTrend ? getChartBody(newWorksTrendShell) : null;
+    const tagsEl = plan.enabled.tags ? getChartBody(tagsShell) : null;
+    const changeEl = plan.enabled.change ? getChartBody(changeShell) : null;
+    const newTagsEl = plan.enabled.newTags ? getChartBody(newTagsShell) : null;
     if (!statusEl && !barsEl && !recordsTrendEl && !actorsTrendEl && !newWorksTrendEl && !tagsEl && !changeEl && !newTagsEl) return;
     const ech = await ensureEchartsLoaded();
     if (!ech) return;
@@ -405,18 +488,20 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
       const cur = HC[key];
       if (cur && cur.getDom && cur.getDom() === el) return cur;
       if (cur && cur.dispose) { try { cur.dispose(); } catch {} }
-      const inst = ech.init(el);
+      const inst = ech.init(el, undefined, getHomeEchartsInitOptions());
       HC[key] = inst;
       return inst;
     };
     if (!HC._resizeBound) {
       try {
-        window.addEventListener('resize', () => {
+        const onResize = () => {
           ['statusDonut','newWorksBars','activityTrend','tagsTop','tagsChange','newTagsTop','recordsTrend','actorsTrend','newWorksTrend'].forEach((k: string) => {
             const c = HC[k];
             if (c && c.resize) { try { c.resize(); } catch {} }
           });
-        });
+        };
+        window.addEventListener('resize', onResize);
+        HC._resizeCleanup = () => window.removeEventListener('resize', onResize);
         HC._resizeBound = true;
       } catch {}
     }
@@ -447,8 +532,11 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
     let s: any = null, w: any = null, insRange: any = null, insAll: any = null, viewsArrRange: any[] = [];
     const parse = (s: string) => { try { const [Y,M,D] = String(s||'').split('-').map((n) => Number(n)); return new Date(Y, (M||1)-1, D||1); } catch { return new Date(); } };
     const msDay = 24*60*60*1000;
-    try { s = await dbViewedStats(); } catch {}
-    try { w = await dbNewWorksStats(); } catch {}
+    try {
+      const stats = await loadHomeStatsSnapshot();
+      s = stats.viewedStats;
+      w = stats.newWorksStats;
+    } catch {}
     try {
       const { start: startStr, end: endStr } = getHomeChartsRange();
       const sDate = parse(startStr), eDate = parse(endStr);
@@ -460,9 +548,11 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
       insRange = aggregateMonthly(viewsArrRange || [], { topN: 8, previousDays: prevArr || [] });
       try { console.info('[INSIGHTS] home echarts range', { start: startStr, end: endStr, views: (viewsArrRange || []).length, trend: Array.isArray(insRange?.trend) ? insRange.trend.length : 0 }); } catch {}
     } catch {}
+    if (!canRender()) return;
 
     try {
       if (statusEl) {
+        if (!canRender()) return;
         const c = getChart(statusEl, 'statusDonut');
         if (c) {
           const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
@@ -521,6 +611,7 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
 
     try {
       if (barsEl) {
+        if (!canRender()) return;
         const c = getChart(barsEl, 'newWorksBars');
         if (c) {
           const vals = [w?.today ?? 0, w?.week ?? 0, w?.unread ?? 0];
@@ -538,20 +629,23 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
 
     try {
       if (tagsEl) {
-        const c = getChart(tagsEl, 'tagsTop');
-        if (c) {
-          const full = await getTagsTopFromRecords(50);
-          const pager = document.getElementById('homeTagsPager') as HTMLDivElement | null;
-          const prevBtn = document.getElementById('homeTagsPrevBtn') as HTMLButtonElement | null;
-          const nextBtn = document.getElementById('homeTagsNextBtn') as HTMLButtonElement | null;
-          const pageText = document.getElementById('homeTagsPageText') as HTMLSpanElement | null;
-          const pageSize = 10;
-          const totalPages = Math.max(1, Math.ceil(full.length / pageSize));
-          const color = (idx: number) => ['#60a5fa','#34d399','#fbbf24','#f472b6','#a78bfa','#f59e0b','#ef4444','#06b6d4','#84cc16','#fb7185'][idx % 10];
+        if (!canRender()) return;
+        const full = await getTagsTopFromRecords(50);
+        if (!canRender()) return;
+        const pager = document.getElementById('homeTagsPager') as HTMLDivElement | null;
+        const prevBtn = document.getElementById('homeTagsPrevBtn') as HTMLButtonElement | null;
+        const nextBtn = document.getElementById('homeTagsNextBtn') as HTMLButtonElement | null;
+        const pageText = document.getElementById('homeTagsPageText') as HTMLSpanElement | null;
+        const pageSize = 10;
+        const totalPages = Math.max(1, Math.ceil(full.length / pageSize));
+        const color = (idx: number) => ['#60a5fa','#34d399','#fbbf24','#f472b6','#a78bfa','#f59e0b','#ef4444','#06b6d4','#84cc16','#fb7185'][idx % 10];
+        let chart: any = null;
 
-          const ctrl: any = {
-            page: 0,
-            render() {
+        const ctrl: any = {
+          page: 0,
+          render() {
+            if (!chart) chart = getChart(tagsEl, 'tagsTop');
+            if (!chart) return;
               const start = this.page * pageSize;
               const pageData = full.slice(start, start + pageSize);
               const option = {
@@ -561,33 +655,35 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
                 yAxis: { type: 'category', axisTick: { show: false }, axisLine: { lineStyle: { color: COLORS.border } }, axisLabel: { color: COLORS.muted } },
                 series: [{ type: 'bar', encode: { x: 'value', y: 'label' }, label: { show: true, position: 'right', color: COLORS.text }, itemStyle: { color: (p: any) => p.data.color, borderRadius: [0,6,6,0] }, barMaxWidth: 18 }]
               };
-              try { c.setOption(option as any, true); } catch { c.setOption(option as any); }
+              try { chart.setOption(option as any, true); } catch { chart.setOption(option as any); }
               this.updatePager();
-            },
-            updatePager() {
-              try { if (pageText) pageText.textContent = `${this.page + 1}/${totalPages}`; } catch {}
-              try { if (prevBtn) prevBtn.disabled = (this.page <= 0); } catch {}
-              try { if (nextBtn) nextBtn.disabled = ((this.page + 1) >= totalPages); } catch {}
-            }
-          };
-          (W as any).__HOME_CHARTS__.__tagsTopPager = ctrl;
-          ctrl.render();
+          },
+          updatePager() {
+            try { if (pageText) pageText.textContent = `${this.page + 1}/${totalPages}`; } catch {}
+            try { if (prevBtn) prevBtn.disabled = (this.page <= 0); } catch {}
+            try { if (nextBtn) nextBtn.disabled = ((this.page + 1) >= totalPages); } catch {}
+          }
+        };
+        (W as any).__HOME_CHARTS__.__tagsTopPager = ctrl;
+        const renderTask = scheduleHomeChartRender(() => {
+          if (canRender()) ctrl.render();
+        });
+        (W as any).__HOME_CHARTS__.__tagsTopRenderTask = renderTask;
 
-          if (pager) {
-            if (prevBtn && !(prevBtn as any)._bound) {
-              prevBtn.onclick = () => {
-                const P = (W as any).__HOME_CHARTS__?.__tagsTopPager; if (!P) return;
-                if (P.page > 0) { P.page--; P.render(); }
-              };
-              (prevBtn as any)._bound = true;
-            }
-            if (nextBtn && !(nextBtn as any)._bound) {
-              nextBtn.onclick = () => {
-                const P = (W as any).__HOME_CHARTS__?.__tagsTopPager; if (!P) return;
-                if ((P.page + 1) < totalPages) { P.page++; P.render(); }
-              };
-              (nextBtn as any)._bound = true;
-            }
+        if (pager) {
+          if (prevBtn && !(prevBtn as any)._bound) {
+            prevBtn.onclick = () => {
+              const P = (W as any).__HOME_CHARTS__?.__tagsTopPager; if (!P) return;
+              if (P.page > 0) { P.page--; P.render(); }
+            };
+            (prevBtn as any)._bound = true;
+          }
+          if (nextBtn && !(nextBtn as any)._bound) {
+            nextBtn.onclick = () => {
+              const P = (W as any).__HOME_CHARTS__?.__tagsTopPager; if (!P) return;
+              if ((P.page + 1) < totalPages) { P.page++; P.render(); }
+            };
+            (nextBtn as any)._bound = true;
           }
         }
       }
@@ -595,6 +691,7 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
 
     try {
       if (changeEl) {
+        if (!canRender()) return;
         const c = getChart(changeEl, 'tagsChange');
         if (c) {
           const rising = Array.isArray((insRange as any)?.changes?.risingDetailed) ? (insRange as any).changes.risingDetailed : [];
@@ -627,6 +724,7 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
     // 新增标签 Top 5（ECharts）
     try {
       if (newTagsEl) {
+        if (!canRender()) return;
         const c = getChart(newTagsEl, 'newTagsTop');
         if (c) {
           const list = Array.isArray((insRange as any)?.changes?.newTagsDetailed) ? (insRange as any).changes.newTagsDetailed : [];
@@ -644,11 +742,68 @@ async function renderHomeChartsWithEcharts(): Promise<void> {
   } catch {}
 }
 
+function getHomeOverviewStages(
+  range: { start: string; end: string },
+  needs: {
+    statusStats: boolean;
+    newWorksStats: boolean;
+    tagsTop: boolean;
+    trends: boolean;
+    insights: boolean;
+  } = {
+    statusStats: true,
+    newWorksStats: true,
+    tagsTop: true,
+    trends: true,
+    insights: true,
+  },
+) {
+  const emptyViews = () => Promise.resolve([]);
+  const emptyStats = () => Promise.resolve({});
+  const emptyTags = () => Promise.resolve([] as Array<{ name: string; count: number }>);
+  return loadHomeOverviewStages(range, {
+    viewedStats: needs.statusStats
+      ? () => loadHomeStatsSnapshot().then((stats) => stats.viewedStats)
+      : emptyStats,
+    newWorksStats: needs.newWorksStats
+      ? () => loadHomeStatsSnapshot().then((stats) => stats.newWorksStats)
+      : emptyStats,
+    previousViews: needs.insights
+      ? (startDate, endDate) => dbInsViewsRange(startDate, endDate).catch(() => [])
+      : emptyViews,
+    currentViews: needs.insights
+      ? (startDate, endDate) => dbInsViewsRange(startDate, endDate).catch(() => [])
+      : emptyViews,
+    tagsTop: needs.tagsTop
+      ? (limit) => getTagsTopFromRecords(limit)
+      : emptyTags,
+    recordsTrend: needs.trends
+      ? (startDate, endDate, mode) => dbTrendsRecordsRange(startDate, endDate, mode).catch(() => [])
+      : emptyViews,
+    actorsTrend: needs.trends
+      ? (startDate, endDate, mode) => dbTrendsActorsRange(startDate, endDate, mode).catch(() => [])
+      : emptyViews,
+    newWorksTrend: needs.trends
+      ? (startDate, endDate, mode) => dbTrendsNewWorksRange(startDate, endDate, mode).catch(() => [])
+      : emptyViews,
+  });
+
+}
+
 async function renderHomeCharts(): Promise<void> {
   try {
+    if (!isHomeTabActive()) return;
+    const session = homeChartLifecycle.begin();
+    const plan = getHomeChartRenderPlan(readHomeChartDiagnosticConfig());
+    if (!Object.values(plan.enabled).some(Boolean)) {
+      if (isHomeChartSessionActive(session)) homeOverviewHasRendered = true;
+      return;
+    }
+    bindHomeChartsPageLifecycle();
     installCanvasDirectionGuard();
     bindHomeChartsThemeListener();
     try { await ensureBackgroundReady(); } catch {}
+    if (!isHomeChartSessionActive(session)) return;
     const statusShell = getChartShell('homeStatusDonut') as HTMLDivElement | null;
     const barsShell = getChartShell('homeNewWorksBars') as HTMLDivElement | null;
     const trendShell = getChartShell('homeActivityTrend') as HTMLDivElement | null;
@@ -658,15 +813,15 @@ async function renderHomeCharts(): Promise<void> {
     const recordsTrendShell = getChartShell('homeRecordsTrend') as HTMLDivElement | null;
     const actorsTrendShell = getChartShell('homeActorsTrend') as HTMLDivElement | null;
     const newWorksTrendShell = getChartShell('homeNewWorksTrend') as HTMLDivElement | null;
-    const statusEl = getChartBody(statusShell);
-    const barsEl = getChartBody(barsShell);
-    const trendEl = getChartBody(trendShell);
-    const tagsEl = getChartBody(tagsShell);
-    const changeEl = getChartBody(changeShell);
-    const newTagsEl = getChartBody(newTagsShell);
-    const recordsTrendEl = getChartBody(recordsTrendShell);
-    const actorsTrendEl = getChartBody(actorsTrendShell);
-    const newWorksTrendEl = getChartBody(newWorksTrendShell);
+    const statusEl = plan.enabled.status ? getChartBody(statusShell) : null;
+    const barsEl = plan.enabled.bars ? getChartBody(barsShell) : null;
+    const trendEl = null;
+    const tagsEl = plan.enabled.tags ? getChartBody(tagsShell) : null;
+    const changeEl = plan.enabled.change ? getChartBody(changeShell) : null;
+    const newTagsEl = plan.enabled.newTags ? getChartBody(newTagsShell) : null;
+    const recordsTrendEl = plan.enabled.recordsTrend ? getChartBody(recordsTrendShell) : null;
+    const actorsTrendEl = plan.enabled.actorsTrend ? getChartBody(actorsTrendShell) : null;
+    const newWorksTrendEl = plan.enabled.newWorksTrend ? getChartBody(newWorksTrendShell) : null;
     if (!statusEl && !barsEl && !trendEl && !tagsEl && !changeEl && !newTagsEl && !recordsTrendEl && !actorsTrendEl && !newWorksTrendEl) return;
     if (newWorksTrendEl && !homeNewWorksDailyStatRefreshed) {
       try { await dbNewWorksDailyStatRefresh(); } catch {}
@@ -695,11 +850,24 @@ async function renderHomeCharts(): Promise<void> {
     
     const chartElements = [statusEl, barsEl, tagsEl, changeEl, newTagsEl, recordsTrendEl, actorsTrendEl, newWorksTrendEl].filter(Boolean) as HTMLElement[];
     chartElements.forEach(showLoading);
+    if (plan.renderer === 'echarts') {
+      await renderHomeChartsWithEcharts(session, plan);
+      if (isHomeChartSessionActive(session)) homeOverviewHasRendered = true;
+      return;
+    }
     const G2P: any = await ensureG2PlotLoaded();
-    if (!G2P) { await renderHomeChartsWithEcharts(); return; }
+    if (!isHomeChartSessionActive(session)) return;
+    if (!G2P) {
+      if (plan.renderer === 'g2plot') return;
+      await renderHomeChartsWithEcharts(session, plan);
+      if (isHomeChartSessionActive(session)) homeOverviewHasRendered = true;
+      return;
+    }
     const { Column, Line, Bar, Pie } = G2P;
     const W: any = window as any;
     const HC: any = (W.__HOME_CHARTS__ = W.__HOME_CHARTS__ || {});
+    const summaryRenderQueue = createHomeChartRenderQueue();
+    HC.__summaryRenderQueue = summaryRenderQueue;
     const getVar = (name: string, fallback: string) => {
       try {
         const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -721,44 +889,52 @@ async function renderHomeCharts(): Promise<void> {
     const r = getHomeChartsRange();
     let s: any = null, w: any = null, ins: any = null, homeTagsTop: Array<{ name: string; count: number }> = [];
     let homeTrendRecords: any[] = [], homeTrendActors: any[] = [], homeTrendNewWorks: any[] = [];
+    let overviewSummary: Promise<{ viewedStats: any; newWorksStats: any; tagsTop: Array<{ name: string; count: number }> }> = Promise.resolve({ viewedStats: {}, newWorksStats: {}, tagsTop: [] });
     try {
-      const homeData = await loadHomeOverviewData(r, {
-        viewedStats: () => dbViewedStats().catch(() => ({})),
-        newWorksStats: () => dbNewWorksStats().catch(() => ({})),
-        previousViews: (startDate, endDate) => dbInsViewsRange(startDate, endDate).catch(() => []),
-        currentViews: (startDate, endDate) => dbInsViewsRange(startDate, endDate).catch(() => []),
-        tagsTop: (limit) => getTagsTopFromRecords(limit),
-        recordsTrend: (startDate, endDate, mode) => dbTrendsRecordsRange(startDate, endDate, mode).catch(() => []),
-        actorsTrend: (startDate, endDate, mode) => dbTrendsActorsRange(startDate, endDate, mode).catch(() => []),
-        newWorksTrend: (startDate, endDate, mode) => dbTrendsNewWorksRange(startDate, endDate, mode).catch(() => []),
-      });
-      s = homeData.viewedStats;
-      w = homeData.newWorksStats;
-      ins = homeData.insights;
-      homeTagsTop = homeData.tagsTop;
-      homeTrendRecords = homeData.trends.records;
-      homeTrendActors = homeData.trends.actors;
-      homeTrendNewWorks = homeData.trends.newWorks;
-      try { console.info('[INSIGHTS] home g2plot range', { start: r.start, end: r.end, trend: Array.isArray(ins?.trend) ? ins.trend.length : 0, tagsTop: homeTagsTop.length }); } catch {}
+      const overviewStages = getHomeOverviewStages(r, plan.needs);
+      const trendData = await overviewStages.trends;
+      overviewSummary = overviewStages.summary;
+      ins = trendData.insights;
+      homeTrendRecords = trendData.trends.records;
+      homeTrendActors = trendData.trends.actors;
+      homeTrendNewWorks = trendData.trends.newWorks;
+      try { console.info('[INSIGHTS] home g2plot range', { start: r.start, end: r.end, trend: Array.isArray(ins?.trend) ? ins.trend.length : 0 }); } catch {}
     } catch {}
 
-    // 趋势行位于页面首屏，先完成它，避免下方图表阻塞用户看到的核心数据。
-    await renderHomeTrendCharts({
-      recordsTrendEl,
-      actorsTrendEl,
-      newWorksTrendEl,
-      range: r,
-      records: homeTrendRecords,
-      actors: homeTrendActors,
-      newWorks: homeTrendNewWorks,
-      colors: COLORS,
-      linePlot: Line,
-      charts: HC,
-    });
+    // 趋势图不是首屏交互必需项，延迟到空闲时段，避免阻塞摘要和导航响应。
+    try {
+      const previousTrendTask = HC.__trendRenderTask as { cancel?: () => void } | undefined;
+      previousTrendTask?.cancel?.();
+      HC.__trendRenderTask = scheduleHomeChartRender(() => {
+        void renderHomeTrendCharts({
+          recordsTrendEl,
+          actorsTrendEl,
+          newWorksTrendEl,
+          range: r,
+          records: homeTrendRecords,
+          actors: homeTrendActors,
+          newWorks: homeTrendNewWorks,
+          colors: COLORS,
+          linePlot: Line,
+          charts: HC,
+          canRender: () => isHomeChartSessionActive(session),
+        });
+      }, { timeoutMs: 900 });
+    } catch {}
+
+    try {
+      const summary = await overviewSummary;
+      if (!isHomeChartSessionActive(session)) return;
+      s = summary.viewedStats;
+      w = summary.newWorksStats;
+      homeTagsTop = summary.tagsTop;
+      try { console.info('[INSIGHTS] home g2plot summary ready', { tagsTop: homeTagsTop.length }); } catch {}
+    } catch {}
 
     try {
       if (statusEl) {
         await yieldToBrowser();
+        if (!isHomeChartSessionActive(session)) return;
         hideLoading(statusEl);
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
         const data = buildHomeStatusData(s, COLORS, isDark);
@@ -783,6 +959,7 @@ async function renderHomeCharts(): Promise<void> {
     try {
       if (barsEl) {
         await yieldToBrowser();
+        if (!isHomeChartSessionActive(session)) return;
         hideLoading(barsEl);
         const data = [
           { type: '今日发现', value: w?.today ?? 0 },
@@ -804,6 +981,7 @@ async function renderHomeCharts(): Promise<void> {
     try {
       if (tagsEl) {
         await yieldToBrowser();
+        if (!isHomeChartSessionActive(session)) return;
         const full = homeTagsTop;
         const pageSize = 10;
         const totalPages = Math.max(1, Math.ceil(full.length / pageSize));
@@ -839,7 +1017,7 @@ async function renderHomeCharts(): Promise<void> {
                   this.isFirstRender = false;
                 }
                 
-                 const plot = new Bar(tagsEl, { animation: false, ...buildHomeTagsBarOptions(list, tagTheme) });
+                 const plot = new Bar(tagsEl, withHomeChartRenderPolicy(buildHomeTagsBarOptions(list, tagTheme)));
                 plot.render();
                 HC['tagsTop'] = plot;
               }
@@ -852,7 +1030,7 @@ async function renderHomeCharts(): Promise<void> {
                 this.isFirstRender = false;
               }
               
-               const plot = new Bar(tagsEl, { animation: false, ...buildHomeTagsBarOptions(list, tagTheme) });
+               const plot = new Bar(tagsEl, withHomeChartRenderPolicy(buildHomeTagsBarOptions(list, tagTheme)));
               plot.render();
               HC['tagsTop'] = plot;
             }
@@ -865,7 +1043,10 @@ async function renderHomeCharts(): Promise<void> {
           }
         };
         HC.__tagsTopPager = ctrl;
-        ctrl.render();
+        const renderTask = scheduleHomeChartRender(() => {
+          if (isHomeChartSessionActive(session)) ctrl.render();
+        });
+        HC.__tagsTopRenderTask = renderTask;
 
         if (pager) {
           if (prevBtn && !(prevBtn as any)._bound) {
@@ -888,9 +1069,6 @@ async function renderHomeCharts(): Promise<void> {
 
     try {
       if (changeEl) {
-        await yieldToBrowser();
-        hideLoading(changeEl);
-        
         const rising = Array.isArray((ins as any)?.changes?.risingDetailed) ? (ins as any).changes.risingDetailed : [];
         const falling = Array.isArray((ins as any)?.changes?.fallingDetailed) ? (ins as any).changes.fallingDetailed : [];
         const changes = ([] as any[])
@@ -898,32 +1076,40 @@ async function renderHomeCharts(): Promise<void> {
           .concat(falling.map((d: any) => ({ name: d.name, value: Number((d.diffRatio || 0) * 100) })))
           .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
           .slice(0, 10);
-        updateG2Plot(HC, 'tagsChange', Bar, changeEl, {
+        const renderChange = () => {
+          if (!isHomeChartSessionActive(session)) return;
+          hideLoading(changeEl);
+          updateG2Plot(HC, 'tagsChange', Bar, changeEl, {
           xField: 'value', yField: 'name', legend: false, autoFit: true,
           barStyle: { radius: [0, 6, 6, 0] }, label: { position: 'right', formatter: (d: any) => `${d.value > 0 ? '+' : ''}${(d.value as number).toFixed ? (d.value as number).toFixed(2) : d.value}%` }, tooltip: { showTitle: false },
           xAxis: { nice: true }, yAxis: { label: { autoHide: true, autoEllipsis: true } },
           color: (d: any) => d.value >= 0 ? '#16a34a' : '#ef4444',
-        }, changes);
+          }, changes);
+        };
+        summaryRenderQueue.enqueue(renderChange);
       }
     } catch {}
 
     // 新增标签 Top 5（G2Plot）
     try {
       if (newTagsEl) {
-        await yieldToBrowser();
-        hideLoading(newTagsEl);
-        
         const list = Array.isArray((ins as any)?.changes?.newTagsDetailed) ? (ins as any).changes.newTagsDetailed : [];
         const top = list.slice(0, 5).map((d: any, i: number) => ({ name: d.name, value: Number(d.count || 0), color: ['#60a5fa','#34d399','#fbbf24','#f472b6','#a78bfa'][i % 5] }));
-        updateG2Plot(HC, 'newTagsTop', Bar, newTagsEl, {
+        const renderNewTags = () => {
+          if (!isHomeChartSessionActive(session)) return;
+          hideLoading(newTagsEl);
+          updateG2Plot(HC, 'newTagsTop', Bar, newTagsEl, {
           xField: 'value', yField: 'name', legend: false, autoFit: true,
           barStyle: { radius: [0, 6, 6, 0] }, label: { position: 'right' }, tooltip: { showTitle: false },
           xAxis: { min: 0, nice: true }, yAxis: { label: { autoHide: true, autoEllipsis: true } },
           color: (d: any) => d.color,
-        }, top);
+          }, top);
+        };
+        summaryRenderQueue.enqueue(renderNewTags);
       }
     } catch {}
 
+    if (isHomeChartSessionActive(session)) homeOverviewHasRendered = true;
   } catch {}
 }
 
@@ -934,8 +1120,33 @@ export function initOrUpdateHomeCharts(): Promise<void> {
 }
 
 export async function refreshHomeOverview(options: { force?: boolean } = {}): Promise<void> {
-  if (!shouldRefreshHomeOverview({ initialized: homeOverviewInitialized, force: options.force })) return;
+  if (!shouldRefreshHomeOverview({
+    initialized: homeOverviewInitialized,
+    force: options.force,
+    needsRender: homeOverviewNeedsRender,
+  })) return;
   if (homeOverviewRefreshPromise) return homeOverviewRefreshPromise;
+
+  if (options.force) {
+    invalidateHomeStatsSnapshot();
+    homeOverviewInitialized = false;
+    homeOverviewNeedsRender = false;
+    homeOverviewHasRendered = false;
+  }
+
+  if (homeOverviewInitialized) {
+    homeOverviewNeedsRender = false;
+    homeOverviewRefreshPromise = initOrUpdateHomeCharts();
+    try {
+      await homeOverviewRefreshPromise;
+    } finally {
+      homeOverviewRefreshPromise = null;
+    }
+    return;
+  }
+
+  // 先占位，避免快速离开/返回时把同一轮首页查询重复启动。
+  homeOverviewInitialized = true;
   homeOverviewRefreshPromise = (async () => {
     try {
       if (options.force) homeNewWorksDailyStatRefreshed = false;
@@ -948,6 +1159,13 @@ export async function refreshHomeOverview(options: { force?: boolean } = {}): Pr
     }
   })();
   return homeOverviewRefreshPromise;
+}
+
+export function invalidateHomeOverview(): void {
+  invalidateHomeStatsSnapshot();
+  homeOverviewInitialized = false;
+  homeOverviewNeedsRender = false;
+  homeOverviewHasRendered = false;
 }
 
 export function bindHomeRefreshButton(): void {

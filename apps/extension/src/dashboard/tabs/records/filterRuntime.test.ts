@@ -32,10 +32,10 @@ describe('records filter runtime', () => {
     let filteredRecords: VideoRecord[] = [];
 
     const controllers = {
-      tags: { refresh: vi.fn() },
-      lists: { refresh: vi.fn() },
-      series: { refresh: vi.fn() },
-      labels: { refresh: vi.fn() },
+      tags: { refresh: vi.fn(), clearRenderedOptions: vi.fn() },
+      lists: { refresh: vi.fn(), clearRenderedOptions: vi.fn() },
+      series: { refresh: vi.fn(), clearRenderedOptions: vi.fn() },
+      labels: { refresh: vi.fn(), clearRenderedOptions: vi.fn() },
     };
     const backdropController = {
       sync: vi.fn(),
@@ -108,6 +108,7 @@ describe('records filter runtime', () => {
 
     runtime.syncDropdownBackdrop();
     runtime.updateFilteredRecords();
+    runtime.clearRenderedOptions();
 
     const filterOptions = createFilterControllers.mock.calls[0][0];
     const backdropOptions = createDropdownBackdropController.mock.calls[0][0];
@@ -160,5 +161,9 @@ describe('records filter runtime', () => {
     expect(controllers.lists.refresh).toHaveBeenCalledTimes(1);
     expect(controllers.series.refresh).toHaveBeenCalledTimes(1);
     expect(controllers.labels.refresh).toHaveBeenCalledTimes(1);
+    expect(controllers.tags.clearRenderedOptions).toHaveBeenCalledTimes(1);
+    expect(controllers.lists.clearRenderedOptions).toHaveBeenCalledTimes(1);
+    expect(controllers.series.clearRenderedOptions).toHaveBeenCalledTimes(1);
+    expect(controllers.labels.clearRenderedOptions).toHaveBeenCalledTimes(1);
   });
 });

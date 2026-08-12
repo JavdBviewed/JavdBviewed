@@ -158,7 +158,5 @@ export function bindRecordsPageLifecycle(options: RecordsPageLifecycleOptions): 
   options.viewToolbar.update();
   options.updateFilteredRecords();
   options.render();
-  options.filters.tags.render?.();
-  try { options.filters.lists.render?.(); } catch {}
   options.updateBatchUI();
 }

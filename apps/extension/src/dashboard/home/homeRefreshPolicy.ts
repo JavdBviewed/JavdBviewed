@@ -1,8 +1,9 @@
 export type HomeRefreshPolicyInput = {
   initialized: boolean;
   force?: boolean;
+  needsRender?: boolean;
 };
 
 export function shouldRefreshHomeOverview(input: HomeRefreshPolicyInput): boolean {
-  return input.force === true || input.initialized === false;
+  return input.force === true || input.initialized === false || input.needsRender === true;
 }

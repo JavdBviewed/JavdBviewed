@@ -1,7 +1,8 @@
 // src/dashboard/home/overview.ts
 // 首页统计与分区概览
 
-import { dbViewedStats, dbActorsStats, dbNewWorksStats, ensureBackgroundReady } from '../dbClient';
+import { ensureBackgroundReady } from '../dbClient';
+import { loadHomeStatsSnapshot } from './homeStatsSnapshot';
 
 export async function initStatsOverview(): Promise<void> {
   const container = document.getElementById('stats-overview');
@@ -9,7 +10,7 @@ export async function initStatsOverview(): Promise<void> {
 
   try {
     try { await ensureBackgroundReady(); } catch {}
-    const s = await dbViewedStats();
+    const { viewedStats: s } = await loadHomeStatsSnapshot();
     const total = s.total ?? 0;
     const viewed = s.byStatus?.viewed ?? 0;
     const browsed = s.byStatus?.browsed ?? 0;
@@ -60,13 +61,14 @@ export async function initStatsOverview(): Promise<void> {
 export async function initHomeSectionsOverview(): Promise<void> {
   try {
     try { await ensureBackgroundReady(); } catch {}
-    let recordsTotal = 0;
-    let recordsViewed = 0;
-    let recordsBrowsed = 0;
-    let recordsWant = 0;
-    let recordsLast7 = 0;
-    let actorsTotal = 0;
-    let worksTotal = 0;
+    const { viewedStats: s, actorsStats: a, newWorksStats: w } = await loadHomeStatsSnapshot();
+    const recordsTotal = s.total ?? 0;
+    const recordsViewed = s.byStatus?.viewed ?? 0;
+    const recordsBrowsed = s.byStatus?.browsed ?? 0;
+    const recordsWant = s.byStatus?.want ?? 0;
+    const recordsLast7 = s.last7Days ?? 0;
+    const actorsTotal = a.total ?? 0;
+    const worksTotal = w.total ?? 0;
 
     const heroTotalEl = document.getElementById('homeHeroTotal');
     const heroSnapshotEl = document.getElementById('homeHeroSnapshot');
@@ -90,12 +92,6 @@ export async function initHomeSectionsOverview(): Promise<void> {
     const recordsBox = document.getElementById('homeRecordsStatsContainer');
     if (recordsBox) {
       try {
-        const s = await dbViewedStats();
-        recordsTotal = s.total ?? 0;
-        recordsViewed = s.byStatus?.viewed ?? 0;
-        recordsBrowsed = s.byStatus?.browsed ?? 0;
-        recordsWant = s.byStatus?.want ?? 0;
-        recordsLast7 = s.last7Days ?? 0;
         recordsBox.innerHTML = `
                     <div class="stat-item" data-stat="total"><span class="stat-value">${recordsTotal}</span><span class="stat-label">总记录</span></div>
                     <div class="stat-item" data-stat="viewed"><span class="stat-value">${recordsViewed}</span><span class="stat-label">已观看</span></div>
@@ -114,8 +110,6 @@ export async function initHomeSectionsOverview(): Promise<void> {
     const actorsBox = document.getElementById('homeActorsStatsContainer');
     if (actorsBox) {
       try {
-        const a = await dbActorsStats();
-        actorsTotal = a.total ?? 0;
         const female = a.byGender?.female ?? 0;
         const male = a.byGender?.male ?? 0;
         const unknown = a.byGender?.unknown ?? 0;
@@ -142,8 +136,6 @@ export async function initHomeSectionsOverview(): Promise<void> {
     const worksBox = document.getElementById('homeNewWorksStatsContainer');
     if (worksBox) {
       try {
-        const w = await dbNewWorksStats();
-        worksTotal = w.total ?? 0;
         worksBox.innerHTML = `
                     <div class="stat-item" data-stat="total"><span class="stat-value">${w.total ?? 0}</span><span class="stat-label">总记录</span></div>
                     <div class="stat-item" data-stat="unread"><span class="stat-value">${w.unread ?? 0}</span><span class="stat-label">未读</span></div>

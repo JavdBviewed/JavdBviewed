@@ -16,6 +16,7 @@ export async function mountDashboardSettingsSearch(): Promise<void> {
   if (!container) return;
 
   const index = await getDashboardSettingsSearchIndex();
+  if (!container.isConnected) return;
   mountSettingsSearch({ container, index });
 }
 

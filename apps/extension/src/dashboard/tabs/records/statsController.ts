@@ -33,6 +33,7 @@ export interface CreateRecordsStatsControllerOptions {
   getRecords: () => VideoRecord[];
   isServerModeActive: () => boolean;
   loadServerStats: () => Promise<ServerRecordsStats>;
+  isActive?: () => boolean;
   now?: () => number;
 }
 
@@ -188,6 +189,7 @@ export function createRecordsStatsController(options: CreateRecordsStatsControll
       stats = buildMemoryStats(options.getRecords(), now());
     }
 
+    if (options.isActive && !options.isActive()) return;
     renderStatsCards(container, stats, activeFilter);
     bindCards();
   };

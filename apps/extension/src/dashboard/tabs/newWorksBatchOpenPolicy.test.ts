@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_NEW_WORKS_PAGE_SIZE,
     MAX_UNREAD_BATCH_OPEN_COUNT,
+    MAX_NEW_WORKS_BATCH_OPEN_COUNT,
     UNREAD_BATCH_OPEN_COOLDOWN_MS,
     UNREAD_NEW_WORKS_PAGE_SIZE,
     getNewWorksPageSize,
@@ -35,7 +36,8 @@ describe('new works batch open policy', () => {
         const targets = pickUnreadBatchOpenTargets(works);
 
         expect(targets).toHaveLength(MAX_UNREAD_BATCH_OPEN_COUNT);
-        expect(targets.map(work => work.id)).toEqual(works.slice(0, 10).map(work => work.id));
+        expect(MAX_NEW_WORKS_BATCH_OPEN_COUNT).toBe(6);
+        expect(targets.map(work => work.id)).toEqual(works.slice(0, 6).map(work => work.id));
 
         const mixedWorks = [makeWork(1, true), makeWork(2, false), makeWork(3, false)];
         expect(pickUnreadBatchOpenTargets(mixedWorks).map(work => work.id)).toEqual(['work-2', 'work-3']);

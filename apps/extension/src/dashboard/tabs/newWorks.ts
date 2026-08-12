@@ -14,7 +14,7 @@ import {
 import { runUnreadBatchOpenWorkflow } from './newWorksBatchOpenWorkflow';
 import { attachNewWorksFilterControls } from './newWorksFilterControlsRuntime';
 import { createNewWorksTabState } from './newWorksTabState';
-import { renderNewWorksListRuntime } from './newWorksListRuntime';
+import { renderNewWorksListRuntime, type RenderNewWorksListResult } from './newWorksListRuntime';
 import {
     clearNewWorksSelection,
     selectAllCurrentNewWorksPage,
@@ -58,6 +58,15 @@ import {
     setSyncStatusButtonLoading as setSyncStatusButtonLoadingState,
     updateBatchOpenUnreadButtonState,
 } from './newWorksButtonStateRuntime';
+import { dashboardTabLifecycle } from './tabLifecycle';
+import { createSingleFlightAsyncTask } from './activationScheduler';
+import { waitForDomReady } from './domReadyPoller';
+import { readNewWorksDiagnosticMode } from './newWorksDiagnosticMode';
+import { renderNewWorksPage } from './newWorksRenderPlan';
+import { createNewWorksAutoSyncScheduler } from './newWorksAutoSyncScheduler';
+import { measureNewWorksInitializationPhase } from './newWorksInitializationDiagnostics';
+import { scheduleHomeChartRender } from '../home/homeRenderScheduler';
+import { enableNewWorksDiagnosticsFromQuery, recordNewWorksDiagnosticCounter, beginNewWorksDiagnosticSpan } from '../../features/newWorks/newWorksDiagnostics';
 
 export class NewWorksTab {
     public isInitialized: boolean = false;
@@ -91,33 +100,70 @@ export class NewWorksTab {
     private progressListener?: (message: any) => void;
     private progressEl?: HTMLElement;
     private unreadBatchOpenCooldownTimer?: number;
+    private active = true;
+    private renderGeneration = 0;
+    private lifecycleUnregister: (() => void) | null = null;
+    private refreshEventHandler: (() => void) | null = null;
+    private domReadyController: AbortController | null = null;
+    private readonly initializeSingleFlight = createSingleFlightAsyncTask(() => this.initializeInternal());
+    private readonly diagnosticMode = readNewWorksDiagnosticMode();
+    private readonly autoSyncScheduler = createNewWorksAutoSyncScheduler({
+        run: () => { void this.autoSyncStatus(); },
+        schedule: callback => scheduleHomeChartRender(callback, { timeoutMs: 1200 }),
+    });
+    private readonly statsScheduler = createNewWorksAutoSyncScheduler({
+        run: () => { void this.renderStats(); },
+        schedule: callback => scheduleHomeChartRender(callback, { timeoutMs: 1200 }),
+    });
+
+    constructor() {
+        enableNewWorksDiagnosticsFromQuery(window.location.search);
+    }
 
     /**
      * 初始化新作品标签页
      */
     async initialize(): Promise<void> {
+        if (this.isInitialized) return;
+        return this.initializeSingleFlight();
+    }
+
+    private async initializeInternal(): Promise<void> {
+        if (this.isInitialized) return;
+        this.ensureLifecycle();
         try {
             console.log('[NewWorks] 开始初始化新作品标签页');
 
             // 确保DOM元素存在
-            await this.waitForDOM();
+            const domReady = await measureNewWorksInitializationPhase(
+                'page.initialize.domReady.duration',
+                () => this.waitForDOM(),
+            );
+            if (!domReady) return;
 
             // 设置事件监听器
-            await this.setupEventListeners();
+            await measureNewWorksInitializationPhase(
+                'page.initialize.eventListeners.duration',
+                () => this.setupEventListeners(),
+            );
 
             // 监听刷新事件
-            window.addEventListener('newworks-refresh', () => {
+            this.refreshEventHandler = () => {
+                if (!this.active) return;
                 console.log('[NewWorks] 收到刷新事件，重新渲染列表');
                 this.render();
-            });
+            };
+            window.addEventListener('newworks-refresh', this.refreshEventHandler);
 
             // 渲染页面
-            await this.render();
-
-            // 自动同步状态（静默执行）
-            this.autoSyncStatus();
+            await measureNewWorksInitializationPhase(
+                'page.initialize.render.duration',
+                () => this.render(),
+            );
 
             this.isInitialized = true;
+            // 自动同步状态不与首轮列表竞争；隐藏页会取消未启动的空闲任务。
+            if (this.diagnosticMode.autoSync) this.autoSyncScheduler.request();
             console.log('[NewWorks] 新作品标签页初始化完成');
         } catch (error) {
             console.error('[NewWorks] 初始化新作品标签页失败:', error);
@@ -198,9 +244,12 @@ export class NewWorksTab {
     /**
      * 等待DOM元素准备就绪
      */
-    private async waitForDOM(): Promise<void> {
-        return new Promise((resolve) => {
-            const checkDOM = () => {
+    private async waitForDOM(): Promise<boolean> {
+        this.domReadyController?.abort();
+        const controller = new AbortController();
+        this.domReadyController = controller;
+
+        const ready = await waitForDomReady(() => {
                 const newWorksTab = document.getElementById('tab-new-works');
                 const configBtn = document.getElementById('newWorksGlobalConfigBtn');
                 const checkNowBtn = document.getElementById('checkNowBtn');
@@ -213,16 +262,16 @@ export class NewWorksTab {
                 const clearSelectionBtn = document.getElementById('clearSelectionBtn');
                 const batchOpenSelectedBtn = document.getElementById('batchOpenSelectedBtn');
 
-                if (newWorksTab && configBtn && checkNowBtn && syncStatusBtn && cleanupReadBtn && addSubscriptionBtn && manageSubscriptionsBtn && batchOpenUnreadBtn && selectAllCurrentPageBtn && clearSelectionBtn && batchOpenSelectedBtn) {
-                    console.log('新作品标签页DOM元素已准备就绪');
-                    resolve();
-                } else {
-                    console.log('等待新作品标签页DOM元素...');
-                    setTimeout(checkDOM, 100);
-                }
-            };
-            checkDOM();
-        });
+                return Boolean(newWorksTab && configBtn && checkNowBtn && syncStatusBtn && cleanupReadBtn && addSubscriptionBtn && manageSubscriptionsBtn && batchOpenUnreadBtn && selectAllCurrentPageBtn && clearSelectionBtn && batchOpenSelectedBtn);
+        }, { signal: controller.signal });
+
+        if (this.domReadyController === controller) {
+            this.domReadyController = null;
+        }
+        if (ready) {
+            console.log('新作品标签页DOM元素已准备就绪');
+        }
+        return ready;
     }
 
     /**
@@ -275,14 +324,19 @@ export class NewWorksTab {
      * 渲染页面
      */
     private async render(): Promise<void> {
-        if (this.state.isLoading()) return;
+        if (!this.active || this.state.isLoading()) return;
+
+        const generation = ++this.renderGeneration;
         
         try {
             this.state.setLoading(true);
-            await Promise.all([
-                this.renderStats(),
-                this.renderNewWorksList(),
-            ]);
+            await renderNewWorksPage({
+                options: this.diagnosticMode,
+                renderList: () => this.renderNewWorksList(),
+                renderStats: stats => this.renderStats(stats),
+                scheduleStats: () => this.statsScheduler.request(),
+            });
+            if (!this.active || generation !== this.renderGeneration) return;
         } catch (error) {
             console.error('渲染新作品页面失败:', error);
         } finally {
@@ -290,14 +344,76 @@ export class NewWorksTab {
         }
     }
 
+    private ensureLifecycle(): void {
+        if (this.lifecycleUnregister) return;
+        this.lifecycleUnregister = dashboardTabLifecycle.register('tab-new-works', {
+            onActive: () => {
+                this.active = true;
+                this.autoSyncScheduler.setActive(true);
+                this.statsScheduler.setActive(true);
+            },
+            onRestore: () => {
+                this.active = true;
+                this.autoSyncScheduler.setActive(true);
+                this.statsScheduler.setActive(true);
+                if (this.isInitialized) {
+                    void this.render();
+                    this.updateBatchOpenUnreadButton();
+                } else {
+                    // 初始化可能在隐藏时被取消，恢复后允许重新建立一次初始化流程。
+                    void this.initialize().then(() => {
+                        if (!this.isInitialized && this.active) void this.initialize();
+                    });
+                }
+            },
+            onHidden: () => this.suspendForHiddenTab(),
+            onDispose: () => {
+                this.autoSyncScheduler.dispose();
+                this.statsScheduler.dispose();
+                this.suspendForHiddenTab();
+                if (this.refreshEventHandler) {
+                    window.removeEventListener('newworks-refresh', this.refreshEventHandler);
+                    this.refreshEventHandler = null;
+                }
+                this.lifecycleUnregister?.();
+                this.lifecycleUnregister = null;
+            },
+        });
+    }
+
+    private suspendForHiddenTab(): void {
+        this.active = false;
+        this.autoSyncScheduler.setActive(false);
+        this.statsScheduler.setActive(false);
+        this.renderGeneration += 1;
+        this.domReadyController?.abort();
+        this.domReadyController = null;
+        this.detachProgressListener();
+        if (this.unreadBatchOpenCooldownTimer) {
+            window.clearInterval(this.unreadBatchOpenCooldownTimer);
+            this.unreadBatchOpenCooldownTimer = undefined;
+        }
+        this.progressEl?.remove();
+        this.progressEl = undefined;
+        document.getElementById('newWorksStatsContainer')?.replaceChildren();
+        document.getElementById('newWorksList')?.replaceChildren();
+        document.getElementById('newWorksPagination')?.replaceChildren();
+        this.state.setLoading(false);
+    }
+
     /**
      * 渲染统计信息
      */
-    private async renderStats(): Promise<void> {
+    private async renderStats(stats?: import('../../types').NewWorksStats): Promise<void> {
         await renderNewWorksStatsRuntime({
             filters: this.state.filters,
+            stats,
             deps: {
-                getStats: () => newWorksManager.getStats(),
+                getStats: async () => {
+                    recordNewWorksDiagnosticCounter('page.stats.calls');
+                    const end = beginNewWorksDiagnosticSpan('page.stats.duration');
+                    try { return await newWorksManager.getStats(); } finally { end(); }
+                },
                 setPage: page => { this.state.setPage(page); },
                 render: () => this.render(),
                 openSubscriptionManager: () => {
@@ -315,14 +431,18 @@ export class NewWorksTab {
     /**
      * 渲染新作品列表
      */
-    private async renderNewWorksList(): Promise<void> {
-        await renderNewWorksListRuntime({
+    private async renderNewWorksList(): Promise<RenderNewWorksListResult | undefined> {
+        return await renderNewWorksListRuntime({
             filters: this.state.filters,
             page: this.state.getPage(),
             pageSize: this.getCurrentPageSize(),
             selectedWorks: this.state.selectedWorks,
             deps: {
-                getNewWorks: query => newWorksManager.getNewWorks(query),
+                getNewWorks: async query => {
+                    recordNewWorksDiagnosticCounter('page.list.calls');
+                    const end = beginNewWorksDiagnosticSpan('page.list.duration');
+                    try { return await newWorksManager.getNewWorks({ ...query, includeStats: false }); } finally { end(); }
+                },
                 setPage: page => { this.state.setPage(page); },
                 render: () => this.render(),
                 updateBatchOpenUnreadButton: () => this.updateBatchOpenUnreadButton(),
@@ -404,7 +524,11 @@ export class NewWorksTab {
         await runNewWorksStatusSyncWorkflow({
             deps: {
                 setSyncButtonLoading: loading => this.setSyncStatusButtonLoading(loading),
-                syncWithVideoRecords: () => newWorksManager.syncWithVideoRecords(),
+                syncWithVideoRecords: async () => {
+                    recordNewWorksDiagnosticCounter('page.manualSync.calls');
+                    const end = beginNewWorksDiagnosticSpan('page.manualSync.duration');
+                    try { return await newWorksManager.syncWithVideoRecords({ force: true }); } finally { end(); }
+                },
                 render: () => this.render(),
                 showMessage,
                 logInfo: (message, data) => data === undefined ? console.log(message) : console.log(message, data),
@@ -423,7 +547,11 @@ export class NewWorksTab {
     private async autoSyncStatus(): Promise<void> {
         await runNewWorksAutoStatusSyncWorkflow({
             deps: {
-                syncWithVideoRecords: () => newWorksManager.syncWithVideoRecords(),
+                syncWithVideoRecords: async () => {
+                    recordNewWorksDiagnosticCounter('page.autoSync.calls');
+                    const end = beginNewWorksDiagnosticSpan('page.autoSync.duration');
+                    try { return await newWorksManager.syncWithVideoRecords({ force: false }); } finally { end(); }
+                },
                 render: () => this.render(),
                 logInfo: message => console.log(message),
                 logError: (message, error) => console.error(message, error),
@@ -492,7 +620,7 @@ export class NewWorksTab {
                 findWorkById: id => findSelectedBatchWorkById(id, query => newWorksManager.getNewWorks(query)),
                 openWorkUrl: url => this.openNewWorkUrl(url),
                 markAsRead: workIds => newWorksManager.markAsRead(workIds),
-                clearSelection: () => this.state.clearSelection(),
+                removeSelection: workIds => workIds.forEach(workId => this.state.selectedWorks.delete(workId)),
                 render: () => this.render(),
                 showMessage,
                 updateBatchOperations: () => this.updateBatchOperations(),

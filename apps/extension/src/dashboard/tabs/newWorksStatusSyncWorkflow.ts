@@ -9,6 +9,7 @@ export interface NewWorksStatusSyncDetail {
 export interface NewWorksStatusSyncResult {
   updated: number;
   details: NewWorksStatusSyncDetail[];
+  skipped?: boolean;
 }
 
 export interface NewWorksStatusSyncWorkflowDeps {

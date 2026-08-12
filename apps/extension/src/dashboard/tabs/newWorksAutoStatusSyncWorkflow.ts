@@ -20,6 +20,11 @@ export async function runNewWorksAutoStatusSyncWorkflow(
     deps.logInfo('自动同步新作品状态...');
     const result = await deps.syncWithVideoRecords();
 
+    if (result.skipped) {
+      deps.logInfo('自动同步新作品状态已跳过：最近已同步');
+      return;
+    }
+
     if (result.updated > 0) {
       deps.logInfo(`自动同步完成，更新了 ${result.updated} 个作品的状态`);
       result.details.forEach(detail => {

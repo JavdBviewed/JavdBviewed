@@ -24,6 +24,7 @@ export interface RenderNewWorksStatsRuntimeDeps extends NewWorksStatsRuntimeDeps
 
 export interface RenderNewWorksStatsRuntimeInput {
   filters: NewWorksFilters;
+  stats?: NewWorksStats;
   deps: RenderNewWorksStatsRuntimeDeps;
 }
 
@@ -38,7 +39,7 @@ export async function renderNewWorksStatsRuntime(input: RenderNewWorksStatsRunti
 
   try {
     deps.logInfo('开始获取新作品统计信息');
-    const stats = await deps.getStats();
+    const stats = input.stats ?? await deps.getStats();
     deps.logInfo('获取到统计信息:', stats);
 
     container.innerHTML = buildNewWorksStatsHtml(stats);

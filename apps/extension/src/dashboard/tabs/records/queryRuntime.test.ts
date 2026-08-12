@@ -144,4 +144,25 @@ describe('records query runtime', () => {
     expect(options.renderPagination).not.toHaveBeenCalled();
     expect(options.updateSearchResultCount).not.toHaveBeenCalled();
   });
+
+  it('does not render a pending query after the records tab becomes hidden', async () => {
+    let resolvePage: ((value: { items: VideoRecord[]; total: number; durationMs: number }) => void) | null = null;
+    let active = true;
+    const { runtime, options } = createRuntime({
+      isActive: () => active,
+      loadServerPage: vi.fn(() => new Promise((resolve) => {
+        resolvePage = resolve;
+      })),
+    });
+
+    const pending = runtime.renderServerPage();
+    active = false;
+    runtime.invalidate();
+    resolvePage?.({ items: [record('stale-record')], total: 1, durationMs: 5 });
+    await pending;
+
+    expect(options.renderVideoList).not.toHaveBeenCalled();
+    expect(options.renderPagination).not.toHaveBeenCalled();
+    expect(options.updateSearchResultCount).not.toHaveBeenCalled();
+  });
 });

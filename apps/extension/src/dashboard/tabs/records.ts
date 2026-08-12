@@ -29,6 +29,7 @@ import { createRecordsBatchOperationsRuntime, type RecordsBatchOperationsRuntime
 import { createRecordsFilterRuntime, type RecordsFilterRuntime } from './records/filterRuntime';
 import { createRecordsViewRuntime, type RecordsViewRuntime } from './records/viewRuntime';
 import { createRecordsLifecycleRuntime } from './records/lifecycleRuntime';
+import { shouldRenderRecordsOnRestore } from './records/restorePolicy';
 import { type RecordsAdvancedCondition as AdvCondition } from './records/advancedConditionModel';
 import { createRecordsBatchImportController, type RecordsBatchImportSubmission } from './records/batchImportController';
 import { normalizeBatchNumbers } from './records/batchImportModel';
@@ -42,9 +43,41 @@ import {
     type BatchImportTaskSnapshot,
 } from './records/batchImportTaskStore';
 import { fetchHtml, parseDetailPage, parseSearchResults } from '../../features/records';
+import { dashboardTabLifecycle } from './tabLifecycle';
 
 // 防重复初始化（避免多次绑定事件导致重复行为）
 let RECORDS_TAB_INITIALIZED = false;
+let recordsActive = true;
+let recordsLifecycleUnregister: (() => void) | null = null;
+
+function recordRecordsLifecycleSnapshot(
+    stage: 'before-hidden' | 'after-hidden' | 'microtask-after-hidden',
+    root: HTMLElement,
+    videoList: HTMLElement,
+): void {
+    const probe = (globalThis as typeof globalThis & {
+        __JAVDB_PERF_PROBE__?: { recordsLifecycleSnapshots?: unknown[] };
+    }).__JAVDB_PERF_PROBE__;
+    if (!probe) return;
+    probe.recordsLifecycleSnapshots ??= [];
+    probe.recordsLifecycleSnapshots.push({
+        stage,
+        rootDomNodes: root.querySelectorAll('*').length + 1,
+        videoListDomNodes: videoList.querySelectorAll('*').length + 1,
+        rootChildCount: root.children.length,
+        rootChildren: Array.from(root.children).map((child) => ({
+            id: child.id || null,
+            className: typeof child.className === 'string' ? child.className.slice(0, 120) : null,
+            domNodes: child.querySelectorAll('*').length + 1,
+            imageCount: child.querySelectorAll('img').length,
+            childMetrics: Array.from(child.children).map((nested) => ({
+                id: nested.id || null,
+                className: typeof nested.className === 'string' ? nested.className.slice(0, 120) : null,
+                domNodes: nested.querySelectorAll('*').length + 1,
+            })),
+        })),
+    });
+}
 
 export function initRecordsTab(): void {
     if (RECORDS_TAB_INITIALIZED) {
@@ -52,6 +85,7 @@ export function initRecordsTab(): void {
         return;
     }
     RECORDS_TAB_INITIALIZED = true;
+    recordsActive = true;
     const pageElements = collectRecordsPageElements();
     const {
         searchInput,
@@ -188,6 +222,8 @@ export function initRecordsTab(): void {
     let serverPageItems: VideoRecord[] = [];
     let serverTotal = 0;
     let lastQueryDurationMs: number | null = null;
+    let hasRenderedRecordsPage = false;
+    let recordsRenderStale = true;
     let viewRuntime: RecordsViewRuntime;
     let queryRuntime: RecordsQueryRuntime;
     let stateRefreshController: RecordsStateRefreshController;
@@ -275,6 +311,7 @@ export function initRecordsTab(): void {
         getRecords: () => STATE.records,
         isServerModeActive: () => serverModeActive,
         loadServerStats: dbViewedStats,
+        isActive: () => recordsActive,
     });
     const batchSelectionController = createRecordsBatchSelectionController({
         batchOperations,
@@ -367,6 +404,8 @@ export function initRecordsTab(): void {
 
     function renderVideoList() {
         viewRuntime.renderVideoList();
+        hasRenderedRecordsPage = true;
+        recordsRenderStale = false;
     }
 
     function renderPagination() {
@@ -409,6 +448,7 @@ export function initRecordsTab(): void {
         renderPagination,
         updateSearchResultCount,
         showMessage,
+        isActive: () => recordsActive,
     });
 
     const renderCoordinator = createRecordsRenderCoordinator({
@@ -422,9 +462,15 @@ export function initRecordsTab(): void {
         renderVideoList,
         renderPagination,
         updateStats,
+        isActive: () => recordsActive,
     });
 
     function render() {
+        if (!recordsActive) {
+            recordsRenderStale = true;
+            return;
+        }
+        recordsRenderStale = true;
         renderCoordinator.render();
     }
 
@@ -801,5 +847,42 @@ export function initRecordsTab(): void {
     function updateBatchUI() {
         batchSelectionController.updateBatchUI();
     }
+
+    recordsLifecycleUnregister = dashboardTabLifecycle.register('tab-records', {
+        onActive: () => { recordsActive = true; },
+        onRestore: () => {
+            recordsActive = true;
+            if (shouldRenderRecordsOnRestore({
+                hasRenderedPage: hasRenderedRecordsPage,
+                stale: recordsRenderStale,
+            })) {
+                render();
+            }
+            // 仅恢复已选摘要；候选项等到用户展开下拉框时再生成，避免恢复页面立即重建数千个节点。
+            filterRuntime.filterControllers.tags.refresh();
+            filterRuntime.filterControllers.lists.refresh();
+            filterRuntime.filterControllers.series.refresh();
+            filterRuntime.filterControllers.labels.refresh();
+        },
+        onHidden: () => {
+            const recordsRoot = videoList.closest('.records-page') as HTMLElement | null;
+            if (recordsRoot) recordRecordsLifecycleSnapshot('before-hidden', recordsRoot, videoList);
+            recordsActive = false;
+            queryRuntime.invalidate();
+            batchSelectionController.clearAllSelection();
+            filterRuntime.clearRenderedOptions();
+            if (recordsRoot) {
+                recordRecordsLifecycleSnapshot('after-hidden', recordsRoot, videoList);
+                queueMicrotask(() => recordRecordsLifecycleSnapshot('microtask-after-hidden', recordsRoot, videoList));
+            }
+        },
+        onDispose: () => {
+            recordsActive = false;
+            queryRuntime.invalidate();
+            coverRuntimeController.teardownObserver();
+            recordsLifecycleUnregister?.();
+            recordsLifecycleUnregister = null;
+        },
+    });
 
 }

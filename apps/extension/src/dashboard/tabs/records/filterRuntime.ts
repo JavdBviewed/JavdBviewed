@@ -65,6 +65,7 @@ export interface RecordsFilterRuntime {
   dropdownBackdropController: RecordsDropdownBackdropController;
   localFilterRuntime: RecordsLocalFilterRuntime;
   syncDropdownBackdrop: () => void;
+  clearRenderedOptions: () => void;
   updateFilteredRecords: () => void;
 }
 
@@ -108,6 +109,12 @@ export function createRecordsFilterRuntime(options: CreateRecordsFilterRuntimeOp
     onChange: options.onFilterChanged,
     escapeHtml: options.escapeHtml,
   });
+  const clearRenderedOptions = () => {
+    filterControllers.tags.clearRenderedOptions();
+    filterControllers.lists.clearRenderedOptions();
+    filterControllers.series.clearRenderedOptions();
+    filterControllers.labels.clearRenderedOptions();
+  };
 
   const localFilterRuntime = createLocalFilter({
     searchInput: elements.searchInput,
@@ -143,6 +150,7 @@ export function createRecordsFilterRuntime(options: CreateRecordsFilterRuntimeOp
     dropdownBackdropController,
     localFilterRuntime,
     syncDropdownBackdrop,
+    clearRenderedOptions,
     updateFilteredRecords: localFilterRuntime.updateFilteredRecords,
   };
 }

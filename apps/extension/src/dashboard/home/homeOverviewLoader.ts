@@ -29,6 +29,21 @@ export interface HomeOverviewData<ViewedStats = any, NewWorksStats = any> {
   };
 }
 
+export interface HomeOverviewTrendData {
+  insights: ReturnType<typeof aggregateMonthly>;
+  trends: {
+    records: any[];
+    actors: any[];
+    newWorks: any[];
+  };
+}
+
+export interface HomeOverviewSummaryData<ViewedStats = any, NewWorksStats = any> {
+  viewedStats: ViewedStats;
+  newWorksStats: NewWorksStats;
+  tagsTop: Array<{ name: string; count: number }>;
+}
+
 function shiftDate(date: string, deltaDays: number): string {
   const [year, month, day] = String(date || '').split('-').map(Number);
   const value = new Date(year || 1970, (month || 1) - 1, day || 1);
@@ -43,26 +58,46 @@ export async function loadHomeOverviewData<ViewedStats = any, NewWorksStats = an
   range: HomeChartsRange,
   loaders: HomeOverviewLoaders<ViewedStats, NewWorksStats>,
 ): Promise<HomeOverviewData<ViewedStats, NewWorksStats>> {
+  const stages = loadHomeOverviewStages(range, loaders);
+  const [trendData, summaryData] = await Promise.all([stages.trends, stages.summary]);
+
+  return {
+    ...summaryData,
+    insights: trendData.insights,
+    trends: trendData.trends,
+  };
+}
+
+export function loadHomeOverviewStages<ViewedStats = any, NewWorksStats = any>(
+  range: HomeChartsRange,
+  loaders: HomeOverviewLoaders<ViewedStats, NewWorksStats>,
+): {
+  trends: Promise<HomeOverviewTrendData>;
+  summary: Promise<HomeOverviewSummaryData<ViewedStats, NewWorksStats>>;
+} {
   const previousStart = shiftDate(range.start, -1);
   const previousEnd = shiftDate(range.end, -1);
 
-  const [viewedStats, newWorksStats, previousViews, currentViews, tagsTop, records, actors, newWorks] =
-    await Promise.all([
-      loaders.viewedStats(),
-      loaders.newWorksStats(),
-      loaders.previousViews(previousStart, previousEnd),
-      loaders.currentViews(range.start, range.end),
-      loaders.tagsTop(50),
-      loaders.recordsTrend(range.start, range.end, 'cumulative'),
-      loaders.actorsTrend(range.start, range.end, 'cumulative'),
-      loaders.newWorksTrend(range.start, range.end, 'daily'),
-    ]);
+  const trends = Promise.all([
+    loaders.previousViews(previousStart, previousEnd),
+    loaders.currentViews(range.start, range.end),
+    loaders.recordsTrend(range.start, range.end, 'cumulative'),
+    loaders.actorsTrend(range.start, range.end, 'cumulative'),
+    loaders.newWorksTrend(range.start, range.end, 'daily'),
+  ]).then(([previousViews, currentViews, records, actors, newWorks]) => ({
+    insights: aggregateMonthly(currentViews || [], { topN: 8, previousDays: previousViews || [] }),
+    trends: { records: records || [], actors: actors || [], newWorks: newWorks || [] },
+  }));
 
-  return {
+  const summary = Promise.all([
+    loaders.viewedStats(),
+    loaders.newWorksStats(),
+    loaders.tagsTop(50),
+  ]).then(([viewedStats, newWorksStats, tagsTop]) => ({
     viewedStats,
     newWorksStats,
-    insights: aggregateMonthly(currentViews || [], { topN: 8, previousDays: previousViews || [] }),
     tagsTop: Array.isArray(tagsTop) ? tagsTop : [],
-    trends: { records: records || [], actors: actors || [], newWorks: newWorks || [] },
-  };
+  }));
+
+  return { trends, summary };
 }

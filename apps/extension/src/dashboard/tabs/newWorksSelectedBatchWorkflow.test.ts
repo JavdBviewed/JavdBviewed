@@ -12,7 +12,7 @@ function deps(overrides: Partial<Parameters<typeof runSelectedBatchOpenWorkflow>
     findWorkById: vi.fn(async (id: string) => id === 'remote-1' ? { id, url: 'https://javdb.com/v/remote-1', isRead: true } : undefined),
     openWorkUrl: vi.fn(async () => undefined),
     markAsRead: vi.fn(async () => undefined),
-    clearSelection: vi.fn(),
+    removeSelection: vi.fn(),
     render: vi.fn(async () => undefined),
     showMessage: vi.fn(),
     updateBatchOperations: vi.fn(),
@@ -56,12 +56,31 @@ describe('new works selected batch open workflow', () => {
     expect(runtimeDeps.openWorkUrl).toHaveBeenNthCalledWith(1, 'https://javdb.com/v/dom-1');
     expect(runtimeDeps.openWorkUrl).toHaveBeenNthCalledWith(2, 'https://javdb.com/v/remote-1');
     expect(runtimeDeps.markAsRead).toHaveBeenCalledWith(['dom-1']);
-    expect(runtimeDeps.clearSelection).toHaveBeenCalledTimes(1);
+    expect(runtimeDeps.removeSelection).toHaveBeenCalledWith(['dom-1', 'remote-1']);
     expect(runtimeDeps.render).toHaveBeenCalledTimes(1);
     expect(runtimeDeps.showMessage).toHaveBeenCalledWith('已打开 2 个已选作品（并标记未读为已读）', 'success');
     expect(runtimeDeps.setLoading).toHaveBeenNthCalledWith(1, true);
     expect(runtimeDeps.setLoading).toHaveBeenLastCalledWith(false);
     expect(runtimeDeps.updateBatchOperations).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens at most six selected works', async () => {
+    const selectedIds = Array.from({ length: 10 }, (_, index) => `dom-${index + 1}`);
+    const runtimeDeps = deps({
+      getCurrentPageWork: vi.fn((id: string) => ({
+        id,
+        url: `https://javdb.com/v/${id}`,
+        isRead: false,
+      })),
+    });
+
+    await runSelectedBatchOpenWorkflow({ selectedIds, deps: runtimeDeps });
+
+    expect(runtimeDeps.confirm).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringContaining('前 6 个'),
+    }));
+    expect(runtimeDeps.openWorkUrl).toHaveBeenCalledTimes(6);
+    expect(runtimeDeps.markAsRead).toHaveBeenCalledWith(['dom-1', 'dom-2', 'dom-3', 'dom-4', 'dom-5', 'dom-6']);
   });
 
   it('shows warning when selected works have no resolved urls', async () => {
@@ -74,7 +93,7 @@ describe('new works selected batch open workflow', () => {
 
     expect(runtimeDeps.showMessage).toHaveBeenCalledWith('未找到可打开的作品链接', 'warn');
     expect(runtimeDeps.openWorkUrl).not.toHaveBeenCalled();
-    expect(runtimeDeps.clearSelection).not.toHaveBeenCalled();
+    expect(runtimeDeps.removeSelection).not.toHaveBeenCalled();
     expect(runtimeDeps.updateBatchOperations).toHaveBeenCalledTimes(1);
   });
 

@@ -1,7 +1,30 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadHomeOverviewData } from './homeOverviewLoader';
+import { loadHomeOverviewData, loadHomeOverviewStages } from './homeOverviewLoader';
 
 describe('loadHomeOverviewData', () => {
+  it('exposes trend data before the slower summary queries finish', async () => {
+    let resolveSummary: ((value: { total: number }) => void) | null = null;
+    const summary = new Promise<{ total: number }>((resolve) => { resolveSummary = resolve; });
+    const loaders = {
+      viewedStats: vi.fn(() => summary),
+      newWorksStats: vi.fn(() => Promise.resolve({ total: 2 })),
+      previousViews: vi.fn(() => Promise.resolve([])),
+      currentViews: vi.fn(() => Promise.resolve([])),
+      tagsTop: vi.fn(() => Promise.resolve([])),
+      recordsTrend: vi.fn(() => Promise.resolve([{ date: '2026-07-31', total: 1 }])),
+      actorsTrend: vi.fn(() => Promise.resolve([{ date: '2026-07-31', total: 1 }])),
+      newWorksTrend: vi.fn(() => Promise.resolve([{ date: '2026-07-31', total: 1 }])),
+    };
+
+    const stages = loadHomeOverviewStages({ start: '2026-07-31', end: '2026-07-31' }, loaders);
+    const trends = await stages.trends;
+
+    expect(trends.trends.records).toEqual([{ date: '2026-07-31', total: 1 }]);
+    expect(resolveSummary).not.toBeNull();
+    resolveSummary?.({ total: 3 });
+    await stages.summary;
+  });
+
   it('loads independent home data in parallel and does not request an all-history range', async () => {
     const gates = [
       Promise.resolve({ total: 3, byStatus: {}, last7Days: 0, last30Days: 0 }),

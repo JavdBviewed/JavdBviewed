@@ -13,6 +13,9 @@ import {
 } from './navModel';
 import { prefetchedTabs, prefetchTabResources } from './resources';
 import { createLatestActivationScheduler } from './activationScheduler';
+import { dashboardTabLifecycle } from './tabLifecycle';
+import { recordTabActivationPhase } from './tabActivationPerformance';
+import { shouldRebuildNavigation } from './navigationRenderPolicy';
 
 type NavigationRuntime = {
   mainTabsRoot: HTMLElement;
@@ -197,6 +200,19 @@ function renderSectionTabs(runtime: NavigationRuntime, activeState: DashboardNav
   runtime.sectionNavRoot.appendChild(tabs);
 }
 
+function updateNavigationActiveState(runtime: NavigationRuntime, state: DashboardNavState): void {
+  runtime.mainTabsRoot.querySelectorAll<HTMLButtonElement>('.dashboard-main-tab').forEach((button) => {
+    const active = button.dataset.navGroupId === state.groupId;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  runtime.sectionNavRoot.querySelectorAll<HTMLButtonElement>('.dashboard-sub-tab').forEach((button) => {
+    const active = button.dataset.navItemId === state.itemId;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
 function placeSectionTabsInActivePage(runtime: NavigationRuntime, tabId: string): void {
   const activeContent = document.getElementById(tabId);
   if (!activeContent) {
@@ -225,6 +241,7 @@ function updateHash(state: DashboardNavState): void {
 }
 
 function dispatchTabEvent(name: 'tab:hide' | 'tab:show', tabId: string): void {
+  dashboardTabLifecycle.notify(name === 'tab:hide' ? 'hidden' : 'active', tabId);
   window.dispatchEvent(new CustomEvent(name, { detail: { tabId } }));
 }
 
@@ -251,11 +268,37 @@ function switchTabContent(runtime: NavigationRuntime, tabId: string): boolean {
 
 type ScheduleActivation = (state: DashboardNavState, options: ActivateOptions) => Promise<void>;
 
+let tabsInitialized = false;
+let tabsInitialization: Promise<void> | null = null;
+let initializedRuntime: NavigationRuntime | null = null;
+let disposeNavigationListeners: (() => void) | null = null;
+let renderedNavigationGroupId: string | null = null;
+
+function isSameRuntime(left: NavigationRuntime | null, right: NavigationRuntime): boolean {
+  return Boolean(
+    left
+    && left.mainTabsRoot === right.mainTabsRoot
+    && left.sectionNavRoot === right.sectionNavRoot
+    && left.contents.length === right.contents.length
+    && left.contents.every((content, index) => content === right.contents[index]),
+  );
+}
+
+function resetInitializedTabs(): void {
+  disposeNavigationListeners?.();
+  disposeNavigationListeners = null;
+  initializedRuntime = null;
+  renderedNavigationGroupId = null;
+  tabsInitialized = false;
+  dashboardTabLifecycle.disposeAll();
+}
+
 async function activateState(
   runtime: NavigationRuntime,
   state: DashboardNavState,
   options: ActivateOptions,
   scheduleActivation: ScheduleActivation,
+  isLatest: () => boolean,
 ): Promise<void> {
   const group = findGroup(state.groupId);
   if (!group) {
@@ -268,33 +311,58 @@ async function activateState(
   }
 
   const resolvedState = createState(group, item, state.subPath);
-  renderMainTabs(runtime, resolvedState, groupToActivate => {
-    const defaultItem = getDefaultItem(groupToActivate);
-    if (!defaultItem) {
-      return;
-    }
-
-    void scheduleActivation(createState(groupToActivate, defaultItem), { updateHash: true });
-  });
-  const switched = switchTabContent(runtime, resolvedState.tabId);
-  if (!switched) {
-    return;
-  }
-
-  if (options.updateHash) {
-    updateHash(resolvedState);
-  }
-
+  if (!isLatest()) return;
+  recordTabActivationPhase(resolvedState.tabId, 'initialize-start');
   await mountTabIfNeeded(resolvedState.tabId);
+  if (!isLatest()) return;
+  updateNavigationActiveState(runtime, resolvedState);
   placeSectionTabsInActivePage(runtime, resolvedState.tabId);
+  if (!isLatest()) return;
+  await initializeTabById(resolvedState.tabId);
+  recordTabActivationPhase(resolvedState.tabId, 'initialize-complete');
+
+  if (isLatest() && resolvedState.tabId === 'tab-home') {
+    window.dispatchEvent(new CustomEvent('home:init-required'));
+  }
+}
+
+function prepareState(
+  runtime: NavigationRuntime,
+  state: DashboardNavState,
+  options: ActivateOptions,
+  scheduleActivation: ScheduleActivation,
+): void {
+  const group = findGroup(state.groupId);
+  if (!group) return;
+
+  const item = findItem(group, state.itemId) ?? getDefaultItem(group);
+  if (!item) return;
+
+  const resolvedState = createState(group, item, state.subPath);
+  recordTabActivationPhase(resolvedState.tabId, 'activation-start');
+  const rebuildNavigation = shouldRebuildNavigation({
+    previousGroupId: renderedNavigationGroupId,
+    nextGroupId: resolvedState.groupId,
+  });
+  if (rebuildNavigation) {
+    renderMainTabs(runtime, resolvedState, groupToActivate => {
+      const defaultItem = getDefaultItem(groupToActivate);
+      if (!defaultItem) return;
+      void scheduleActivation(createState(groupToActivate, defaultItem), { updateHash: true });
+    });
+  } else {
+    updateNavigationActiveState(runtime, resolvedState);
+  }
+
+  if (!switchTabContent(runtime, resolvedState.tabId)) return;
+  recordTabActivationPhase(resolvedState.tabId, 'content-active');
+  if (options.updateHash) updateHash(resolvedState);
+
   renderSectionTabs(runtime, resolvedState, nextState => {
     void scheduleActivation(nextState, { updateHash: true });
   });
-  await initializeTabById(resolvedState.tabId);
-
-  if (resolvedState.tabId === 'tab-home') {
-    window.dispatchEvent(new CustomEvent('home:init-required'));
-  }
+  renderedNavigationGroupId = resolvedState.groupId;
+  placeSectionTabsInActivePage(runtime, resolvedState.tabId);
 }
 
 type ActivationRequest = {
@@ -303,7 +371,7 @@ type ActivationRequest = {
   options: ActivateOptions;
 };
 
-export async function initTabs(): Promise<void> {
+async function initializeTabsOnce(): Promise<void> {
   try {
     const runtime = collectRuntime();
     if (!runtime) {
@@ -312,19 +380,65 @@ export async function initTabs(): Promise<void> {
 
     const initialState = resolveDashboardNavState(window.location.hash);
 
-    const activationScheduler = createLatestActivationScheduler(async ({ runtime: nextRuntime, state, options }: ActivationRequest) => {
-      await activateState(nextRuntime, state, options, scheduleActivation);
-    });
+    const onPageHide = (event: PageTransitionEvent): void => {
+      if (!event.persisted) {
+        dashboardTabLifecycle.disposeAll();
+      }
+    };
+    const onHashChange = (): void => {
+      const nextState = resolveDashboardNavState(window.location.hash);
+      void scheduleActivation(nextState, { updateHash: false });
+    };
+    const cleanupListeners = (): void => {
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('hashchange', onHashChange);
+    };
+
+    window.addEventListener('pagehide', onPageHide, { once: true });
+
+    const activationScheduler = createLatestActivationScheduler(
+      async ({ runtime: nextRuntime, state, options }: ActivationRequest, isLatest) => {
+        await activateState(nextRuntime, state, options, scheduleActivation, isLatest);
+      },
+      ({ runtime: nextRuntime, state, options }: ActivationRequest) => {
+        prepareState(nextRuntime, state, options, scheduleActivation);
+      },
+    );
     const scheduleActivation: ScheduleActivation = (state, options) =>
       activationScheduler.schedule({ runtime, state, options });
 
-    window.addEventListener('hashchange', () => {
-      const nextState = resolveDashboardNavState(window.location.hash);
-      void scheduleActivation(nextState, { updateHash: false });
-    });
+    window.addEventListener('hashchange', onHashChange);
+    disposeNavigationListeners = cleanupListeners;
 
     await scheduleActivation(initialState, { updateHash: true });
+    initializedRuntime = runtime;
+    tabsInitialized = true;
   } catch (error) {
+    disposeNavigationListeners?.();
+    disposeNavigationListeners = null;
+    initializedRuntime = null;
+    tabsInitialized = false;
     console.error('初始化标签页时出错:', error);
+    throw error;
   }
+}
+
+/**
+ * Dashboard 导航只允许注册一套 hashchange/pagehide 监听器。
+ * 重复调用时复用正在进行的初始化，成功后直接返回。
+ */
+export function initTabs(): Promise<void> {
+  if (tabsInitialized) {
+    const runtime = collectRuntime();
+    if (runtime && isSameRuntime(initializedRuntime, runtime)) {
+      return Promise.resolve();
+    }
+    resetInitializedTabs();
+  }
+  if (tabsInitialization) return tabsInitialization;
+
+  tabsInitialization = initializeTabsOnce().finally(() => {
+    tabsInitialization = null;
+  });
+  return tabsInitialization;
 }

@@ -15,6 +15,7 @@ export interface RecordsMultiSelectFilterElements {
 export interface RecordsMultiSelectFilterController {
   render(): void;
   refresh(): void;
+  clearRenderedOptions(): void;
   filter(searchTerm: string): void;
   bind(): void;
 }
@@ -129,6 +130,10 @@ export function createRecordsMultiSelectFilterController(options: RecordsMultiSe
     });
   };
 
+  const clearRenderedOptions = () => {
+    if (elements.optionList) elements.optionList.innerHTML = '';
+  };
+
   const notifyChange = () => {
     refresh();
     onChange();
@@ -174,6 +179,7 @@ export function createRecordsMultiSelectFilterController(options: RecordsMultiSe
   return {
     render,
     refresh,
+    clearRenderedOptions,
     filter,
     bind,
   };
