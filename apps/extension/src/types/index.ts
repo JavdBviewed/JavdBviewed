@@ -188,6 +188,13 @@ export interface VideoRecord {
   enhancedData?: { coverImage?: string; [key: string]: any };
 }
 
+/** 内容脚本按当前页面读取的轻量记录摘要。 */
+export interface ViewedStatusSummary {
+  id: string;
+  status: VideoStatus;
+  isFavorite?: boolean;
+}
+
 /** 旧版视频记录格式（兼容迁移用） */
 export interface OldVideoRecord extends Partial<VideoRecord> {
   id?: string;

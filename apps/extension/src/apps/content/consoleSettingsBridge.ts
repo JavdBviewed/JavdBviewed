@@ -40,7 +40,7 @@ async function applyConsoleSettingsFromStorage(): Promise<void> {
     }
 }
 
-export function installContentConsoleSettingsBridge(): void {
+export function installContentConsoleSettingsBridge(): () => void {
     installConsoleProxy({
         level: 'INFO',
         format: { showTimestamp: true, timestampStyle: 'hms', timeZone: 'Asia/Shanghai', showSource: true, color: true },
@@ -49,16 +49,25 @@ export function installContentConsoleSettingsBridge(): void {
         },
     });
 
-    installTaskVisibilityReporter(() => getActiveManagedTaskIds());
-    installTaskHeartbeatReporter(() => getActiveManagedTaskIds());
+    const disposeVisibilityReporter = installTaskVisibilityReporter(() => getActiveManagedTaskIds());
+    const disposeHeartbeatReporter = installTaskHeartbeatReporter(() => getActiveManagedTaskIds());
 
     applyConsoleSettingsFromStorage();
 
+    let disposeStorageListener = () => {};
     try {
-        chrome.storage.onChanged.addListener((changes, area) => {
+        const onStorageChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
             if (area === 'local' && changes['settings']) {
                 applyConsoleSettingsFromStorage();
             }
-        });
+        };
+        chrome.storage.onChanged.addListener(onStorageChanged);
+        disposeStorageListener = () => chrome.storage.onChanged.removeListener(onStorageChanged);
     } catch {}
+
+    return () => {
+        disposeVisibilityReporter();
+        disposeHeartbeatReporter();
+        disposeStorageListener();
+    };
 }

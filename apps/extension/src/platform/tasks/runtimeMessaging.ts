@@ -5,9 +5,17 @@
  */
 import { TASK_CENTER_MESSAGE } from '../../shared/taskCenterProtocol';
 import type { GlobalTaskDescriptor } from '../../shared/taskCenterTypes';
+import { isDeferredTaskWaitReason, isTaskLeaseAvailabilityWaitReason } from './waitPolicy';
 
 /** 向 background 注册任务并获取分配的 taskId 和 tabId */
 export type RegisteredManagedTask = GlobalTaskDescriptor & {
+  reused?: boolean;
+  status?: string;
+};
+
+type TaskRegistrationResponse = {
+  taskId?: string;
+  tabId?: number;
   reused?: boolean;
   status?: string;
 };
@@ -28,6 +36,39 @@ export async function registerManagedTask(descriptor: GlobalTaskDescriptor): Pro
 
 export async function ensureManagedTaskRegistered(descriptor: GlobalTaskDescriptor): Promise<RegisteredManagedTask> {
   return await registerManagedTask(descriptor);
+}
+
+/**
+ * Registers bootstrap descriptors in one runtime round trip. Older backgrounds
+ * fall back to the established one-by-one protocol without changing semantics.
+ */
+export async function ensureManagedTasksRegistered(
+  descriptors: readonly GlobalTaskDescriptor[],
+): Promise<RegisteredManagedTask[]> {
+  if (descriptors.length === 0) return [];
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: TASK_CENTER_MESSAGE.REGISTER_BATCH,
+      payload: { descriptors },
+    });
+    const results = Array.isArray(response?.results) ? response.results as TaskRegistrationResponse[] : [];
+    if (results.length !== descriptors.length || results.some((result) => !result || typeof result.tabId !== 'number')) {
+      throw new Error('invalid batch registration response');
+    }
+    return descriptors.map((descriptor, index) => {
+      const result = results[index];
+      return {
+        ...descriptor,
+        tabId: typeof result.tabId === 'number' ? result.tabId : descriptor.tabId,
+        taskId: result.taskId || descriptor.taskId,
+        reused: result.reused === true,
+        status: typeof result.status === 'string' ? result.status : undefined,
+      };
+    });
+  } catch {
+    return await Promise.all(descriptors.map((descriptor) => ensureManagedTaskRegistered(descriptor)));
+  }
 }
 
 export async function requestTaskLease(taskId: string): Promise<{ granted: boolean; waitReason?: string }> {
@@ -128,13 +169,22 @@ export async function waitForTaskLease(
   intervalMs: number = 500,
 ): Promise<{ granted: boolean; waitReason?: string }> {
   const start = Date.now();
+  const executionTimeoutMs = Math.max(0, timeoutMs);
+  const capacityWaitTimeoutMs = Math.max(executionTimeoutMs, 120_000);
+  let waitTimeoutMs = executionTimeoutMs;
   let lastWaitReason: string | undefined;
-  while (Date.now() - start < timeoutMs) {
+  while (Date.now() - start < waitTimeoutMs) {
     const lease = await requestTaskLease(taskId);
     if (lease.granted) {
       return lease;
     }
     lastWaitReason = lease.waitReason || lastWaitReason;
+    if (lastWaitReason === 'tab-hidden') {
+      return { granted: false, waitReason: lastWaitReason };
+    }
+    if (lastWaitReason && isTaskLeaseAvailabilityWaitReason(lastWaitReason)) {
+      waitTimeoutMs = capacityWaitTimeoutMs;
+    }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
   return { granted: false, waitReason: lastWaitReason || 'lease-timeout' };
@@ -156,9 +206,7 @@ async function executeRegisteredManagedTask<T>(
   if (!lease.granted) {
     untrackActiveManagedTask(registeredDescriptor.taskId);
     const waitReason = lease.waitReason || 'lease-denied';
-    const isTransientWait =
-      waitReason === 'tab-hidden' || waitReason === 'higher-priority-wait' || waitReason.startsWith('bucket:');
-    if (!isTransientWait) {
+    if (!isDeferredTaskWaitReason(waitReason)) {
       await failManagedTask(registeredDescriptor.taskId, waitReason);
     }
     return { executed: false, waitReason };

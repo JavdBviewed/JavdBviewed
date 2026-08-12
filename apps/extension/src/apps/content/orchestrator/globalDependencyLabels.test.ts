@@ -6,7 +6,6 @@ import { describe, expect, it } from 'vitest';
 
 /** 与 InitOrchestrator.GLOBAL_DEPENDENCY_LABELS 保持同步 */
 const GLOBAL_DEPENDENCY_LABELS = new Set([
-  'videoEnhancement:loadData',
   'videoEnhancement:runRelatedLists',
   'videoEnhancement:runFC2Breaker',
   'videoEnhancement:runReviewBreaker',

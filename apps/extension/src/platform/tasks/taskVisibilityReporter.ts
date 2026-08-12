@@ -6,10 +6,12 @@
  * background 根据页面可见性调整任务调度策略（前台优先执行）
  */
 import { TASK_CENTER_MESSAGE } from '../../shared/taskCenterProtocol';
+import { countContentPerformanceEvent } from './contentPerformanceDiagnostics';
 
 /** 安装页面可见性上报器 */
-export function installTaskVisibilityReporter(getActiveTaskIds?: () => string[]): void {
+export function installTaskVisibilityReporter(getActiveTaskIds?: () => string[]): () => void {
   const report = () => {
+    countContentPerformanceEvent('event.visibilityReport');
     try {
       const visible = document.visibilityState === 'visible';
       chrome.runtime.sendMessage({
@@ -25,4 +27,5 @@ export function installTaskVisibilityReporter(getActiveTaskIds?: () => string[])
 
   document.addEventListener('visibilitychange', report);
   report();
+  return () => document.removeEventListener('visibilitychange', report);
 }

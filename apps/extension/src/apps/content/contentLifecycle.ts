@@ -13,6 +13,9 @@ import { magnetSearchManager, normalizeMagnetSortMode } from '../../features/mag
 import { listEnhancementManager } from '../../features/listEnhancement';
 import { actorEnhancementManager } from '../../features/actorEnhancement';
 import { stopPreviewVideoWatcher } from '../../features/previews';
+import { initOrchestrator } from './orchestrator';
+
+type ContentLifecycleCleanup = () => void;
 
 export function exposeContentDebugManagers(): void {
     if (typeof window === 'undefined') return;
@@ -21,9 +24,11 @@ export function exposeContentDebugManagers(): void {
     (window as any).actorEnhancementManager = actorEnhancementManager;
 }
 
-export function installContentLifecycleHandlers(): void {
+export function installContentLifecycleHandlers(cleanups: ContentLifecycleCleanup[] = []): void {
     window.addEventListener('beforeunload', () => {
         try {
+            initOrchestrator.dispose();
+            cleanups.splice(0).forEach((cleanup) => cleanup());
             stopPreviewVideoWatcher();
             cleanupVideoDetailObservers();
             performanceOptimizer?.cleanup();

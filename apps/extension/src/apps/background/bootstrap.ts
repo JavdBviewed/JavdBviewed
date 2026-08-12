@@ -34,18 +34,39 @@ import { registerBackgroundErrorHandlers } from './errorHandlers';
 import { registerReleaseAnnouncementEvents } from './releaseAnnouncementEvents';
 import { initializeRouteAutoUpdate } from './routeAutoUpdate';
 import { initializeTelemetryAfterClientIdentity } from './telemetryStartup';
+import {
+  parseBackgroundBootstrapSkipProfile,
+  shouldRunBackgroundBootstrapStep,
+} from './bootstrapProfile';
+
+const skippedBootstrapSteps = parseBackgroundBootstrapSkipProfile(
+  import.meta.env.VITE_JAVDB_PERF_BOOTSTRAP_SKIP,
+);
+const shouldRunBootstrapStep = (step: Parameters<typeof shouldRunBackgroundBootstrapStep>[1]) => (
+  shouldRunBackgroundBootstrapStep(skippedBootstrapSteps, step)
+);
+
+if (skippedBootstrapSteps.length > 0) {
+  console.info('[Background] Diagnostic bootstrap profile enabled', {
+    skippedSteps: skippedBootstrapSteps,
+  });
+}
 
 installConsoleProxyWithSettings();
-installDrive115V2Proxy();
-ensureMigrationsStart();
-registerReleaseAnnouncementEvents();
-initializeTelemetryAfterClientIdentity({
-  ensureClientIdentity: () => ensureWebDAVClientIdentity({ getSettings, saveSettings }),
-  initializeTelemetry: initializeTelemetryReporter,
-  logWarning: (message, context) => console.warn(message, context),
-}).catch(() => {});
+if (shouldRunBootstrapStep('drive115-proxy')) installDrive115V2Proxy();
+if (shouldRunBootstrapStep('migrations')) ensureMigrationsStart();
+if (shouldRunBootstrapStep('release-announcement')) registerReleaseAnnouncementEvents();
+if (shouldRunBootstrapStep('telemetry')) {
+  initializeTelemetryAfterClientIdentity({
+    ensureClientIdentity: () => ensureWebDAVClientIdentity({ getSettings, saveSettings }),
+    initializeTelemetry: initializeTelemetryReporter,
+    logWarning: (message, context) => console.warn(message, context),
+  }).catch(() => {});
+}
 
-globalTaskCenter.restoreFromStorage().catch(console.warn);
+if (shouldRunBootstrapStep('task-center-restore')) {
+  globalTaskCenter.restoreFromStorage().catch(console.warn);
+}
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   try {
@@ -81,19 +102,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-registerDynamicContentScripts();
-registerEmbyDynamicContentScriptsOnStartup();
-initializeRouteAutoUpdate();
+if (shouldRunBootstrapStep('dynamic-content-scripts')) registerDynamicContentScripts();
+if (shouldRunBootstrapStep('emby-content-scripts')) registerEmbyDynamicContentScriptsOnStartup();
+if (shouldRunBootstrapStep('route-auto-update')) initializeRouteAutoUpdate();
 
-registerWebDAVRouter();
-registerDbMessageRouter();
-registerMiscRouter();
-registerNetProxyRouter();
+if (shouldRunBootstrapStep('webdav-router')) registerWebDAVRouter();
+if (shouldRunBootstrapStep('db-router')) registerDbMessageRouter();
+if (shouldRunBootstrapStep('misc-router')) registerMiscRouter();
+if (shouldRunBootstrapStep('net-proxy-router')) registerNetProxyRouter();
 
-installCoversRefererDNR();
-syncDrive115DailyAlarmFromSettings().catch(() => {});
-initializeBackgroundAlarmWiring();
-registerBackgroundErrorHandlers();
+if (shouldRunBootstrapStep('covers-referer-dnr')) installCoversRefererDNR();
+if (shouldRunBootstrapStep('drive115-alarm')) syncDrive115DailyAlarmFromSettings().catch(() => {});
+if (shouldRunBootstrapStep('alarm-wiring')) initializeBackgroundAlarmWiring();
+if (shouldRunBootstrapStep('error-handlers')) registerBackgroundErrorHandlers();
 
 try {
   console.info('[Background] Service Worker ready', { ts: new Date().toISOString() });

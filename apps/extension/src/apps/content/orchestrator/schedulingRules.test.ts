@@ -6,6 +6,7 @@ import {
   getDependencyWaitLimitMs,
   getHiddenIdleDelayMs,
   getPhaseTaskCost,
+  isLeaseAvailabilityWaitReason,
   isDeferredWaitReason,
   partitionTasksByDependencyReadiness,
   sortTasksByPriority,
@@ -43,7 +44,16 @@ describe('orchestrator scheduling rules', () => {
     expect(isDeferredWaitReason('tab-hidden')).toBe(true);
     expect(isDeferredWaitReason('higher-priority-wait')).toBe(true);
     expect(isDeferredWaitReason('bucket:medium')).toBe(true);
+    expect(isDeferredWaitReason('source-page-heavy-budget')).toBe(true);
     expect(isDeferredWaitReason('dependency-wait')).toBe(false);
+  });
+
+  it('separates scheduler availability waits from execution failures', () => {
+    expect(isLeaseAvailabilityWaitReason('source-page-heavy-budget')).toBe(true);
+    expect(isLeaseAvailabilityWaitReason('background-global-budget')).toBe(true);
+    expect(isLeaseAvailabilityWaitReason('tab-hidden')).toBe(true);
+    expect(isLeaseAvailabilityWaitReason('retryable-error')).toBe(false);
+    expect(isLeaseAvailabilityWaitReason('lease-timeout')).toBe(false);
   });
 
   it('computes dependency wait limits from timeout', () => {

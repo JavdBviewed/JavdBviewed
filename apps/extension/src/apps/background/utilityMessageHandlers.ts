@@ -8,6 +8,7 @@ import {
   getValue as defaultGetValue,
 } from '../../utils/storage';
 import {
+  viewedGet as defaultViewedGet,
   viewedPut as defaultViewedPut,
 } from '../../platform/storage/indexedDb';
 import { requestScheduler as defaultRequestScheduler } from '../../platform/network/requestScheduler';
@@ -82,6 +83,7 @@ export async function handleUpdateWatchedStatus(
   message: any,
   sendResponse: SendResponse,
   viewedPut: typeof defaultViewedPut = defaultViewedPut,
+  viewedGet: typeof defaultViewedGet = defaultViewedGet,
 ): Promise<void> {
   try {
     const videoId = message?.videoId;
@@ -89,7 +91,11 @@ export async function handleUpdateWatchedStatus(
       sendResponse({ success: false, error: 'No videoId provided' });
       return;
     }
-    const record: any = { id: videoId, title: '', status: 'viewed', tags: [], createdAt: Date.now(), updatedAt: Date.now() };
+    const now = Date.now();
+    const existing = await viewedGet(videoId);
+    const record: any = existing
+      ? { ...existing, status: 'viewed', updatedAt: now }
+      : { id: videoId, title: '', status: 'viewed', tags: [], createdAt: now, updatedAt: now };
     await viewedPut(record);
     sendResponse({ success: true, record });
   } catch (error: any) {

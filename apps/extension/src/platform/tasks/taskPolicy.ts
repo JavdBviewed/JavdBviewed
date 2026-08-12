@@ -23,6 +23,35 @@ export const TASK_BUCKET_LIMITS: Record<string, number> = {
   auxiliary: 20,                                      // 辅助任务（宽限）
 };
 
+/** 跨桶租约预算，避免多个任务桶同时放大页面侧工作量。 */
+export const TASK_GLOBAL_LEASE_LIMITS = {
+  visible: 6,
+  hidden: 3,
+  visiblePriorityReserve: 1,
+  hiddenPriorityReserve: 1,
+} as const;
+
+export const TASK_PAGE_LEASE_LIMITS = {
+  visible: 4,
+  hidden: 1,
+} as const;
+
+/**
+ * Cross-bucket limits for source-page operations which each perform a large
+ * local-library read/write or DOM pass. They must not start together on
+ * several source tabs.
+ */
+export const TASK_LEASE_GROUP_LIMITS: Record<string, number> = {
+  'source-page-heavy': 1,
+};
+
+export function resolveTaskLeaseGroup(label: string): string | null {
+  if (label === 'videoStatus:initialSync' || label === 'actorMarks:page') {
+    return 'source-page-heavy';
+  }
+  return null;
+}
+
 /**
  * 根据任务 label 解析所属桶。
  *

@@ -10,7 +10,14 @@
  * - 去重：通过 dedupeKey 防止重复创建同类任务
  * - 超时守卫：running 超过 timeoutMs 自动标记 error
  */
-import { TASK_BUCKET_LIMITS, resolveTaskBucket } from './taskPolicy';
+import {
+  TASK_BUCKET_LIMITS,
+  TASK_GLOBAL_LEASE_LIMITS,
+  TASK_LEASE_GROUP_LIMITS,
+  TASK_PAGE_LEASE_LIMITS,
+  resolveTaskBucket,
+  resolveTaskLeaseGroup,
+} from './taskPolicy';
 import { TaskStateStore } from './taskStateStore';
 import { TASK_CENTER_MESSAGE } from '../../shared/taskCenterProtocol';
 import type { GlobalTaskDescriptor, GlobalTaskRuntimeState } from '../../shared/taskCenterTypes';
@@ -18,6 +25,14 @@ import { computeTaskDisposition, getEffectiveBucketLimit } from './taskCenterPol
 
 /** 租约响应：是否授予执行权，未授予时附带等待原因 */
 type LeaseResponse = { granted: boolean; waitReason?: string };
+
+type TaskRegistrationResult = {
+  ok: true;
+  taskId: string;
+  tabId: number;
+  reused?: boolean;
+  status?: string;
+};
 
 /** 排队候选任务（附带优先级评分） */
 type QueueCandidate = {
@@ -32,11 +47,16 @@ export class GlobalTaskCenter {
   private readonly pendingTaskMaxAgeMs = 60 * 1000;
   private readonly pausedTaskMaxAgeMs = 3 * 60 * 1000;
   private readonly hiddenRunningTaskMaxAgeMs = 45 * 1000;
+  private readonly starvationThresholdMs = 15 * 1000;
+  private readonly idleStarvationScore = 2500;
+  private readonly deferredStarvationScore = 2500;
   // P1 FIX: 跨页面依赖同步 - 在 background 维护全局已完成任务集合
   private completedTaskLabels = new Set<string>();
   private readonly storageKey = 'taskCenter:snapshot';
   private readonly dedupeStorageKey = 'taskCenter:dedupeIndex'; // P2 FIX: dedupe 持久化
   private isRestored = false;
+  private persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly persistDebounceMs = 500;
 
   private getPhaseWeight(phase: string): number {
     if (phase === 'critical') return 4000;
@@ -44,6 +64,17 @@ export class GlobalTaskCenter {
     if (phase === 'deferred') return 2000;
     if (phase === 'idle') return 1000;
     return 0;
+  }
+
+  private getStarvationScore(record: QueueCandidate['record'], now: number): number {
+    const maxScore = record.descriptor.phase === 'idle'
+      ? this.idleStarvationScore
+      : record.descriptor.phase === 'deferred'
+        ? this.deferredStarvationScore
+        : 0;
+    if (maxScore === 0) return 0;
+    const waitedMs = Math.max(0, now - record.descriptor.createdAt);
+    return waitedMs >= this.starvationThresholdMs ? maxScore : 0;
   }
 
   // P1 FIX: Service Worker 重启后，从 chrome.storage 恢复任务状态
@@ -91,6 +122,8 @@ export class GlobalTaskCenter {
 
   // P1 FIX: 定期快照到 chrome.storage，防止 Service Worker 重启丢失状态
   private persistToStorage(): void {
+    const storage = typeof chrome !== 'undefined' ? chrome.storage?.local : undefined;
+    if (!storage) return;
     const snapshot = {
       tasks: this.store.listTasks().map(record => ({
         descriptor: record.descriptor,
@@ -99,18 +132,27 @@ export class GlobalTaskCenter {
       completedLabels: Array.from(this.completedTaskLabels),
       savedAt: Date.now(),
     };
-    chrome.storage.local.set({ [this.storageKey]: snapshot }).catch(() => {});
+    storage.set({ [this.storageKey]: snapshot }).catch(() => {});
     // P2 FIX: 同时持久化 dedupe index，防止 SW 重启后 dedupe 失效导致重复任务
     if (this.dedupeIndex.size > 0) {
       const dedupeSnapshot = Object.fromEntries(this.dedupeIndex.entries());
-      chrome.storage.local.set({ [this.dedupeStorageKey]: dedupeSnapshot }).catch(() => {});
+      storage.set({ [this.dedupeStorageKey]: dedupeSnapshot }).catch(() => {});
     }
+  }
+
+  /** Collapse bursty task completions into one full snapshot write. */
+  private schedulePersistToStorage(): void {
+    if (this.persistDebounceTimer !== null) return;
+    this.persistDebounceTimer = setTimeout(() => {
+      this.persistDebounceTimer = null;
+      this.persistToStorage();
+    }, this.persistDebounceMs);
   }
 
   // P1 FIX: 跨页面依赖同步 - 通知任务中心某个 label 的任务已完成
   markTaskLabelCompleted(label: string): void {
     this.completedTaskLabels.add(label);
-    this.persistToStorage();
+    this.schedulePersistToStorage();
   }
 
   // P1 FIX: 查询某个 label 是否已在全局完成（供 content script 调用）
@@ -125,7 +167,8 @@ export class GlobalTaskCenter {
     const ageScore = Math.min(600, Math.floor(ageMs / 1000));
     const visibilityScore = this.store.isTabVisible(descriptor.tabId) ? 80 : 0;
     const retryPenalty = runtime.retryCount * 100;
-    return this.getPhaseWeight(descriptor.phase) + (descriptor.priority * 100) + visibilityScore + ageScore - retryPenalty;
+    const starvationScore = this.getStarvationScore(record, now);
+    return this.getPhaseWeight(descriptor.phase) + (descriptor.priority * 100) + visibilityScore + ageScore + starvationScore - retryPenalty;
   }
 
   private isRunnableCandidate(record: QueueCandidate['record'], bucket: string, visible: boolean, now = Date.now()): boolean {
@@ -148,6 +191,21 @@ export class GlobalTaskCenter {
     if (candidates.length === 0) return null;
 
     candidates.sort((left, right) => {
+      const leftCritical = left.descriptor.phase === 'critical';
+      const rightCritical = right.descriptor.phase === 'critical';
+      if (leftCritical !== rightCritical) return leftCritical ? -1 : 1;
+
+      const phaseRank = (phase: string) => phase === 'high' ? 2 : phase === 'deferred' ? 1 : 0;
+      const leftRank = phaseRank(left.descriptor.phase);
+      const rightRank = phaseRank(right.descriptor.phase);
+      if (leftRank !== rightRank) {
+        const higherPhaseCandidate = leftRank > rightRank ? left : right;
+        // Fairness boosts may rotate work only after the higher phase has
+        // received an execution turn. A never-started high or deferred task
+        // must not be blocked by aged lower-phase work in the same bucket.
+        if (!higherPhaseCandidate.runtime.startedAt) return leftRank > rightRank ? -1 : 1;
+      }
+
       const scoreDiff = this.getQueueScore(right, now) - this.getQueueScore(left, now);
       if (scoreDiff !== 0) return scoreDiff;
 
@@ -174,6 +232,37 @@ export class GlobalTaskCenter {
       return recordBucket === bucket
         && recordVisible === visible
         && recordDisposition === 'active'
+        && (record.runtime.status === 'leased' || record.runtime.status === 'running');
+    }).length;
+  }
+
+  private getActiveLeaseCount(visible: boolean, pageInstanceId?: string): number {
+    const now = Date.now();
+    return this.store.listTasks().filter(record => {
+      const disposition = computeTaskDisposition({
+        status: record.runtime.status,
+        heartbeatTs: record.runtime.heartbeatTs,
+        timeoutMs: record.descriptor.timeoutMs,
+        now,
+      });
+      return this.store.isTabVisible(record.descriptor.tabId) === visible
+        && (!pageInstanceId || record.descriptor.pageInstanceId === pageInstanceId)
+        && disposition === 'active'
+        && (record.runtime.status === 'leased' || record.runtime.status === 'running');
+    }).length;
+  }
+
+  private getActiveLeaseGroupCount(group: string): number {
+    const now = Date.now();
+    return this.store.listTasks().filter((record) => {
+      const disposition = computeTaskDisposition({
+        status: record.runtime.status,
+        heartbeatTs: record.runtime.heartbeatTs,
+        timeoutMs: record.descriptor.timeoutMs,
+        now,
+      });
+      return resolveTaskLeaseGroup(record.descriptor.label) === group
+        && disposition === 'active'
         && (record.runtime.status === 'leased' || record.runtime.status === 'running');
     }).length;
   }
@@ -227,15 +316,9 @@ export class GlobalTaskCenter {
       const isPendingTask = runtime.status === 'registered' || runtime.status === 'queued';
       const pendingBaseTs = runtime.lastProgressAt || runtime.heartbeatTs || descriptor.createdAt;
       const isKnownTabPendingTask = this.store.hasTabVisibility(descriptor.tabId);
-      const isLeaseWaitPendingTask = [
-        'tab-hidden',
-        'higher-priority-wait',
-        'retryable-error',
-      ].includes(runtime.waitReason || '') || String(runtime.waitReason || '').startsWith('bucket:');
       if (
         isPendingTask
         && !isKnownTabPendingTask
-        && !isLeaseWaitPendingTask
         && now - pendingBaseTs > this.pendingTaskMaxAgeMs
       ) {
         runtime.status = 'canceled';
@@ -275,14 +358,20 @@ export class GlobalTaskCenter {
     }
   }
 
-  registerTask(descriptor: GlobalTaskDescriptor, sender?: chrome.runtime.MessageSender): {
-    ok: true;
-    taskId: string;
-    tabId: number;
-    reused?: boolean;
-    status?: string;
-  } {
+  registerTask(descriptor: GlobalTaskDescriptor, sender?: chrome.runtime.MessageSender): TaskRegistrationResult {
     this.cleanupStaleTasks();
+    return this.registerTaskWithoutCleanup(descriptor, sender);
+  }
+
+  registerTasks(
+    descriptors: readonly GlobalTaskDescriptor[],
+    sender?: chrome.runtime.MessageSender,
+  ): TaskRegistrationResult[] {
+    this.cleanupStaleTasks();
+    return descriptors.map((descriptor) => this.registerTaskWithoutCleanup(descriptor, sender));
+  }
+
+  private registerTaskWithoutCleanup(descriptor: GlobalTaskDescriptor, sender?: chrome.runtime.MessageSender): TaskRegistrationResult {
     const existing = this.store.getTask(descriptor.taskId);
     if (existing) {
       return {
@@ -397,6 +486,33 @@ export class GlobalTaskCenter {
     if (runningCount >= limit) {
       task.runtime.status = 'queued';
       task.runtime.waitReason = visible ? `bucket:${bucket}` : 'tab-hidden';
+      this.store.setTask(taskId, task);
+      return { granted: false, waitReason: task.runtime.waitReason };
+    }
+    const globalLeaseLimit = visible ? TASK_GLOBAL_LEASE_LIMITS.visible : TASK_GLOBAL_LEASE_LIMITS.hidden;
+    const activeLeaseCount = this.getActiveLeaseCount(visible);
+    const isPriorityPhase = task.descriptor.phase === 'critical' || task.descriptor.phase === 'high';
+    const reservedLeaseCount = !isPriorityPhase
+      ? (visible ? TASK_GLOBAL_LEASE_LIMITS.visiblePriorityReserve : TASK_GLOBAL_LEASE_LIMITS.hiddenPriorityReserve)
+      : 0;
+    if (activeLeaseCount >= globalLeaseLimit - reservedLeaseCount) {
+      task.runtime.status = 'queued';
+      task.runtime.waitReason = reservedLeaseCount > 0 ? 'global-priority-reserve' : (visible ? 'global-budget' : 'background-global-budget');
+      this.store.setTask(taskId, task);
+      return { granted: false, waitReason: task.runtime.waitReason };
+    }
+    const pageLeaseLimit = visible ? TASK_PAGE_LEASE_LIMITS.visible : TASK_PAGE_LEASE_LIMITS.hidden;
+    if (this.getActiveLeaseCount(visible, task.descriptor.pageInstanceId) >= pageLeaseLimit) {
+      task.runtime.status = 'queued';
+      task.runtime.waitReason = visible ? 'page-budget' : 'background-page-budget';
+      this.store.setTask(taskId, task);
+      return { granted: false, waitReason: task.runtime.waitReason };
+    }
+    const leaseGroup = resolveTaskLeaseGroup(task.descriptor.label);
+    const leaseGroupLimit = leaseGroup ? TASK_LEASE_GROUP_LIMITS[leaseGroup] : undefined;
+    if (leaseGroup && leaseGroupLimit !== undefined && this.getActiveLeaseGroupCount(leaseGroup) >= leaseGroupLimit) {
+      task.runtime.status = 'queued';
+      task.runtime.waitReason = `${leaseGroup}-budget`;
       this.store.setTask(taskId, task);
       return { granted: false, waitReason: task.runtime.waitReason };
     }
@@ -665,6 +781,9 @@ export class GlobalTaskCenter {
       switch (message?.type) {
         case TASK_CENTER_MESSAGE.REGISTER:
           sendResponse(this.registerTask(message.payload, sender));
+          return;
+        case TASK_CENTER_MESSAGE.REGISTER_BATCH:
+          sendResponse({ results: this.registerTasks(Array.isArray(message.payload?.descriptors) ? message.payload.descriptors : [], sender) });
           return;
         case TASK_CENTER_MESSAGE.REQUEST_LEASE:
           sendResponse(this.requestLease(message.payload.taskId));

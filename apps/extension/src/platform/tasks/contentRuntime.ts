@@ -13,6 +13,7 @@ export {
   clearTaskRetryBudget,
   completeManagedTask,
   ensureManagedTaskRegistered,
+  ensureManagedTasksRegistered,
   failManagedTask,
   getActiveManagedTaskIds,
   getTaskRetryCount,

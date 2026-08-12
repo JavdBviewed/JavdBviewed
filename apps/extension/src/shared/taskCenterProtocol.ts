@@ -2,6 +2,7 @@ import type { GlobalTaskDescriptor } from './taskCenterTypes';
 
 export const TASK_CENTER_MESSAGE = {
   REGISTER: 'task-center:register',
+  REGISTER_BATCH: 'task-center:register-batch',
   REQUEST_LEASE: 'task-center:request-lease',
   HEARTBEAT: 'task-center:heartbeat',
   PROGRESS: 'task-center:progress',
@@ -20,6 +21,11 @@ export const TASK_CENTER_MESSAGE = {
 export interface RegisterTaskMessage {
   type: typeof TASK_CENTER_MESSAGE.REGISTER;
   payload: GlobalTaskDescriptor;
+}
+
+export interface RegisterTaskBatchMessage {
+  type: typeof TASK_CENTER_MESSAGE.REGISTER_BATCH;
+  payload: { descriptors: GlobalTaskDescriptor[] };
 }
 
 export interface RequestLeaseMessage {

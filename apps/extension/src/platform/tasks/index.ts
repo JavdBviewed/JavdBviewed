@@ -14,6 +14,7 @@ export {
   completeManagedTask,
   createManagedTaskDescriptor,
   ensureManagedTaskRegistered,
+  ensureManagedTasksRegistered,
   failManagedTask,
   getActiveManagedTaskIds,
   getTaskRetryCount,
@@ -45,6 +46,16 @@ export {
 
 export { installTaskHeartbeatReporter } from './taskHeartbeatReporter';
 export { installTaskVisibilityReporter } from './taskVisibilityReporter';
+export {
+  CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS,
+  countContentPerformanceEvent,
+  getContentPerformanceDiagnosticSnapshot,
+  installContentPerformanceDiagnostics,
+  recordContentPerformanceDuration,
+  startContentPerformanceSpan,
+  CONTENT_PERFORMANCE_DIAGNOSTIC_MESSAGES,
+  type ContentPerformanceDiagnosticSnapshot,
+} from './contentPerformanceDiagnostics';
 export { createTaskTimeoutGuard, isTaskTimeoutError } from './taskTimeoutGuard';
 export { PerformanceOptimizer, performanceOptimizer, type PerformanceConfig } from './performanceOptimizer';
 

@@ -134,6 +134,244 @@ describe('GlobalTaskCenter scheduling', () => {
     expect(competing.waitReason).toBe('higher-priority-wait');
   });
 
+  it('runs queued high-priority detail work before aged idle work in the same bucket', () => {
+    const center = new GlobalTaskCenter();
+    const startedAt = Date.now();
+    vi.useFakeTimers();
+    vi.setSystemTime(startedAt);
+
+    try {
+      for (let index = 0; index < 7; index += 1) {
+        center.updateVisibility(index + 1, true);
+        center.registerTask(createDescriptor({
+          taskId: `fresh-high-work-${index}`,
+          label: 'videoEnhancement:initCore',
+          tabId: index + 1,
+          pageInstanceId: `high-page-${index}`,
+          phase: 'high',
+          priority: 8,
+          createdAt: startedAt + index,
+          dedupeKey: `fresh-high-work:${index}`,
+        }));
+      }
+      center.updateVisibility(20, true);
+      center.registerTask(createDescriptor({
+        taskId: 'idle-detail-finish',
+        label: 'videoEnhancement:runTitle',
+        tabId: 20,
+        pageInstanceId: 'idle-detail-page',
+        phase: 'idle',
+        priority: 5,
+        createdAt: startedAt,
+        dedupeKey: 'idle-detail-finish',
+      }));
+
+      for (let index = 0; index < 6; index += 1) {
+        expect(center.requestLease(`fresh-high-work-${index}`)).toEqual({ granted: true });
+      }
+      expect(center.requestLease('fresh-high-work-6')).toEqual({
+        granted: false,
+        waitReason: 'global-budget',
+      });
+
+      expect(center.requestLease('idle-detail-finish')).toEqual({
+        granted: false,
+        waitReason: 'higher-priority-wait',
+      });
+
+      center.completeTask('fresh-high-work-0');
+      center.completeTask('fresh-high-work-1');
+      vi.setSystemTime(startedAt + 15_000);
+
+      expect(center.requestLease('fresh-high-work-6')).toEqual({ granted: true });
+      center.completeTask('fresh-high-work-6');
+
+      expect(center.requestLease('idle-detail-finish')).toEqual({ granted: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('lets aged deferred metadata loading claim the next video-light lease after high work has run', () => {
+    const center = new GlobalTaskCenter();
+    const startedAt = Date.now();
+    vi.useFakeTimers();
+    vi.setSystemTime(startedAt);
+
+    try {
+      center.updateVisibility(1, true);
+      center.updateVisibility(2, true);
+      center.registerTask(createDescriptor({
+        taskId: 'aged-load-data',
+        label: 'videoEnhancement:loadData',
+        tabId: 1,
+        pageInstanceId: 'deferred-page',
+        phase: 'deferred',
+        priority: 5,
+        createdAt: startedAt,
+        dedupeKey: 'aged-load-data',
+      }));
+      center.registerTask(createDescriptor({
+        taskId: 'fresh-high-work',
+        label: 'videoEnhancement:initCore',
+        tabId: 2,
+        pageInstanceId: 'high-page',
+        phase: 'high',
+        priority: 8,
+        createdAt: startedAt + 1,
+        dedupeKey: 'fresh-high-work',
+      }));
+
+      expect(center.requestLease('fresh-high-work')).toEqual({ granted: true });
+      center.pauseTask('fresh-high-work', 'test-release');
+      center.resumeTask('fresh-high-work');
+      vi.setSystemTime(startedAt + 15_000);
+
+      expect(center.requestLease('aged-load-data')).toEqual({ granted: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never lets an aged deferred task outrank critical work', () => {
+    const center = new GlobalTaskCenter();
+    const startedAt = Date.now();
+    vi.useFakeTimers();
+    vi.setSystemTime(startedAt);
+
+    try {
+      center.updateVisibility(1, true);
+      center.updateVisibility(2, true);
+      center.registerTask(createDescriptor({
+        taskId: 'aged-deferred-work',
+        label: 'videoEnhancement:loadData',
+        tabId: 1,
+        pageInstanceId: 'deferred-page',
+        phase: 'deferred',
+        priority: 5,
+        createdAt: startedAt,
+        dedupeKey: 'aged-deferred-work',
+      }));
+      center.registerTask(createDescriptor({
+        taskId: 'critical-work',
+        label: 'videoEnhancement:critical-stage',
+        tabId: 2,
+        pageInstanceId: 'critical-page',
+        phase: 'critical',
+        priority: 5,
+        createdAt: startedAt + 1,
+        dedupeKey: 'critical-work',
+      }));
+
+      expect(center.requestLease('critical-work')).toEqual({ granted: true });
+      center.pauseTask('critical-work', 'test-release');
+      center.resumeTask('critical-work');
+      vi.setSystemTime(startedAt + 15_000);
+
+      expect(center.requestLease('aged-deferred-work')).toEqual({
+        granted: false,
+        waitReason: 'higher-priority-wait',
+      });
+      expect(center.requestLease('critical-work')).toEqual({ granted: true });
+      expect(center.queryState().tasks.find((task: any) => task.taskId === 'aged-deferred-work')).toMatchObject({
+        status: 'queued',
+        waitReason: 'higher-priority-wait',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let an aged idle task outrank a waiting high task in the same bucket', () => {
+    const center = new GlobalTaskCenter();
+    const startedAt = Date.now();
+    vi.useFakeTimers();
+    vi.setSystemTime(startedAt);
+
+    try {
+      center.updateVisibility(1, true);
+      center.updateVisibility(2, true);
+      center.registerTask(createDescriptor({
+        taskId: 'aged-idle-title',
+        label: 'videoEnhancement:runTitle',
+        tabId: 1,
+        pageInstanceId: 'idle-page',
+        phase: 'idle',
+        priority: 5,
+        createdAt: startedAt,
+        dedupeKey: 'aged-idle-title',
+      }));
+      center.registerTask(createDescriptor({
+        taskId: 'waiting-high-core',
+        label: 'videoEnhancement:initCore',
+        tabId: 2,
+        pageInstanceId: 'high-page',
+        phase: 'high',
+        priority: 8,
+        createdAt: startedAt + 1,
+        dedupeKey: 'waiting-high-core',
+      }));
+
+      expect(center.requestLease('aged-idle-title')).toEqual({ granted: true });
+      center.pauseTask('aged-idle-title', 'test-release');
+      center.resumeTask('aged-idle-title');
+
+      vi.setSystemTime(startedAt + 20_000);
+
+      expect(center.requestLease('waiting-high-core')).toEqual({ granted: true });
+      expect(center.queryState().tasks.find((task: any) => task.taskId === 'aged-idle-title')).toMatchObject({
+        status: 'queued',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let an aged idle task outrank a waiting deferred task in the same bucket', () => {
+    const center = new GlobalTaskCenter();
+    const startedAt = Date.now();
+    vi.useFakeTimers();
+    vi.setSystemTime(startedAt);
+
+    try {
+      center.updateVisibility(1, true);
+      center.updateVisibility(2, true);
+      center.registerTask(createDescriptor({
+        taskId: 'aged-idle-cover',
+        label: 'videoEnhancement:runCover',
+        tabId: 1,
+        pageInstanceId: 'idle-page',
+        phase: 'idle',
+        priority: 5,
+        createdAt: startedAt,
+        dedupeKey: 'aged-idle-cover',
+      }));
+      center.registerTask(createDescriptor({
+        taskId: 'waiting-deferred-load',
+        label: 'videoEnhancement:loadData',
+        tabId: 2,
+        pageInstanceId: 'deferred-page',
+        phase: 'deferred',
+        priority: 5,
+        createdAt: startedAt + 1,
+        dedupeKey: 'waiting-deferred-load',
+      }));
+
+      expect(center.requestLease('aged-idle-cover')).toEqual({ granted: true });
+      center.pauseTask('aged-idle-cover', 'test-release');
+      center.resumeTask('aged-idle-cover');
+
+      vi.setSystemTime(startedAt + 20_000);
+
+      expect(center.requestLease('waiting-deferred-load')).toEqual({ granted: true });
+      expect(center.queryState().tasks.find((task: any) => task.taskId === 'aged-idle-cover')).toMatchObject({
+        status: 'queued',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not cancel a hidden queued task that is still waiting for foreground visibility', () => {
     const center = new GlobalTaskCenter();
     const startedAt = Date.now();
@@ -258,7 +496,7 @@ describe('GlobalTaskCenter scheduling', () => {
     expect(task?.detail).toBe('network-3');
   });
 
-  it('does not orphan-clean a queued task waiting for retry', () => {
+  it('orphan-cleans a queued retry after its owner tab is no longer known', () => {
     const center = new GlobalTaskCenter();
     const startedAt = Date.now();
     vi.useFakeTimers();
@@ -276,8 +514,8 @@ describe('GlobalTaskCenter scheduling', () => {
       vi.setSystemTime(startedAt + 90_000);
       const task = center.queryState().tasks.find((item: any) => item.taskId === 'retry-pending-90s');
 
-      expect(task?.status).toBe('queued');
-      expect(task?.waitReason).toBe('retryable-error');
+      expect(task?.status).toBe('canceled');
+      expect(task?.waitReason).toBe('page-instance-orphaned');
       expect(task?.retryCount).toBe(1);
     } finally {
       vi.useRealTimers();
@@ -339,6 +577,67 @@ describe('GlobalTaskCenter scheduling', () => {
       await vi.runAllTicks();
 
       expect(orchestrator['runningDeferred']).toBe(0);
+      expect(sentMessages.some((message) => message.type === 'task-center:request-lease')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      (globalThis as any).chrome = previousChrome;
+    }
+  }, 20_000);
+
+  it.each([
+    ['deferred', 'runningDeferred', 'maxConcurrentDeferred', 500],
+    ['idle', 'runningIdle', 'maxConcurrentIdle', 800],
+  ] as const)('retries a %s task after the local concurrency gate opens', async (phase, runningKey, limitKey, retryDelayMs) => {
+    const sentMessages: Array<{ type: string; payload?: any }> = [];
+    const previousChrome = (globalThis as any).chrome;
+
+    vi.useFakeTimers();
+    (globalThis as any).chrome = {
+      runtime: {
+        sendMessage: async (message: { type: string; payload?: any }) => {
+          sentMessages.push(message);
+          if (message.type === 'task-center:register') {
+            return { taskId: message.payload.taskId, tabId: 1 };
+          }
+          if (message.type === 'task-center:request-lease') {
+            return { granted: true };
+          }
+          return { ok: true };
+        },
+        onMessage: { addListener: () => undefined },
+      },
+      storage: {
+        local: {
+          get: (_keys: any, callback?: (result: any) => void) => {
+            if (typeof callback === 'function') callback({});
+            return Promise.resolve({});
+          },
+          set: async () => undefined,
+          remove: async () => undefined,
+        },
+      },
+    };
+
+    try {
+      const mod = await orchestratorModulePromise;
+      const orchestrator: any = mod.initOrchestrator;
+      orchestrator['retryTimers'].clearAll();
+      orchestrator[runningKey] = orchestrator[limitKey];
+      (globalThis as any).window.setTimeout = setTimeout;
+      (globalThis as any).window.clearTimeout = clearTimeout;
+
+      const scheduledTask = {
+        task: async () => undefined,
+        options: { label: `${phase}-retry-after-local-capacity`, idle: false },
+      };
+      orchestrator['scheduleTask'](phase, scheduledTask);
+
+      expect(sentMessages.some((message) => message.type === 'task-center:request-lease')).toBe(false);
+
+      orchestrator[runningKey] = 0;
+      await vi.advanceTimersByTimeAsync(retryDelayMs);
+      await vi.runAllTicks();
+
       expect(sentMessages.some((message) => message.type === 'task-center:request-lease')).toBe(true);
     } finally {
       vi.useRealTimers();
@@ -804,6 +1103,206 @@ describe('GlobalTaskCenter shareScope / dedupe (P0-3/4/5)', () => {
 
 
 describe('GlobalTaskCenter multi pageInstance pressure (P2 R3)', () => {
+  it('serializes source-page-heavy work across independent page instances', () => {
+    const center = new GlobalTaskCenter();
+    center.updateVisibility(1, true);
+    center.updateVisibility(2, true);
+
+    center.registerTask(createDescriptor({
+      taskId: 'source-heavy-status',
+      label: 'videoStatus:initialSync',
+      tabId: 1,
+      pageInstanceId: 'source-heavy-page-1',
+      phase: 'critical',
+      priority: 12,
+      dedupeKey: 'source-heavy:status',
+    }));
+    center.registerTask(createDescriptor({
+      taskId: 'source-heavy-actors',
+      label: 'actorMarks:page',
+      tabId: 2,
+      pageInstanceId: 'source-heavy-page-2',
+      phase: 'idle',
+      dedupeKey: 'source-heavy:actors',
+    }));
+    center.registerTask(createDescriptor({
+      taskId: 'source-light-refresh',
+      label: 'videoStatus:fullRefresh',
+      tabId: 3,
+      pageInstanceId: 'source-heavy-page-3',
+      phase: 'deferred',
+      dedupeKey: 'source-heavy:refresh',
+    }));
+
+    expect(center.requestLease('source-heavy-status')).toEqual({ granted: true });
+    expect(center.requestLease('source-light-refresh')).toEqual({ granted: true });
+    expect(center.requestLease('source-heavy-actors')).toEqual({
+      granted: false,
+      waitReason: 'source-page-heavy-budget',
+    });
+
+    center.completeTask('source-heavy-status');
+
+    expect(center.requestLease('source-heavy-actors')).toEqual({ granted: true });
+  });
+
+  it('caps visible leases across independent buckets', () => {
+    const center = new GlobalTaskCenter();
+    const labels = [
+      'videoStatus:query',
+      'videoEnhancement:runTitle',
+      'actorMarks:load',
+      'actorRemarks:load',
+      'drive115:sync',
+      'insights:generate',
+      'videoFavoriteRating:load',
+    ];
+
+    labels.forEach((label, index) => {
+      const tabId = index + 1;
+      center.updateVisibility(tabId, true);
+      center.registerTask(createDescriptor({
+        taskId: `visible-${index}`,
+        label,
+        tabId,
+        pageInstanceId: `visible-page-${index}`,
+        phase: 'high',
+        dedupeKey: `visible:${index}`,
+      }));
+    });
+
+    const granted = labels.filter((_, index) => center.requestLease(`visible-${index}`).granted);
+
+    expect(granted).toHaveLength(6);
+  });
+
+  it('caps visible leases from one page instance across independent buckets', () => {
+    const center = new GlobalTaskCenter();
+    const labels = [
+      'videoStatus:query',
+      'videoEnhancement:runTitle',
+      'actorMarks:load',
+      'actorRemarks:load',
+      'insights:generate',
+    ];
+    center.updateVisibility(1, true);
+
+    labels.forEach((label, index) => {
+      center.registerTask(createDescriptor({
+        taskId: `same-page-${index}`,
+        label,
+        dedupeKey: `same-page:${index}`,
+      }));
+    });
+
+    const granted = labels.filter((_, index) => center.requestLease(`same-page-${index}`).granted);
+
+    expect(granted).toHaveLength(4);
+  });
+
+  it('reserves one visible global lease for critical or high phase work', () => {
+    const center = new GlobalTaskCenter();
+    const idleLabels = [
+      'videoStatus:query',
+      'videoEnhancement:runTitle',
+      'actorMarks:load',
+      'actorRemarks:load',
+      'drive115:sync',
+      'insights:generate',
+    ];
+
+    idleLabels.forEach((label, index) => {
+      const tabId = index + 1;
+      center.updateVisibility(tabId, true);
+      center.registerTask(createDescriptor({
+        taskId: `idle-${index}`,
+        label,
+        tabId,
+        pageInstanceId: `idle-page-${index}`,
+        phase: 'idle',
+        dedupeKey: `idle:${index}`,
+      }));
+    });
+    center.updateVisibility(99, true);
+    center.registerTask(createDescriptor({
+      taskId: 'critical-later',
+      label: 'contentFilter:critical',
+      tabId: 99,
+      pageInstanceId: 'critical-page',
+      phase: 'critical',
+      dedupeKey: 'critical:later',
+    }));
+
+    const idleGranted = idleLabels.filter((_, index) => center.requestLease(`idle-${index}`).granted);
+
+    expect(idleGranted).toHaveLength(5);
+    expect(center.requestLease('critical-later')).toEqual({ granted: true });
+  });
+
+  it('caps background leases globally and per page instance', () => {
+    const center = new GlobalTaskCenter();
+    const labels = [
+      'videoStatus:query',
+      'videoEnhancement:runTitle',
+      'actorMarks:load',
+      'actorRemarks:load',
+    ];
+
+    labels.forEach((label, index) => {
+      center.updateVisibility(index < 2 ? 1 : index + 1, false);
+      center.registerTask(createDescriptor({
+        taskId: `background-${index}`,
+        label,
+        tabId: index < 2 ? 1 : index + 1,
+        pageInstanceId: index < 2 ? 'background-page-one' : `background-page-${index}`,
+        dedupeKey: `background:${index}`,
+      }));
+    });
+
+    const granted = labels.filter((_, index) => center.requestLease(`background-${index}`).granted);
+
+    expect(granted).toHaveLength(2);
+    expect(center.queryState().tasks.find((task: any) => task.taskId === 'background-1')?.waitReason)
+      .toBe('background-page-budget');
+  });
+
+  it('reserves one hidden global lease for critical or high phase work', () => {
+    const center = new GlobalTaskCenter();
+    const idleLabels = [
+      'videoEnhancement:runTitle',
+      'actorRemarks:load',
+      'insights:generate',
+    ];
+
+    idleLabels.forEach((label, index) => {
+      const tabId = index + 1;
+      center.updateVisibility(tabId, false);
+      center.registerTask(createDescriptor({
+        taskId: `hidden-idle-${index}`,
+        label,
+        tabId,
+        pageInstanceId: `hidden-idle-page-${index}`,
+        phase: 'idle',
+        dedupeKey: `hidden-idle:${index}`,
+      }));
+    });
+    center.updateVisibility(99, false);
+    center.registerTask(createDescriptor({
+      taskId: 'hidden-high',
+      label: 'videoEnhancement:initCore',
+      tabId: 99,
+      pageInstanceId: 'hidden-high-page',
+      phase: 'high',
+      priority: 8,
+      dedupeKey: 'hidden-high',
+    }));
+
+    const idleGranted = idleLabels.filter((_, index) => center.requestLease(`hidden-idle-${index}`).granted);
+
+    expect(idleGranted).toHaveLength(2);
+    expect(center.requestLease('hidden-high')).toEqual({ granted: true });
+  });
+
   it('registers many pageInstances without exceeding translate bucket concurrency', () => {
     const center = new GlobalTaskCenter();
     const pageCount = 25;
@@ -855,5 +1354,36 @@ describe('GlobalTaskCenter multi pageInstance pressure (P2 R3)', () => {
     expect(center.isTaskLabelCompleted('videoEnhancement:loadData')).toBe(false);
     center.markTaskLabelCompleted('videoEnhancement:loadData');
     expect(center.isTaskLabelCompleted('videoEnhancement:loadData')).toBe(true);
+  });
+
+  it('batches task snapshot writes while completion state remains immediately available', async () => {
+    vi.useFakeTimers();
+    const storageSet = vi.spyOn((globalThis as any).chrome.storage.local, 'set');
+    const center = new GlobalTaskCenter();
+
+    try {
+      center.markTaskLabelCompleted('videoStatus:initialSync');
+      center.markTaskLabelCompleted('videoEnhancement:initCore');
+      center.markTaskLabelCompleted('videoEnhancement:loadData');
+
+      expect(center.isTaskLabelCompleted('videoEnhancement:loadData')).toBe(true);
+      expect(storageSet).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(storageSet).toHaveBeenCalledTimes(1);
+      expect(storageSet).toHaveBeenCalledWith(expect.objectContaining({
+        'taskCenter:snapshot': expect.objectContaining({
+          completedLabels: expect.arrayContaining([
+            'videoStatus:initialSync',
+            'videoEnhancement:initCore',
+            'videoEnhancement:loadData',
+          ]),
+        }),
+      }));
+    } finally {
+      storageSet.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

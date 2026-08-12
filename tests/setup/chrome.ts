@@ -4,7 +4,15 @@
  * @module tests/setup
  */
 import { afterEach, beforeEach, vi } from 'vitest';
+import { webcrypto } from 'node:crypto';
 import manifest from '../../apps/extension/src/manifest.json';
+
+if (!globalThis.crypto?.subtle) {
+  Object.defineProperty(globalThis, 'crypto', {
+    value: webcrypto,
+    configurable: true,
+  });
+}
 
 type ChromeMessage = {
   type?: string;     // 消息类型标识

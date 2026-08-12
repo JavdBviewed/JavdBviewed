@@ -4,6 +4,7 @@
  * @module apps/content
  */
 import type { GlobalTaskCost } from '../../../shared/taskCenterTypes';
+import { isDeferredTaskWaitReason } from '../../../platform/tasks/waitPolicy';
 import type { InitPhase, ScheduledTask } from './types';
 
 export function createDeferredRetryKey(phase: InitPhase, label: string): string {
@@ -25,10 +26,15 @@ export function getDeferredRetryDelayMs(waitReason?: string): number {
 }
 
 export function isDeferredWaitReason(waitReason?: string): boolean {
-  return waitReason === 'tab-hidden'
-    || waitReason === 'higher-priority-wait'
-    || waitReason === 'retryable-error'
-    || (typeof waitReason === 'string' && waitReason.startsWith('bucket:'));
+  return waitReason === 'retryable-error'
+    || isDeferredTaskWaitReason(waitReason || '');
+}
+
+/** Scheduler capacity waits must remain queued; they are not execution failures. */
+export function isLeaseAvailabilityWaitReason(waitReason?: string): boolean {
+  return waitReason !== undefined
+    && waitReason !== 'retryable-error'
+    && isDeferredWaitReason(waitReason);
 }
 
 export function getDependencyWaitLimitMs(timeoutMs?: number): number {

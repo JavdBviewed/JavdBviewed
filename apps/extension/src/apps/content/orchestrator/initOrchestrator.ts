@@ -6,7 +6,22 @@
 // src/apps/content/orchestrator/initOrchestrator.ts
 
 // removed unused import: performanceOptimizer
-import { createManagedTaskDescriptor, runManagedTask, ensureManagedTaskRegistered, runRegisteredManagedTask, clearTaskRetryBudget, isRetryBudgetExhausted, incrementTaskRetryCount, isGlobalTaskLabelCompleted, notifyGlobalTaskCompleted, resolveTaskBucket } from '../../../platform/tasks';
+import {
+  CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS,
+  createManagedTaskDescriptor,
+  ensureManagedTaskRegistered,
+  ensureManagedTasksRegistered,
+  isGlobalTaskLabelCompleted,
+  isRetryBudgetExhausted,
+  incrementTaskRetryCount,
+  notifyGlobalTaskCompleted,
+  recordContentPerformanceDuration,
+  resolveTaskBucket,
+  runManagedTask,
+  runRegisteredManagedTask,
+  clearTaskRetryBudget,
+  startContentPerformanceSpan,
+} from '../../../platform/tasks';
 import type { GlobalTaskDescriptor, GlobalTaskVisibilityPolicy } from '../../../shared/taskCenterTypes';
 import { getPageContext } from '../../../platform/browser';
 import { installOrchestratorDashboardMetricsMessages } from './dashboardMetricsMessages';
@@ -15,12 +30,14 @@ import { runHighPhaseTasks } from './highPhaseScheduler';
 import { OrchestratorMetricsState } from './metrics';
 import { installOrchestratorPageLifecycleBindings } from './pageLifecycleBindings';
 import { OrchestratorRetryTimers } from './retryTimers';
+import { countContentPerformanceEvent } from '../../../platform/tasks';
 import {
   createTaskKey,
   getDeferredRetryDelayMs,
   getDependencyWaitLimitMs,
   getHiddenIdleDelayMs,
   getPhaseTaskCost,
+  isLeaseAvailabilityWaitReason,
   isDeferredWaitReason,
 } from './schedulingRules';
 import {
@@ -43,6 +60,7 @@ class InitOrchestrator {
   private verbose = true; // 统一开关，控制是否打印详细日志
   private listeners: Record<string, Array<(payload: any) => void>> = {};
   private blueprintDescriptors = new Map<string, GlobalTaskDescriptor>();
+  private registeredBlueprintTaskKeys = new Set<string>();
   private taskIndex = new Map<string, ManagedScheduledTask>();
 
   // 并发控制
@@ -69,13 +87,15 @@ class InitOrchestrator {
   private completedTasks = new Set<string>(); // 已完成的任务标签
   private taskDependencies = new Map<string, string[]>(); // 任务依赖关系
   private retryTimers = new OrchestratorRetryTimers();
+  private stallDetectionTimer?: number;
+  private hiddenLeaseProtectionTimer?: number;
+  private removeVisibilityListener?: () => void;
 
   /**
    * 允许用「其它页已完成」满足 dependsOn 的 label 白名单（仅网络/数据类，禁止 DOM per-page）。
    * @see P2 R6
    */
   private static readonly GLOBAL_DEPENDENCY_LABELS = new Set([
-    'videoEnhancement:loadData',
     'videoEnhancement:runRelatedLists',
     'videoEnhancement:runFC2Breaker',
     'videoEnhancement:runReviewBreaker',
@@ -131,7 +151,8 @@ class InitOrchestrator {
 
   // ── P0 FIX: 任务老化检测 ────────────────────────────────────────────────
   private startStallDetection(): void {
-    window.setInterval(() => {
+    this.stallDetectionTimer = window.setInterval(() => {
+      countContentPerformanceEvent('interval.orchestrator.stallDetection');
       const now = Date.now();
       for (const [taskKey, registeredAt] of this.pendingRegistrationTimes.entries()) {
         if (now - registeredAt > this.stallThresholdMs) {
@@ -150,7 +171,7 @@ class InitOrchestrator {
   // ── P0 FIX: hidden 页 lease 泄漏保护 ────────────────────────────────────
   private startHiddenLeaseProtection(): void {
     // 当页面隐藏时，记录 lease 持有任务
-    document.addEventListener('visibilitychange', () => {
+    const onVisibilityChange = () => {
       if (document.hidden) {
         const now = Date.now();
         for (const [_phase, tasks] of Object.entries(this.phases)) {
@@ -161,10 +182,13 @@ class InitOrchestrator {
           }
         }
       }
-    });
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    this.removeVisibilityListener = () => document.removeEventListener('visibilitychange', onVisibilityChange);
 
     // 每 30s 检查 hidden 超过阈值的任务，仅记录诊断；真正回收由 background 执行
-    window.setInterval(() => {
+    this.hiddenLeaseProtectionTimer = window.setInterval(() => {
+      countContentPerformanceEvent('interval.orchestrator.hiddenLeaseProtection');
       const now = Date.now();
       if (!document.hidden) return;
       for (const [taskId, hiddenAt] of this.hiddenLeaseTasks.entries()) {
@@ -196,7 +220,8 @@ class InitOrchestrator {
     if (label === 'anonymous') return;
     const taskId = st.managedDescriptor?.taskId || '';
 
-    const usesLocalRetryBudget = waitReason !== 'retryable-error';
+    const usesLocalRetryBudget = waitReason !== 'retryable-error'
+      && !isLeaseAvailabilityWaitReason(waitReason);
 
     if (usesLocalRetryBudget && taskId && isRetryBudgetExhausted(taskId)) {
       this.log('retry: budget exhausted, giving up', { phase, label, taskId });
@@ -250,6 +275,7 @@ class InitOrchestrator {
   }
 
   async preregisterBlueprints(blueprints: TaskBlueprint[]): Promise<void> {
+    const descriptors: Array<{ taskKey: string; label: string; descriptor: GlobalTaskDescriptor }> = [];
     for (const blueprint of blueprints) {
       if (!blueprint?.label) continue;
       const taskKey = createTaskKey(blueprint.phase, blueprint.label);
@@ -262,11 +288,25 @@ class InitOrchestrator {
         });
         this.blueprintDescriptors.set(taskKey, descriptor);
       }
-      try {
-        const registered = await ensureManagedTaskRegistered(descriptor);
-        this.blueprintDescriptors.set(taskKey, registered);
-      } catch (error) {
-        this.log('blueprint pre-register task failed', { label: blueprint.label, error: String(error) });
+      descriptors.push({ taskKey, label: blueprint.label, descriptor });
+    }
+
+    try {
+      const registeredDescriptors = await ensureManagedTasksRegistered(descriptors.map((entry) => entry.descriptor));
+      descriptors.forEach((entry, index) => {
+        this.blueprintDescriptors.set(entry.taskKey, registeredDescriptors[index]);
+        this.registeredBlueprintTaskKeys.add(entry.taskKey);
+      });
+    } catch (error) {
+      this.log('blueprint batch pre-register failed', { error: String(error) });
+      for (const entry of descriptors) {
+        try {
+          const registered = await ensureManagedTaskRegistered(entry.descriptor);
+          this.blueprintDescriptors.set(entry.taskKey, registered);
+          this.registeredBlueprintTaskKeys.add(entry.taskKey);
+        } catch (registrationError) {
+          this.log('blueprint pre-register task failed', { label: entry.label, error: String(registrationError) });
+        }
       }
     }
   }
@@ -417,6 +457,25 @@ class InitOrchestrator {
 
   private metricsSaveTimeout?: number;
 
+  /** 页面卸载时释放编排器的常驻监控和延迟重试资源。 */
+  dispose(): void {
+    if (this.stallDetectionTimer !== undefined) {
+      window.clearInterval(this.stallDetectionTimer);
+      this.stallDetectionTimer = undefined;
+    }
+    if (this.hiddenLeaseProtectionTimer !== undefined) {
+      window.clearInterval(this.hiddenLeaseProtectionTimer);
+      this.hiddenLeaseProtectionTimer = undefined;
+    }
+    this.removeVisibilityListener?.();
+    this.removeVisibilityListener = undefined;
+    this.retryTimers.clearAll();
+    if (this.metricsSaveTimeout !== undefined) {
+      window.clearTimeout(this.metricsSaveTimeout);
+      this.metricsSaveTimeout = undefined;
+    }
+  }
+
   async add(phase: InitPhase, task: InitTask, options: InitTaskOptions = {}): Promise<void> {
     if (options.label) {
       const existingTask = this.phases[phase].find((scheduledTask) => (scheduledTask.options.label || '') === options.label);
@@ -441,6 +500,7 @@ class InitOrchestrator {
           timeout: options.timeout,
           visibilityPolicy: options.visibilityPolicy,
         });
+      managedScheduledTask.managedDescriptorRegistered = this.registeredBlueprintTaskKeys.has(taskKey);
       this.blueprintDescriptors.set(taskKey, managedScheduledTask.managedDescriptor);
       // P0 FIX: 记录任务注册时间，用于老化检测
       this.pendingRegistrationTimes.set(taskKey, Date.now());
@@ -542,18 +602,19 @@ class InitOrchestrator {
 
     // 创建超时Promise
     const timeout = st.options.timeout || 0;
-    let timeoutId: number | undefined;
-    const timeoutPromise = timeout > 0 ? new Promise<never>((_, reject) => {
-      timeoutId = window.setTimeout(() => {
-        reject(new Error(`Task timeout after ${timeout}ms`));
-      }, timeout);
-    }) : null;
-
-    const executeTask = () => {
-      if (timeoutPromise) {
-        return Promise.race([st.task(), timeoutPromise]);
+    const executeTask = async () => {
+      if (timeout <= 0) return await st.task();
+      let timeoutId: number | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+          reject(new Error(`Task timeout after ${timeout}ms`));
+        }, timeout);
+      });
+      try {
+        return await Promise.race([st.task(), timeoutPromise]);
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
       }
-      return st.task();
     };
 
     const taskPromise = Promise.resolve()
@@ -585,11 +646,6 @@ class InitOrchestrator {
         return runResult.result;
       })
       .then(() => {
-        // 清除超时定时器
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
-        }
-
         try {
           performance.mark(endMark);
           performance.measure(`orchestrator:${phase}:${label}`, startMark, endMark);
@@ -607,6 +663,10 @@ class InitOrchestrator {
         // 更新性能指标
         if (durationMs !== undefined) {
           this.updateMetrics(durationMs, true, false, label);
+          recordContentPerformanceDuration(
+            `${CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.orchestratorTaskPrefix}${phase}.${label}`,
+            durationMs,
+          );
         }
         // P0 FIX: 任务完成后清理老化记录 + 更新本地并发计数
         if (st.options.label) {
@@ -622,15 +682,17 @@ class InitOrchestrator {
         }
         // 标记任务为已完成（白名单 label 同步 global，供跨页 dependsOn）
         this.markLocalAndMaybeGlobalComplete(label);
+        // A high task may depend on data from a later phase. Recheck pending
+        // high work after that data completes instead of leaving it registered.
+        if (phase !== 'high') {
+          void this.runHighTasksWithConcurrencyControl().catch((error) => {
+            this.log('high-phase-recheck-error', { label, error: String(error) });
+          });
+        }
         // 保存任务详细信息
         this.saveTaskDetail(phase, label, 'done', durationMs);
       })
       .catch((e) => {
-        // 清除超时定时器
-        if (timeoutId !== undefined) {
-          clearTimeout(timeoutId);
-        }
-
         const deferredError = e as TaskDeferredError;
         const waitReason = deferredError?.waitReason;
         const isDeferred = isDeferredWaitReason(waitReason);
@@ -677,6 +739,10 @@ class InitOrchestrator {
         // 更新性能指标
         if (durationMs !== undefined) {
           this.updateMetrics(durationMs, false, isTimeout, label);
+          recordContentPerformanceDuration(
+            `${CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.orchestratorTaskPrefix}${phase}.${label}`,
+            durationMs,
+          );
         }
         // 保存任务详细信息（包含错误）
         this.saveTaskDetail(phase, label, 'error', durationMs, String(e));
@@ -713,11 +779,13 @@ class InitOrchestrator {
     // P0 FIX: 本地并发门控 - 超过上限则延迟调度
     if (phase === 'deferred' && this.runningDeferred >= this.maxConcurrentDeferred) {
       this.log('deferred: blocked by local concurrency gate', { label, running: this.runningDeferred, max: this.maxConcurrentDeferred });
+      st.queued = false;
       window.setTimeout(() => this.scheduleTask(phase, st), 500);
       return;
     }
     if (phase === 'idle' && this.runningIdle >= this.maxConcurrentIdle) {
       this.log('idle: blocked by local concurrency gate', { label, running: this.runningIdle, max: this.maxConcurrentIdle });
+      st.queued = false;
       window.setTimeout(() => this.scheduleTask(phase, st), 800);
       return;
     }
@@ -796,6 +864,7 @@ class InitOrchestrator {
 
   async run(): Promise<void> {
     if (this.started) return;
+    const endDiagnosticSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.orchestratorRun);
     this.started = true;
     this.t0 = performance.now();
     await this.preregisterAllManagedTasks();
@@ -825,6 +894,7 @@ class InitOrchestrator {
     const afterSchedule = performance.now();
     this.emit('run:scheduledDeferred', { ts: afterSchedule, relativeTs: this.relTs(afterSchedule) });
     this.log('run:scheduledDeferred', { ts: Math.round(afterSchedule), relative: Math.round(this.relTs(afterSchedule)) });
+    endDiagnosticSpan();
   }
 
   on(event: string, listener: (payload: any) => void): void {
@@ -842,7 +912,7 @@ class InitOrchestrator {
    */
   private async runHighTasksWithConcurrencyControl(): Promise<void> {
     await runHighPhaseTasks({
-      tasks: this.phases.high,
+      tasks: this.phases.high.filter((task) => !task.completed),
       completedTasks: this.completedTasks,
       maxConcurrentTasks: this.maxConcurrentHighTasks,
       runTask: (task) => this.runTask('high', task),
@@ -867,6 +937,8 @@ class InitOrchestrator {
     } catch {}
   }
 }
+
+export { InitOrchestrator };
 
 export const initOrchestrator = new InitOrchestrator();
 

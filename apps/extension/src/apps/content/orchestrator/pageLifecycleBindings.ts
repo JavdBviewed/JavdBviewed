@@ -7,6 +7,7 @@ import type { getPageContext } from '../../../platform/browser';
 
 type OrchestratorWithMetrics = {
   getMetrics(): object;  // 获取编排器指标
+  dispose?: () => void;
 };
 
 type ChromeRuntimeLike = {
@@ -72,6 +73,7 @@ export function installOrchestratorPageLifecycleBindings(
 
     windowRef.addEventListener('pagehide', () => {
       notifyPageLifecycleCancel('page-refresh-replaced');
+      orchestrator.dispose?.();
     });
 
     windowRef.addEventListener('beforeunload', () => {

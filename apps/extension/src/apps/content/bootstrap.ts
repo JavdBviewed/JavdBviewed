@@ -7,7 +7,6 @@
 
 import { getSettings, getValue } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../utils/config';
-import type { VideoRecord } from '../../types';
 import type { EmbyLibraryState } from '../../features/embyLibrary/types';
 import { STATE, SELECTORS, log, currentFaviconState, currentTitleStatus } from '../../features/contentState';
 import { processVisibleItems, setupObserver } from '../../features/listEnhancement/content/itemProcessor';
@@ -26,7 +25,13 @@ import { embyEnhancementManager } from '../../features/embyEnhancement/content';
 import { exposePreviewVolumeDebug, installPreviewVolumeControl } from '../../features/previews';
 import { initOrchestrator, type InitPhase } from './orchestrator';
 import { initInsightsCollector } from '../../features/insights';
-import { performanceOptimizer } from '../../platform/tasks';
+import {
+    CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS,
+    countContentPerformanceEvent,
+    installContentPerformanceDiagnostics,
+    performanceOptimizer,
+    startContentPerformanceSpan,
+} from '../../platform/tasks';
 import { actorExtraInfoService } from '../../features/actorRemarks';
 import { waitForElement } from '../../platform/browser/domUtils';
 import { createTaskTimeoutGuard, isTaskTimeoutError } from '../../platform/tasks';
@@ -46,15 +51,19 @@ import { installContentTelemetryErrorReporter } from './errorReporter';
 import { installOrchestratorStateBridge } from './orchestratorStateBridge';
 import { injectNavbarBadge, removeUnwantedButtons } from './pageChrome';
 import { getEffectiveEmbyMatchUrls, matchesEmbyUrlPattern } from '../../features/embyEnhancement/domain/matchUrls';
+import { shouldInstallStandaloneListObserver } from './listObserverPolicy';
+import { loadCurrentPageRecordState } from '../../features/contentState/recordCache';
+import { extractVideoIdFromPage } from '../../platform/browser';
 
-installContentConsoleSettingsBridge();
+const disposeContentConsoleSettingsBridge = installContentConsoleSettingsBridge();
+installContentPerformanceDiagnostics();
 installContentTelemetryErrorReporter();
 installOrchestratorStateBridge();
 installContentMessageRouter();
 void installPreviewVolumeControl();
 exposePreviewVolumeDebug();
 exposeContentDebugManagers();
-installContentLifecycleHandlers();
+installContentLifecycleHandlers([disposeContentConsoleSettingsBridge]);
 
 function getActorRemarksTaskTimeoutMs(settings: any): number {
     const seconds = Number(settings?.videoEnhancement?.actorRemarksTaskTimeoutSeconds);
@@ -216,13 +225,13 @@ async function runActorRemarksOnActorPage(settings: any, timeoutMs?: number): Pr
 // --- Core Logic ---
 
 async function initialize(): Promise<void> {
+    countContentPerformanceEvent('lifecycle.initialize');
     log('Extension initializing...');
 
     // 首先初始化性能优化器
     performanceOptimizer.initialize();
 
     const settingsPromise = getSettings();
-    const recordsPromise = getValue<Record<string, VideoRecord>>('viewed', {});
     const newWorksConfigPromise = getValue<any>('new_works_config', {});
     const embyLibraryStatePromise = getValue<EmbyLibraryState>(STORAGE_KEYS.EMBY_LIBRARY_STATE, { entries: {}, updatedAt: 0 });
 
@@ -280,7 +289,6 @@ async function initialize(): Promise<void> {
     if (settings.userExperience.enableListEnhancement !== false && !isVideoPage && !isActorPage) {
         preregisterBlueprints.push(
             { phase: 'high', label: 'listEnhancement:init', priority: 7, visibilityPolicy: 'background_allowed' },
-            { phase: 'high', label: 'list:reprocess:after-listEnhancement', priority: 6, visibilityPolicy: 'background_allowed' },
         );
     }
     if (isCurrentPageMatchedByEmby(settings)) {
@@ -301,14 +309,22 @@ async function initialize(): Promise<void> {
 
     await initOrchestrator.preregisterBlueprints(preregisterBlueprints);
 
-    const [records, newWorksConfig, embyLibraryState] = await Promise.all([
-        recordsPromise,
+    const [newWorksConfig, embyLibraryState] = await Promise.all([
         newWorksConfigPromise,
         embyLibraryStatePromise,
     ]);
-    STATE.records = records;
     STATE.embyLibraryState = embyLibraryState;
-    log(`Loaded ${Object.keys(STATE.records).length} records.`);
+    const endRecordStateSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.bootstrapRecordState);
+    try {
+        if (isVideoPage) {
+            await loadCurrentPageRecordState({ videoId: extractVideoIdFromPage() || undefined });
+        } else if (!isActorPage) {
+            await loadCurrentPageRecordState({ isListPage: true });
+        }
+    } finally {
+        endRecordStateSpan();
+    }
+    log(`Loaded ${Object.keys(STATE.records).length} full records and ${Object.keys(STATE.recordSummaries).length} summaries.`);
     log('Display settings:', STATE.settings.display);
 
     // 提前保存原始 favicon，供后续状态切换使用（优先级最高的 UI 反馈）
@@ -514,7 +530,8 @@ async function initialize(): Promise<void> {
     }
 
     // 初始化列表增强功能（列表/演员页常用）
-    if (settings.userExperience.enableListEnhancement !== false) {
+    const listEnhancementEnabled = settings.userExperience.enableListEnhancement !== false;
+    if (listEnhancementEnabled) {
         listEnhancementManager.updateConfig({
             enabled: true,
             enableClickEnhancement: settings.listEnhancement?.enableClickEnhancement !== false,
@@ -557,14 +574,6 @@ async function initialize(): Promise<void> {
         });
         if (!isVideoPage) {
             initOrchestrator.add('high', () => listEnhancementManager.initialize(), { label: 'listEnhancement:init', delayMs: 100, priority: 7, visibilityPolicy: 'background_allowed' });
-            initOrchestrator.add('high', () => {
-                try {
-                    log('Reprocessing items after listEnhancement initialization');
-                    processVisibleItems();
-                } catch (e) {
-                    log('Reprocess after listEnhancement failed:', e as any);
-                }
-            }, { label: 'list:reprocess:after-listEnhancement', delayMs: 300, priority: 6, visibilityPolicy: 'background_allowed' });
         }
     }
 
@@ -638,7 +647,11 @@ async function initialize(): Promise<void> {
 
     // 将列表观察初始化纳入编排器（列表/演员页 critical）
     const pathNow = window.location.pathname;
-    if (!pathNow.startsWith('/v/') && !pathNow.startsWith('/actors/')) {
+    if (
+        !pathNow.startsWith('/v/')
+        && !pathNow.startsWith('/actors/')
+        && shouldInstallStandaloneListObserver(listEnhancementEnabled)
+    ) {
         initOrchestrator.add('critical', () => {
             processVisibleItems();
             setupObserver();
@@ -673,6 +686,7 @@ async function initialize(): Promise<void> {
         let stableCount = 0;
         const statusIntervalId = setInterval(() => {
             try {
+                countContentPerformanceEvent('interval.videoStatusPolling');
                 checkAndUpdateVideoStatus();
                 const signature = `${document.title}|${currentFaviconState ?? 'null'}|${currentTitleStatus ?? 'null'}`;
                 if (signature === lastStatusSignature && signature.includes('null') === false) {
@@ -707,7 +721,14 @@ export function onExecute() {
     isInitialized = true;
     // 标记已注入，供 background executeScript 检查防重复
     (window as any).__javdbExtensionInjected = true;
+    // 内容脚本运行在 isolated world；用无敏感信息的 DOM 标记供隔离性能探针确认真实注入。
+    if (document.documentElement) {
+        document.documentElement.dataset.javdbExtensionInjected = '1';
+    }
     // 立即注入顶栏标识，不等待编排器
     injectNavbarBadge();
-    initialize().catch(err => console.error('[JavDB Ext] Initialization failed:', err));
+    const endInitializeSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.bootstrapInitialize);
+    initialize()
+        .catch(err => console.error('[JavDB Ext] Initialization failed:', err))
+        .finally(endInitializeSpan);
 }

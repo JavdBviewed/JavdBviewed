@@ -87,4 +87,29 @@ describe('orchestrator page lifecycle bindings', () => {
       },
     });
   });
+
+  it('disposes orchestrator monitors when the page is replaced', () => {
+    const { windowRef, dispatch } = createWindowStub();
+    const dispose = vi.fn();
+    const orchestrator = {
+      getMetrics: vi.fn(() => ({})),
+      dispose,
+    };
+
+    installOrchestratorPageLifecycleBindings(orchestrator, {
+      windowRef,
+      chromeRuntime: { sendMessage: vi.fn() },
+      getPageContextFn: () => ({
+        pageUrl: 'https://javdb.com/v/abc123',
+        pageType: 'detail',
+        mainId: 'ABC-123',
+        pageInstanceId: 'page-1',
+      }),
+      logger: { log: vi.fn(), warn: vi.fn() },
+    });
+
+    dispatch('pagehide');
+
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
 });

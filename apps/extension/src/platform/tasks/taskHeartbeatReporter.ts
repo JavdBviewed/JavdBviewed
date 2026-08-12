@@ -4,16 +4,20 @@
  * @module platform/tasks
  */
 import { TASK_CENTER_MESSAGE } from '../../shared/taskCenterProtocol';
+import { countContentPerformanceEvent } from './contentPerformanceDiagnostics';
 
 /** 安装心跳上报器，每 5 秒向 background 发送活跃任务的心跳 */
-export function installTaskHeartbeatReporter(taskIds: () => string[]): void {
+export function installTaskHeartbeatReporter(taskIds: () => string[]): () => void {
   const tick = () => {
+    countContentPerformanceEvent('interval.taskHeartbeat');
     try {
       for (const taskId of taskIds()) {
+        countContentPerformanceEvent('runtime.taskHeartbeatMessage');
         chrome.runtime.sendMessage({ type: TASK_CENTER_MESSAGE.HEARTBEAT, payload: { taskId } });
       }
     } catch {}
   };
-  window.setInterval(tick, 5000);
+  const timerId = window.setInterval(tick, 5000);
   tick();
+  return () => window.clearInterval(timerId);
 }

@@ -4,6 +4,8 @@
  * @module platform/tasks
  */
 
+import { countContentPerformanceEvent } from './contentPerformanceDiagnostics';
+
 const log = (...args: any[]) => {
   try {
     const verbose = typeof window !== 'undefined' && (window as any).__JDB_VERBOSE;
@@ -174,6 +176,7 @@ export class PerformanceOptimizer {
    */
   private startMemoryCleanup(): void {
     this.memoryCleanupTimer = window.setInterval(() => {
+      countContentPerformanceEvent('interval.performanceOptimizer.memoryCleanup');
       this.performMemoryCleanup();
     }, this.config.memoryCleanupInterval);
   }
