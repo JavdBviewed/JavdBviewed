@@ -24,11 +24,15 @@ export interface OpenDashboardTabOptions {
   windows?: DashboardWindowsApi;
 }
 
-export async function openOrFocusDashboardTab({
+type OpenDashboardTabResult = { action: 'focused' | 'created'; tabId?: number };
+
+const activeOpenRequests = new Map<string, Promise<OpenDashboardTabResult>>();
+
+async function openOrFocusDashboardTabOnce({
   dashboardUrl,
   tabs,
   windows,
-}: OpenDashboardTabOptions): Promise<{ action: 'focused' | 'created'; tabId?: number }> {
+}: OpenDashboardTabOptions): Promise<OpenDashboardTabResult> {
   const existingTabs = await tabs.query({ url: `${dashboardUrl}*` });
   const existingTab = existingTabs.find((tab) => typeof tab.id === 'number');
 
@@ -42,4 +46,21 @@ export async function openOrFocusDashboardTab({
 
   const createdTab = await tabs.create({ url: dashboardUrl, active: true });
   return { action: 'created', tabId: createdTab?.id };
+}
+
+export function openOrFocusDashboardTab(options: OpenDashboardTabOptions): Promise<OpenDashboardTabResult> {
+  const activeRequest = activeOpenRequests.get(options.dashboardUrl);
+  if (activeRequest) {
+    return activeRequest;
+  }
+
+  const request = openOrFocusDashboardTabOnce(options);
+  activeOpenRequests.set(options.dashboardUrl, request);
+  const clearRequest = (): void => {
+    if (activeOpenRequests.get(options.dashboardUrl) === request) {
+      activeOpenRequests.delete(options.dashboardUrl);
+    }
+  };
+  void request.then(clearRequest, clearRequest);
+  return request;
 }

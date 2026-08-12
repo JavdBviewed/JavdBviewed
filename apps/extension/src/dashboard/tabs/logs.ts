@@ -3,6 +3,8 @@ import { showMessage } from '../ui/toast';
 import { log } from '../../utils/logController';
 import type { LogEntry as CoreLogEntry, LogLevel } from '../../types';
 import { dbLogsQuery, dbLogsClear, dbLogsExport, dbMagnetPushLogsQuery, dbMagnetPushLogsClear, dbMagnetPushLogsExport, type LogsQueryParams } from '../dbClient';
+import { dashboardTabLifecycle } from './tabLifecycle';
+import { clearTabWorkset } from './tabWorkset';
 
 /**
  * 日志条目接口：在全局 LogEntry 基础上扩展可选来源字段
@@ -32,6 +34,9 @@ export class LogsTab {
     private viewMode: 'EXT' | 'MAGNET' = 'EXT';
     private magnetLogs: MagnetLogEntry[] = [];
     private totalMagnetCount: number = 0;
+    private active = false;
+    private renderGeneration = 0;
+    private lifecycleUnregister: (() => void) | null = null;
 
     // 分页状态
     private currentPage: number = 1;
@@ -66,6 +71,7 @@ export class LogsTab {
 
         try {
             log.verbose('开始初始化日志标签页');
+            this.ensureLifecycle();
 
             // 初始化DOM元素
             this.initializeElements();
@@ -88,6 +94,37 @@ export class LogsTab {
             log.error('初始化日志标签页失败:', error);
             showMessage('初始化日志标签页失败', 'error');
         }
+    }
+
+    private ensureLifecycle(): void {
+        if (this.lifecycleUnregister) return;
+        this.lifecycleUnregister = dashboardTabLifecycle.register('tab-logs', {
+            onActive: () => { this.active = true; },
+            onRestore: () => {
+                this.active = true;
+                this.renderLogs();
+            },
+            onHidden: () => this.clearRenderedWorkset(),
+            onDispose: () => {
+                this.clearRenderedWorkset();
+                this.lifecycleUnregister?.();
+                this.lifecycleUnregister = null;
+            },
+        });
+    }
+
+    private clearRenderedWorkset(): void {
+        this.active = false;
+        this.renderGeneration += 1;
+        this.logs = [];
+        this.magnetLogs = [];
+        this.totalLogsCount = 0;
+        this.totalMagnetCount = 0;
+        clearTabWorkset(document.getElementById('tab-logs'), [
+            '#log-body',
+            '#magnet-log-body',
+            '#logsPagination',
+        ]);
     }
 
     /**
@@ -401,14 +438,17 @@ export class LogsTab {
      * 渲染日志
      */
     private renderLogs(): void {
+        if (!this.active) return;
         if (!this.logBody) return;
+        const generation = this.renderGeneration;
 
         // 视图切换下的可见性
         this.updateViewVisibility();
 
         if (this.viewMode === 'MAGNET') {
             this.magnetLogBody.innerHTML = '<div class="loading">加载中...</div>';
-            this.fetchAndRenderMagnetLogs().catch((e) => {
+            this.fetchAndRenderMagnetLogs(generation).catch((e) => {
+                if (!this.active || generation !== this.renderGeneration) return;
                 console.error('[LogsTab] 读取磁力推送记录失败', e);
                 this.magnetLogBody.innerHTML = '<div class="no-logs">磁力推送记录加载失败，请稍后重试</div>';
             });
@@ -419,7 +459,8 @@ export class LogsTab {
         if (this.isNoFilterActive()) {
             // 异步渲染：先显示加载中占位，再走统一的获取+渲染逻辑
             this.logBody.innerHTML = '<div class="loading">加载中...</div>';
-            this.fetchAndRenderExtLogs().catch((e) => {
+            this.fetchAndRenderExtLogs(generation).catch((e) => {
+                if (!this.active || generation !== this.renderGeneration) return;
                 console.error('[LogsTab] 读取 IDB 日志失败', e);
                 this.logBody.innerHTML = '<div class="no-logs">日志加载失败，请稍后重试</div>';
             });
@@ -429,7 +470,8 @@ export class LogsTab {
         // 若仅启用“日期/等级”过滤（无搜索/来源/hasData/设置联动），使用 IDB 查询
         if (this.isOnlyDateAndLevelFilterActive()) {
             this.logBody.innerHTML = '<div class="loading">加载中...</div>';
-            this.fetchAndRenderExtLogs().catch((e) => {
+            this.fetchAndRenderExtLogs(generation).catch((e) => {
+                if (!this.active || generation !== this.renderGeneration) return;
                 console.warn('[LogsTab] IDB 按日期/等级查询失败', e);
                 this.logBody.innerHTML = '<div class="no-logs">日志加载失败，请稍后重试</div>';
             });
@@ -438,7 +480,8 @@ export class LogsTab {
 
         // 带条件查询：统一走 IDB 查询
         this.logBody.innerHTML = '<div class="loading">加载中...</div>';
-        this.fetchAndRenderExtLogs().catch((e) => {
+        this.fetchAndRenderExtLogs(generation).catch((e) => {
+            if (!this.active || generation !== this.renderGeneration) return;
             console.error('[LogsTab] IDB 查询失败', e);
             this.logBody.innerHTML = '<div class="no-logs">日志加载失败，请稍后重试</div>';
         });
@@ -447,7 +490,7 @@ export class LogsTab {
     /**
      * 统一的“扩展日志”获取+渲染逻辑（返回当页 items 与总数），便于 refresh 显式等待
      */
-    private async fetchAndRenderExtLogs(): Promise<{ items: LogEntry[]; total: number; totalPages: number }>{
+    private async fetchAndRenderExtLogs(generation = this.renderGeneration): Promise<{ items: LogEntry[]; total: number; totalPages: number }>{
         const offset = (this.currentPage - 1) * this.pageSize;
         const limit = this.pageSize;
 
@@ -468,6 +511,9 @@ export class LogsTab {
         }
 
         const { items, total } = await dbLogsQuery(params);
+        if (!this.active || generation !== this.renderGeneration) {
+            return { items: [], total: 0, totalPages: 1 };
+        }
         this.logs = Array.isArray(items) ? items : [];
         this.totalLogsCount = Number.isFinite(total) ? total : 0;
         const totalPages = Math.max(1, Math.ceil(this.totalLogsCount / this.pageSize));
@@ -481,7 +527,7 @@ export class LogsTab {
         return { items: this.logs, total: this.totalLogsCount, totalPages };
     }
 
-    private async fetchAndRenderMagnetLogs(): Promise<{ items: MagnetLogEntry[]; total: number; totalPages: number }>{
+    private async fetchAndRenderMagnetLogs(generation = this.renderGeneration): Promise<{ items: MagnetLogEntry[]; total: number; totalPages: number }>{
         const offset = (this.currentPage - 1) * this.pageSize;
         const params = {
             offset,
@@ -504,6 +550,9 @@ export class LogsTab {
             });
         } catch {}
         const { items, total } = await dbMagnetPushLogsQuery(params);
+        if (!this.active || generation !== this.renderGeneration) {
+            return { items: [], total: 0, totalPages: 1 };
+        }
         try {
             console.info('[115Trace] dashboard:magnet-log:query:done', {
                 total,

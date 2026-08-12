@@ -1,5 +1,6 @@
 // src/dashboard/tabs/registry.ts
 // 集中管理各 Tab 的初始化逻辑，并使用动态 import 进行代码分割
+import { recordTabActivationPhase } from './tabActivationPerformance';
 
 export async function initializeTabById(tabId: string | null | undefined): Promise<void> {
   if (!tabId) return;
@@ -21,7 +22,9 @@ export async function initializeTabById(tabId: string | null | undefined): Promi
         break;
       }
       case 'tab-new-works': {
+        recordTabActivationPhase(tabId, 'module-load-start');
         const { newWorksTab } = await import('./newWorks');
+        recordTabActivationPhase(tabId, 'module-load-complete');
         if (!newWorksTab.isInitialized) await newWorksTab.initialize();
         break;
       }

@@ -172,6 +172,30 @@ describe('Dashboard 9C navigation runtime', () => {
     expect(navigationMocks.initializeTabById).toHaveBeenCalledWith('tab-sync');
   });
 
+  it('switches visible content before a previous tab initialization settles', async () => {
+    let releaseRecords: (() => void) | null = null;
+    const recordsInitialization = new Promise<void>((resolve) => {
+      releaseRecords = resolve;
+    });
+    navigationMocks.initializeTabById.mockImplementationOnce(() => recordsInitialization);
+    window.history.replaceState({}, '', '/dashboard/dashboard.html#tab-records');
+
+    const { initTabs } = await import('../../apps/extension/src/dashboard/tabs/navigation');
+    const startup = initTabs();
+    await flushNavigationTasks();
+
+    document.querySelector<HTMLButtonElement>('.dashboard-main-tab[data-nav-group-id="settings"]')?.click();
+    await Promise.resolve();
+
+    expect(document.getElementById('tab-settings')?.classList.contains('active')).toBe(true);
+    expect(document.getElementById('tab-records')?.classList.contains('active')).toBe(false);
+
+    releaseRecords?.();
+    await startup;
+    await flushNavigationTasks();
+    expect(navigationMocks.initializeTabById).toHaveBeenCalledWith('tab-settings');
+  });
+
   it('renders the backup page with local and WebDAV backup controls', () => {
     const host = document.createElement('div');
     const backupHtml = readFileSync(

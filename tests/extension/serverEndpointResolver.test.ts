@@ -52,6 +52,14 @@ describe('serverEndpointResolver', () => {
     vi.resetModules();
   });
 
+  it('provides Web Crypto SHA-256 for bootstrap checksum verification', async () => {
+    const { verifyJsonChecksum } = await import('../../apps/extension/src/platform/network/serverEndpointResolver');
+    const document = bootstrap();
+
+    expect(globalThis.crypto?.subtle).toBeDefined();
+    await expect(verifyJsonChecksum(document, document.checksum)).resolves.toBe(true);
+  });
+
   it('builds service URLs from the last known good API base without fetching bootstrap', async () => {
     const { SERVER_ENDPOINT_STATE_KEY, buildServerApiUrl } = await import('../../apps/extension/src/platform/network/serverEndpointResolver');
     setChromeStorage({

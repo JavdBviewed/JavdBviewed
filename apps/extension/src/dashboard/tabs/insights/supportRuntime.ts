@@ -87,7 +87,9 @@ export function getInsightsPreviewContainer(documentRef: Document = document): H
   const container = iframe.parentElement as HTMLElement | null;
   if (container) {
     const computedStyle = getComputedStyle(container);
-    if (computedStyle.position === 'static') container.style.position = 'relative';
+    if (!computedStyle.position || computedStyle.position === 'static') {
+      container.style.position = 'relative';
+    }
   }
   return container;
 }

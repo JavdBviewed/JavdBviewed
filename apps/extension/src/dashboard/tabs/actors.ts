@@ -44,6 +44,7 @@ import {
     editActorSourceDataWorkflow,
     openActorWorksWorkflow,
 } from './actors/actorSingleActionWorkflow';
+import { dashboardTabLifecycle } from './tabLifecycle';
 
 export class ActorsTab {
     private currentPage = 1;
@@ -59,6 +60,16 @@ export class ActorsTab {
     public isInitialized = false;
     private settings?: ExtensionSettings;
     private currentViewMode: ActorViewMode = 'list';
+    private active = true;
+    private loadGeneration = 0;
+    private lifecycleUnregister: (() => void) | null = null;
+    private actorsDataUpdatedHandler: (() => void) | null = null;
+    private restoreRefreshTimer: number | null = null;
+    private initialStatsCancel: (() => void) | null = null;
+    private renderedActorSnapshot: {
+        result: ActorPagedSearchResult;
+        subscribedActorIds: Set<string>;
+    } | null = null;
     
     // 批量操作相关
     private selectedActors = new Set<string>();
@@ -69,6 +80,8 @@ export class ActorsTab {
     async initActorsTab(): Promise<void> {
         if (this.isInitialized) return;
 
+        this.ensureLifecycle();
+
         try {
             await actorManager.initialize();
             // 读取设置以确定默认黑名单过滤
@@ -78,8 +91,8 @@ export class ActorsTab {
             this.setupEventListeners();
             this.setupDataUpdateListeners();
             await this.loadActors();
-            await this.updateStats();
             this.isInitialized = true;
+            this.scheduleInitialStatsRefresh();
         } catch (error) {
             console.error('[Actor] Failed to initialize actors tab:', error);
             showMessage('初始化演员库失败', 'error');
@@ -173,17 +186,21 @@ export class ActorsTab {
      */
     private setupDataUpdateListeners(): void {
         // 监听演员数据更新事件
-        document.addEventListener('actors-data-updated', () => {
+        this.actorsDataUpdatedHandler = () => {
+            if (!this.active) return;
             this.loadActors();
             this.updateStats();
-        });
+        };
+        document.addEventListener('actors-data-updated', this.actorsDataUpdatedHandler);
     }
 
     /**
      * 加载演员列表
      */
     private async loadActors(): Promise<void> {
-        if (this.isLoading) return;
+        if (!this.active || this.isLoading) return;
+
+        const generation = ++this.loadGeneration;
 
         this.isLoading = true;
         this.showLoading(true);
@@ -200,6 +217,7 @@ export class ActorsTab {
                     this.currentCategoryFilter || undefined,
                     this.currentBlacklistFilter
                 );
+                if (!this.active || generation !== this.loadGeneration) return;
                 await this.renderActorList(result);
                 this.renderPagination(result);
             } else {
@@ -220,9 +238,12 @@ export class ActorsTab {
                     categoryFilter: this.currentCategoryFilter || undefined,
                     blacklistFilter: this.currentBlacklistFilter,
                 });
+                if (!this.active || generation !== this.loadGeneration) return;
                 await this.renderActorList(result);
                 this.renderPagination(result);
             }
+
+            if (!this.active || generation !== this.loadGeneration) return;
 
         } catch (error) {
             console.error('[Actor] Failed to load actors:', error);
@@ -231,6 +252,72 @@ export class ActorsTab {
             this.isLoading = false;
             this.showLoading(false);
         }
+    }
+
+    private ensureLifecycle(): void {
+        if (this.lifecycleUnregister) return;
+        this.lifecycleUnregister = dashboardTabLifecycle.register('tab-actors', {
+            onActive: () => { this.active = true; },
+            onRestore: () => {
+                this.active = true;
+                if (this.isInitialized) {
+                    this.restoreCachedActorList();
+                    this.scheduleRestoreRefresh();
+                }
+            },
+            onHidden: () => this.suspendForHiddenTab(),
+            onDispose: () => {
+                this.suspendForHiddenTab();
+                if (this.actorsDataUpdatedHandler) {
+                    document.removeEventListener('actors-data-updated', this.actorsDataUpdatedHandler);
+                    this.actorsDataUpdatedHandler = null;
+                }
+                this.lifecycleUnregister?.();
+                this.lifecycleUnregister = null;
+            },
+        });
+    }
+
+    private suspendForHiddenTab(): void {
+        this.active = false;
+        this.loadGeneration += 1;
+        this.cancelInitialStatsRefresh();
+        if (this.restoreRefreshTimer !== null) {
+            window.clearTimeout(this.restoreRefreshTimer);
+            this.restoreRefreshTimer = null;
+        }
+        const list = document.getElementById('actorListContainer');
+        const pagination = document.getElementById('actorPaginationContainer');
+        const stats = document.getElementById('actorStatsContainer');
+        list?.replaceChildren();
+        pagination?.replaceChildren();
+        stats?.replaceChildren();
+        this.showLoading(false);
+    }
+
+    private cancelInitialStatsRefresh(): void {
+        this.initialStatsCancel?.();
+        this.initialStatsCancel = null;
+    }
+
+    private scheduleInitialStatsRefresh(): void {
+        this.cancelInitialStatsRefresh();
+        const run = (): void => {
+            this.initialStatsCancel = null;
+            if (!this.active || !this.isInitialized) return;
+            void this.updateStats();
+        };
+        const scheduler = window as typeof window & {
+            requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+            cancelIdleCallback?: (id: number) => void;
+        };
+        if (typeof scheduler.requestIdleCallback === 'function') {
+            const id = scheduler.requestIdleCallback(run, { timeout: 1_000 });
+            this.initialStatsCancel = () => scheduler.cancelIdleCallback?.(id);
+            return;
+        }
+        const id = window.setTimeout(run, 0);
+        this.initialStatsCancel = () => window.clearTimeout(id);
     }
 
     /**
@@ -249,6 +336,26 @@ export class ActorsTab {
             subscribedSet = new Set();
         }
 
+        this.renderedActorSnapshot = {
+            result,
+            subscribedActorIds: new Set(subscribedSet),
+        };
+        this.renderActorResult(result, subscribedSet);
+    }
+
+    private restoreCachedActorList(): void {
+        const snapshot = this.renderedActorSnapshot;
+        if (!snapshot) return;
+        this.renderActorResult(snapshot.result, new Set(snapshot.subscribedActorIds));
+    }
+
+    private renderActorResult(
+        result: ActorPagedSearchResult,
+        subscribedSet: Set<string>,
+    ): void {
+        const container = document.getElementById('actorListContainer');
+        if (!container) return;
+
         renderActorListRuntime(container, result, {
             currentQuery: this.currentQuery,
             currentViewMode: this.currentViewMode,
@@ -260,6 +367,18 @@ export class ActorsTab {
             setupActorCard: actor => this.setupActorCardEventListeners(actor),
             updateBatchUi: () => this.updateBatchUI(),
         });
+    }
+
+    private scheduleRestoreRefresh(): void {
+        if (this.restoreRefreshTimer !== null) {
+            window.clearTimeout(this.restoreRefreshTimer);
+        }
+        this.restoreRefreshTimer = window.setTimeout(() => {
+            this.restoreRefreshTimer = null;
+            if (!this.active || !this.isInitialized) return;
+            void this.loadActors();
+            void this.updateStats();
+        }, 0);
     }
 
     /**
@@ -339,8 +458,10 @@ export class ActorsTab {
      * 更新统计信息
      */
     private async updateStats(): Promise<void> {
+        if (!this.active) return;
         try {
             const stats = await actorManager.getStats();
+            if (!this.active) return;
             const statsEl = document.getElementById('actorStatsContainer');
 
             if (statsEl) {

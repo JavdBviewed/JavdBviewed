@@ -79,7 +79,6 @@ export function buildDesignTasks(doGetSettings: () => ExtensionSettings): Orches
   if (settings.userExperience?.enableListEnhancement !== false) {
     pushTask({ phase: 'critical', label: 'list:observe:init', visibilityPolicy: 'background_allowed', source: 'list', enabled: true });
     pushTask({ phase: 'high', label: 'listEnhancement:init', priority: 7, visibilityPolicy: 'background_allowed', source: 'list', enabled: true });
-    pushTask({ phase: 'high', label: 'list:reprocess:after-listEnhancement', priority: 6, visibilityPolicy: 'background_allowed', source: 'list', enabled: true });
     pushTask({ phase: 'idle', label: 'drive115:init:list', source: 'list', enabled: true });
   }
 

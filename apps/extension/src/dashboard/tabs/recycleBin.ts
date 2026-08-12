@@ -27,8 +27,12 @@ import {
   getRecycleVideoCoverUrl,
   getRecycleVideoJavdbUrl,
 } from './recycleBinModel';
+import { dashboardTabLifecycle } from './tabLifecycle';
+import { clearTabWorkset } from './tabWorkset';
 
 let isInitialized = false;
+let active = false;
+let lifecycleUnregister: (() => void) | null = null;
 
 const PAGE_SIZE = RECYCLE_BIN_PAGE_SIZE;
 
@@ -63,6 +67,38 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
+function ensureLifecycle(): void {
+  if (lifecycleUnregister) return;
+  lifecycleUnregister = dashboardTabLifecycle.register('tab-recycle-bin', {
+    onActive: () => { active = true; },
+    onRestore: () => {
+      active = true;
+      void loadRecordsRecycleBin(recordsCurrentPage);
+      void loadActorsRecycleBin(actorsCurrentPage);
+    },
+    onHidden: () => clearRenderedWorkset(),
+    onDispose: () => {
+      clearRenderedWorkset();
+      lifecycleUnregister?.();
+      lifecycleUnregister = null;
+    },
+  });
+}
+
+function clearRenderedWorkset(): void {
+  active = false;
+  recordsSelectedIds.clear();
+  actorsSelectedIds.clear();
+  clearTabWorkset(document.getElementById('tab-recycle-bin'), [
+    '#recordsRecycleList',
+    '#recordsRecyclePagination',
+    '#actorsRecycleList',
+    '#actorsRecyclePagination',
+  ]);
+  updateRecordsButtons();
+  updateActorsButtons();
+}
+
 // ============ 番号库回收站 ============
 
 let recordsCurrentPage = 0;
@@ -81,6 +117,7 @@ async function loadRecordsRecycleBin(page: number): Promise<void> {
 
   try {
     const { items, total } = await dbViewedQueryRecycleBin({ offset: page * PAGE_SIZE, limit: PAGE_SIZE });
+    if (!active) return;
     recordsTotalCount = total;
 
     if (countEl) countEl.textContent = String(total);
@@ -209,6 +246,7 @@ async function loadActorsRecycleBin(page: number): Promise<void> {
 
   try {
     const { items, total } = await dbActorsQueryRecycleBin({ offset: page * PAGE_SIZE, limit: PAGE_SIZE });
+    if (!active) return;
     actorsTotalCount = total;
 
     if (countEl) countEl.textContent = String(total);
@@ -402,19 +440,13 @@ function bindBatchActions(): void {
 export async function initRecycleBinTab(): Promise<void> {
   if (isInitialized) return;
 
+  ensureLifecycle();
+  active = true;
   bindBatchActions();
   await Promise.all([
     loadRecordsRecycleBin(0),
     loadActorsRecycleBin(0),
   ]);
-
-  // 监听 tab 显示事件，刷新数据
-  window.addEventListener('tab:show', (e: any) => {
-    if (e.detail?.tabId === 'tab-recycle-bin') {
-      loadRecordsRecycleBin(recordsCurrentPage);
-      loadActorsRecycleBin(actorsCurrentPage);
-    }
-  });
 
   isInitialized = true;
 }

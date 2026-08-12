@@ -13,6 +13,8 @@
 // 基础设施
 export * from './types';
 export * from './base/interfaces';
+import { dashboardTabLifecycle } from '../tabLifecycle';
+import { clearSettingsReactRoot } from '../../../apps/dashboard/pages/settings/settingsReactRoots';
 
 // 设置面板管理器
 export { settingsPanelManager } from './base/SettingsPanelManager';
@@ -24,9 +26,38 @@ async function mountSettingsSearchOnIndex(): Promise<void> {
     await mountDashboardSettingsSearch();
 }
 
+function startSettingsSearchMount(): void {
+    void mountSettingsSearchOnIndex().catch(error => {
+        console.error('[Settings] 设置搜索挂载失败:', error);
+    });
+}
+
 async function revealSettingsSearchTargetOnPage(): Promise<void> {
     const { revealDashboardSettingsSearchTarget } = await import('../../../apps/dashboard/settingsSearchBootstrap');
     await revealDashboardSettingsSearchTarget();
+}
+
+let settingsLifecycleUnregister: (() => void) | null = null;
+
+function ensureSettingsLifecycle(): void {
+    if (settingsLifecycleUnregister) return;
+    settingsLifecycleUnregister = dashboardTabLifecycle.register('tab-settings', {
+        onHidden: () => {
+            const host = document.getElementById('tab-settings');
+            if (!host) return;
+            clearSettingsReactRoot(host);
+            host.replaceChildren();
+        },
+        onDispose: () => {
+            const host = document.getElementById('tab-settings');
+            if (host) {
+                clearSettingsReactRoot(host);
+                host.replaceChildren();
+            }
+            settingsLifecycleUnregister?.();
+            settingsLifecycleUnregister = null;
+        },
+    });
 }
 
 /**
@@ -251,6 +282,7 @@ export async function initSettingsPage(): Promise<void> {
  * 新架构：直接初始化对应的设置面板，不需要侧边栏切换
  */
 export async function initSettingsTab(): Promise<void> {
+    ensureSettingsLifecycle();
     try {
         console.debug('========== initSettingsTab 开始 ==========');
         const hash = window.location.hash.substring(1);
@@ -269,7 +301,7 @@ export async function initSettingsTab(): Promise<void> {
             } catch (error) {
                 console.error('[Settings] React 设置入口挂载失败:', error);
             }
-            await mountSettingsSearchOnIndex();
+            startSettingsSearchMount();
             return;
         }
         

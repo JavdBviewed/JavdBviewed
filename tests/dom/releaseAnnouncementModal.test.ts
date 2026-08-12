@@ -68,7 +68,8 @@ describe('release announcement modal', () => {
     expect(modal?.querySelectorAll('.jdb-release-burst-ring').length).toBe(0);
     expect(modal?.querySelectorAll('.jdb-release-spark').length).toBeGreaterThan(10);
     const styleText = document.getElementById('jdb-release-announcement-style')?.textContent;
-    expect(styleText).toContain('infinite');
+    expect(styleText).toContain('animation: none;');
+    expect(styleText).toContain('animation: jdbReleaseEnter 220ms ease-out both;');
     expect(styleText).toContain('width: 10px');
     expect(styleText).toContain('max-height: calc(100vh - 48px)');
     expect(styleText).toContain('overflow: auto');

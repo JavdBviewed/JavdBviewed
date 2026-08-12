@@ -62,7 +62,7 @@ describe('background utility message handlers', () => {
     const viewedPut = vi.fn(async () => {});
     vi.setSystemTime(123456);
 
-    await handleUpdateWatchedStatus({ videoId: 'abc123' }, sendResponse, viewedPut);
+    await handleUpdateWatchedStatus({ videoId: 'abc123' }, sendResponse, viewedPut as any, async () => undefined);
 
     expect(viewedPut).toHaveBeenCalledWith(expect.objectContaining({
       id: 'abc123',
@@ -73,6 +73,52 @@ describe('background utility message handlers', () => {
     expect(sendResponse).toHaveBeenCalledWith({
       success: true,
       record: expect.objectContaining({ id: 'abc123', status: 'viewed' }),
+    });
+  });
+
+  it('preserves the existing record when a 115 push upgrades it to viewed', async () => {
+    const sendResponse = vi.fn();
+    const viewedGet = vi.fn(async () => ({
+      id: 'abc123',
+      title: 'Existing title',
+      status: 'browsed' as const,
+      tags: ['tag-a'],
+      userTags: ['mine'],
+      createdAt: 100,
+      updatedAt: 200,
+      javdbUrl: 'https://javdb.com/v/abc123',
+      coverImage: 'https://image.example/cover.jpg',
+      notes: 'keep this note',
+    }));
+    const viewedPut = vi.fn(async () => ({ success: true }));
+    vi.setSystemTime(123456);
+
+    await handleUpdateWatchedStatus(
+      { videoId: 'abc123' },
+      sendResponse,
+      viewedPut as any,
+      viewedGet as any,
+    );
+
+    expect(viewedPut).toHaveBeenCalledWith({
+      id: 'abc123',
+      title: 'Existing title',
+      status: 'viewed',
+      tags: ['tag-a'],
+      userTags: ['mine'],
+      createdAt: 100,
+      updatedAt: 123456,
+      javdbUrl: 'https://javdb.com/v/abc123',
+      coverImage: 'https://image.example/cover.jpg',
+      notes: 'keep this note',
+    });
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      record: expect.objectContaining({
+        id: 'abc123',
+        status: 'viewed',
+        title: 'Existing title',
+      }),
     });
   });
 

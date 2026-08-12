@@ -9,6 +9,8 @@ import {
     matchesSeriesRecord,
 } from '../../shared/utils/listRecordHelpers';
 import { renderListSourceLinkButton } from './listsSourceLinks';
+import { dashboardTabLifecycle } from './tabLifecycle';
+import { clearTabWorkset } from './tabWorkset';
 
 type SubTab = 'lists' | 'series' | 'labels';
 
@@ -18,10 +20,14 @@ export class ListsTab {
     private renamingId: string | null = null;
     private isCreating: boolean = false;
     private activeSubTab: SubTab = 'lists';
+    private active = false;
+    private renderGeneration = 0;
+    private lifecycleUnregister: (() => void) | null = null;
 
     async initialize(): Promise<void> {
         if (this.isInitialized) return;
         try {
+            this.ensureLifecycle();
             this.bindEvents();
             await this.loadAndRender();
             this.isInitialized = true;
@@ -29,6 +35,41 @@ export class ListsTab {
             console.error('[ListsTab] initialize failed', e);
             showMessage('初始化收藏中心失败', 'error');
         }
+    }
+
+    private ensureLifecycle(): void {
+        if (this.lifecycleUnregister) return;
+        this.lifecycleUnregister = dashboardTabLifecycle.register('tab-lists', {
+            onActive: () => { this.active = true; },
+            onRestore: () => {
+                this.active = true;
+                void this.loadAndRender();
+            },
+            onHidden: () => {
+                this.active = false;
+                this.renderGeneration += 1;
+                clearTabWorkset(document.getElementById('tab-lists'), [
+                    '#listsLocalContainer',
+                    '#listsMineContainer',
+                    '#listsFavContainer',
+                    '#listsSeriesContainer',
+                    '#listsLabelsContainer',
+                ]);
+            },
+            onDispose: () => {
+                this.active = false;
+                this.renderGeneration += 1;
+                clearTabWorkset(document.getElementById('tab-lists'), [
+                    '#listsLocalContainer',
+                    '#listsMineContainer',
+                    '#listsFavContainer',
+                    '#listsSeriesContainer',
+                    '#listsLabelsContainer',
+                ]);
+                this.lifecycleUnregister?.();
+                this.lifecycleUnregister = null;
+            },
+        });
     }
 
     private bindEvents(): void {
@@ -212,11 +253,13 @@ export class ListsTab {
     }
 
     private async loadAndRender(): Promise<void> {
+        const generation = ++this.renderGeneration;
         try {
             this.lists = await dbListsGetAllNormalized();
         } catch (e) {
             this.lists = [];
         }
+        if (!this.active || generation !== this.renderGeneration) return;
         this.render();
     }
 

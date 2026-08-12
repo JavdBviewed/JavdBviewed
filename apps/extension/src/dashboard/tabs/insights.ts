@@ -36,6 +36,8 @@ import {
   buildInsightsHistoryListHtml,
 } from './insights/historyListModel';
 import { buildSamplePreviewFields } from './insights/samplePreviewModel';
+import { dashboardTabLifecycle } from './tabLifecycle';
+import { clearTabWorkset } from './tabWorkset';
 
 function getEl<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
@@ -98,6 +100,35 @@ let canSaveReport = false;
 let pageModelOverride: string | undefined = undefined;
 // 保存当前预览的原始 HTML（未经预览处理）
 let currentPreviewRawHTML: string = '';
+let insightsLifecycleUnregister: (() => void) | null = null;
+let insightsActive = false;
+
+function ensureInsightsLifecycle(): void {
+  if (insightsLifecycleUnregister) return;
+  insightsLifecycleUnregister = dashboardTabLifecycle.register('tab-insights', {
+    onActive: () => { insightsActive = true; },
+    onRestore: () => {
+      insightsActive = true;
+      if (currentPreviewRawHTML) previewRuntime.refreshPreviewFromRaw();
+      else void previewSample();
+      void insightsTab.refreshHistory();
+    },
+    onHidden: () => {
+      insightsActive = false;
+      const iframe = getEl<HTMLIFrameElement>('insights-preview');
+      if (iframe) iframe.srcdoc = '';
+      clearTabWorkset(document.getElementById('tab-insights'), ['#insights-history-list']);
+    },
+    onDispose: () => {
+      const iframe = getEl<HTMLIFrameElement>('insights-preview');
+      if (iframe) iframe.srcdoc = '';
+      clearTabWorkset(document.getElementById('tab-insights'), ['#insights-history-list']);
+      insightsActive = false;
+      insightsLifecycleUnregister?.();
+      insightsLifecycleUnregister = null;
+    },
+  });
+}
 
 const adjustIframeHeight = adjustInsightsIframeHeight;
 const loadTemplate = () => loadInsightsTemplate({
@@ -205,6 +236,7 @@ export const insightsTab = {
   isInitialized: false,
   async initialize() {
     if (this.isInitialized) return;
+    ensureInsightsLifecycle();
     this.isInitialized = true;
 
     const genBtn = getEl<HTMLButtonElement>('insights-generate');

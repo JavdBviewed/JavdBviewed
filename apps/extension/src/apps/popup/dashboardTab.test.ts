@@ -1,4 +1,5 @@
 import { openOrFocusDashboardTab } from './dashboardTab';
+import { describe, expect, it, vi } from 'vitest';
 
 describe('openOrFocusDashboardTab', () => {
   it('focuses the existing Dashboard tab instead of creating another page', async () => {
@@ -43,5 +44,32 @@ describe('openOrFocusDashboardTab', () => {
       url: 'chrome-extension://test/dashboard/dashboard.html',
       active: true,
     });
+  });
+
+  it('coalesces concurrent open requests so only one Dashboard tab is created', async () => {
+    let releaseQuery: ((tabs: Array<{ id: number }>) => void) | null = null;
+    const tabs = {
+      query: vi.fn(() => new Promise<Array<{ id: number }>>((resolve) => {
+        releaseQuery = resolve;
+      })),
+      update: vi.fn(),
+      create: vi.fn().mockResolvedValue({ id: 43 }),
+    };
+
+    const first = openOrFocusDashboardTab({
+      dashboardUrl: 'chrome-extension://test/dashboard/dashboard.html',
+      tabs,
+    });
+    const second = openOrFocusDashboardTab({
+      dashboardUrl: 'chrome-extension://test/dashboard/dashboard.html',
+      tabs,
+    });
+
+    expect(first).toBe(second);
+    expect(tabs.query).toHaveBeenCalledTimes(1);
+    releaseQuery?.([]);
+
+    await Promise.all([first, second]);
+    expect(tabs.create).toHaveBeenCalledTimes(1);
   });
 });

@@ -283,7 +283,8 @@ function ensureReleaseAnnouncementStyles(): void {
       box-shadow:
         0 0 16px color-mix(in srgb, var(--spark-color, #f97316) 74%, transparent),
         0 0 3px rgba(255, 255, 255, 0.75);
-      animation: jdbReleaseSpark 2280ms cubic-bezier(0.16, 1, 0.3, 1) calc(var(--burst-delay, 0ms) + var(--delay, 0ms)) infinite;
+      /* 装饰性 spark 不参与业务交互；关闭动画，避免 36 个元素在首页持续触发合成与栅格。 */
+      animation: none;
     }
 
     [data-theme="dark"] .jdb-release-announcement-modal {
@@ -306,14 +307,6 @@ function ensureReleaseAnnouncementStyles(): void {
     @keyframes jdbReleaseEnter {
       from { opacity: 0; transform: translateY(10px) scale(0.98); }
       to { opacity: 1; transform: translateY(0) scale(1); }
-    }
-
-    @keyframes jdbReleaseSpark {
-      0% { opacity: 0; transform: rotate(var(--angle)) translate(0) scale(0.42); }
-      9% { opacity: 0; }
-      18% { opacity: 1; }
-      58% { opacity: 0; transform: rotate(var(--angle)) translate(var(--distance)) scale(0.12); }
-      100% { opacity: 0; transform: rotate(var(--angle)) translate(var(--distance)) scale(0.12); }
     }
 
     @media (prefers-reduced-motion: reduce) {
