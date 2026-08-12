@@ -3,7 +3,8 @@
  * @description 115 卡片封面视窗懒加载：进入可视区才现取直链，配合内存缓存复用。
  * @module apps/dashboard/pages/media
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { observeWhenVisible } from '../../../../ui/lib/sharedIntersectionObserver';
 import { resolveDrive115CoverUrl } from './drive115CoverCache';
 import type { MediaBrowseItem } from './mediaBrowseModel';
 
@@ -16,44 +17,41 @@ export function useDrive115Cover(item: Pick<MediaBrowseItem, 'source' | 'coverPi
   ref: (node: HTMLElement | null) => void;
   coverUrl: string;
 } {
-  const [node, setNode] = useState<HTMLElement | null>(null);
   const [coverUrl, setCoverUrl] = useState('');
+  const coverUrlRef = useRef('');
+  const cleanupRef = useRef<(() => void) | null>(null);
   const pickCode = item.source === '115' ? item.coverPickCode : undefined;
 
-  useEffect(() => {
-    setCoverUrl('');
-    if (!pickCode) return undefined;
+  const ref = useCallback((node: HTMLElement | null) => {
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+    if (coverUrlRef.current) {
+      coverUrlRef.current = '';
+      setCoverUrl('');
+    }
+    if (!node || !pickCode) return;
+
     let cancelled = false;
     let loaded = false;
     const load = () => {
       if (loaded) return;
       loaded = true;
       void resolveDrive115CoverUrl(pickCode).then((url) => {
-        if (!cancelled && url) setCoverUrl(url);
+        if (!cancelled && url) {
+          coverUrlRef.current = url;
+          setCoverUrl(url);
+        }
       });
     };
     if (!node || typeof IntersectionObserver === 'undefined') {
       load();
-      return () => {
+      cleanupRef.current = () => {
         cancelled = true;
       };
+      return;
     }
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            load();
-            io.disconnect();
-            break;
-          }
-        }
-      },
-      { rootMargin: '200px' },
-    );
-    io.observe(node);
 
-    // IntersectionObserver 的首次回调不是同步保证；节点已经在视口内时直接触发，
-    // 避免轮播切换或首屏卡片因观察器调度延迟一直显示占位图。
+    // 先判断视口，避免为首屏可见卡片创建后立即销毁的观察器。
     const rect = node.getBoundingClientRect();
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
@@ -63,17 +61,17 @@ export function useDrive115Cover(item: Pick<MediaBrowseItem, 'source' | 'coverPi
       && rect.left <= viewportWidth + 200;
     if (nearViewport) {
       load();
-      io.disconnect();
+      cleanupRef.current = () => {
+        cancelled = true;
+      };
+      return;
     }
 
-    return () => {
+    const stopObserving = observeWhenVisible(node, load, { rootMargin: '200px' });
+    cleanupRef.current = () => {
       cancelled = true;
-      io.disconnect();
+      stopObserving();
     };
-  }, [node, pickCode]);
-
-  const ref = useCallback((nextNode: HTMLElement | null) => {
-    setNode(nextNode);
-  }, []);
+  }, [pickCode]);
   return { ref, coverUrl };
 }

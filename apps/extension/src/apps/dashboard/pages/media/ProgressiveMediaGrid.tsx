@@ -5,7 +5,10 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-export const PROGRESSIVE_MEDIA_BATCH_SIZE = 48;
+/** 首批只覆盖首屏，避免真实目录场景一次挂载过多卡片。 */
+export const PROGRESSIVE_MEDIA_INITIAL_BATCH_SIZE = 12;
+/** 后续仍按原批次加载，不改变完整目录的滚动/手动加载语义。 */
+export const PROGRESSIVE_MEDIA_BATCH_SIZE = 24;
 const MAX_PRIORITY_ITEMS = 8;
 
 type ProgressiveMediaGridProps<T> = {
@@ -29,12 +32,12 @@ export function ProgressiveMediaGrid<T>({
 }: ProgressiveMediaGridProps<T>) {
   const [visibleCount, setVisibleCount] = useState(() => Math.min(
     items.length,
-    PROGRESSIVE_MEDIA_BATCH_SIZE,
+    PROGRESSIVE_MEDIA_INITIAL_BATCH_SIZE,
   ));
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setVisibleCount(Math.min(items.length, PROGRESSIVE_MEDIA_BATCH_SIZE));
+    setVisibleCount(Math.min(items.length, PROGRESSIVE_MEDIA_INITIAL_BATCH_SIZE));
   }, [items]);
 
   useEffect(() => {

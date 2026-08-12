@@ -51,6 +51,7 @@ describe('Emby library realtime check queue', () => {
       }),
     }));
     expect(onReprocess).toHaveBeenCalledTimes(1);
+    expect(onReprocess).toHaveBeenCalledWith(['ABC-401']);
   });
 
   it('respects batch size and short-term duplicate cache', async () => {

@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 import { requestImageLoad } from '../../lib/imageLoadGate';
+import { observeWhenVisible } from '../../lib/sharedIntersectionObserver';
 import './MediaCover.css';
 
 export type MediaCoverProps = {
@@ -80,22 +81,10 @@ export function MediaCover({
       setInView(true);
       return undefined;
     }
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting || e.intersectionRatio > 0)) {
-          setInView(true);
-          io.disconnect();
-        }
-      },
-      {
-        // 提前一点加载，滚动更顺；仍远小于整表全量
-        root: null,
-        rootMargin: '180px 0px',
-        threshold: 0.01,
-      },
-    );
-    io.observe(el);
-    return () => io.disconnect();
+    return observeWhenVisible(el, () => setInView(true), {
+      rootMargin: '180px 0px',
+      threshold: 0.01,
+    });
   }, [lazy]);
 
   // 可见后经全局限流再挂 src

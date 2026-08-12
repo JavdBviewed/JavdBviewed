@@ -194,10 +194,11 @@ export function mediaCopyToBrowseItem(title: MediaBrowseItem, copy: MediaSourceC
 }
 
 function fallbackMediaSourceCopy(item: MediaBrowseItem): MediaSourceCopy {
+  const serverUrl = normalizeMediaServerUrl(item.serverUrl);
   return {
     copyId: item.source === '115'
       ? `115:${item.itemId || item.pickCode || item.code}`
-      : `${item.source}:${item.serverUrl || ''}:${item.itemId || item.code}`,
+      : `${item.source}:${serverUrl}:${item.itemId || item.code}`,
     source: item.source,
     serverName: item.serverName,
     serverUrl: item.serverUrl,
@@ -400,7 +401,7 @@ export function sourceLabel(source: MediaBrowseItem['source']): string {
   return '115';
 }
 
-function normalizeMediaServerUrl(value: unknown): string {
+export function normalizeMediaServerUrl(value: unknown): string {
   const raw = String(value || '').trim();
   if (!raw) return '';
   try {
@@ -505,17 +506,19 @@ export function buildMediaSourceChannels(settings: unknown): MediaSourceChannel[
   return channels;
 }
 
-export function filterMediaItems(
-  items: MediaBrowseItem[],
+export function createMediaItemMatcher(
   filter: MediaBrowseSource,
   query: string,
   watchFilter: MediaWatchFilter = 'all',
   channels: MediaSourceChannel[] = [],
-): MediaBrowseItem[] {
+): (item: MediaBrowseItem) => boolean {
   const q = query.trim().toLowerCase();
-  return items.filter((item) => {
+  const channel = filter !== 'all'
+    ? channels.find((candidate) => candidate.id === filter)
+    : undefined;
+
+  return (item) => {
     if (filter !== 'all') {
-      const channel = channels.find((candidate) => candidate.id === filter);
       if (channel?.serverUrl) {
         const channelMatches = item.copies?.some((copy) => (
           copy.source === channel.source
@@ -542,7 +545,17 @@ export function filterMediaItems(
       || item.title.toLowerCase().includes(q)
       || (item.serverName || '').toLowerCase().includes(q)
     );
-  });
+  };
+}
+
+export function filterMediaItems(
+  items: MediaBrowseItem[],
+  filter: MediaBrowseSource,
+  query: string,
+  watchFilter: MediaWatchFilter = 'all',
+  channels: MediaSourceChannel[] = [],
+): MediaBrowseItem[] {
+  return items.filter(createMediaItemMatcher(filter, query, watchFilter, channels));
 }
 
 export function resumeMediaItems(items: MediaBrowseItem[], limit = 12): MediaBrowseItem[] {

@@ -3,17 +3,18 @@
  * @description 媒体库浏览页：筛选 + 堆叠轮播 + 网格；优先展示本地 Emby/Jellyfin 索引
  * @module apps/dashboard/pages/media
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../../../../ui/primitives/Badge/Badge';
 import { Button } from '../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../ui/primitives/Input/Input';
 import { MediaCover } from '../../../../ui/primitives/MediaCover/MediaCover';
 import { EmptyState } from '../../../../ui/patterns/EmptyState/EmptyState';
-import { MediaPlayer } from '../../../../ui/patterns/MediaPlayer/MediaPlayer';
 import { OverlayShell } from '../../../../ui/patterns/OverlayShell/OverlayShell';
 import { LazyRemoteImage } from '../../../../ui/patterns/LazyRemoteImage/LazyRemoteImage';
 import { useDrive115Cover } from './useDrive115Cover';
 import { resolveDashboardNavState } from '../../../../dashboard/tabs/navModel';
+import { setMediaPlaybackActive } from '../../../../dashboard/tabs/mediaLifecycleState';
+import { scheduleHomeChartRender } from '../../../../dashboard/home/homeRenderScheduler';
 import type { EmbyLibraryState } from '../../../../features/embyLibrary/types';
 import { STORAGE_KEYS } from '../../../../utils/config';
 import { getValue } from '../../../../utils/storage';
@@ -26,7 +27,6 @@ import {
   buildMediaSourceChannels,
   DEFAULT_MEDIA_VIEW_FIELDS,
   DEFAULT_MEDIA_VIEW_SETTINGS,
-  filterMediaItems,
   formatMediaSourceCopyLabel,
   getMediaSourceCopyPlaybackStatus,
   getMediaSourceLabels,
@@ -40,7 +40,6 @@ import {
   resolveCoverImageUrl,
   mediaCopyToBrowseItem,
   resolvePlaybackChoice,
-  resumeMediaItems,
   type MediaBrowseItem,
   type MediaBrowseSource,
   type MediaSyncTarget,
@@ -54,6 +53,10 @@ import {
   writeMediaViewSettings,
 } from './mediaBrowseModel';
 import {
+  buildMediaCatalogQueryIndex,
+  queryMediaCatalogIndex,
+} from './mediaCatalogQuery';
+import {
   formatWatchPercent,
   mapLibraryStateToBrowseItems,
   mapDrive115LibraryStateToBrowseItems,
@@ -62,10 +65,17 @@ import {
   resolveWatchProgressPercent,
   watchStateLabel,
 } from './mediaLibraryIndexAdapter';
-import { Media115PlayPanel, type Media115ResolvedStream } from './Media115PlayPanel';
-import { MediaCleanupPanel } from './MediaCleanupPanel';
-import { MediaItemDetailPanel } from './MediaItemDetailPanel';
+import type { Media115ResolvedStream } from './Media115PlayPanel';
+import type { MediaItemDetailPanelProps } from './MediaItemDetailPanel';
 import { ProgressiveMediaGrid } from './ProgressiveMediaGrid';
+import {
+  areMediaCardPropsEqual,
+  areMediaHeroCardPropsEqual,
+  areResumeMediaCardPropsEqual,
+  type MediaHeroCardRenderProps,
+  type MediaCardRenderProps,
+  type ResumeMediaCardRenderProps,
+} from './mediaCardRenderPolicy';
 import {
   enqueueCompletedPlayback,
   importHistoricalWatchedFromCurrentLibrary,
@@ -76,6 +86,24 @@ import {
   writeMediaClientPreviewHidden,
 } from './mediaClientPreview';
 import './mediaPage.css';
+
+// 播放、详情和清理只在用户打开对应弹窗时需要，避免媒体库首屏加载完整功能链。
+const LazyMedia115PlayPanel = lazy(() => import('./Media115PlayPanel').then(({ Media115PlayPanel }) => ({
+  default: Media115PlayPanel,
+})));
+const LazyMediaCleanupPanel = lazy(() => import('./MediaCleanupPanel').then(({ MediaCleanupPanel }) => ({
+  default: MediaCleanupPanel,
+})));
+const LazyMediaItemDetailPanel = lazy(() => import('./MediaItemDetailPanel').then(({ MediaItemDetailPanel }) => ({
+  default: MediaItemDetailPanel,
+})));
+const LazyMediaPlayer = lazy(() => import('../../../../ui/patterns/MediaPlayer/MediaPlayer').then(({ MediaPlayer }) => ({
+  default: MediaPlayer,
+})));
+
+function MediaPanelFallback({ label }: { label: string }) {
+  return <div className="ml-command-panel-loading" role="status">{label}</div>;
+}
 
 const WATCH_FILTERS: { id: MediaWatchFilter; label: string }[] = [
   { id: 'all', label: '全部状态' },
@@ -237,7 +265,11 @@ async function persistentToast(
 /**
  * 媒体库主页面
  */
-export function MediaLibraryPage() {
+type MediaLibraryPageProps = {
+  isActive?: boolean;
+};
+
+export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
   const [filter, setFilter] = useState<MediaBrowseSource>('all');
   const [watchFilter, setWatchFilter] = useState<MediaWatchFilter>('all');
   const [viewSettings, setViewSettings] = useState<MediaViewSettings>(() => readMediaViewSettings());
@@ -245,7 +277,6 @@ export function MediaLibraryPage() {
   const [showClientPreview, setShowClientPreview] = useState(() => !readMediaClientPreviewHidden());
   const coverView = viewSettings.coverView;
   const [query, setQuery] = useState('');
-  const [heroStep, setHeroStep] = useState(0);
   const [catalog, setCatalog] = useState<MediaBrowseItem[]>([]);
   const [usingPreview, setUsingPreview] = useState(true);
   const [indexUpdatedAt, setIndexUpdatedAt] = useState(0);
@@ -263,6 +294,8 @@ export function MediaLibraryPage() {
   const play115StartTimeRef = useRef(0);
   const [showCleanupPanel, setShowCleanupPanel] = useState(false);
   const [cleanupRefreshKey, setCleanupRefreshKey] = useState(0);
+  const initialCatalogLoadStartedRef = useRef(false);
+  const catalogLoadTaskRef = useRef<{ cancel: () => void } | null>(null);
   const catalogReloadInFlightRef = useRef(false);
   const catalogReloadPendingRef = useRef(false);
   const catalogReloadTimerRef = useRef<number | null>(null);
@@ -302,6 +335,24 @@ export function MediaLibraryPage() {
     startTimeSeconds?: number;
     highlights?: Array<{ time: number; text: string }>;
   } | null>(null);
+  const cancelPendingInitialCatalogLoad = useCallback(() => {
+    catalogLoadTaskRef.current?.cancel();
+    catalogLoadTaskRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    setMediaPlaybackActive(Boolean(embyStream || drive115Stream));
+    return () => setMediaPlaybackActive(false);
+  }, [embyStream, drive115Stream]);
+
+  useEffect(() => {
+    const onMediaTabVisibility = (event: Event) => {
+      const detail = (event as CustomEvent<{ isActive?: boolean }>).detail;
+      if (detail?.isActive === false) cancelPendingInitialCatalogLoad();
+    };
+    window.addEventListener('media-tab-visibility', onMediaTabVisibility);
+    return () => window.removeEventListener('media-tab-visibility', onMediaTabVisibility);
+  }, [cancelPendingInitialCatalogLoad]);
 
   // 兼容旧 hash 子路径
   useEffect(() => {
@@ -404,7 +455,22 @@ export function MediaLibraryPage() {
   }, []);
 
   // 首次进入读取索引与可同步服务器
+  const scheduleInitialCatalogLoad = useCallback(() => {
+    if (!isActive || initialCatalogLoadStartedRef.current || catalogLoadTaskRef.current) return;
+    catalogLoadTaskRef.current = scheduleHomeChartRender(() => {
+      catalogLoadTaskRef.current = null;
+      initialCatalogLoadStartedRef.current = true;
+      void reloadCatalogFromStorage();
+    }, { timeoutMs: 1200 });
+  }, [isActive, reloadCatalogFromStorage]);
+
   useEffect(() => {
+    if (!isActive) {
+      cancelPendingInitialCatalogLoad();
+      return;
+    }
+
+    scheduleInitialCatalogLoad();
     void getValue<{ running?: boolean } | null>(
       STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS,
       null,
@@ -413,9 +479,16 @@ export function MediaLibraryPage() {
     }).catch(() => {
       drive115IndexRunningRef.current = false;
     });
-    void reloadCatalogFromStorage();
     void reloadSyncTargetsFromSettings();
-  }, [reloadCatalogFromStorage, reloadSyncTargetsFromSettings]);
+    return () => {
+      cancelPendingInitialCatalogLoad();
+    };
+  }, [
+    cancelPendingInitialCatalogLoad,
+    isActive,
+    reloadSyncTargetsFromSettings,
+    scheduleInitialCatalogLoad,
+  ]);
 
   // 索引写入后实时刷新目录：115 增量入库 / Emby 同步都会更新本地库，无需重进页面
   useEffect(() => {
@@ -612,7 +685,7 @@ export function MediaLibraryPage() {
    * opts.startTimeSeconds：章节起播 / 续看 seek
    * opts.highlights：详情章节映射到进度条
    */
-  const playEmbyItem = async (
+  const playEmbyItem = useCallback(async (
     it: {
       code: string;
       title: string;
@@ -704,9 +777,9 @@ export function MediaLibraryPage() {
     } catch (e) {
       await toast(e instanceof Error ? e.message : String(e), 'error');
     }
-  };
+  }, []);
 
-  const playResolvedItem = (
+  const playResolvedItem = useCallback((
     item: MediaBrowseItem,
     opts?: {
       startTimeSeconds?: number;
@@ -735,9 +808,9 @@ export function MediaLibraryPage() {
         highlights: opts?.highlights,
       },
     );
-  };
+  }, [playEmbyItem]);
 
-  const requestPlayback = (
+  const requestPlayback = useCallback((
     item: MediaBrowseItem,
     opts?: {
       startTimeSeconds?: number;
@@ -763,7 +836,58 @@ export function MediaLibraryPage() {
       startTimeSeconds: opts?.startTimeSeconds,
       highlights: opts?.highlights,
     });
-  };
+  }, [playResolvedItem, usingPreview]);
+
+  const handleResumePlay = useCallback((resumeItem: MediaBrowseItem, resumeSec: number) => {
+    requestPlayback(resumeItem, {
+      startTimeSeconds: resumeSec > 2 ? resumeSec : undefined,
+    });
+  }, [requestPlayback]);
+
+  const handleMediaWatchChanged = useCallback(() => {
+    void reloadCatalogFromStorage();
+  }, [reloadCatalogFromStorage]);
+
+  const handleMediaEnqueuedCleanup = useCallback(() => {
+    setShowCleanupPanel(true);
+    setCleanupRefreshKey((current) => current + 1);
+  }, []);
+
+  const handleMediaPlayItem = useCallback((item: MediaBrowseItem) => {
+    requestPlayback(item);
+  }, [requestPlayback]);
+
+  const handleMediaOpenDetail = useCallback((item: MediaBrowseItem) => {
+    setDetailItem(item);
+  }, []);
+
+  const handleDetailPlay = useCallback<NonNullable<MediaItemDetailPanelProps['onPlay']>>((opts) => {
+    const item = detailItem;
+    if (!item) return;
+    setDetailItem(null);
+    requestPlayback(item, {
+      startTimeSeconds: opts?.startTimeSeconds,
+      highlights: opts?.highlights,
+    });
+  }, [detailItem, requestPlayback]);
+
+  const handleDetailPlayCopy = useCallback<NonNullable<MediaItemDetailPanelProps['onPlayCopy']>>((copy, opts) => {
+    const item = detailItem;
+    if (!item) return;
+    setDetailItem(null);
+    playResolvedItem(mediaCopyToBrowseItem(item, copy), {
+      startTimeSeconds: opts?.startTimeSeconds,
+      highlights: opts?.highlights,
+    });
+  }, [detailItem, playResolvedItem]);
+
+  const handleDetailOpenItem = useCallback((next: MediaBrowseItem) => {
+    setDetailItem(next);
+  }, []);
+
+  const handleDetailClose = useCallback(() => {
+    setDetailItem(null);
+  }, []);
 
 
   const handleDrive115StreamReady = useCallback((stream: Media115ResolvedStream) => {
@@ -974,36 +1098,22 @@ export function MediaLibraryPage() {
   };
 
   const heroes = useMemo(() => heroItems(catalog), [catalog]);
-  const heroWindow = useMemo(
-    () => buildCarouselWindow(heroStep, heroes.length, MEDIA_HERO_VISIBLE_RADIUS + 1),
-    [heroStep, heroes.length],
+  const catalogQueryIndex = useMemo(
+    () => buildMediaCatalogQueryIndex(catalog),
+    [catalog],
   );
-  const activeHeroIndex = heroes.length > 0
-    ? ((heroStep % heroes.length) + heroes.length) % heroes.length
-    : 0;
-  const resumeList = useMemo(() => resumeMediaItems(catalog, 8), [catalog]);
-  const list = useMemo(
-    () => filterMediaItems(catalog, filter, query, watchFilter, sourceChannels),
-    [catalog, filter, query, watchFilter, sourceChannels],
+  const catalogQuerySnapshot = useMemo(
+    () => queryMediaCatalogIndex(catalogQueryIndex, {
+      filter,
+      query,
+      watchFilter,
+      channels: sourceChannels,
+      resumeLimit: 8,
+    }),
+    [catalogQueryIndex, filter, query, watchFilter, sourceChannels],
   );
-
-  useEffect(() => {
-    if (heroes.length === 0) return;
-    const timer = window.setTimeout(() => {
-      setHeroStep((step) => step + 1);
-    }, 4500);
-    return () => window.clearTimeout(timer);
-  }, [heroStep, heroes.length]);
-
-  // 目录变化时复位轮播
-  useEffect(() => {
-    setHeroStep(0);
-  }, [catalog]);
-
-  const goHero = (targetIndex: number) => {
-    if (heroes.length === 0) return;
-    setHeroStep((step) => resolveCarouselDotStep(step, targetIndex, heroes.length));
-  };
+  const resumeList = catalogQuerySnapshot.resumeItems;
+  const list = catalogQuerySnapshot.items;
 
   const lastSyncLabel = indexUpdatedAt
     ? `更新于 ${new Date(indexUpdatedAt).toLocaleString()}`
@@ -1097,45 +1207,13 @@ export function MediaLibraryPage() {
       ) : null}
 
       {heroes.length > 0 ? (
-        <section className="ml-hero" aria-label="推荐轮播" data-hero-step={heroStep}>
-          <div className="ml-hero-track">
-            {heroWindow.map(({ virtualIndex, itemIndex, position }) => {
-              const item = heroes[itemIndex];
-              if (!item) return null;
-              return (
-                <MediaHeroCard
-                  key={`hero:${virtualIndex}:${item.source}:${item.itemId || item.code}`}
-                  item={item}
-                  virtualIndex={virtualIndex}
-                  itemIndex={itemIndex}
-                  position={position}
-                  coverView={coverView}
-                  usingPreview={usingPreview}
-                  onSetHeroStep={setHeroStep}
-                  onRequestPlayback={requestPlayback}
-                  onOpenDetail={setDetailItem}
-                />
-              );
-            })}
-          </div>
-          <button type="button" className="ml-hero-nav prev" aria-label="上一张" onClick={() => setHeroStep((step) => step - 1)}>
-            ‹
-          </button>
-          <button type="button" className="ml-hero-nav next" aria-label="下一张" onClick={() => setHeroStep((step) => step + 1)}>
-            ›
-          </button>
-          <div className="ml-hero-dots">
-            {heroes.map((item, i) => (
-              <button
-                key={`${item.source}:${item.itemId || item.code}`}
-                type="button"
-                className={`ml-hero-dot${i === activeHeroIndex ? ' is-active' : ''}`}
-                aria-label={`第 ${i + 1} 张`}
-                onClick={() => goHero(i)}
-              />
-            ))}
-          </div>
-        </section>
+        <MediaHeroCarousel
+          items={heroes}
+          coverView={coverView}
+          usingPreview={usingPreview}
+          onRequestPlayback={requestPlayback}
+          onOpenDetail={setDetailItem}
+        />
       ) : null}
 
       <div className="ml-toolbar" role="region" aria-label="媒体库工具栏">
@@ -1257,9 +1335,7 @@ export function MediaLibraryPage() {
               <ResumeMediaCard
                 key={`resume-${item.source}:${item.itemId || item.code}`}
                 item={item}
-                onPlay={(resumeItem, resumeSec) => requestPlayback(resumeItem, {
-                  startTimeSeconds: resumeSec > 2 ? resumeSec : undefined,
-                })}
+                onPlay={handleResumePlay}
               />
             ))}
           </div>
@@ -1377,12 +1453,14 @@ export function MediaLibraryPage() {
         onClose={() => setShow115Panel(false)}
       >
         <div data-media-115-play-overlay="1">
-          <Media115PlayPanel
-            initialQuery={play115Query}
-            initialPickCode={play115PickCode}
-            onStreamReady={handleDrive115StreamReady}
-            onClose={() => setShow115Panel(false)}
-          />
+          <Suspense fallback={<MediaPanelFallback label="正在准备 115 播放面板…" />}>
+            <LazyMedia115PlayPanel
+              initialQuery={play115Query}
+              initialPickCode={play115PickCode}
+              onStreamReady={handleDrive115StreamReady}
+              onClose={() => setShow115Panel(false)}
+            />
+          </Suspense>
         </div>
       </OverlayShell>
 
@@ -1445,7 +1523,9 @@ export function MediaLibraryPage() {
         onClose={() => setShowCleanupPanel(false)}
       >
         <div data-media-cleanup-overlay="1">
-          <MediaCleanupPanel refreshKey={cleanupRefreshKey} onScan={scanWatchedMedia} />
+          <Suspense fallback={<MediaPanelFallback label="正在准备已看影片整理…" />}>
+            <LazyMediaCleanupPanel refreshKey={cleanupRefreshKey} onScan={scanWatchedMedia} />
+          </Suspense>
         </div>
       </OverlayShell>
 
@@ -1579,35 +1659,37 @@ export function MediaLibraryPage() {
         onClose={closeEmbyPlayer}
       >
         {embyStream ? (
-          <MediaPlayer
-            title={embyStream.code}
-            subtitle={embyStream.title}
-            src={embyStream.streamUrl}
-            streamType={embyStream.streamType}
-            startTimeSeconds={embyStream.startTimeSeconds}
-            highlights={embyStream.highlights}
-            subtitles={embyStream.subtitles}
-            qualities={embyStream.qualities}
-            onClose={closeEmbyPlayer}
-            onProgress={(info) => {
-              lastProgressPosRef.current = info.currentTime || 0;
-              if (info.duration > 0) lastProgressDurationRef.current = info.duration;
-              if (info.ended) {
+          <Suspense fallback={<MediaPanelFallback label="正在准备播放器…" />}>
+            <LazyMediaPlayer
+              title={embyStream.code}
+              subtitle={embyStream.title}
+              src={embyStream.streamUrl}
+              streamType={embyStream.streamType}
+              startTimeSeconds={embyStream.startTimeSeconds}
+              highlights={embyStream.highlights}
+              subtitles={embyStream.subtitles}
+              qualities={embyStream.qualities}
+              onClose={closeEmbyPlayer}
+              onProgress={(info) => {
+                lastProgressPosRef.current = info.currentTime || 0;
+                if (info.duration > 0) lastProgressDurationRef.current = info.duration;
+                if (info.ended) {
+                  void reportEmbyProgress({
+                    positionSeconds: info.currentTime || 0,
+                    durationSeconds: info.duration || lastProgressDurationRef.current,
+                    isCompleted: true,
+                    isStopped: true,
+                    force: true,
+                  });
+                  return;
+                }
                 void reportEmbyProgress({
                   positionSeconds: info.currentTime || 0,
                   durationSeconds: info.duration || lastProgressDurationRef.current,
-                  isCompleted: true,
-                  isStopped: true,
-                  force: true,
                 });
-                return;
-              }
-              void reportEmbyProgress({
-                positionSeconds: info.currentTime || 0,
-                durationSeconds: info.duration || lastProgressDurationRef.current,
-              });
-            }}
-          />
+              }}
+            />
+          </Suspense>
         ) : null}
       </OverlayShell>
 
@@ -1620,16 +1702,18 @@ export function MediaLibraryPage() {
         onClose={closeDrive115Player}
       >
         {drive115Stream ? (
-          <MediaPlayer
-            title={drive115Stream.code}
-            subtitle={drive115Stream.title}
-            src={drive115Stream.streamUrl}
-            streamType={drive115Stream.streamType || 'auto'}
-            startTimeSeconds={drive115Stream.startTimeSeconds}
-            crossOrigin={null}
-            onClose={closeDrive115Player}
-            onProgress={reportDrive115PlayerProgress}
-          />
+          <Suspense fallback={<MediaPanelFallback label="正在准备播放器…" />}>
+            <LazyMediaPlayer
+              title={drive115Stream.code}
+              subtitle={drive115Stream.title}
+              src={drive115Stream.streamUrl}
+              streamType={drive115Stream.streamType || 'auto'}
+              startTimeSeconds={drive115Stream.startTimeSeconds}
+              crossOrigin={null}
+              onClose={closeDrive115Player}
+              onProgress={reportDrive115PlayerProgress}
+            />
+          </Suspense>
         ) : null}
       </OverlayShell>
 
@@ -1638,36 +1722,19 @@ export function MediaLibraryPage() {
         title={detailItem ? `${detailItem.code} · 详情` : '详情'}
         size="xl"
         windowControls
-        onClose={() => setDetailItem(null)}
+        onClose={handleDetailClose}
       >
         {detailItem ? (
-          <MediaItemDetailPanel
-            item={detailItem}
-            onPlay={(opts) => {
-              const it = detailItem;
-              if (!it) return;
-              const highlights = (opts as any)?.highlights as Array<{ time: number; text: string }> | undefined;
-              setDetailItem(null);
-              requestPlayback(it, {
-                startTimeSeconds: opts?.startTimeSeconds,
-                highlights,
-              });
-            }}
-            onPlayCopy={(copy, opts) => {
-              const it = detailItem;
-              if (!it) return;
-              setDetailItem(null);
-              playResolvedItem(mediaCopyToBrowseItem(it, copy), {
-                startTimeSeconds: opts?.startTimeSeconds,
-                highlights: opts?.highlights,
-              });
-            }}
-            onOpenItem={(next) => setDetailItem(next)}
-            onWatchChanged={() => {
-              void reloadCatalogFromStorage();
-            }}
-            onClose={() => setDetailItem(null)}
-          />
+          <Suspense fallback={<MediaPanelFallback label="正在读取影片详情…" />}>
+            <LazyMediaItemDetailPanel
+              item={detailItem}
+              onPlay={handleDetailPlay}
+              onPlayCopy={handleDetailPlayCopy}
+              onOpenItem={handleDetailOpenItem}
+              onWatchChanged={handleMediaWatchChanged}
+              onClose={handleDetailClose}
+            />
+          </Suspense>
         ) : null}
       </OverlayShell>
 
@@ -1750,15 +1817,10 @@ export function MediaLibraryPage() {
                 usingPreview={usingPreview}
                 coverView={coverView}
                 viewSettings={viewSettings}
-                onWatchChanged={() => {
-                  void reloadCatalogFromStorage();
-                }}
-                onEnqueuedCleanup={() => {
-                  setShowCleanupPanel(true);
-                  setCleanupRefreshKey((k) => k + 1);
-                }}
-                onPlayItem={(it) => requestPlayback(it)}
-                onOpenDetail={(it) => setDetailItem(it)}
+                onWatchChanged={handleMediaWatchChanged}
+                onEnqueuedCleanup={handleMediaEnqueuedCleanup}
+                onPlayItem={handleMediaPlayItem}
+                onOpenDetail={handleMediaOpenDetail}
               />
             )}
           />
@@ -1774,7 +1836,89 @@ export function MediaLibraryPage() {
   );
 }
 
-function MediaHeroCard({
+function MediaHeroCarousel({
+  items,
+  coverView,
+  usingPreview,
+  onRequestPlayback,
+  onOpenDetail,
+}: {
+  items: MediaBrowseItem[];
+  coverView: MediaCoverViewMode;
+  usingPreview: boolean;
+  onRequestPlayback: (item: MediaBrowseItem) => void;
+  onOpenDetail: (item: MediaBrowseItem) => void;
+}) {
+  const [heroStep, setHeroStep] = useState(0);
+  const heroWindow = useMemo(
+    () => buildCarouselWindow(heroStep, items.length, MEDIA_HERO_VISIBLE_RADIUS + 1),
+    [heroStep, items.length],
+  );
+  const activeHeroIndex = items.length > 0
+    ? ((heroStep % items.length) + items.length) % items.length
+    : 0;
+
+  useEffect(() => {
+    setHeroStep(0);
+  }, [items]);
+
+  useEffect(() => {
+    if (items.length === 0) return undefined;
+    const timer = window.setTimeout(() => {
+      setHeroStep((step) => step + 1);
+    }, 4500);
+    return () => window.clearTimeout(timer);
+  }, [heroStep, items.length]);
+
+  const goHero = (targetIndex: number) => {
+    if (items.length === 0) return;
+    setHeroStep((step) => resolveCarouselDotStep(step, targetIndex, items.length));
+  };
+
+  return (
+    <section className="ml-hero" aria-label="推荐轮播" data-hero-step={heroStep}>
+      <div className="ml-hero-track">
+        {heroWindow.map(({ virtualIndex, itemIndex, position }) => {
+          const item = items[itemIndex];
+          if (!item) return null;
+          return (
+            <MediaHeroCard
+              key={`hero:${virtualIndex}:${item.source}:${item.itemId || item.code}`}
+              item={item}
+              virtualIndex={virtualIndex}
+              itemIndex={itemIndex}
+              position={position}
+              coverView={coverView}
+              usingPreview={usingPreview}
+              onSetHeroStep={setHeroStep}
+              onRequestPlayback={onRequestPlayback}
+              onOpenDetail={onOpenDetail}
+            />
+          );
+        })}
+      </div>
+      <button type="button" className="ml-hero-nav prev" aria-label="上一张" onClick={() => setHeroStep((step) => step - 1)}>
+        ‹
+      </button>
+      <button type="button" className="ml-hero-nav next" aria-label="下一张" onClick={() => setHeroStep((step) => step + 1)}>
+        ›
+      </button>
+      <div className="ml-hero-dots">
+        {items.map((item, index) => (
+          <button
+            key={`${item.source}:${item.itemId || item.code}`}
+            type="button"
+            className={`ml-hero-dot${index === activeHeroIndex ? ' is-active' : ''}`}
+            aria-label={`第 ${index + 1} 张`}
+            onClick={() => goHero(index)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const MediaHeroCard = memo(function MediaHeroCard({
   item,
   virtualIndex,
   itemIndex,
@@ -1784,17 +1928,7 @@ function MediaHeroCard({
   onSetHeroStep,
   onRequestPlayback,
   onOpenDetail,
-}: {
-  item: MediaBrowseItem;
-  virtualIndex: number;
-  itemIndex: number;
-  position: number;
-  coverView: MediaCoverViewMode;
-  usingPreview: boolean;
-  onSetHeroStep: (step: number) => void;
-  onRequestPlayback: (item: MediaBrowseItem) => void;
-  onOpenDetail: (item: MediaBrowseItem) => void;
-}) {
+}: MediaHeroCardRenderProps) {
   const { ref: d115HeroCoverRef, coverUrl: d115HeroCover } = useDrive115Cover(item);
   const posAttr = Math.abs(position) <= MEDIA_HERO_VISIBLE_RADIUS
     ? String(position)
@@ -1886,15 +2020,12 @@ function MediaHeroCard({
       ) : null}
     </div>
   );
-}
+}, areMediaHeroCardPropsEqual);
 
-function ResumeMediaCard({
+const ResumeMediaCard = memo(function ResumeMediaCard({
   item,
   onPlay,
-}: {
-  item: MediaBrowseItem;
-  onPlay: (item: MediaBrowseItem, resumeSec: number) => void;
-}) {
+}: ResumeMediaCardRenderProps) {
   const { ref: d115ResumeCoverRef, coverUrl: d115ResumeCover } = useDrive115Cover(item);
   const pctNum = resolveWatchProgressPercent(item.userData);
   // 在看列表里即便 percent 暂为 0，也给可见进度条（避免“有续看却无条”）
@@ -1952,12 +2083,12 @@ function ResumeMediaCard({
       </div>
     </button>
   );
-}
+}, areResumeMediaCardPropsEqual);
 
 /**
  * 片库网格卡片：Emby 风格封面覆盖层 + 可配置元信息
  */
-function MediaCard({
+const MediaCard = memo(function MediaCard({
   item,
   usingPreview,
   coverView,
@@ -1966,16 +2097,7 @@ function MediaCard({
   onEnqueuedCleanup,
   onPlayItem,
   onOpenDetail,
-}: {
-  item: MediaBrowseItem;
-  usingPreview: boolean;
-  coverView: MediaCoverViewMode;
-  viewSettings: MediaViewSettings;
-  onWatchChanged?: () => void;
-  onEnqueuedCleanup?: () => void;
-  onPlayItem?: (item: MediaBrowseItem) => void;
-  onOpenDetail?: (item: MediaBrowseItem) => void;
-}) {
+}: MediaCardRenderProps) {
   const [busy, setBusy] = useState(false);
   const [showActionMenu, setShowActionMenu] = useState(false);
   const watchState = item.watchState;
@@ -2402,7 +2524,7 @@ function MediaCard({
       </OverlayShell>
     </article>
   );
-}
+}, areMediaCardPropsEqual);
 
 type CardTextToken = { key: string; text: string };
 

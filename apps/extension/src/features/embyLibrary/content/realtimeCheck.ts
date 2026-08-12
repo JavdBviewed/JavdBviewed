@@ -18,7 +18,7 @@ interface RealtimeCheckQueueDeps {
   sendMessage: (message: any) => Promise<any>;
   now: () => number;
   onState: (state: EmbyLibraryState) => void;
-  onReprocess: () => void;
+  onReprocess: (codes: readonly string[]) => void;
 }
 
 function sendRuntimeMessage(message: any): Promise<any> {
@@ -100,7 +100,8 @@ export class EmbyLibraryRealtimeCheckQueue {
 
       if (response?.success && response.state) {
         this.deps.onState(response.state);
-        this.deps.onReprocess();
+        // 只重处理本批已完成实时检查的卡片，避免每个批次都重跑整页列表。
+        this.deps.onReprocess(codes);
       }
     } catch (error) {
       log('Emby library realtime check failed:', error as any);
@@ -119,9 +120,9 @@ export const embyLibraryRealtimeCheckQueue = new EmbyLibraryRealtimeCheckQueue({
   onState: (state) => {
     STATE.embyLibraryState = state;
   },
-  onReprocess: () => {
+  onReprocess: (codes) => {
     void import('../../listEnhancement/content/itemProcessor')
-      .then(({ processVisibleItems }) => processVisibleItems())
+      .then(({ processVisibleItems }) => processVisibleItems({ force: true, codes }))
       .catch((error) => log('Failed to reprocess list after Emby library check:', error as any));
   },
 });

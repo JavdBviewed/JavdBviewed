@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type Ref } from 'react';
 import { requestImageLoad } from '../../lib/imageLoadGate';
+import { observeWhenVisible } from '../../lib/sharedIntersectionObserver';
 import { cn } from '../../lib/cn';
 
 export type LazyRemoteImageProps = {
@@ -44,17 +45,10 @@ export function LazyRemoteImage({
       setInView(true);
       return undefined;
     }
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          setInView(true);
-          io.disconnect();
-        }
-      },
-      { rootMargin: '180px 0px', threshold: 0.01 },
-    );
-    io.observe(el);
-    return () => io.disconnect();
+    return observeWhenVisible(el, () => setInView(true), {
+      rootMargin: '180px 0px',
+      threshold: 0.01,
+    });
   }, [lazy]);
 
   useEffect(() => {

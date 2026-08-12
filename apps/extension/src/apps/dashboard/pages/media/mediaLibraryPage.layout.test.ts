@@ -12,6 +12,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, 'MediaLibraryPage.tsx'), 'utf-8');
 
 describe('MediaLibraryPage 实时刷新', () => {
+  it('defers heavy media panels until their overlays are opened', () => {
+    expect(source).toContain("lazy(() => import('./Media115PlayPanel')");
+    expect(source).toContain("lazy(() => import('./MediaCleanupPanel')");
+    expect(source).toContain("lazy(() => import('./MediaItemDetailPanel')");
+    expect(source).toContain("lazy(() => import('../../../../ui/patterns/MediaPlayer/MediaPlayer')");
+    expect(source).toContain('<Suspense');
+  });
+
   it('首次使用没有本地索引时显示配置引导，不展示内置示例数据', () => {
     expect(source).toContain('useState<MediaBrowseItem[]>([])');
     expect(source).toContain('正在读取媒体库索引');
@@ -20,6 +28,20 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(source).toContain('配置 115 片库');
     expect(source).not.toContain('useState<MediaBrowseItem[]>(MEDIA_PREVIEW_ITEMS)');
     expect(source).not.toContain('setCatalog(MEDIA_PREVIEW_ITEMS)');
+  });
+
+  it('defers the first full catalog build to the browser idle queue', () => {
+    expect(source).toContain('scheduleHomeChartRender');
+    expect(source).toContain('catalogLoadTaskRef.current?.cancel()');
+    expect(source).toContain('timeoutMs: 1200');
+  });
+
+  it('cancels an unstarted catalog task while hidden and resumes it after restore', () => {
+    expect(source).toContain('isActive = true');
+    expect(source).toContain('initialCatalogLoadStartedRef');
+    expect(source).toContain('catalogLoadTaskRef.current = null');
+    expect(source).toContain('if (!isActive)');
+    expect(source).toContain('scheduleInitialCatalogLoad');
   });
 
   it('renders a dismissible client preview outside the carousel and card grid', () => {
@@ -121,6 +143,15 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(detailSource).toContain('可用来源');
     expect(detailSource).toContain('item.copies');
     expect(detailCss).toContain('.ml-detail-copy-list');
+  });
+
+  it('passes stable callbacks to the memoized detail panel', () => {
+    expect(source).toContain('const handleDetailPlay = useCallback');
+    expect(source).toContain('const handleDetailPlayCopy = useCallback');
+    expect(source).toContain('onPlay={handleDetailPlay}');
+    expect(source).toContain('onPlayCopy={handleDetailPlayCopy}');
+    expect(source).not.toContain('onPlay={(opts) => {');
+    expect(source).not.toContain('onPlayCopy={(copy, opts) => {');
   });
 
   it('shows a compact source count on cards with multiple physical copies', () => {
@@ -264,9 +295,10 @@ describe('MediaLibraryPage 实时刷新', () => {
   });
 
   it('exposes the unbounded carousel step for stable transition diagnostics', () => {
+    expect(source).toContain('function MediaHeroCarousel');
     expect(source).toContain('data-hero-step={heroStep}');
     expect(source).toContain('window.setTimeout(() =>');
-    expect(source).toContain('}, [heroStep, heroes.length]);');
+    expect(source).toContain('}, [heroStep, items.length]);');
   });
 
   it('uses the 115 cover loader for carousel items instead of only static metadata', () => {
@@ -373,7 +405,8 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(detailSource).toContain('setShowPlaybackMenu');
     expect(detailSource).toContain('onPlayCopy?.(copy');
     expect(source).toContain('data-media-source-choice="1"');
-    expect(source).toContain('setDetailItem(null);\n              playResolvedItem(mediaCopyToBrowseItem(it, copy)');
+    expect(source).toContain('const handleDetailPlayCopy = useCallback');
+    expect(source).toContain('setDetailItem(null);\n    playResolvedItem(mediaCopyToBrowseItem(item, copy)');
   });
 
   it('lists all card sources and lets the detail panel play an exact source copy', () => {

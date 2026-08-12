@@ -3,7 +3,7 @@
  * @description 扩展内媒体详情（Emby 风格完整布局：章节 / 合集 / 相似 / 媒体流）
  * @module apps/dashboard/pages/media
  */
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type {
   EmbyItemChapterView,
   EmbyItemDetailView,
@@ -29,6 +29,7 @@ import {
 } from './mediaBrowseModel';
 import { buildServerOpenUrl, formatWatchPercent, watchStateLabel } from './mediaLibraryIndexAdapter';
 import { HorizontalScroller } from './HorizontalScroller';
+import { areMediaDetailPanelPropsEqual } from './mediaDetailRenderPolicy';
 import './mediaItemDetail.css';
 
 export type MediaItemDetailPanelProps = {
@@ -81,7 +82,7 @@ function formatMinutesText(value?: string): string {
 /**
  * 本地详情弹窗内容：先用列表缓存，再拉 Emby 完整 Item 字段
  */
-export function MediaItemDetailPanel({
+export const MediaItemDetailPanel = memo(function MediaItemDetailPanel({
   item,
   onPlay,
   onPlayCopy,
@@ -798,5 +799,5 @@ export function MediaItemDetailPanel({
       </div>
     </div>
   );
-}
+}, areMediaDetailPanelPropsEqual);
 

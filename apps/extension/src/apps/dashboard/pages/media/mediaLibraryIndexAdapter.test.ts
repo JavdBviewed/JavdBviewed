@@ -18,8 +18,114 @@ import {
   hasDrive115LibraryIndex,
   resolveWatchProgressPercent,
 } from './mediaLibraryIndexAdapter';
+import { getMediaSourceCopies, resolvePlaybackChoice } from './mediaBrowseModel';
 
 describe('mediaLibraryIndexAdapter', () => {
+  it('keeps a single physical source canonical and resolves its copy lazily', () => {
+    const items = mapLibraryStateToBrowseItems({
+      updatedAt: 1,
+      entries: {
+        'ABC-CANONICAL': [{
+          serverType: 'emby',
+          serverName: 'Home',
+          serverUrl: 'http://emby.local',
+          itemId: 'emby-canonical',
+          itemName: 'ABC-CANONICAL',
+          coverImageUrl: 'http://emby.local/cover',
+          updatedAt: 1,
+        }],
+      },
+    });
+
+    const item = items[0];
+    expect(item).toBeDefined();
+    if (!item) throw new Error('测试条目未生成');
+    expect(item.copies).toBeUndefined();
+    expect(getMediaSourceCopies(item)).toMatchObject([{
+      source: 'emby',
+      itemId: 'emby-canonical',
+      coverImageUrl: 'http://emby.local/cover',
+    }]);
+    expect(resolvePlaybackChoice(item).kind).toBe('direct');
+  });
+
+  it('merges single-source watch evidence without materializing a duplicate copy', () => {
+    const items = mapDrive115LibraryStateToBrowseItems({
+      entries: [{
+        code: 'D115-CANONICAL',
+        videoFileId: 'file-canonical',
+        pickCode: 'pick-canonical',
+        fileName: 'D115-CANONICAL.mp4',
+      }],
+    });
+
+    const merged = mergeLocalWatchEvidence(items, {
+      'D115-CANONICAL::115:file-canonical': {
+        source: 'drive115',
+        sourceItemId: 'pick-canonical',
+        fileId: 'file-canonical',
+        copyId: '115:file-canonical',
+        percent: 40,
+        watched: false,
+        lastPlayedAt: 10,
+      },
+    });
+
+    expect(merged[0]?.copies).toBeUndefined();
+    expect(merged[0]?.watchState).toBe('in_progress');
+    expect(merged[0]?.userData?.percent).toBe(40);
+  });
+
+  it('does not copy the catalog when evidence has no matching media item', () => {
+    const items = mapLibraryStateToBrowseItems({
+      updatedAt: 1,
+      entries: {
+        'ABC-REF': [{
+          serverType: 'emby',
+          serverName: 'Home',
+          serverUrl: 'http://emby.local',
+          itemId: 'emby-ref',
+          itemName: 'ABC-REF',
+          updatedAt: 1,
+        }],
+      },
+    });
+
+    const merged = mergeLocalWatchEvidence(items, {
+      'OTHER-001': {
+        source: 'drive115',
+        percent: 20,
+        watched: false,
+        lastPlayedAt: 1,
+      },
+    });
+
+    expect(merged).toBe(items);
+    expect(merged[0]).toBe(items[0]);
+    expect(merged[0].copies?.[0]).toBe(items[0].copies?.[0]);
+  });
+
+  it('keeps a single-source item reference when aggregation does not rewrite it', () => {
+    const sourceItems = mapLibraryStateToBrowseItems({
+      updatedAt: 1,
+      entries: {
+        'ABC-REF': [{
+          serverType: 'emby',
+          serverName: 'Home',
+          serverUrl: 'http://emby.local',
+          itemId: 'emby-ref',
+          itemName: 'ABC-REF',
+          updatedAt: 1,
+        }],
+      },
+    });
+
+    const merged = mergeBrowseCatalogs(sourceItems, []);
+
+    expect(merged[0]).toBe(sourceItems[0]);
+    expect(merged[0].copies).toBe(sourceItems[0].copies);
+  });
+
   it('builds reusable watch evidence indexes for copy and legacy lookups', () => {
     const legacy = {
       source: 'drive115' as const,
@@ -460,7 +566,10 @@ describe('mediaLibraryIndexAdapter', () => {
     expect(items).toHaveLength(1);
     expect(items[0].title).toBe('真实标题');
     expect(items[0].year).toBe('2021');
-    expect(items[0].nfoSummary?.plot).toBe('简介文本');
+    expect(items[0].nfoSummary?.plot).toBeUndefined();
+    expect(items[0].nfoSummary?.title).toBe('真实标题');
+    expect(items[0].nfoSummary?.year).toBe('2021');
+    expect(items[0].nfoSummary?.schemaVersion).toBeUndefined();
     expect(items[0].libraryKey).toBe('f9:v9');
   });
 

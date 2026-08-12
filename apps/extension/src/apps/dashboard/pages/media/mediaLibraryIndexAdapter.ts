@@ -15,7 +15,12 @@ import type { EmbyLibraryIndexEntry, EmbyLibraryState, EmbyWatchUserData } from 
 import type { MediaWatchEvidenceMap } from '../../../../features/media/mediaWatchEvidence';
 import type { ParsedNfoSummary } from '../../../../features/drive115/mediaLibrary/parseEntryMeta';
 import { normalizeVideoCodeCandidate } from '../../../../shared/utils/videoCodeExtractor';
-import type { MediaBrowseItem, MediaItemSource, MediaSourceCopy } from './mediaBrowseModel';
+import {
+  getMediaSourceCopies,
+  type MediaBrowseItem,
+  type MediaItemSource,
+  type MediaSourceCopy,
+} from './mediaBrowseModel';
 
 /**
  * 从番号字符串生成稳定色相（预览渐变用）
@@ -73,6 +78,33 @@ export function resolveItemWatchState(entry: EmbyLibraryIndexEntry | null | unde
 export { formatWatchPercent, resolveWatchProgressPercent, watchStateLabel };
 export type { MediaWatchState };
 
+/**
+ * 目录卡片只需要少量 NFO 字段；简介、演员和图片引用留到详情弹窗按需读取。
+ * 不保留 schemaVersion，确保详情仍会通过现有 handler 命中缓存或解析完整摘要。
+ */
+function compactBrowseNfoSummary(summary: ParsedNfoSummary | undefined): ParsedNfoSummary | undefined {
+  if (!summary) return undefined;
+  const compact: ParsedNfoSummary = {
+    title: summary.title,
+    originalTitle: summary.originalTitle,
+    year: summary.year,
+    num: summary.num,
+    studio: summary.studio,
+    contentRating: summary.contentRating,
+    rating: summary.rating,
+    runtime: summary.runtime,
+    genres: summary.genres,
+    director: summary.director,
+  };
+  return Object.values(compact).some((value) => (
+    typeof value === 'string'
+      ? value.trim().length > 0
+      : Array.isArray(value)
+        ? value.length > 0
+        : Boolean(value)
+  )) ? compact : undefined;
+}
+
 function secondsToTicks(seconds: number | undefined): number {
   const value = Number(seconds);
   if (!Number.isFinite(value) || value <= 0) return 0;
@@ -87,40 +119,6 @@ export function makeMediaCopyId(input: Pick<MediaSourceCopy, 'source' | 'serverU
   const serverUrl = normalizeServerUrl(String(input.serverUrl || ''));
   const itemId = String(input.itemId || '').trim();
   return serverUrl && itemId ? `${input.source}:${serverUrl}:${itemId}` : '';
-}
-
-function browseItemToCopy(item: MediaBrowseItem): MediaSourceCopy {
-  const fileId = item.source === '115' ? item.itemId : undefined;
-  return {
-    copyId: makeMediaCopyId({
-      source: item.source,
-      serverUrl: item.serverUrl,
-      itemId: item.itemId,
-      fileId,
-      pickCode: item.pickCode,
-    }),
-    source: item.source,
-    serverName: item.serverName,
-    serverUrl: item.serverUrl,
-    serverId: item.serverId,
-    itemId: item.itemId,
-    fileId,
-    pickCode: item.pickCode,
-    fileName: item.fileName,
-    folderPath: item.folderPath,
-    libraryKey: item.libraryKey,
-    coverImageUrl: item.coverImageUrl,
-    imageUrls: item.imageUrls,
-    coverPickCode: item.coverPickCode,
-    nfoSummary: item.nfoSummary,
-    userData: item.userData,
-    watchState: item.watchState,
-  };
-}
-
-function withOwnCopy(item: MediaBrowseItem): MediaBrowseItem {
-  if (item.copies?.length) return item;
-  return { ...item, copies: [browseItemToCopy(item)] };
 }
 
 function normalizeEvidenceAlias(value: unknown): string {
@@ -262,6 +260,19 @@ function mergeEvidenceIntoUserData(
   };
 }
 
+function watchDataEqual(
+  left: EmbyWatchUserData | undefined,
+  right: EmbyWatchUserData | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return left.played === right.played
+    && left.positionTicks === right.positionTicks
+    && left.runtimeTicks === right.runtimeTicks
+    && left.percent === right.percent
+    && left.lastPlayedAt === right.lastPlayedAt;
+}
+
 function aggregateCopyUserData(values: Array<EmbyWatchUserData | undefined>): EmbyWatchUserData | undefined {
   const available = values.filter((value): value is EmbyWatchUserData => Boolean(value));
   if (!available.length) return undefined;
@@ -306,7 +317,7 @@ export function mapLibraryStateToBrowseItems(state: EmbyLibraryState | null | un
         userData: entry.userData,
         watchState,
       };
-      items.push(withOwnCopy(item));
+      items.push(item);
     }
   }
   // 番号字典序，稳定展示
@@ -330,32 +341,69 @@ export function mergeLocalWatchEvidence(
 ): MediaBrowseItem[] {
   if (!evidenceMap || !Object.keys(evidenceMap).length) return items;
   const lookup = buildWatchEvidenceLookup(evidenceMap);
-  return items.map((item) => {
-    const copies = item.copies?.map((copy) => {
-      const evidence = findCopyWatchEvidence(item.code, copy, lookup);
-      const userData = mergeEvidenceIntoUserData(copy.userData, evidence);
+  let catalogChanged = false;
+  const nextItems = items.map((item) => {
+    if (!item.copies?.length) {
+      const canonicalCopy = getMediaSourceCopies(item)[0];
+      const evidence = canonicalCopy
+        ? findCopyWatchEvidence(item.code, canonicalCopy, lookup)
+          || findLocalWatchEvidence(item, lookup)
+        : findLocalWatchEvidence(item, lookup);
+      const userData = mergeEvidenceIntoUserData(item.userData, evidence);
+      const nextWatchState = userData ? computeWatchState(userData) : item.watchState;
+      if (
+        !evidence
+        || (watchDataEqual(userData, item.userData) && nextWatchState === item.watchState)
+      ) {
+        return item;
+      }
+      catalogChanged = true;
       return {
-        ...copy,
+        ...item,
         userData,
-        watchState: userData ? computeWatchState(userData) : copy.watchState,
+        watchState: nextWatchState,
       };
+    }
+
+    let copiesChanged = false;
+    const mappedCopies = item.copies?.map((copy) => {
+      const evidence = findCopyWatchEvidence(item.code, copy, lookup);
+      const mergedUserData = mergeEvidenceIntoUserData(copy.userData, evidence);
+      const userData = watchDataEqual(mergedUserData, copy.userData)
+        ? copy.userData
+        : mergedUserData;
+      const watchState = userData ? computeWatchState(userData) : copy.watchState;
+      const changed = userData !== copy.userData || watchState !== copy.watchState;
+      if (changed) copiesChanged = true;
+      return changed ? { ...copy, userData, watchState } : copy;
     });
+    const copies = copiesChanged ? mappedCopies : item.copies;
     const legacyEvidence = findLocalWatchEvidence(item, lookup);
     const legacyUserData = legacyEvidence?.copyId
       ? undefined
       : mergeEvidenceIntoUserData(item.userData, legacyEvidence);
+    if (!copiesChanged && !legacyEvidence) return item;
     const userData = aggregateCopyUserData([
       ...(copies || []).map((copy) => copy.userData),
       legacyUserData,
     ]);
-    if (!userData && !copies) return item;
+    const nextWatchState = userData ? computeWatchState(userData) : item.watchState;
+    if (
+      !copiesChanged
+      && watchDataEqual(userData, item.userData)
+      && nextWatchState === item.watchState
+    ) {
+      return item;
+    }
+    catalogChanged = true;
     return {
       ...item,
       copies,
       userData,
-      watchState: userData ? computeWatchState(userData) : item.watchState,
+      watchState: nextWatchState,
     };
   });
+  return catalogChanged ? nextItems : items;
 }
 
 
@@ -388,13 +436,14 @@ export function mapDrive115LibraryStateToBrowseItems(
       String(entry.folderName || '').trim() ||
       String(entry.fileName || '').trim() ||
       String(entry.videoFileId);
+    const nfoSummary = compactBrowseNfoSummary(entry.nfoSummary);
     const title =
-      String(entry.nfoSummary?.title || entry.title || code).trim() || code;
-    items.push(withOwnCopy({
+      String(nfoSummary?.title || entry.title || code).trim() || code;
+    items.push({
       code,
       title,
       source: '115',
-      year: String(entry.nfoSummary?.year || '').trim(),
+      year: String(nfoSummary?.year || '').trim(),
       hue: hueFromCode(code),
       itemId: entry.videoFileId,
       pickCode: entry.pickCode,
@@ -404,8 +453,8 @@ export function mapDrive115LibraryStateToBrowseItems(
       watchState: 'in_library',
       libraryKey: entry.key,
       coverPickCode: entry.coverPickCode,
-      nfoSummary: entry.nfoSummary,
-    }));
+      nfoSummary,
+    });
   }
   items.sort((a, b) => a.code.localeCompare(b.code));
   return items;
@@ -420,18 +469,23 @@ export function mergeBrowseCatalogs(
 ): MediaBrowseItem[] {
   const byCode = new Map<string, MediaBrowseItem>();
   for (const rawItem of [...embyItems, ...drive115Items]) {
-    const item = withOwnCopy(rawItem);
+    const item = rawItem;
     const normalizedCode = normalizeVideoCodeCandidate(String(item.code || ''));
-    const ownCopy = item.copies?.[0];
+    const ownCopy = getMediaSourceCopies(item)[0];
     const fallbackId = ownCopy?.copyId || `${item.source}:${item.itemId || item.pickCode || item.code}`;
     const mapKey = normalizedCode ? normalizedCode.toUpperCase() : `copy:${fallbackId}`;
     const existing = byCode.get(mapKey);
     if (!existing) {
-      byCode.set(mapKey, { ...item, code: normalizedCode || item.code });
+      byCode.set(
+        mapKey,
+        normalizedCode && normalizedCode !== item.code
+          ? { ...item, code: normalizedCode }
+          : item,
+      );
       continue;
     }
 
-    const copies = [...(existing.copies || []), ...(item.copies || [])]
+    const copies = [...getMediaSourceCopies(existing), ...getMediaSourceCopies(item)]
       .filter((copy, index, all) => Boolean(copy.copyId) && all.findIndex((candidate) => candidate.copyId === copy.copyId) === index);
     const userData = aggregateCopyUserData(copies.map((copy) => copy.userData));
     const next: MediaBrowseItem = {

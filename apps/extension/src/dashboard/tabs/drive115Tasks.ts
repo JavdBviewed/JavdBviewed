@@ -1,6 +1,8 @@
 ﻿import { getDrive115V2Service, Drive115V2Task } from '../../features/drive115/v2';
 import { getSettings, saveSettings } from '../../utils/storage';
 import { openDrive115FolderPicker } from '../components/drive115FolderPicker';
+import { dashboardTabLifecycle } from './tabLifecycle';
+import { clearTabWorkset } from './tabWorkset';
 
 const DISPLAY_PAGE_SIZE_STORAGE_KEY = 'drive115TasksDisplayPageSize';
 
@@ -18,6 +20,10 @@ export class Drive115TasksManager {
   private tasks: Drive115V2Task[] = [];
   private totalCount = 0;
   private pageCount = 0;
+  private initialized = false;
+  private active = false;
+  private worksetGeneration = 0;
+  private lifecycleUnregister: (() => void) | null = null;
   private statusFilter: 'all' | 'running' | 'completed' | 'failed' = 'all';
   private displayPageSize: number = 10;
   private searchKeyword: string = '';
@@ -26,6 +32,7 @@ export class Drive115TasksManager {
     this.initializeElements();
     this.displayPageSize = this.loadDisplayPageSize();
     this.bindEvents();
+    this.ensureLifecycle();
   }
 
   /** 读取/保存“每页显示”配置 */
@@ -47,10 +54,46 @@ export class Drive115TasksManager {
    * 初始化任务列表页面
    */
   async initialize(): Promise<void> {
+    if (this.initialized) return;
+    this.active = true;
     await this.loadDefaultDownloadDir();
     this.showStats();
     this.bindStatsEvents();
     await this.loadTasks();
+    this.initialized = true;
+  }
+
+  private ensureLifecycle(): void {
+    if (this.lifecycleUnregister) return;
+    this.lifecycleUnregister = dashboardTabLifecycle.register('tab-drive115-tasks', {
+      onActive: () => { this.active = true; },
+      onRestore: () => {
+        this.active = true;
+        this.showStats();
+        this.bindStatsEvents();
+        void this.loadTasks(this.currentPage);
+      },
+      onHidden: () => this.clearRenderedWorkset(),
+      onDispose: () => {
+        this.clearRenderedWorkset();
+        this.lifecycleUnregister?.();
+        this.lifecycleUnregister = null;
+      },
+    });
+  }
+
+  private clearRenderedWorkset(): void {
+    this.active = false;
+    this.worksetGeneration += 1;
+    this.tasks = [];
+    this.totalCount = 0;
+    this.pageCount = 0;
+    clearTabWorkset(document.getElementById('tab-drive115-tasks'), [
+      '#drive115TasksContainer',
+      '#drive115TasksStatsContainer',
+      '#drive115TasksPaginationContainer',
+    ]);
+    this.showLoading(false);
   }
 
   /** 初始化元素引用 */
@@ -339,6 +382,7 @@ export class Drive115TasksManager {
    */
   async loadTasks(page: number = 1): Promise<void> {
     if (this.isLoading) return;
+    const generation = this.worksetGeneration;
 
     try {
       this.isLoading = true;
@@ -357,6 +401,7 @@ export class Drive115TasksManager {
       }
 
       const data = result.data || {} as any;
+      if (!this.active || generation !== this.worksetGeneration) return;
       this.tasks = data.tasks || [];
       this.totalCount = data.count || 0;
       this.pageCount = data.page_count || 1;
