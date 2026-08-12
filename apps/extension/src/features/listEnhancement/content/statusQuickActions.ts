@@ -4,10 +4,10 @@
  * @module features/listEnhancement
  */
 import type { ExtensionSettings, VideoRecord, VideoStatus } from '../../../types';
-import { dbViewedPut } from '../../../platform/storage/dbRuntimeClient';
+import { dbViewedGet, dbViewedPut } from '../../../platform/storage/dbRuntimeClient';
 import { showToast } from '../../../platform/browser/toast';
 import { VIDEO_STATUS } from '../../../utils/config';
-import { STATE, log } from '../../contentState';
+import { STATE, getContentRecord, setContentRecord, log } from '../../contentState';
 
 type TrackedStatus = typeof VIDEO_STATUS.BROWSED | typeof VIDEO_STATUS.WANT | typeof VIDEO_STATUS.VIEWED;
 
@@ -69,7 +69,7 @@ export function renderListStatusQuickActions(
   actions.setAttribute('role', 'group');
   actions.setAttribute('aria-label', '影片状态快捷标记');
 
-  const currentStatus = STATE.records[videoId]?.status;
+  const currentStatus = getContentRecord(videoId)?.status;
   STATUS_QUICK_ACTIONS.forEach((action) => {
     const button = document.createElement('button');
     button.type = 'button';
@@ -100,7 +100,7 @@ async function updateListItemStatus(
   status: TrackedStatus,
   settings: ExtensionSettings | null,
 ): Promise<void> {
-  const previous = STATE.records[videoId];
+  const previous = getContentRecord(videoId) || await dbViewedGet(videoId);
   const now = Date.now();
   const record: VideoRecord = {
     ...(previous || {}),
@@ -124,7 +124,7 @@ async function updateListItemStatus(
       showToast(`${videoId} 在回收站中，跳过更新`, 'warning');
       return;
     }
-    STATE.records[videoId] = record;
+    setContentRecord(record);
     syncQuickActionActiveState(item, status);
     syncStatusBadge(item, status, settings);
     showToast(`${videoId} 已更新状态`, 'success');

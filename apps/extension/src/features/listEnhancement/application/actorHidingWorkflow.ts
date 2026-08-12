@@ -35,6 +35,7 @@ export interface ApplyActorBasedHidingOptions {
   hideItemByActor: (item: HTMLElement, reason: ActorHidingReason) => void;
   clearActorOnlyHiding: (item: HTMLElement) => void;
   logger?: (...args: any[]) => void;
+  verbose?: boolean;
 }
 
 export async function applyActorBasedHiding(options: ApplyActorBasedHidingOptions): Promise<void> {
@@ -46,10 +47,14 @@ export async function applyActorBasedHiding(options: ApplyActorBasedHidingOption
     hideUnrecognized,
     treatSubscribedAsFavorited,
     logger,
+    verbose = false,
   } = options;
+  const debugLog = (...args: any[]): void => {
+    if (verbose) logger?.(...args);
+  };
 
   try {
-    logger?.(`[ActorHiding] ${videoInfo.code}: hideByBlacklist=${hideByBlacklist}, hideByNonFavorited=${hideByNonFavorited}, hideUnrecognized=${hideUnrecognized}`);
+    debugLog(`[ActorHiding] ${videoInfo.code}: hideByBlacklist=${hideByBlacklist}, hideByNonFavorited=${hideByNonFavorited}, hideUnrecognized=${hideUnrecognized}`);
 
     if (!hideByBlacklist && !hideByNonFavorited) {
       options.clearActorOnlyHiding(item);
@@ -62,7 +67,7 @@ export async function applyActorBasedHiding(options: ApplyActorBasedHidingOption
     ]);
 
     const allActorIds = extractActorIdsFromListItem(item);
-    logger?.(`[ActorHiding] ${videoInfo.code}: Found ${allActorIds.size} actor IDs in DOM: ${Array.from(allActorIds).join(', ')}`);
+    debugLog(`[ActorHiding] ${videoInfo.code}: Found ${allActorIds.size} actor IDs in DOM: ${Array.from(allActorIds).join(', ')}`);
 
     let actorRecords: ActorRecord[] = [];
     if (allActorIds.size > 0) {
@@ -70,7 +75,7 @@ export async function applyActorBasedHiding(options: ApplyActorBasedHidingOption
         actorRecords = await extractActorsFromListItem(item, {
           getActorById: options.getActorById,
         });
-        logger?.(`[ActorHiding] ${videoInfo.code}: Found ${actorRecords.length} actors in local DB: ${actorRecords.map(a => `${a.name}(${a.id})`).join(', ')}`);
+        debugLog(`[ActorHiding] ${videoInfo.code}: Found ${actorRecords.length} actors in local DB: ${actorRecords.map(a => `${a.name}(${a.id})`).join(', ')}`);
       } catch (error) {
         logger?.(`[ActorHiding] ${videoInfo.code}: Failed to fetch actor records:`, error);
       }
@@ -79,7 +84,7 @@ export async function applyActorBasedHiding(options: ApplyActorBasedHidingOption
     let actors = actorRecords;
     if (actors.length === 0 && allActorIds.size === 0) {
       actors = matchActorsFromTitle(videoInfo.title, actorIndex);
-      logger?.(`[ActorHiding] ${videoInfo.code}: Extracted ${actors.length} actors from title`);
+      debugLog(`[ActorHiding] ${videoInfo.code}: Extracted ${actors.length} actors from title`);
     }
 
     const decision = decideActorHiding({
@@ -92,16 +97,16 @@ export async function applyActorBasedHiding(options: ApplyActorBasedHidingOption
       subscribedActorIds: subscribed,
     });
 
-    logger?.(`[ActorHiding] ${videoInfo.code}: Final decision - matchedBlack=${decision.matchedBlack}, matchedNonFav=${decision.matchedNonFavorited}, reason=${decision.reason || 'none'}`);
+    debugLog(`[ActorHiding] ${videoInfo.code}: Final decision - matchedBlack=${decision.matchedBlack}, matchedNonFav=${decision.matchedNonFavorited}, reason=${decision.reason || 'none'}`);
 
     if (decision.reason) {
       options.hideItemByActor(item, decision.reason);
-      logger?.(`[ActorHiding] ${videoInfo.code}: Hidden by ${decision.reason}`);
+      debugLog(`[ActorHiding] ${videoInfo.code}: Hidden by ${decision.reason}`);
       return;
     }
 
     options.clearActorOnlyHiding(item);
-    logger?.(`[ActorHiding] ${videoInfo.code}: Not hidden, clearing actor-only hiding`);
+    debugLog(`[ActorHiding] ${videoInfo.code}: Not hidden, clearing actor-only hiding`);
   } catch (error) {
     logger?.('applyActorBasedHiding failed:', error);
   }

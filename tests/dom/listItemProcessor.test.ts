@@ -41,6 +41,12 @@ function renderListItem(videoId: string, extraTitle = ''): HTMLElement {
   return item;
 }
 
+async function waitForListItemProcessing(item: HTMLElement): Promise<void> {
+  await vi.waitFor(() => {
+    expect(item.getAttribute('data-processed')).toBe('true');
+  });
+}
+
 describe('list item processor', () => {
   beforeEach(() => {
     document.body.innerHTML = '<div class="movie-list"></div>';
@@ -93,6 +99,7 @@ describe('list item processor', () => {
     (STATE.settings as any).display.hideVR = true;
 
     processVisibleItems();
+    await waitForListItemProcessing(item);
 
     expect(item.style.display).toBe('none');
     expect(item.getAttribute('data-hidden-by-default')).toBe('true');
@@ -117,7 +124,8 @@ describe('list item processor', () => {
 
   it('adds Emby and Jellyfin library badges for indexed list items', async () => {
     const list = document.querySelector('.movie-list')!;
-    list.appendChild(renderListItem('ABC-004'));
+    const item = renderListItem('ABC-004');
+    list.appendChild(item);
     (STATE.settings as any).emby = {
       mediaServers: [
         {
@@ -169,6 +177,7 @@ describe('list item processor', () => {
     };
 
     processVisibleItems();
+    await waitForListItemProcessing(item);
 
     const badges = Array.from(document.querySelectorAll<HTMLAnchorElement>('.emby-library-status-tag'));
     expect(badges.map((badge) => badge.textContent)).toEqual(['Emby已入库', 'Jellyfin已入库']);
@@ -247,6 +256,7 @@ describe('list item processor', () => {
     (STATE.settings as any).listEnhancement.enableStatusQuickAction = true;
 
     processVisibleItems();
+    await waitForListItemProcessing(item);
 
     const button = item.querySelector<HTMLButtonElement>('.jdb-list-status-action[data-status="viewed"]')!;
     const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
@@ -280,13 +290,14 @@ describe('list item processor', () => {
     expect(document.querySelector('.jdb-list-favorite-action')).toBeNull();
   });
 
-  it('renders list favorite quick action when the switch is enabled', () => {
+  it('renders list favorite quick action when the switch is enabled', async () => {
     const list = document.querySelector('.movie-list')!;
     const item = renderBoxListItem('ABC-010');
     list.appendChild(item);
     (STATE.settings as any).listEnhancement.enableListFavoriteQuickAction = true;
 
     processVisibleItems();
+    await waitForListItemProcessing(item);
 
     const link = item.querySelector('a.box');
     const actions = item.querySelector('.jdb-list-favorite-actions');
@@ -305,6 +316,7 @@ describe('list item processor', () => {
     (STATE.settings as any).listEnhancement.enableListFavoriteQuickAction = true;
 
     processVisibleItems();
+    await waitForListItemProcessing(item);
 
     const button = item.querySelector<HTMLButtonElement>('.jdb-list-favorite-action')!;
     const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
@@ -372,7 +384,7 @@ describe('list item processor', () => {
     expect(savedRecord).not.toHaveProperty('favoritedAt');
   });
 
-  it('keeps favorite and status quick action containers separate when both switches are enabled', () => {
+  it('keeps favorite and status quick action containers separate when both switches are enabled', async () => {
     const list = document.querySelector('.movie-list')!;
     const item = renderBoxListItem('ABC-013');
     list.appendChild(item);
@@ -380,6 +392,7 @@ describe('list item processor', () => {
     (STATE.settings as any).listEnhancement.enableStatusQuickAction = true;
 
     processVisibleItems();
+    await waitForListItemProcessing(item);
 
     const favoriteActions = item.querySelector('.jdb-list-favorite-actions');
     const statusActions = item.querySelector('.jdb-list-status-actions');

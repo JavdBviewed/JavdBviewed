@@ -4,10 +4,10 @@
  * @module features/listEnhancement
  */
 import type { ExtensionSettings, VideoRecord, VideoStatus } from '../../../types';
-import { dbViewedPut } from '../../../platform/storage/dbRuntimeClient';
+import { dbViewedGet, dbViewedPut } from '../../../platform/storage/dbRuntimeClient';
 import { showToast } from '../../../platform/browser/toast';
 import { VIDEO_STATUS } from '../../../utils/config';
-import { STATE, log } from '../../contentState';
+import { STATE, getContentRecord, setContentRecord, log } from '../../contentState';
 
 const FAVORITE_ICON_ACTIVE = '♥';
 const FAVORITE_ICON_INACTIVE = '♡';
@@ -41,7 +41,7 @@ export function renderListFavoriteQuickAction(
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'jdb-list-favorite-action';
-  syncFavoriteButton(button, STATE.records[videoId]?.isFavorite === true);
+  syncFavoriteButton(button, getContentRecord(videoId)?.isFavorite === true);
   button.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -53,14 +53,19 @@ export function renderListFavoriteQuickAction(
 }
 
 async function updateListItemFavorite(item: HTMLElement, videoId: string): Promise<void> {
-  const previous = STATE.records[videoId];
+  const previous = getContentRecord(videoId) || await dbViewedGet(videoId);
   const now = Date.now();
   const isFavorite = previous?.isFavorite !== true;
+  const previousStatus = previous?.status;
   const record: VideoRecord = {
     ...(previous || {}),
     id: videoId,
     title: previous?.title || extractListItemTitle(item, videoId),
-    status: (previous?.status || VIDEO_STATUS.BROWSED) as VideoStatus,
+    status: (
+      previousStatus && previousStatus !== VIDEO_STATUS.UNTRACKED
+        ? previousStatus
+        : VIDEO_STATUS.BROWSED
+    ) as VideoStatus,
     tags: previous?.tags || [],
     createdAt: previous?.createdAt || now,
     updatedAt: now,
@@ -86,7 +91,7 @@ async function updateListItemFavorite(item: HTMLElement, videoId: string): Promi
       return;
     }
 
-    STATE.records[videoId] = record;
+    setContentRecord(record);
     syncFavoriteActionState(item, isFavorite);
     showToast(isFavorite ? `${videoId} 已添加到收藏` : `${videoId} 已取消收藏`, 'success');
   } catch (error) {

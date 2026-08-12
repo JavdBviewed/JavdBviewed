@@ -6,11 +6,11 @@
 // src/features/contentFilter/contentFilterManager.ts
 // 内容过滤系统
 
-import { STATE, log } from '../contentState';
+import { STATE, getContentRecord, log } from '../contentState';
 import { showToast } from '../../platform/browser/toast';
 import { VIDEO_STATUS } from '../../utils/config';
 import type { KeywordFilterRule, ContentFilterConfig } from '../../types';
-import { runChunkedWork, saveSubtaskDetail, yieldToMainThread } from '../../platform/tasks';
+import { countContentPerformanceEvent, recordContentPerformanceDuration, runChunkedWork, saveSubtaskDetail, yieldToMainThread } from '../../platform/tasks';
 
 // 重新导出类型以保持向后兼容性
 export type { KeywordFilterRule, ContentFilterConfig };
@@ -30,6 +30,7 @@ export class ContentFilterManager {
   private isApplyingFilters = false; // 防止无限循环
   private filterDebounceTimer: ReturnType<typeof setTimeout> | null = null; // 防抖计时器
   private pendingRerun = false; // 过滤执行中有新条目进来时标记
+  private pendingItems: Set<HTMLElement> = new Set(); // 动态列表中待处理的新卡片
 
   constructor(config: Partial<ContentFilterConfig> = {}) {
     this.config = {
@@ -87,7 +88,7 @@ export class ContentFilterManager {
           this.loadDefaultKeywordRules();
         },
         async () => {
-          this.applyFilters();
+          await this.applyFilters();
         },
         async () => {
           this.observePageChanges();
@@ -147,11 +148,17 @@ export class ContentFilterManager {
   /**
    * 应用过滤规则
    */
-  private async applyFilters(): Promise<void> {
+  private async applyFilters(items?: readonly HTMLElement[]): Promise<void> {
+    const applyStartedAt = performance.now();
     try {
       // 防止并发重入
       if (this.isApplyingFilters) {
         log('[ContentFilter] applyFilters skipped — already running, setting pendingRerun=true');
+        if (items) {
+          for (const item of items) {
+            this.pendingItems.add(item);
+          }
+        }
         this.pendingRerun = true;
         return;
       }
@@ -164,6 +171,7 @@ export class ContentFilterManager {
       }
       this.lastApplyTime = now;
       this.isApplyingFilters = true;
+      countContentPerformanceEvent('contentFilter.apply');
       log(`[ContentFilter] applyFilters START at ${new Date().toISOString()}`);
 
       // 检查是否在详情页，如果是则不应用过滤器
@@ -177,10 +185,11 @@ export class ContentFilterManager {
       // 重置统计
       this.filterStats = { hidden: 0, highlighted: 0, blurred: 0, marked: 0 };
 
-      // 查找所有视频项目
-      const videoItems = this.findVideoItems();
+      // 首次初始化或显式配置变更才扫描完整页面；动态列表只处理 observer 收集的新卡片。
+      const videoItems = items ? Array.from(new Set(items)).filter(item => item.isConnected) : this.findVideoItems();
       const unprocessed = videoItems.filter(i => !i.hasAttribute('data-filter-processed'));
       const alreadyProcessed = videoItems.length - unprocessed.length;
+      countContentPerformanceEvent('contentFilter.items', videoItems.length);
       log(`[ContentFilter] found ${videoItems.length} items total: ${unprocessed.length} new, ${alreadyProcessed} already processed`);
 
       // 简化日志输出
@@ -219,11 +228,12 @@ export class ContentFilterManager {
     } finally {
       // 重置标志，允许下次应用
       this.isApplyingFilters = false;
+      recordContentPerformanceDuration('contentFilter.apply', performance.now() - applyStartedAt);
       // 若执行期间有新条目进来，立即补跑一次
       if (this.pendingRerun) {
         this.pendingRerun = false;
         log('[ContentFilter] pendingRerun=true — triggering follow-up applyFilters');
-        void this.applyFilters().catch(error => {
+        void this.applyFilters(this.takePendingItems()).catch(error => {
           log('Error in pending rerun of filters:', error);
         });
       }
@@ -338,7 +348,7 @@ export class ContentFilterManager {
   /**
    * 查找视频项目元素
    */
-  private findVideoItems(): HTMLElement[] {
+  private findVideoItems(root: ParentNode = document): HTMLElement[] {
     // 仅选择具体的卡片元素，避免误选列表容器
     const selectors = [
       '.movie-list .item',
@@ -352,7 +362,7 @@ export class ContentFilterManager {
     const items: HTMLElement[] = [];
 
     selectors.forEach(selector => {
-      const elements = document.querySelectorAll(selector);
+      const elements = root.querySelectorAll(selector);
       elements.forEach(node => {
         let el = node as HTMLElement;
 
@@ -375,6 +385,11 @@ export class ContentFilterManager {
         }
       });
     });
+
+    // querySelectorAll 不会包含 root 自身；动态 observer 直接收到卡片节点时需要补上它。
+    if (root instanceof HTMLElement && this.isVideoItem(root)) {
+      items.push(root);
+    }
 
     // 去重
     return Array.from(new Set(items));
@@ -879,7 +894,7 @@ export class ContentFilterManager {
 
     // 检查已看过和已浏览的隐藏设置
     const { hideViewed, hideBrowsed } = STATE.settings.display;
-    const record = STATE.records[videoId];
+    const record = getContentRecord(videoId);
 
     if (!record) {
       return false;
@@ -981,6 +996,7 @@ export class ContentFilterManager {
    * 清除所有过滤效果
    */
   private clearAllFilters(): void {
+    this.cleanupDetachedFilteredElements();
     this.filteredElements.forEach((_, element) => {
       // 检查是否应该被默认功能隐藏（尊重已有默认隐藏标记）
       const hasDefaultHiddenFlag = element.hasAttribute('data-hidden-by-default');
@@ -1021,6 +1037,15 @@ export class ContentFilterManager {
     this.filteredElements.clear();
   }
 
+  /** 清理已从页面移除的节点，避免 Map 长期持有 DOM 引用。 */
+  private cleanupDetachedFilteredElements(): void {
+    for (const element of this.filteredElements.keys()) {
+      if (!element.isConnected) {
+        this.filteredElements.delete(element);
+      }
+    }
+  }
+
   /**
    * 显示过滤统计
    */
@@ -1041,30 +1066,31 @@ export class ContentFilterManager {
    */
   private observePageChanges(): void {
     this.observer = new MutationObserver((mutations) => {
-      // 检查是否有新的视频项目添加
+      countContentPerformanceEvent('observer.contentFilter.callback');
+      countContentPerformanceEvent('observer.contentFilter.mutations', mutations.length);
       let hasNewVideoItems = false;
 
-      for (let m = 0; m < mutations.length; m++) {
-        const mutation = mutations[m];
-        if (mutation.type === 'childList') {
-          const added = mutation.addedNodes;
-          for (let i = 0; i < added.length; i++) {
-            const node = added[i];
-            if (node.nodeType === Node.ELEMENT_NODE) {
-              const element = node as HTMLElement;
-              // 只有当添加的元素可能是视频项目时才重新应用过滤
-              if (element.classList.contains('item') ||
-                  element.classList.contains('movie-item') ||
-                  element.classList.contains('video-item') ||
-                  element.querySelector('.item, .movie-item, .video-item')) {
-                hasNewVideoItems = true;
-                break;
-              }
+      for (const mutation of mutations) {
+        if (mutation.type !== 'childList') continue;
+
+        for (const node of mutation.removedNodes) {
+          if (node.nodeType !== Node.ELEMENT_NODE) continue;
+          this.removeDetachedItems(node as HTMLElement);
+        }
+
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType !== Node.ELEMENT_NODE) continue;
+          const items = this.findVideoItems(node as HTMLElement);
+          for (const item of items) {
+            if (!item.hasAttribute('data-filter-processed')) {
+              this.pendingItems.add(item);
+              hasNewVideoItems = true;
             }
           }
         }
-        if (hasNewVideoItems) break;
       }
+
+      this.cleanupDetachedFilteredElements();
 
       if (hasNewVideoItems) {
         // 防抖：重置计时器，确保最后一批条目加载完后才执行过滤
@@ -1075,21 +1101,44 @@ export class ContentFilterManager {
         log('[ContentFilter] new video items detected, scheduling debounced applyFilters (500ms)');
         this.filterDebounceTimer = setTimeout(() => {
           this.filterDebounceTimer = null;
-          log('[ContentFilter] debounce fired — calling applyFilters');
-          this.applyFilters().catch(error => {
+          const pendingItems = this.takePendingItems();
+          log(`[ContentFilter] debounce fired — processing ${pendingItems.length} new items`);
+          this.applyFilters(pendingItems).catch(error => {
             log('Error reapplying filters after mutation:', error);
           });
         }, 500);
       }
     });
 
-    this.observer.observe(document.body, {
+    const observationRoot = document.querySelector<HTMLElement>(
+      '.movie-list, .video-list, .videos, .movies, .list, .grid, .grid-list',
+    ) || document.body;
+    this.observer.observe(observationRoot, {
       childList: true,
       subtree: true,
       // 不监听属性变化，减少触发频率
       attributes: false,
       characterData: false,
     });
+  }
+
+  private takePendingItems(): HTMLElement[] {
+    const items = Array.from(this.pendingItems);
+    this.pendingItems.clear();
+    return items;
+  }
+
+  private removeDetachedItems(root: HTMLElement): void {
+    for (const element of this.filteredElements.keys()) {
+      if (element === root || root.contains(element)) {
+        this.filteredElements.delete(element);
+      }
+    }
+    for (const item of this.pendingItems) {
+      if (item === root || root.contains(item)) {
+        this.pendingItems.delete(item);
+      }
+    }
   }
 
   /**
@@ -1137,6 +1186,7 @@ export class ContentFilterManager {
       this.filterDebounceTimer = null;
     }
 
+    this.pendingItems.clear();
     this.clearAllFilters();
     this.isInitialized = false;
     this.isApplyingFilters = false;

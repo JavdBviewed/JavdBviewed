@@ -6,14 +6,22 @@
 // src/features/listEnhancement/content/itemProcessor.ts
 
 import { VIDEO_STATUS } from '../../../utils/config';
-import { STATE, SELECTORS, log } from '../../contentState';
+import { STATE, SELECTORS, getContentRecord, log } from '../../contentState';
+import { loadContentRecordSummaries } from '../../contentState/recordCache';
 import { ensureListTagContainer, renderLibraryStatusBadges } from '../../embyLibrary/content/statusBadges';
+import { normalizeVideoCode } from '../../embyLibrary/domain/libraryIndex';
 import { buildRealtimeCheckConfig, embyLibraryRealtimeCheckQueue } from '../../embyLibrary/content/realtimeCheck';
 import { isPageProperlyLoaded } from '../../videoDetail';
+import { countContentPerformanceEvent } from '../../../platform/tasks';
 import { renderListFavoriteQuickAction } from './favoriteQuickAction';
 import { renderListStatusQuickActions } from './statusQuickActions';
+import {
+    selectListItemsByCodes,
+    selectListItemsForProcessing,
+    type ListProcessingOptions,
+} from './listProcessingPolicy';
 
-export function processVisibleItems(): void {
+export function processVisibleItems(options: ListProcessingOptions = {}): void {
     // 首先检查页面是否正常加载
     if (!isPageProperlyLoaded()) {
         log('Page not properly loaded (no navbar-item found), skipping list processing to avoid data corruption');
@@ -34,14 +42,53 @@ export function processVisibleItems(): void {
         }
     }
 
-    // 重置所有处理标记，允许重新处理
-    items.forEach(item => {
-        item.removeAttribute('data-processed');
-        item.removeAttribute('data-filter-processed');
-    });
+    processListItems([...items], options);
+}
+
+/**
+ * 处理一个由列表增强观察器刚发现的影片卡片。
+ * 列表增强启用时由它接管动态卡片，避免再启动第二套全列表观察器。
+ */
+export function processListItem(item: HTMLElement, options: ListProcessingOptions = {}): void {
+    processListItems([item], options);
+}
+
+export function processListItems(items: readonly HTMLElement[], options: ListProcessingOptions = {}, skipSummaryLoad = false): void {
+    countContentPerformanceEvent('list.processBatch');
+    countContentPerformanceEvent('list.processItems', items.length);
+    const requestedCodes = options.codes?.length
+        ? new Set(options.codes.map(code => normalizeVideoCode(code)).filter((code): code is string => Boolean(code)))
+        : null;
+    const scopedItems = selectListItemsByCodes(items, requestedCodes, item => {
+            const rawCode = item.querySelector<HTMLElement>(SELECTORS.VIDEO_ID)?.textContent || '';
+            return normalizeVideoCode(rawCode);
+        });
+
+    if (options.force === true) {
+        // 只有状态/配置显式刷新时才失效全量标记；普通增量更新不能重置内容筛选状态。
+        scopedItems.forEach(item => {
+            item.removeAttribute('data-processed');
+            item.removeAttribute('data-filter-processed');
+        });
+    }
+
+    const itemsToProcess = selectListItemsForProcessing(scopedItems, options);
+
+    if (!skipSummaryLoad) {
+        const ids = itemsToProcess
+            .map(item => item.querySelector<HTMLElement>(SELECTORS.VIDEO_ID)?.textContent?.trim() || '')
+            .filter(Boolean);
+        const missing = ids.filter(id => !STATE.records[id] && !STATE.recordSummaries[id]);
+        if (missing.length > 0) {
+            void loadContentRecordSummaries(missing)
+                .catch((error) => log('Failed to load list record summaries:', error))
+                .finally(() => processListItems(items, options, true));
+            return;
+        }
+    }
 
     const visibleCodes: string[] = [];
-    items.forEach((item) => {
+    itemsToProcess.forEach((item) => {
         const videoId = processItem(item);
         if (videoId && item.style.display !== 'none') {
             visibleCodes.push(videoId);
@@ -59,7 +106,10 @@ export function setupObserver(): void {
     if (!targetNode) return;
 
     STATE.observer = new MutationObserver(mutations => {
+        countContentPerformanceEvent('observer.listEnhancement.callback');
+        countContentPerformanceEvent('observer.listEnhancement.mutations', mutations.length);
         let hasNewVideoItems = false;
+        const newVideoItems = new Set<HTMLElement>();
 
         mutations.forEach(mutation => {
             if (mutation.addedNodes.length > 0) {
@@ -70,7 +120,11 @@ export function setupObserver(): void {
                         // 只有当添加的是视频项目或包含视频项目的容器时才处理
                         if (element.matches('.item') || element.querySelector('.item')) {
                             hasNewVideoItems = true;
-                            break;
+                            if (element.matches('.item')) {
+                                newVideoItems.add(element as HTMLElement);
+                            } else {
+                                element.querySelectorAll<HTMLElement>('.item').forEach(item => newVideoItems.add(item));
+                            }
                         }
                     }
                 }
@@ -82,7 +136,7 @@ export function setupObserver(): void {
             if (STATE.debounceTimer) clearTimeout(STATE.debounceTimer);
             STATE.debounceTimer = window.setTimeout(() => {
                 log('Observer detected new video items, processing...');
-                processVisibleItems();
+                processListItems([...newVideoItems]);
             }, 300);
         }
     });
@@ -104,7 +158,7 @@ function shouldHide(videoId: string): boolean {
     } catch {}
 
     const { hideViewed, hideBrowsed, hideWant } = STATE.settings.display as any;
-    const record = STATE.records[videoId];
+    const record = getContentRecord(videoId);
 
     if (!record) {
         return false;
@@ -141,7 +195,7 @@ function getHideReason(videoId: string): string {
     } catch {}
 
     const { hideViewed, hideBrowsed, hideWant } = (STATE.settings.display as any);
-    const record = STATE.records[videoId];
+    const record = getContentRecord(videoId);
 
     if (!record) {
         return '';
@@ -214,7 +268,7 @@ function processItem(item: HTMLElement): string | null {
         }
 
         if (tagContainer) {
-            const record = STATE.records[videoId];
+            const record = getContentRecord(videoId);
 
             if (record) {
                 log(`Found record for ${videoId}: status=${record.status}`);

@@ -32,12 +32,12 @@ describe('list item observer', () => {
     document.body.appendChild(list);
 
     const processed: string[] = [];
-    let newItemBatches = 0;
+    const newItemBatches: string[][] = [];
     const observer = observeListItems({
       document,
       enhanceItem: item => processed.push(item.id),
-      onNewItems: () => {
-        newItemBatches += 1;
+      onNewItems: items => {
+        newItemBatches.push(items.map(item => item.id));
       },
     });
 
@@ -54,7 +54,7 @@ describe('list item observer', () => {
     observer?.disconnect();
 
     expect(processed).toEqual(['direct', 'nested']);
-    expect(newItemBatches).toBe(1);
+    expect(newItemBatches).toEqual([['direct', 'nested']]);
   });
 
   it('returns null when no movie list exists', () => {

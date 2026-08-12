@@ -18,6 +18,10 @@ export interface ListClickEnhancementOptions {
   setTimeout?: (handler: () => void, timeout: number) => number;
 }
 
+export interface ListClickEnhancementDelegator {
+  attach: (item: HTMLElement, options: ListClickEnhancementOptions) => void;
+}
+
 export function attachListClickEnhancement(item: HTMLElement, options: ListClickEnhancementOptions): void {
   const linkElement = item.querySelector('a[href*="/v/"]') as HTMLAnchorElement | null;
   if (!linkElement) return;
@@ -31,6 +35,60 @@ export function attachListClickEnhancement(item: HTMLElement, options: ListClick
   if (options.enableRightClickBackground) {
     attachRightClickBackgroundOpen(linkElement, options);
   }
+}
+
+/**
+ * Delegate card interactions to the list container. A large result page can
+ * contain thousands of links; keeping three closures per link is unnecessary
+ * and makes dynamic list updates expensive.
+ */
+export function createListClickEnhancementDelegator(): ListClickEnhancementDelegator {
+  const linkStates = new WeakMap<HTMLAnchorElement, DelegatedLinkState>();
+  const roots = new WeakSet<EventTarget>();
+
+  const findLink = (root: EventTarget, target: EventTarget | null): HTMLAnchorElement | null => {
+    if (!(target instanceof Element)) return null;
+    const link = target.closest<HTMLAnchorElement>('a[href*="/v/"]');
+    if (!link || !linkStates.has(link)) return null;
+    if (root instanceof Element && !root.contains(link)) return null;
+    if (root instanceof Document && !root.documentElement.contains(link)) return null;
+    return link;
+  };
+
+  const installRootListeners = (root: EventTarget): void => {
+    if (roots.has(root)) return;
+
+    root.addEventListener('click', event => {
+      const link = findLink(root, event.target);
+      if (!link) return;
+      const state = linkStates.get(link);
+      if (!state) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void handleListItemClick(state.options);
+    });
+    root.addEventListener('mousedown', event => {
+      const link = findLink(root, event.target);
+      const state = link ? linkStates.get(link) : null;
+      if (state) handleRightClick(state, event as MouseEvent, true);
+    });
+    root.addEventListener('contextmenu', event => {
+      const link = findLink(root, event.target);
+      const state = link ? linkStates.get(link) : null;
+      if (state) handleRightClick(state, event as MouseEvent, false);
+    });
+    roots.add(root);
+  };
+
+  return {
+    attach(item, options): void {
+      const link = item.querySelector('a[href*="/v/"]') as HTMLAnchorElement | null;
+      if (!link) return;
+      linkStates.set(link, { options, rightClickHandled: false });
+      const root = item.closest('.movie-list') || item.ownerDocument;
+      installRootListeners(root);
+    },
+  };
 }
 
 export async function handleListItemClick(options: ListClickEnhancementOptions): Promise<void> {
@@ -65,9 +123,13 @@ export function extractMovieIdFromJavdbVideoUrl(url: string): string | null {
   return url.match(/\/v\/([^/?#]+)/)?.[1] || null;
 }
 
-function attachRightClickBackgroundOpen(linkElement: HTMLAnchorElement, options: ListClickEnhancementOptions): void {
-  let rightClickHandled = false;
-  const setTimeout = options.setTimeout || window.setTimeout.bind(window);
+interface DelegatedLinkState {
+  options: ListClickEnhancementOptions;
+  rightClickHandled: boolean;
+}
+
+function openRightClickTargetInBackground(state: DelegatedLinkState): void {
+  const { options } = state;
 
   const openInBackground = () => {
     const startedAt = options.now?.() ?? performance.now();
@@ -85,19 +147,28 @@ function attachRightClickBackgroundOpen(linkElement: HTMLAnchorElement, options:
     });
   };
 
-  const handleRightClick = (event: MouseEvent, shouldCheckButton: boolean): void => {
-    if (shouldCheckButton && event.button !== 2) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (rightClickHandled) return;
+  openInBackground();
+}
 
-    rightClickHandled = true;
-    openInBackground();
-    setTimeout(() => {
-      rightClickHandled = false;
-    }, 800);
-  };
+function handleRightClick(state: DelegatedLinkState, event: MouseEvent, shouldCheckButton: boolean): void {
+  const { options } = state;
+  if (!options.enableRightClickBackground) return;
+  if (shouldCheckButton && event.button !== 2) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (state.rightClickHandled) return;
 
-  linkElement.addEventListener('mousedown', event => handleRightClick(event, true));
-  linkElement.addEventListener('contextmenu', event => handleRightClick(event, false));
+  state.rightClickHandled = true;
+  openRightClickTargetInBackground(state);
+  const setTimeout = options.setTimeout || window.setTimeout.bind(window);
+  setTimeout(() => {
+    state.rightClickHandled = false;
+  }, 800);
+}
+
+function attachRightClickBackgroundOpen(linkElement: HTMLAnchorElement, options: ListClickEnhancementOptions): void {
+  const state: DelegatedLinkState = { options, rightClickHandled: false };
+
+  linkElement.addEventListener('mousedown', event => handleRightClick(state, event, true));
+  linkElement.addEventListener('contextmenu', event => handleRightClick(state, event, false));
 }

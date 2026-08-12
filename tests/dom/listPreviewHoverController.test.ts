@@ -44,7 +44,7 @@ describe('list preview hover controller', () => {
     });
 
     controller.attach(cover, { code: 'ABC-001', title: 'Title', url: 'https://javdb.com/v/abc' });
-    cover.dispatchEvent(new Event('mouseenter'));
+    cover.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
 
     expect(cover.classList.contains('x-cover')).toBe(true);
     expect(cover.classList.contains('x-preview')).toBe(true);
@@ -72,7 +72,7 @@ describe('list preview hover controller', () => {
     });
 
     controller.attach(cover, { code: 'ABC-001', title: 'Title', url: 'https://javdb.com/v/abc' });
-    cover.dispatchEvent(new Event('mouseenter'));
+    cover.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
 
     expect(loadPreviewVideo).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(99);
@@ -90,6 +90,7 @@ describe('list preview hover controller', () => {
     firstCover.appendChild(firstVideo);
     secondCover.appendChild(secondVideo);
     const activatePreviewVideoPreload = vi.fn();
+    const releasePreviewVideoMedia = vi.fn();
     const controller = createPreviewHoverController({
       window,
       getPreviewDelay: () => 300,
@@ -97,7 +98,7 @@ describe('list preview hover controller', () => {
       isScrolling: () => false,
       loadPreviewVideo: vi.fn(),
       activatePreviewVideoPreload,
-      releasePreviewVideoMedia: vi.fn(),
+      releasePreviewVideoMedia,
       runtimeSendMessage: vi.fn(),
     });
 
@@ -106,6 +107,7 @@ describe('list preview hover controller', () => {
 
     expect(firstVideo.pause).toHaveBeenCalledTimes(1);
     expect(firstVideo.style.opacity).toBe('0');
+    expect(releasePreviewVideoMedia).toHaveBeenCalledWith(firstVideo);
     expect(secondVideo.style.opacity).toBe('1');
     expect(activatePreviewVideoPreload).toHaveBeenCalledWith(secondVideo);
     expect(controller.getCurrentPlayingVideo()).toBe(secondVideo);
@@ -154,9 +156,75 @@ describe('list preview hover controller', () => {
 
     controller.attach(cover, { code: 'A', title: 'A', url: 'https://javdb.com/v/a' });
     cover.classList.add('x-holding');
-    cover.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: child }));
+    cover.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: child }));
 
     expect(cover.classList.contains('x-holding')).toBe(true);
     expect(releasePreviewVideoMedia).not.toHaveBeenCalled();
+  });
+
+  it('uses one delegated hover listener pair for all covers in a list', () => {
+    const list = document.createElement('div');
+    list.className = 'movie-list';
+    document.body.appendChild(list);
+    const covers = Array.from({ length: 20 }, () => {
+      const cover = document.createElement('div');
+      cover.className = 'cover';
+      list.appendChild(cover);
+      return cover;
+    });
+    const addEventListener = vi.spyOn(list, 'addEventListener');
+    const releasePreviewVideoMedia = vi.fn();
+    const controller = createPreviewHoverController({
+      window,
+      getPreviewDelay: () => 300,
+      getPreferredPreviewSource: () => 'auto',
+      isScrolling: () => true,
+      loadPreviewVideo: vi.fn(),
+      activatePreviewVideoPreload: vi.fn(),
+      releasePreviewVideoMedia,
+      runtimeSendMessage: vi.fn(),
+    });
+
+    covers.forEach((cover, index) => controller.attach(cover, {
+      code: `A-${index}`,
+      title: `A-${index}`,
+      url: `https://javdb.com/v/a-${index}`,
+    }));
+
+    expect(addEventListener.mock.calls.filter(([type]) => type === 'mouseover')).toHaveLength(1);
+    expect(addEventListener.mock.calls.filter(([type]) => type === 'mouseout')).toHaveLength(1);
+  });
+
+  it('cancels the previous pending hover when moving to another cover', async () => {
+    vi.useFakeTimers();
+    const list = document.createElement('div');
+    list.className = 'movie-list';
+    document.body.appendChild(list);
+    const firstCover = document.createElement('div');
+    firstCover.className = 'cover';
+    const secondCover = document.createElement('div');
+    secondCover.className = 'cover';
+    list.append(firstCover, secondCover);
+    const loadPreviewVideo = vi.fn();
+    const controller = createPreviewHoverController({
+      window,
+      getPreviewDelay: () => 300,
+      getPreferredPreviewSource: () => 'auto',
+      isScrolling: () => false,
+      loadPreviewVideo,
+      activatePreviewVideoPreload: vi.fn(),
+      releasePreviewVideoMedia: vi.fn(),
+      runtimeSendMessage: vi.fn(),
+    });
+    controller.attach(firstCover, { code: 'A', title: 'A', url: 'https://javdb.com/v/a' });
+    controller.attach(secondCover, { code: 'B', title: 'B', url: 'https://javdb.com/v/b' });
+
+    firstCover.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    secondCover.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: firstCover }));
+    await vi.advanceTimersByTimeAsync(300);
+
+    expect(loadPreviewVideo).toHaveBeenCalledTimes(1);
+    expect(loadPreviewVideo).toHaveBeenCalledWith(secondCover, expect.objectContaining({ code: 'B' }), expect.anything());
+    expect(firstCover.classList.contains('x-holding')).toBe(false);
   });
 });

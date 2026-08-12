@@ -9,7 +9,7 @@ import { log } from '../contentState';
 import { showToast } from '../../platform/browser/toast';
 import { actorManager } from '../actors';
 import { newWorksManager } from '../newWorks';
-import { processVisibleItems } from './content/itemProcessor';
+import { processListItems, processVisibleItems } from './content/itemProcessor';
 import {
   appendSuperRankingTop250Page,
   getSuperRankingTop250PageInfo,
@@ -57,7 +57,7 @@ import {
   type PreviewHoverController,
 } from './ui/previewHoverController';
 import {
-  attachListClickEnhancement,
+  createListClickEnhancementDelegator,
 } from './ui/clickEnhancement';
 import {
   extractListItemVideoInfo,
@@ -65,7 +65,6 @@ import {
 } from './ui/listItemDom';
 import {
   observeListItems,
-  processExistingListItems,
 } from './ui/listItemObserver';
 import {
   createListScrollStateController,
@@ -75,6 +74,9 @@ import {
   createListSortingController,
   type ListSortingController,
 } from './ui/listSortingControls';
+import { createActorWorkQueue, type ActorWorkQueue } from './application/actorWorkQueue';
+import { createActorVisibilityGate } from './application/actorVisibilityGate';
+import { countContentPerformanceEvent } from '../../platform/tasks';
 
 export type { ListEnhancementConfig } from './domain/config';
 
@@ -108,6 +110,7 @@ class ListEnhancementManager {
     releasePreviewVideoMedia,
     runtimeSendMessage: (message) => chrome.runtime.sendMessage(message),
   });
+  private readonly listClickDelegator = createListClickEnhancementDelegator();
   private readonly listSortingController: ListSortingController = createListSortingController({
     document,
     window,
@@ -134,6 +137,12 @@ class ListEnhancementManager {
     getSubscriptions: () => newWorksManager.getSubscriptions(),
     logger: (...args) => log(...args),
   });
+  private readonly actorWorkQueue: ActorWorkQueue = createActorWorkQueue({
+    concurrency: 2,
+    logger: error => log('Actor enhancement task failed:', error),
+  });
+  private readonly actorVisibilityGate = createActorVisibilityGate();
+  private readonly forceActorHidingItems = new WeakSet<HTMLElement>();
   // 演员水印样式注入标记
   private watermarkStylesInjected = false;
   private popularityStylesInjected = false;
@@ -326,7 +335,7 @@ class ListEnhancementManager {
 
       // 1) 优先DOM抓取（列表/首页可靠）
       let actors = await extractActorsFromListItem(item, {
-        getActorById: id => actorManager.getActorById(id),
+        getActorById: id => this.actorDataCache.getActorById(id),
       });
       if (actors.length === 0) {
         // 2) 回退：标题解析（快速路径A -> 加权D）
@@ -337,7 +346,7 @@ class ListEnhancementManager {
         const m = window.location.pathname.match(/\/actors\/(\w+)/);
         if (m && m[1]) {
           try {
-            const rec = await actorManager.getActorById(m[1]);
+            const rec = await this.actorDataCache.getActorById(m[1]);
             if (rec) {
               actors = [rec];
             }
@@ -414,14 +423,20 @@ class ListEnhancementManager {
   }
 
   private processExistingItems(): void {
-    processExistingListItems(document, item => this.enhanceItem(item));
+    const items = [...document.querySelectorAll<HTMLElement>('.movie-list .item')];
+    countContentPerformanceEvent('listEnhancement.existingItems', items.length);
+    items.forEach(item => this.enhanceItem(item));
+    processListItems(items.filter(item => Boolean(extractListItemVideoInfo(item))));
   }
 
   private observeNewItems(): void {
     observeListItems({
       document,
       enhanceItem: item => this.enhanceItem(item),
-      onNewItems: () => this.processContainerAttributes(),
+      onNewItems: items => {
+        this.processContainerAttributes();
+        processListItems(items.filter(item => Boolean(extractListItemVideoInfo(item))));
+      },
     });
   }
 
@@ -442,6 +457,7 @@ class ListEnhancementManager {
       return;
     }
     item.setAttribute('data-list-enhanced', 'true');
+    countContentPerformanceEvent('listEnhancement.enhanceItem');
 
     // 获取影片信息
     const videoInfo = extractListItemVideoInfo(item);
@@ -465,15 +481,54 @@ class ListEnhancementManager {
       this.optimizeListItem(item, videoInfo);
     }
 
-    // 演员水印
-    if (this.config.enableActorWatermark) {
-      this.applyActorWatermark(item, videoInfo).catch(err => log('Actor watermark error:', err));
-    }
-
     this.applyPopularityEffect(item);
 
-    // 基于演员偏好的隐藏（黑名单/未收藏）
-    this.applyActorBasedHiding(item, videoInfo).catch(err => log('Actor-based hiding error:', err));
+    this.enqueueActorEnhancement(item, videoInfo);
+  }
+
+  private enqueueActorEnhancement(
+    item: HTMLElement,
+    videoInfo: { code: string; title: string; url: string },
+    forceActorHiding = false,
+    fromVisibilityGate = false,
+  ): void {
+    if (!this.config.enableActorWatermark && !this.isActorHidingEnabled() && !forceActorHiding) return;
+
+    if (
+      !fromVisibilityGate &&
+      !forceActorHiding &&
+      this.config.enableActorWatermark &&
+      !this.isActorHidingEnabled() &&
+      this.actorVisibilityGate.defer(item, () => {
+        this.enqueueActorEnhancement(item, videoInfo, false, true);
+      })
+    ) {
+      countContentPerformanceEvent('listEnhancement.actorDeferred');
+      return;
+    }
+
+    if (forceActorHiding) {
+      this.forceActorHidingItems.add(item);
+    }
+
+    countContentPerformanceEvent('listEnhancement.actorEnqueue');
+    this.actorWorkQueue.enqueue(async () => {
+      try {
+        if (!item.isConnected) return;
+        if (this.config.enableActorWatermark) {
+          await this.applyActorWatermark(item, videoInfo);
+        }
+        if (this.forceActorHidingItems.has(item) || this.isActorHidingEnabled()) {
+          await this.applyActorBasedHiding(item, videoInfo);
+        }
+      } finally {
+        this.forceActorHidingItems.delete(item);
+      }
+    }, item);
+  }
+
+  private isActorHidingEnabled(): boolean {
+    return !!this.config.hideBlacklistedActorsInList || !!this.config.hideNonFavoritedActorsInList;
   }
 
   // ====== 基于演员的隐藏逻辑 ======
@@ -487,7 +542,7 @@ class ListEnhancementManager {
       treatSubscribedAsFavorited: this.config.treatSubscribedAsFavorited !== false,
       ensureActorIndex: () => this.actorDataCache.ensureActorIndex(),
       ensureSubscriptions: () => this.actorDataCache.ensureSubscriptions(),
-      getActorById: id => actorManager.getActorById(id),
+      getActorById: id => this.actorDataCache.getActorById(id),
       hideItemByActor: hideListItemByActor,
       clearActorOnlyHiding: clearListItemActorHiding,
       logger: (...args) => log(...args),
@@ -497,12 +552,14 @@ class ListEnhancementManager {
   // 对外暴露：重应用当前页面所有条目的演员隐藏规则
   public reapplyActorHidingForAll(): void {
     try {
+      this.actorVisibilityGate.cancelAll();
+      this.actorWorkQueue.clearPending();
       const items = document.querySelectorAll('.movie-list .item');
-      items.forEach(async (el) => {
+      items.forEach((el) => {
         const item = el as HTMLElement;
         const info = extractListItemVideoInfo(item);
         if (!info) return;
-        await this.applyActorBasedHiding(item, info);
+        this.enqueueActorEnhancement(item, info, true);
       });
     } catch (e) {
       log('reapplyActorHidingForAll failed:', e);
@@ -510,7 +567,7 @@ class ListEnhancementManager {
   }
 
   private enhanceClicks(item: HTMLElement, videoInfo: { code: string; title: string; url: string }): void {
-    attachListClickEnhancement(item, {
+    this.listClickDelegator.attach(item, {
       videoInfo,
       enableRightClickBackground: this.config.enableRightClickBackground,
       navigateTo: url => {
@@ -535,6 +592,7 @@ class ListEnhancementManager {
     const coverElement = item.querySelector('.cover') as HTMLElement;
     if (!coverElement) return;
 
+    countContentPerformanceEvent('listEnhancement.previewAttach');
     this.previewHoverController.attach(coverElement, videoInfo);
   }
 

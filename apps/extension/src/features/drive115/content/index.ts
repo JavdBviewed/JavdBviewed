@@ -8,7 +8,7 @@ import { addLogV2 } from '../v2/logs';
 import { waitForElement } from '../../../platform/browser/domUtils';
 // extractVideoIdFromPage 已集成到推送按钮逻辑中
 import { showToast } from '../../../platform/browser/toast';
-import { log } from '../../contentState';
+import { log, setContentRecord } from '../../contentState';
 import { extractVideoIdFromPage } from '../../../platform/browser';
 import { getSettings } from '../../../utils/storage';
 import { completeManagedTask, createManagedTaskDescriptor, ensureManagedTaskRegistered, failManagedTask, progressManagedTask, requestTaskLease, runChunkedWork, saveSubtaskDetail, waitForTaskLease, yieldToMainThread } from '../../../platform/tasks';
@@ -862,6 +862,9 @@ async function updateExtensionWatchedStatus(videoId: string): Promise<void> {
         });
 
         if (response && response.success) {
+            if (response.record && typeof response.record === 'object') {
+                setContentRecord(response.record);
+            }
             log('扩展番号库状态更新成功');
         } else {
             throw new Error(response?.error || '更新扩展状态失败');

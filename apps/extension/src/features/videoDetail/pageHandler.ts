@@ -11,7 +11,16 @@ import { extractVideoIdFromPage } from '../../platform/browser';
 import { concurrencyManager, storageManager } from '../records/content';
 import { showToast } from '../../platform/browser/toast';
 import { waitForElement } from '../../platform/browser/domUtils';
-import { createTaskTimeoutGuard, createManagedTaskDescriptor, runChunkedWork, runManagedTask, saveSubtaskDetail, yieldToMainThread } from '../../platform/tasks';
+import {
+    CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS,
+    createTaskTimeoutGuard,
+    createManagedTaskDescriptor,
+    runChunkedWork,
+    runManagedTask,
+    saveSubtaskDetail,
+    startContentPerformanceSpan,
+    yieldToMainThread,
+} from '../../platform/tasks';
 import { updateFaviconForStatus } from '../videoStatus';
 import { initOrchestrator } from '../../apps/content/orchestrator';
 import { showEnhancementLoading } from '../../platform/browser/enhancementLoadingIndicator';
@@ -27,11 +36,17 @@ import { actorExtraInfoService } from '../actorRemarks';
 import { videoDetailEnhancer } from './enhancer';
 import { videoFavoriteRatingEnhancer } from './favoriteRating';
 import { localListInSourceModalEnhancer } from './localListInSourceModal';
+import { isRelevantStatusMutation, resolveLibraryStatusFromPageStatus } from './statusSyncPolicy';
 
 function getActorRemarksTaskTimeoutMs(settings: any): number {
     const seconds = Number(settings?.videoEnhancement?.actorRemarksTaskTimeoutSeconds);
     if (!Number.isFinite(seconds) || seconds <= 0) return 12000;
     return Math.max(1000, Math.round(seconds * 1000));
+}
+
+function getEnhancedDataTaskTimeoutMs(settings: any): number {
+    // BlogJav may use an 8s request, one 1s backoff, then one retry.
+    return settings?.dataEnhancement?.enableMultiSource === true ? 18000 : 10000;
 }
 
 function getActorRemarksPerActorTimeoutMs(taskTimeoutMs: number, actorCount: number): number {
@@ -44,6 +59,9 @@ function getActorRemarksPerActorTimeoutMs(taskTimeoutMs: number, actorCount: num
 let statusObserver: MutationObserver | null = null;
 let lastDetectedStatus: typeof VIDEO_STATUS[keyof typeof VIDEO_STATUS] | null = null;
 let statusCheckTimer: number | null = null;
+let statusCheckAllowsExplicitClear = false;
+let statusClickContainer: Element | null = null;
+let statusClickListener: ((event: Event) => void) | null = null;
 const WANT_SYNC_BOUND_ATTR = 'data-jdb-want-sync-bound';
 const WANT_SYNC_CONFIRM_DELAYS_MS = [800, 1600, 3000] as const;
 
@@ -55,14 +73,18 @@ function isPageConfirmedWantStatus(): boolean {
     return detectPageUserStatus() === VIDEO_STATUS.WANT;
 }
 
-function scheduleStatusCheck(videoId: string, delayMs = 500): void {
+function scheduleStatusCheck(videoId: string, delayMs = 500, allowExplicitClear = false): void {
     if (statusCheckTimer !== null) {
         window.clearTimeout(statusCheckTimer);
     }
 
+    statusCheckAllowsExplicitClear = statusCheckAllowsExplicitClear || allowExplicitClear;
+
     statusCheckTimer = window.setTimeout(() => {
         statusCheckTimer = null;
-        void checkAndUpdateStatusIfChanged(videoId);
+        const canClear = statusCheckAllowsExplicitClear;
+        statusCheckAllowsExplicitClear = false;
+        void checkAndUpdateStatusIfChanged(videoId, canClear);
     }, delayMs);
 }
 
@@ -115,27 +137,23 @@ function detectPageUserStatus(): typeof VIDEO_STATUS[keyof typeof VIDEO_STATUS] 
  */
 function setupStatusChangeObserver(videoId: string): void {
     try {
-        // 如果已经存在监听器，先清理
-        if (statusObserver) {
-            statusObserver.disconnect();
-            statusObserver = null;
-        }
+        cleanupStatusObserver();
 
         // 初始化最后检测的状态
         lastDetectedStatus = detectPageUserStatus();
         log(`[StatusObserver] Initial status: ${lastDetectedStatus || 'null'}`);
 
-        // 查找需要监听的容器（评论区域，通常包含"看过"/"想看"状态）
-        const reviewContainer = document.querySelector('.review-buttons')?.parentElement
-            || document.querySelector('.movie-panel-info')
-            || document.body;
-
-        if (!reviewContainer) {
+        // Only observe the small source-page status control. Observing the
+        // whole detail panel made unrelated enhancement DOM work look like a
+        // status update and repeatedly scanned the page while it was loading.
+        const statusControls = document.querySelector('.review-buttons, .review-title, #edit_review');
+        if (!statusControls) {
             log('[StatusObserver] Review container not found, skipping observer setup');
             return;
         }
 
-        reviewContainer.addEventListener('click', (event) => {
+        statusClickContainer = statusControls;
+        statusClickListener = (event: Event) => {
             const target = event.target as Element | null;
             if (!target) {
                 return;
@@ -149,47 +167,24 @@ function setupStatusChangeObserver(videoId: string): void {
                 return;
             }
 
-            scheduleStatusCheck(videoId, 900);
-            scheduleStatusCheck(videoId, 1600);
-        }, true);
+            const isExplicitClear = actionElement.matches('a[data-method="delete"]');
+            scheduleStatusCheck(videoId, 1600, isExplicitClear);
+        };
+        statusControls.addEventListener('click', statusClickListener, true);
 
-        // 创建 MutationObserver 监听 DOM 变化
+        // Restrict mutation handling to the status control itself. Actor
+        // badges, search links and detail panels must not trigger status work.
         statusObserver = new MutationObserver((mutations) => {
-            // 检查是否有相关的 DOM 变化
-            let shouldCheck = false;
-            for (const mutation of mutations) {
-                // 检查是否有新增或修改的节点包含"看过"或"想看"相关内容
-                if (mutation.type === 'childList' || mutation.type === 'characterData') {
-                    const addedNodes = Array.from(mutation.addedNodes);
-                    const hasRelevantChange = addedNodes.some(node => {
-                        if (node.nodeType === Node.ELEMENT_NODE) {
-                            const element = node as Element;
-                            const text = element.textContent || '';
-                            return text.includes('我看過') || text.includes('我想看') ||
-                                   element.querySelector('.review-title') !== null;
-                        }
-                        return false;
-                    });
-
-                    if (hasRelevantChange || mutation.target.textContent?.includes('我看過') ||
-                        mutation.target.textContent?.includes('我想看')) {
-                        shouldCheck = true;
-                        break;
-                    }
-                }
-            }
-
-            if (shouldCheck) {
+            if (mutations.some((mutation) => isRelevantStatusMutation(mutation.target, statusControls))) {
                 scheduleStatusCheck(videoId, 500);
             }
         });
 
-        // 开始监听
-        statusObserver.observe(reviewContainer, {
-            childList: true,      // 监听子节点的添加/删除
-            subtree: true,        // 监听所有后代节点
-            characterData: true,  // 监听文本内容变化
-            attributes: false     // 不监听属性变化（性能优化）
+        statusObserver.observe(statusControls, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+            attributes: false,
         });
 
         log('[StatusObserver] Status change observer setup complete');
@@ -201,7 +196,7 @@ function setupStatusChangeObserver(videoId: string): void {
 /**
  * 检查状态是否变化，如果变化则更新
  */
-async function checkAndUpdateStatusIfChanged(videoId: string): Promise<void> {
+async function checkAndUpdateStatusIfChanged(videoId: string, allowExplicitClear = false): Promise<void> {
     try {
         const currentStatus = detectPageUserStatus();
 
@@ -221,7 +216,11 @@ async function checkAndUpdateStatusIfChanged(videoId: string): Promise<void> {
             return;
         }
 
-        const nextLibraryStatus = resolveLibraryStatusFromPageStatus(existing.status, currentStatus);
+        const nextLibraryStatus = resolveLibraryStatusFromPageStatus(
+            existing.status,
+            currentStatus,
+            allowExplicitClear,
+        );
         if (nextLibraryStatus) {
             if (existing.status === nextLibraryStatus) {
                 return;
@@ -231,21 +230,6 @@ async function checkAndUpdateStatusIfChanged(videoId: string): Promise<void> {
     } catch (error) {
         log('[StatusObserver] Error checking status change:', error);
     }
-}
-
-function resolveLibraryStatusFromPageStatus(
-    currentLibraryStatus: typeof VIDEO_STATUS[keyof typeof VIDEO_STATUS] | string | undefined,
-    detectedPageStatus: typeof VIDEO_STATUS[keyof typeof VIDEO_STATUS] | null
-): typeof VIDEO_STATUS[keyof typeof VIDEO_STATUS] | null {
-    if (detectedPageStatus === VIDEO_STATUS.VIEWED || detectedPageStatus === VIDEO_STATUS.WANT) {
-        return detectedPageStatus;
-    }
-
-    if (!detectedPageStatus && (currentLibraryStatus === VIDEO_STATUS.VIEWED || currentLibraryStatus === VIDEO_STATUS.WANT)) {
-        return VIDEO_STATUS.BROWSED;
-    }
-
-    return null;
 }
 
 /**
@@ -330,8 +314,14 @@ function cleanupStatusObserver(): void {
     if (statusObserver) {
         statusObserver.disconnect();
         statusObserver = null;
-        log('[StatusObserver] Observer cleaned up');
     }
+    if (statusClickContainer && statusClickListener) {
+        statusClickContainer.removeEventListener('click', statusClickListener, true);
+    }
+    statusClickContainer = null;
+    statusClickListener = null;
+    statusCheckAllowsExplicitClear = false;
+    log('[StatusObserver] Observer cleaned up');
 }
 
 /**
@@ -429,11 +419,11 @@ export function getVideoDetailTaskBlueprints(settings: any): VideoDetailTaskBlue
         // clickEnhancement 无独立 managed 执行路径，不预注册虚假 label
         blueprints.push(
             { phase: 'high', label: 'videoEnhancement:initCore', priority: 8, visibilityPolicy: 'background_allowed', dependsOn: ['videoStatus:initialSync'] },
-            { phase: 'deferred', label: 'videoEnhancement:loadData', timeout: 10000, dependsOn: ['videoStatus:initialSync'] },
+            { phase: 'deferred', label: 'videoEnhancement:loadData', timeout: getEnhancedDataTaskTimeoutMs(settings), dependsOn: ['videoStatus:initialSync'] },
             { phase: 'idle', label: 'videoEnhancement:runCover', dependsOn: ['videoStatus:initialSync'] },
             { phase: 'idle', label: 'videoEnhancement:runTitle', dependsOn: ['videoStatus:initialSync'] },
             { phase: 'idle', label: 'videoEnhancement:runFC2Breaker', dependsOn: ['videoStatus:initialSync'] },
-            { phase: 'idle', label: 'videoEnhancement:finish', dependsOn: ['videoEnhancement:runCover', 'videoEnhancement:runTitle', 'videoEnhancement:loadData'] },
+            { phase: 'high', label: 'videoEnhancement:finish', priority: 8, visibilityPolicy: 'background_allowed', dependsOn: ['videoEnhancement:loadData'] },
         );
     }
 
@@ -450,7 +440,7 @@ export function getVideoDetailTaskBlueprints(settings: any): VideoDetailTaskBlue
     }
 
     if (enableRelatedLists) {
-        blueprints.push({ phase: 'idle', label: 'videoEnhancement:runRelatedLists', dependsOn: ['videoEnhancement:initCore'] });
+        blueprints.push({ phase: 'idle', label: 'videoEnhancement:runRelatedLists', dependsOn: ['videoStatus:initialSync', 'videoEnhancement:initCore'] });
     }
 
     if (enableVideoEnhancement && (settings as any)?.videoEnhancement?.enableVideoFavoriteRating === true) {
@@ -475,11 +465,16 @@ async function syncVideoStatusPersistCore(
     currentUrl: string,
     operationId: string
 ): Promise<VideoRecord | undefined> {
-    if (record) {
-        await handleExistingRecord(videoId, record, now, currentUrl, operationId, { light: true });
-        return record;
+    const endDiagnosticSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.videoStatusInitialSyncPersist);
+    try {
+        if (record) {
+            await handleExistingRecord(videoId, record, now, currentUrl, operationId, { light: true });
+            return record;
+        }
+        return await handleNewRecord(videoId, now, currentUrl);
+    } finally {
+        endDiagnosticSpan();
     }
-    return await handleNewRecord(videoId, now, currentUrl);
 }
 
 async function syncVideoStatusFinalize(
@@ -489,42 +484,47 @@ async function syncVideoStatusFinalize(
     currentUrl: string,
     operationId: string
 ): Promise<VideoRecord | undefined> {
-    const currentRecord = record || STATE.records[videoId];
-    const pageDetectedStatus = detectPageUserStatus();
-    const finalStatus = pageDetectedStatus || currentRecord?.status || null;
+    const endDiagnosticSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.videoStatusInitialSyncFinalize);
+    try {
+        const currentRecord = record || STATE.records[videoId];
+        const pageDetectedStatus = detectPageUserStatus();
+        const finalStatus = pageDetectedStatus || currentRecord?.status || null;
 
-    if (currentRecord) {
-        const desiredStatus = resolveLibraryStatusFromPageStatus(currentRecord.status, pageDetectedStatus);
-        if (desiredStatus && desiredStatus !== currentRecord.status) {
-            try {
-                const result = await storageManager.updateRecordDirect(
-                    videoId,
-                    (latestRecord) => {
-                        const sourceRecord = latestRecord || currentRecord;
-                        return {
-                            ...sourceRecord,
-                            status: desiredStatus,
-                            updatedAt: now,
-                            javdbUrl: currentUrl,
-                        };
-                    },
-                    operationId,
-                    { backupToStorage: false, verifyAfterWrite: true }
-                );
-                if (result.success && result.record) {
-                    Object.assign(currentRecord, result.record);
+        if (currentRecord) {
+            const desiredStatus = resolveLibraryStatusFromPageStatus(currentRecord.status, pageDetectedStatus);
+            if (desiredStatus && desiredStatus !== currentRecord.status) {
+                try {
+                    const result = await storageManager.updateRecordDirect(
+                        videoId,
+                        (latestRecord) => {
+                            const sourceRecord = latestRecord || currentRecord;
+                            return {
+                                ...sourceRecord,
+                                status: desiredStatus,
+                                updatedAt: now,
+                                javdbUrl: currentUrl,
+                            };
+                        },
+                        operationId,
+                        { backupToStorage: false, verifyAfterWrite: true }
+                    );
+                    if (result.success && result.record) {
+                        Object.assign(currentRecord, result.record);
+                    }
+                } catch (error) {
+                    log(`syncVideoStatusFinalize update failed for ${videoId}:`, error);
                 }
-            } catch (error) {
-                log(`syncVideoStatusFinalize update failed for ${videoId}:`, error);
+            } else {
+                currentRecord.javdbUrl = currentUrl;
             }
-        } else {
-            currentRecord.javdbUrl = currentUrl;
         }
-    }
 
-    updateFaviconForStatus(finalStatus);
-    setSuspendEarlyFaviconSync(false);
-    return currentRecord;
+        updateFaviconForStatus(finalStatus);
+        setSuspendEarlyFaviconSync(false);
+        return currentRecord;
+    } finally {
+        endDiagnosticSpan();
+    }
 }
 
 async function syncVideoStatusFullRefresh(
@@ -595,27 +595,40 @@ export async function handleVideoDetailPage(): Promise<void> {
         return;
     }
 
+    const endPreLeaseSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.videoDetailPreLease);
     try {
-        renderDetailLibraryStatus(videoId);
-    } catch (e) {
-        log('renderDetailLibraryStatus failed:', e as any);
-    }
+        const endLibraryStatusSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.videoDetailLibraryStatus);
+        try {
+            renderDetailLibraryStatus(videoId);
+        } catch (e) {
+            log('renderDetailLibraryStatus failed:', e as any);
+        } finally {
+            endLibraryStatusSpan();
+        }
 
-    try {
-        const videoEnhancement = (STATE.settings as any)?.videoEnhancement || {};
-        renderDetailSearchLinks(videoId, STATE.settings?.searchEngines || [], {
-            enabled: videoEnhancement.enableExternalEntryPanel !== false,
-            showExternalSearch: videoEnhancement.enableExternalSearch !== false,
-            showSubtitleSearch: videoEnhancement.enableSubtitleSearch !== false,
-        });
-    } catch (e) {
-        log('renderDetailSearchLinks failed:', e as any);
+        const endSearchLinksSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.videoDetailSearchLinks);
+        try {
+            const videoEnhancement = (STATE.settings as any)?.videoEnhancement || {};
+            renderDetailSearchLinks(videoId, STATE.settings?.searchEngines || [], {
+                enabled: videoEnhancement.enableExternalEntryPanel !== false,
+                showExternalSearch: videoEnhancement.enableExternalSearch !== false,
+                showSubtitleSearch: videoEnhancement.enableSubtitleSearch !== false,
+            });
+        } catch (e) {
+            log('renderDetailSearchLinks failed:', e as any);
+        } finally {
+            endSearchLinksSpan();
+        }
+    } finally {
+        endPreLeaseSpan();
     }
 
     setSuspendEarlyFaviconSync(true);
 
     // 并发控制：检查是否已经在处理这个视频
+    const endAcquireOperationSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.videoDetailAcquireOperation);
     const operationId = await concurrencyManager.startProcessingVideo(videoId);
+    endAcquireOperationSpan();
     if (!operationId) {
         return;
     }
@@ -705,6 +718,7 @@ export async function handleVideoDetailPage(): Promise<void> {
                 label: 'videoEnhancement:initCore',
                 priority: 8,
                 visibilityPolicy: 'background_allowed',
+                dependsOn: ['videoStatus:initialSync'],
                 delayMs: 50,
             });
 
@@ -712,7 +726,7 @@ export async function handleVideoDetailPage(): Promise<void> {
                 await videoDetailEnhancer.loadEnhancedData();
             }, {
                 label: 'videoEnhancement:loadData',
-                timeout: 10000,
+                timeout: getEnhancedDataTaskTimeoutMs(STATE.settings),
                 dependsOn: ['videoStatus:initialSync'],
             });
 
@@ -753,13 +767,13 @@ export async function handleVideoDetailPage(): Promise<void> {
                 dependsOn: ['videoStatus:initialSync'],
             });
 
-            initOrchestrator.add('idle', () => {
+            initOrchestrator.add('high', () => {
                 videoDetailEnhancer.finish();
             }, {
                 label: 'videoEnhancement:finish',
-                idle: true,
-                idleTimeout: 5000,
-                dependsOn: ['videoEnhancement:runCover', 'videoEnhancement:runTitle', 'videoEnhancement:loadData'],
+                priority: 8,
+                visibilityPolicy: 'background_allowed',
+                dependsOn: ['videoEnhancement:loadData'],
             });
 
             if ((STATE.settings as any)?.videoEnhancement?.enableReviewBreaker === true) {
@@ -780,7 +794,7 @@ export async function handleVideoDetailPage(): Promise<void> {
                     label: 'videoEnhancement:runRelatedLists',
                     idle: true,
                     idleTimeout: 5000,
-                    dependsOn: ['videoEnhancement:initCore'],
+                    dependsOn: ['videoStatus:initialSync', 'videoEnhancement:initCore'],
                 });
             }
 
@@ -807,6 +821,7 @@ export async function handleVideoDetailPage(): Promise<void> {
                     label: 'videoFavoriteRating:init',
                     priority: 4,
                     visibilityPolicy: 'background_allowed',
+                    dependsOn: ['videoStatus:initialSync'],
                     delayMs: 80,
                 });
             }
@@ -861,8 +876,14 @@ export async function handleVideoDetailPage(): Promise<void> {
 async function markActorsOnPage(): Promise<void> {
     try {
         if ((STATE.settings as any)?.videoEnhancement?.enableActorNameMarks === false) return;
-        await actorManager.initialize();
-        const subscriptions = await newWorksManager.getSubscriptions();
+        const endSetupQuerySpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.actorMarksQuery);
+        let subscriptions;
+        try {
+            await actorManager.initialize();
+            subscriptions = await newWorksManager.getSubscriptions();
+        } finally {
+            endSetupQuerySpan();
+        }
         const subscribedActorIds = new Set(subscriptions.map(sub => sub.actorId));
 
         // 查找包含“演員/演员”的信息块
@@ -907,36 +928,48 @@ async function markActorsOnPage(): Promise<void> {
 
                     const isSubscribed = subscribedActorIds.has(actorId);
 
-                    const record = await actorManager.getActorById(actorId);
-                    a.style.color = '';
-                    a.style.textDecoration = '';
-                    a.removeAttribute('title');
-                    a.parentElement?.querySelector(`.actor-subscribe-badge[data-actor-id="${actorId}"]`)?.remove();
-
-                    if (!record && !isSubscribed) return;
-
-                    if (record?.blacklisted) {
-                        a.style.color = colorBlacklisted;
-                        a.style.textDecoration = 'line-through';
-                        a.title = '黑名单';
-                    } else if (record) {
-                        a.style.color = colorCollected;
-                        a.style.textDecoration = 'none';
-                        a.title = '已收藏';
+                    const endActorQuerySpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.actorMarksQuery);
+                    let record;
+                    try {
+                        record = await actorManager.getActorById(actorId);
+                    } finally {
+                        endActorQuerySpan();
                     }
 
-                    if (isSubscribed) {
-                        const badge = document.createElement('span');
-                        badge.className = 'actor-subscribe-badge';
-                        badge.dataset.actorId = actorId;
-                        badge.title = '已订阅';
-                        badge.setAttribute('aria-label', '已订阅');
-                        badge.textContent = '🔔';
-                        badge.style.color = subscribedColor;
-                        badge.style.marginRight = '4px';
-                        badge.style.fontSize = '0.95em';
-                        badge.style.verticalAlign = 'text-top';
-                        a.insertAdjacentElement('beforebegin', badge);
+                    const endActorDomSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.actorMarksDom);
+                    try {
+                        a.style.color = '';
+                        a.style.textDecoration = '';
+                        a.removeAttribute('title');
+                        a.parentElement?.querySelector(`.actor-subscribe-badge[data-actor-id="${actorId}"]`)?.remove();
+
+                        if (!record && !isSubscribed) return;
+
+                        if (record?.blacklisted) {
+                            a.style.color = colorBlacklisted;
+                            a.style.textDecoration = 'line-through';
+                            a.title = '黑名单';
+                        } else if (record) {
+                            a.style.color = colorCollected;
+                            a.style.textDecoration = 'none';
+                            a.title = '已收藏';
+                        }
+
+                        if (isSubscribed) {
+                            const badge = document.createElement('span');
+                            badge.className = 'actor-subscribe-badge';
+                            badge.dataset.actorId = actorId;
+                            badge.title = '已订阅';
+                            badge.setAttribute('aria-label', '已订阅');
+                            badge.textContent = '🔔';
+                            badge.style.color = subscribedColor;
+                            badge.style.marginRight = '4px';
+                            badge.style.fontSize = '0.95em';
+                            badge.style.verticalAlign = 'text-top';
+                            a.insertAdjacentElement('beforebegin', badge);
+                        }
+                    } finally {
+                        endActorDomSpan();
                     }
                 } catch {
                     return;
@@ -1326,7 +1359,13 @@ async function handleExistingRecord(
     // 静默更新现有记录
 
     // 获取当前页面的最新数据
-    const latestData = await extractVideoData(videoId, { light: lightMode });
+    const endExtractSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.videoStatusInitialSyncExtract);
+    let latestData: Partial<VideoRecord> | null;
+    try {
+        latestData = await extractVideoData(videoId, { light: lightMode });
+    } finally {
+        endExtractSpan();
+    }
     if (!latestData) {
         log(`Failed to extract latest data for ${videoId}`);
         return null;
@@ -1443,19 +1482,26 @@ async function handleExistingRecord(
 
     const updatedRecord = buildUpdatedRecord(record);
 
-    const result = lightMode
-        ? await storageManager.putRecord(updatedRecord, operationId, { backupToStorage: false, verifyAfterWrite: true })
-        : await storageManager.updateRecord(
-            videoId,
-            (currentRecords) => {
-                const currentRecord = currentRecords[videoId];
-                if (!currentRecord) {
-                    throw new Error(`Record ${videoId} not found in current storage`);
-                }
-                return buildUpdatedRecord(currentRecord);
-            },
-            operationId
-        );
+    const result = await (async () => {
+        const endStorageCommitSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.videoStatusInitialSyncStorageCommit);
+        try {
+            return lightMode
+                ? await storageManager.putRecord(updatedRecord, operationId, { backupToStorage: false, verifyAfterWrite: true })
+                : await storageManager.updateRecord(
+                    videoId,
+                    (currentRecords) => {
+                        const currentRecord = currentRecords[videoId];
+                        if (!currentRecord) {
+                            throw new Error(`Record ${videoId} not found in current storage`);
+                        }
+                        return buildUpdatedRecord(currentRecord);
+                    },
+                    operationId
+                );
+        } finally {
+            endStorageCommitSpan();
+        }
+    })();
 
     if (result.success) {
         log(`Successfully saved updated record for ${videoId} (operation ${operationId})`);

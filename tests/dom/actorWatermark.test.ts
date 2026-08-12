@@ -109,4 +109,16 @@ describe('actor watermark helpers', () => {
     expect(refreshedIndex).not.toBe(firstIndex);
     expect(getAllActors).toHaveBeenCalledTimes(2);
   });
+
+  it('resolves actor ids from the shared index without extra per-card reads', async () => {
+    const actor = createActor('actor-a', 'Actor A');
+    const getAllActors = vi.fn().mockResolvedValue([actor]);
+    const getSubscriptions = vi.fn().mockResolvedValue([]);
+    const cache = createActorDataCache({ getAllActors, getSubscriptions });
+
+    await expect(cache.getActorById('actor-a')).resolves.toBe(actor);
+    await expect(cache.getActorById('actor-a')).resolves.toBe(actor);
+
+    expect(getAllActors).toHaveBeenCalledTimes(1);
+  });
 });

@@ -19,6 +19,7 @@ export interface ActorDataCacheDependencies {
 export interface ActorDataCache {
   ensureActorIndex: () => Promise<Map<string, ActorRecord>>;
   ensureSubscriptions: () => Promise<Set<string>>;
+  getActorById: (id: string) => Promise<ActorRecord | null>;
   clear: () => void;
 }
 
@@ -44,6 +45,7 @@ const WATERMARK_VISIBLE_BADGES = 4;
 
 export function createActorDataCache(deps: ActorDataCacheDependencies): ActorDataCache {
   let actorIndex: Map<string, ActorRecord> | null = null;
+  let actorIdIndex: Map<string, ActorRecord> | null = null;
   let subscribedActorIds: Set<string> | null = null;
   let loadingActorIndex = false;
   let loadingSubscriptions = false;
@@ -76,11 +78,13 @@ export function createActorDataCache(deps: ActorDataCacheDependencies): ActorDat
         const actors = await deps.getAllActors();
         const index = buildActorIndex(actors);
         actorIndex = index;
+        actorIdIndex = new Map(actors.map(actor => [actor.id, actor]));
         actorIndexTimestamp = Date.now();
         logger(`Actor index loaded: ${index.size} entries`);
       } catch (error) {
         logger('Failed to build actor index:', error);
         actorIndex = new Map();
+        actorIdIndex = new Map();
         actorIndexTimestamp = Date.now();
       } finally {
         loadingActorIndex = false;
@@ -123,9 +127,15 @@ export function createActorDataCache(deps: ActorDataCacheDependencies): ActorDat
       return subscribedActorIds;
     },
 
+    async getActorById(id: string): Promise<ActorRecord | null> {
+      await this.ensureActorIndex();
+      return actorIdIndex?.get(id) ?? null;
+    },
+
     clear(): void {
       logger('Clearing actor caches...');
       actorIndex = null;
+      actorIdIndex = null;
       subscribedActorIds = null;
       loadingActorIndex = false;
       loadingSubscriptions = false;

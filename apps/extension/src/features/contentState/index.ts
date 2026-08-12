@@ -5,12 +5,13 @@
  */
 // src/features/contentState/index.ts
 
-import type { ExtensionSettings, VideoRecord } from '../../types';
+import type { ExtensionSettings, VideoRecord, ViewedStatusSummary } from '../../types';
 import type { EmbyLibraryState } from '../embyLibrary/types';
 
 export interface ContentState {
     settings: ExtensionSettings | null;
     records: Record<string, VideoRecord>;
+    recordSummaries: Record<string, ViewedStatusSummary>;
     isSearchPage: boolean;
     observer: MutationObserver | null;
     debounceTimer: number | null;
@@ -24,6 +25,7 @@ export interface ContentState {
 export const STATE: ContentState = {
     settings: null,
     records: {},
+    recordSummaries: {},
     isSearchPage: false,
     observer: null,
     debounceTimer: null,
@@ -33,6 +35,26 @@ export const STATE: ContentState = {
     processingVideos: new Set<string>(),
     lastProcessedVideo: null,
 };
+
+export type ContentRecordSnapshot = Partial<VideoRecord> & Pick<VideoRecord, 'id' | 'status'>;
+
+/** 返回当前内容页已加载的完整记录或轻量摘要。 */
+export function getContentRecord(videoId: string): ContentRecordSnapshot | undefined {
+    return STATE.records[videoId] || STATE.recordSummaries[videoId];
+}
+
+export function setContentRecordSummary(summary: ViewedStatusSummary): void {
+    STATE.recordSummaries[summary.id] = summary;
+}
+
+export function setContentRecord(record: VideoRecord): void {
+    STATE.records[record.id] = record;
+    setContentRecordSummary({
+        id: record.id,
+        status: record.status,
+        isFavorite: record.isFavorite === true,
+    });
+}
 
 export let suspendEarlyFaviconSync = false;
 export function setSuspendEarlyFaviconSync(value: boolean): void {

@@ -31,6 +31,12 @@ vi.mock('../../apps/extension/src/features/records/content', () => ({
 }));
 
 vi.mock('../../apps/extension/src/platform/tasks', () => ({
+  CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS: {
+    videoDetailPreLease: 'content.videoDetail.preLease',
+    videoDetailLibraryStatus: 'content.videoDetail.libraryStatus',
+    videoDetailSearchLinks: 'content.videoDetail.searchLinks',
+    videoDetailAcquireOperation: 'content.videoDetail.acquireOperation',
+  },
   createTaskTimeoutGuard: vi.fn((timeoutMs: number) => ({
     timeoutMs,
     isTimedOut: () => false,
@@ -45,6 +51,7 @@ vi.mock('../../apps/extension/src/platform/tasks', () => ({
     await task();
   }),
   saveSubtaskDetail: vi.fn(async () => undefined),
+  startContentPerformanceSpan: vi.fn(() => () => undefined),
   yieldToMainThread: vi.fn(async () => undefined),
 }));
 

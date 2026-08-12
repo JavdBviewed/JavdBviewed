@@ -104,4 +104,27 @@ describe('actor hiding workflow', () => {
 
     expect(clearActorOnlyHiding).toHaveBeenCalledWith(item);
   });
+
+  it('does not emit per-item diagnostic logs for a normal hiding decision', async () => {
+    const item = createItem(['actor-normal']);
+    const actor = createActor('actor-normal', 'Normal Actor');
+    const logger = vi.fn();
+
+    await applyActorBasedHiding({
+      item,
+      videoInfo: { code: 'ABC-004', title: 'Sample', url: 'https://javdb.com/v/abc' },
+      hideByBlacklist: true,
+      hideByNonFavorited: true,
+      hideUnrecognized: true,
+      treatSubscribedAsFavorited: true,
+      ensureActorIndex: vi.fn(async () => new Map()),
+      ensureSubscriptions: vi.fn(async () => new Set()),
+      getActorById: vi.fn(async () => actor),
+      hideItemByActor: vi.fn(),
+      clearActorOnlyHiding: vi.fn(),
+      logger,
+    });
+
+    expect(logger).not.toHaveBeenCalled();
+  });
 });
