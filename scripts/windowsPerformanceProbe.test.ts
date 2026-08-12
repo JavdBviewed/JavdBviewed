@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   aggregateWindowsProcessSamples,
   aggregateWindowsProcessSamplesByCategory,
@@ -8,16 +8,57 @@ import {
   normalizeChromeProcessCategory,
   parseChromeTargetInfos,
   parsePerformanceScenarioSelection,
+  parseDashboardTabSequence,
+  parseJavDbSourceTabCounts,
+  javDbSourceTabScenarioName,
   redactDiagnosticUrl,
   selectTrackedWindowsProcessIds,
   selectInitialDashboardHash,
   shouldDisableGpu,
+  shouldEnableListPreview,
+  buildPerformanceProxyArgs,
+  withWindowsPerformanceServer,
   shouldRunNoExtensionControl,
+  shouldUseHostChromeData,
   shouldRunPerformanceScenario,
+  shouldKeepBrowserAliveForAfterDashboardClose,
   type WindowsProcessSample,
 } from './windowsPerformanceProbe';
 
 describe('windows performance probe helpers', () => {
+  it('closes a mock server when a scenario using it fails', async () => {
+    let closeCount = 0;
+    const server = {
+      close: async () => {
+        closeCount += 1;
+      },
+    };
+
+    await expect(withWindowsPerformanceServer(server, async () => {
+      throw new Error('scroll failed');
+    })).rejects.toThrow('scroll failed');
+
+    expect(closeCount).toBe(1);
+  });
+
+  it('preserves the scenario error when mock server cleanup also fails', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const server = {
+      close: async () => {
+        throw new Error('port close failed');
+      },
+    };
+
+    try {
+      await expect(withWindowsPerformanceServer(server, async () => {
+        throw new Error('scroll failed');
+      })).rejects.toThrow('scroll failed');
+      expect(warning).toHaveBeenCalledWith(expect.stringContaining('port close failed'));
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it('parses an optional comma-separated scenario selection', () => {
     expect(parsePerformanceScenarioSelection(undefined)).toBeNull();
     expect(parsePerformanceScenarioSelection('all')).toBeNull();
@@ -43,11 +84,58 @@ describe('windows performance probe helpers', () => {
     expect(shouldRunPerformanceScenario(new Set(['dashboard-tab-switch-churn']), 'dashboard-home')).toBe(false);
   });
 
+  it('keeps an empty browser page only when close-recovery sampling is requested', () => {
+    expect(shouldKeepBrowserAliveForAfterDashboardClose(new Set(['after-dashboard-close']))).toBe(true);
+    expect(shouldKeepBrowserAliveForAfterDashboardClose(new Set(['dashboard-home']))).toBe(false);
+    expect(shouldKeepBrowserAliveForAfterDashboardClose(null)).toBe(true);
+  });
+
+  it('parses an increasing source-tab matrix without duplicate or invalid counts', () => {
+    expect(parseJavDbSourceTabCounts(undefined)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(parseJavDbSourceTabCounts(' 1, 3, 3, 0, nope, 2.8, 11 ')).toEqual([1, 2, 3, 11]);
+    expect(javDbSourceTabScenarioName(4)).toBe('javdb-source-home-4-tabs');
+  });
+
+  it('parses a safe dashboard tab sequence for focused lifecycle diagnostics', () => {
+    expect(parseDashboardTabSequence(undefined)).toEqual([
+      'tab-home',
+      'tab-records',
+      'tab-media',
+      'tab-actors',
+      'tab-new-works',
+      'tab-settings',
+    ]);
+    expect(parseDashboardTabSequence('tab-home, tab-media, tab-media, invalid'))
+      .toEqual(['tab-home', 'tab-media']);
+    expect(parseDashboardTabSequence('invalid')).toEqual([
+      'tab-home',
+      'tab-records',
+      'tab-media',
+      'tab-actors',
+      'tab-new-works',
+      'tab-settings',
+    ]);
+  });
+
   it('enables GPU-disabled diagnostics only for an explicit probe flag', () => {
     expect(shouldDisableGpu('1')).toBe(true);
     expect(shouldDisableGpu('true')).toBe(true);
     expect(shouldDisableGpu('0')).toBe(false);
     expect(shouldDisableGpu(undefined)).toBe(false);
+  });
+
+  it('enables list preview stress only for an explicit probe flag', () => {
+    expect(shouldEnableListPreview('1')).toBe(true);
+    expect(shouldEnableListPreview('true')).toBe(true);
+    expect(shouldEnableListPreview('0')).toBe(false);
+    expect(shouldEnableListPreview(undefined)).toBe(false);
+  });
+
+  it('passes an explicit local proxy only to the performance browser', () => {
+    expect(buildPerformanceProxyArgs('http://127.0.0.1:17890'))
+      .toEqual(['--proxy-server=http://127.0.0.1:17890']);
+    expect(buildPerformanceProxyArgs('')).toEqual([]);
+    expect(buildPerformanceProxyArgs(undefined)).toEqual([]);
   });
 
   it('enables the no-extension control only for explicit truthy probe flags', () => {
@@ -56,6 +144,13 @@ describe('windows performance probe helpers', () => {
     expect(shouldRunNoExtensionControl('TRUE')).toBe(true);
     expect(shouldRunNoExtensionControl('0')).toBe(false);
     expect(shouldRunNoExtensionControl(undefined)).toBe(false);
+  });
+
+  it('uses host Chrome data only for an explicit isolated performance mode', () => {
+    expect(shouldUseHostChromeData('1')).toBe(true);
+    expect(shouldUseHostChromeData('true')).toBe(true);
+    expect(shouldUseHostChromeData('0')).toBe(false);
+    expect(shouldUseHostChromeData(undefined)).toBe(false);
   });
 
   it('classifies Chrome CDP process types and keeps CPU attribution per category', () => {
@@ -266,6 +361,7 @@ describe('windows performance probe helpers', () => {
     expect(html).toContain('class="movie-list"');
     expect(html.match(/class="item"/g)).toHaveLength(3);
     expect(html).toContain('PERF-0001');
+    expect(html).toContain('<div class="video-title"><strong>PERF-0001</strong>');
     expect(html).not.toContain('https://');
   });
 });

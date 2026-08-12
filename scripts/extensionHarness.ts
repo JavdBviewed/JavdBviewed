@@ -7,6 +7,7 @@ import { chromium, type BrowserContext, type Worker } from '@playwright/test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { Dirent } from 'node:fs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SNAPSHOT_REFRESH_DAYS = 10;
@@ -59,6 +60,8 @@ export interface PrepareChromeTestProfileOptions {
   destinationUserDataDir: string;
   sourceUserDataDir: string;
   sourceProfile: string;
+  /** 仅用于需要单扩展基线的性能测试；不影响真实 Chrome 数据。 */
+  allowedExtensionIds?: readonly string[];
 }
 
 export function defaultExtensionProfileDir(cwd: string): string {
@@ -171,13 +174,135 @@ export function shouldCopyChromeProfilePath(relativePath: string): boolean {
     'component_crx_cache',
     'extensions_crx_cache',
     'service worker',
+    'sessions',
   ]);
 
-  if (baseName === 'lock' || baseName.startsWith('singleton')) {
+  if (
+    baseName === 'lock'
+    || baseName.startsWith('singleton')
+    || ['current session', 'current tabs', 'last session', 'last tabs'].includes(baseName)
+  ) {
     return false;
   }
 
   return !segments.some((segment) => excludedDirectories.has(segment));
+}
+
+const EXTENSION_PROFILE_DIRECTORIES = [
+  'Extensions',
+  'Local Extension Settings',
+  'Sync Extension Settings',
+  'Extension State',
+] as const;
+
+function normalizedExtensionIds(extensionIds: readonly string[]): Set<string> {
+  return new Set(extensionIds
+    .map((extensionId) => extensionId.trim().toLowerCase())
+    .filter((extensionId) => /^[a-p]{32}$/.test(extensionId)));
+}
+
+export function shouldKeepChromeExtensionStateDirectory(
+  directoryName: string,
+  allowedExtensionIds: readonly string[],
+): boolean {
+  const normalizedName = directoryName.trim().toLowerCase();
+  const allowedIds = normalizedExtensionIds(allowedExtensionIds);
+  if (allowedIds.has(normalizedName)) return true;
+
+  // IndexedDB uses names such as chrome-extension_<id>_0.indexeddb.leveldb.
+  const indexedDbMatch = normalizedName.match(/^chrome-extension_([a-p]{32})(?:_|\.|$)/);
+  if (indexedDbMatch) return allowedIds.has(indexedDbMatch[1]);
+
+  return !/^[a-p]{32}$/.test(normalizedName);
+}
+
+/**
+ * 从隔离测试 profile 中移除其他扩展的专属状态，避免宿主扩展污染性能样本。
+ * 只接收测试副本路径；调用方不得传入真实 Chrome User Data。
+ */
+export async function sanitizeChromeTestProfileExtensions(
+  profileDir: string,
+  allowedExtensionIds: readonly string[],
+): Promise<void> {
+  const allowedIds = normalizedExtensionIds(allowedExtensionIds);
+  if (allowedIds.size === 0) {
+    throw new Error('性能测试必须提供至少一个有效的目标扩展 ID');
+  }
+
+  for (const directoryName of EXTENSION_PROFILE_DIRECTORIES) {
+    const directory = path.join(profileDir, directoryName);
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (isNodeError(error) && error.code === 'ENOENT') continue;
+      throw error;
+    }
+    await Promise.all(entries
+      .filter((entry) => entry.isDirectory()
+        && !shouldKeepChromeExtensionStateDirectory(entry.name, [...allowedIds]))
+      .map((entry) => fs.rm(path.join(directory, entry.name), { recursive: true, force: true })));
+  }
+
+  const indexedDbDirectory = path.join(profileDir, 'IndexedDB');
+  let indexedDbEntries: Dirent[];
+  try {
+    indexedDbEntries = await fs.readdir(indexedDbDirectory, { withFileTypes: true });
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') {
+      indexedDbEntries = [];
+    } else {
+      throw error;
+    }
+  }
+  await Promise.all(indexedDbEntries
+    .filter((entry) => entry.isDirectory()
+      && entry.name.toLowerCase().startsWith('chrome-extension_')
+      && !shouldKeepChromeExtensionStateDirectory(entry.name, [...allowedIds]))
+    .map((entry) => fs.rm(path.join(indexedDbDirectory, entry.name), { recursive: true, force: true })));
+
+  await retainChromeExtensionPreferences(
+    path.join(profileDir, 'Preferences'),
+    ['extensions', 'settings'],
+    allowedIds,
+  );
+  await retainChromeExtensionPreferences(
+    path.join(profileDir, 'Secure Preferences'),
+    ['protection', 'macs', 'extensions', 'settings'],
+    allowedIds,
+  );
+}
+
+async function retainChromeExtensionPreferences(
+  filePath: string,
+  propertyPath: readonly string[],
+  allowedExtensionIds: Set<string>,
+): Promise<void> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, 'utf8');
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') return;
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`测试 profile 的 Chrome 偏好设置损坏：${filePath}。${formatError(error)}`);
+  }
+
+  let current: unknown = parsed;
+  for (const property of propertyPath) {
+    if (!isRecord(current) || !isRecord(current[property])) return;
+    current = current[property];
+  }
+  if (!isRecord(current)) return;
+  for (const extensionId of Object.keys(current)) {
+    if (!allowedExtensionIds.has(extensionId.toLowerCase())) delete current[extensionId];
+  }
+  await fs.writeFile(filePath, JSON.stringify(parsed), 'utf8');
 }
 
 export async function readChromeSnapshotMetadata(
@@ -280,6 +405,12 @@ export async function prepareChromeTestProfile(
     throw new Error(`拒绝清理测试 profile 之外的 Service Worker 状态：${serviceWorkerStateDir}`);
   }
   await fs.rm(serviceWorkerStateDir, { recursive: true, force: true });
+  if (options.allowedExtensionIds) {
+    await sanitizeChromeTestProfileExtensions(
+      path.join(destinationUserDataDir, options.sourceProfile),
+      options.allowedExtensionIds,
+    );
+  }
   await fs.writeFile(path.join(destinationUserDataDir, TEST_PROFILE_MARKER), JSON.stringify({
     sourceProfile: options.sourceProfile,
     preparedAt: Date.now(),
@@ -545,7 +676,18 @@ function createSiblingTemporaryPath(targetPath: string, kind: string): string {
 }
 
 function resolveConfiguredPath(cwd: string, configuredPath: string): string {
-  return path.isAbsolute(configuredPath) ? path.resolve(configuredPath) : path.resolve(cwd, configuredPath);
+  if (path.win32.isAbsolute(configuredPath) && process.platform !== 'win32') {
+    const drivePath = configuredPath.match(/^([A-Za-z]):[\\/](.*)$/);
+    if (drivePath) {
+      return path.resolve(
+        `/mnt/${drivePath[1].toLowerCase()}`,
+        drivePath[2].replace(/\\/g, '/'),
+      );
+    }
+  }
+  return path.isAbsolute(configuredPath) || path.win32.isAbsolute(configuredPath)
+    ? path.resolve(configuredPath)
+    : path.resolve(cwd, configuredPath);
 }
 
 function normalizePathForComparison(input: string): string {

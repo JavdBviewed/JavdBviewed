@@ -197,12 +197,26 @@ export function assertReleaseZip(zipPath: string, distManifestPath: string): voi
   }
 }
 
+export function buildPnpmInvocation(
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+  comSpec: string | undefined = process.env.ComSpec,
+): { file: string; args: string[] } {
+  if (platform === 'win32') {
+    const command = ['pnpm.cmd', ...args].join(' ');
+    return {
+      file: comSpec?.trim() || 'cmd.exe',
+      args: ['/d', '/s', '/c', command],
+    };
+  }
+  return { file: 'pnpm', args };
+}
+
 function runPnpm(args: string[]): void {
-  const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-  execFileSync(command, args, {
+  const invocation = buildPnpmInvocation(args);
+  execFileSync(invocation.file, invocation.args, {
     cwd: ROOT,
     stdio: 'inherit',
-    shell: process.platform === 'win32',
     env: { ...process.env, JAVDB_BUILD_SKIP_VERSION_BUMP: '1' },
   });
 }

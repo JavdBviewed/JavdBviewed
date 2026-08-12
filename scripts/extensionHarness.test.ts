@@ -15,6 +15,7 @@ import {
   readChromeSnapshotMetadata,
   resolveExtensionHarnessOptions,
   retryTransientFileSystemOperation,
+  shouldKeepChromeExtensionStateDirectory,
   shouldCopyChromeProfilePath,
   shouldRefreshChromeSnapshot,
   suppressReleaseAnnouncementForTest,
@@ -41,10 +42,25 @@ describe('extensionHarness', () => {
     expect(options.startupUrl).toBeUndefined();
     expect(options.chromeDataSnapshot).toEqual({
       enabled: true,
-      sourceUserDataDir: path.resolve('C:/Users/Test/AppData/Local/Google/Chrome/User Data'),
+      sourceUserDataDir: process.platform === 'win32'
+        ? 'C:\\Users\\Test\\AppData\\Local\\Google\\Chrome\\User Data'
+        : '/mnt/c/Users/Test/AppData/Local/Google/Chrome/User Data',
       snapshotDir: path.join(cwd, '.test-profiles', 'chrome-source-snapshot'),
       metadataPath: path.join(cwd, '.test-profiles', 'chrome-source-snapshot.meta.json'),
       refreshDays: 10,
+    });
+  });
+
+  test('maps Windows drive paths to WSL mounts instead of resolving them under the POSIX cwd', () => {
+    const options = resolveExtensionHarnessOptions({
+      JAVDB_CHROME_USER_DATA: 'C:\\Users\\Test\\AppData\\Local\\Google\\Chrome\\User Data',
+    }, '/work/JavdBviewed');
+
+    expect(options.chromeDataSnapshot).toMatchObject({
+      enabled: true,
+      sourceUserDataDir: process.platform === 'win32'
+        ? 'C:\\Users\\Test\\AppData\\Local\\Google\\Chrome\\User Data'
+        : '/mnt/c/Users/Test/AppData/Local/Google/Chrome/User Data',
     });
   });
 
@@ -158,6 +174,26 @@ describe('extensionHarness', () => {
     expect(shouldCopyChromeProfilePath('Default/Service Worker/ScriptCache/index')).toBe(false);
     expect(shouldCopyChromeProfilePath('Default/Local Storage/leveldb/LOCK')).toBe(false);
     expect(shouldCopyChromeProfilePath('SingletonLock')).toBe(false);
+    expect(shouldCopyChromeProfilePath('Default/Current Session')).toBe(false);
+    expect(shouldCopyChromeProfilePath('Default/Current Tabs')).toBe(false);
+    expect(shouldCopyChromeProfilePath('Default/Sessions/Session_123')).toBe(false);
+  });
+
+  test('keeps only the target extension state directory', () => {
+    const target = 'gnegjfjccmeafanpmbjboegcbchcghka';
+    const other = 'nkeimhogjdpnpccoofpliimaahmaaome';
+
+    expect(shouldKeepChromeExtensionStateDirectory(target, [target])).toBe(true);
+    expect(shouldKeepChromeExtensionStateDirectory(other, [target])).toBe(false);
+    expect(shouldKeepChromeExtensionStateDirectory(
+      `chrome-extension_${target}_0.indexeddb.leveldb`,
+      [target],
+    )).toBe(true);
+    expect(shouldKeepChromeExtensionStateDirectory(
+      `chrome-extension_${other}_0.indexeddb.leveldb`,
+      [target],
+    )).toBe(false);
+    expect(shouldKeepChromeExtensionStateDirectory('Cookies', [target])).toBe(true);
   });
 
   test('copies the last-used Chrome profile and refreshes it after ten days', async () => {
@@ -223,6 +259,31 @@ describe('extensionHarness', () => {
     await fs.writeFile(path.join(snapshotDir, 'Local State'), '{}', 'utf8');
     await fs.writeFile(path.join(snapshotExtensionData, '000003.log'), 'real-data-copy', 'utf8');
     await fs.writeFile(snapshotServiceWorkerCache, 'stale-worker', 'utf8');
+    await fs.mkdir(path.join(snapshotDir, 'Default', 'Extensions', 'gnegjfjccmeafanpmbjboegcbchcghka'), { recursive: true });
+    await fs.mkdir(path.join(snapshotDir, 'Default', 'Extensions', 'nkeimhogjdpnpccoofpliimaahmaaome'), { recursive: true });
+    await fs.mkdir(path.join(snapshotDir, 'Default', 'Local Extension Settings', 'nkeimhogjdpnpccoofpliimaahmaaome'), { recursive: true });
+    await fs.mkdir(path.join(snapshotDir, 'Default', 'IndexedDB', 'chrome-extension_nkeimhogjdpnpccoofpliimaahmaaome_0.indexeddb.leveldb'), { recursive: true });
+    await fs.mkdir(path.join(snapshotDir, 'Default', 'IndexedDB', 'https_example.test_0.indexeddb.leveldb'), { recursive: true });
+    await fs.writeFile(path.join(snapshotDir, 'Default', 'Preferences'), JSON.stringify({
+      extensions: {
+        settings: {
+          gnegjfjccmeafanpmbjboegcbchcghka: { path: '/target' },
+          nkeimhogjdpnpccoofpliimaahmaaome: { path: '/other' },
+        },
+      },
+    }), 'utf8');
+    await fs.writeFile(path.join(snapshotDir, 'Default', 'Secure Preferences'), JSON.stringify({
+      protection: {
+        macs: {
+          extensions: {
+            settings: {
+              gnegjfjccmeafanpmbjboegcbchcghka: 'target',
+              nkeimhogjdpnpccoofpliimaahmaaome: 'other',
+            },
+          },
+        },
+      },
+    }), 'utf8');
     await fs.writeFile(path.join(testProfileDir, 'stale.txt'), 'stale', 'utf8');
 
     await prepareChromeTestProfile({
@@ -230,6 +291,7 @@ describe('extensionHarness', () => {
       destinationUserDataDir: testProfileDir,
       sourceUserDataDir: path.join(root, 'real-chrome', 'User Data'),
       sourceProfile: 'Default',
+      allowedExtensionIds: ['gnegjfjccmeafanpmbjboegcbchcghka'],
     });
 
     expect(await fs.readFile(path.join(
@@ -242,6 +304,19 @@ describe('extensionHarness', () => {
     await expect(fs.access(path.join(testProfileDir, 'stale.txt'))).rejects.toThrow();
     expect(await fs.readFile(path.join(snapshotExtensionData, '000003.log'), 'utf8')).toBe('real-data-copy');
     await expect(fs.access(path.join(testProfileDir, 'Default', 'Service Worker'))).rejects.toThrow();
+    await expect(fs.access(path.join(testProfileDir, 'Default', 'Extensions', 'nkeimhogjdpnpccoofpliimaahmaaome'))).rejects.toThrow();
+    await expect(fs.access(path.join(testProfileDir, 'Default', 'Local Extension Settings', 'nkeimhogjdpnpccoofpliimaahmaaome'))).rejects.toThrow();
+    await expect(fs.access(path.join(testProfileDir, 'Default', 'IndexedDB', 'chrome-extension_nkeimhogjdpnpccoofpliimaahmaaome_0.indexeddb.leveldb'))).rejects.toThrow();
+    await fs.access(path.join(testProfileDir, 'Default', 'Extensions', 'gnegjfjccmeafanpmbjboegcbchcghka'));
+    await fs.access(path.join(testProfileDir, 'Default', 'IndexedDB', 'https_example.test_0.indexeddb.leveldb'));
+    const preferences = JSON.parse(await fs.readFile(path.join(testProfileDir, 'Default', 'Preferences'), 'utf8')) as {
+      extensions: { settings: Record<string, unknown> };
+    };
+    expect(Object.keys(preferences.extensions.settings)).toEqual(['gnegjfjccmeafanpmbjboegcbchcghka']);
+    const securePreferences = JSON.parse(await fs.readFile(path.join(testProfileDir, 'Default', 'Secure Preferences'), 'utf8')) as {
+      protection: { macs: { extensions: { settings: Record<string, unknown> } } };
+    };
+    expect(Object.keys(securePreferences.protection.macs.extensions.settings)).toEqual(['gnegjfjccmeafanpmbjboegcbchcghka']);
     expect(await fs.readFile(snapshotServiceWorkerCache, 'utf8')).toBe('stale-worker');
   });
 

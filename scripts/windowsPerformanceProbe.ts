@@ -11,7 +11,19 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { extensionPageUrl, readExtensionId } from './extensionHarness';
+import {
+  ensureChromeDataSnapshot,
+  extensionPageUrl,
+  prepareChromeTestProfile,
+  readExtensionId,
+  resolveExtensionHarnessOptions,
+  suppressReleaseAnnouncementForTest,
+} from './extensionHarness';
+import { buildPerformanceMediaFixture, type PerformanceMediaFixture } from './performanceMediaFixture';
+import { buildWslExternalSyncIsolationExpression } from './wslCdpPerformanceProbe';
+
+export { buildPerformanceMediaFixture } from './performanceMediaFixture';
+export type { PerformanceMediaFixture } from './performanceMediaFixture';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_SAMPLE_INTERVAL_MS = 1_000;
@@ -107,36 +119,6 @@ export interface WindowsPerformanceReport {
   consoleErrors: string[];
 }
 
-export interface PerformanceMediaFixture {
-  settings: Record<string, never>;
-  emby_library_state: {
-    updatedAt: number;
-    entries: Record<string, Array<{
-      serverType: 'emby';
-      serverName: string;
-    serverUrl: '';
-    itemId: string;
-    itemName: string;
-    path: string;
-    coverImageUrl?: string;
-    imageUrls?: Partial<Record<'Primary' | 'Thumb' | 'Backdrop', string>>;
-    updatedAt: number;
-    }> >;
-  };
-  drive115_library_state: {
-    updatedAt: number;
-    entries: Array<{
-      code: string;
-      title: string;
-      videoFileId: string;
-      pickCode: string;
-      fileName: string;
-      folderName: string;
-      updatedAt: number;
-    }>;
-  };
-}
-
 interface Mock115Server {
   url: string;
   requestCount: number;
@@ -147,6 +129,26 @@ interface MockCoverServer {
   url: string;
   requestCount: number;
   close: () => Promise<void>;
+}
+
+export async function withWindowsPerformanceServer<T>(
+  server: { close: () => Promise<void> },
+  operation: () => Promise<T>,
+): Promise<T> {
+  let operationFailed = false;
+  try {
+    return await operation();
+  } catch (error) {
+    operationFailed = true;
+    throw error;
+  } finally {
+    try {
+      await server.close();
+    } catch (error) {
+      if (!operationFailed) throw error;
+      console.warn(`[Windows 性能探针] Mock server 清理失败，保留场景原始错误：${String(error)}`);
+    }
+  }
 }
 
 const MOCK_COVER_PNG = Buffer.from(
@@ -362,49 +364,6 @@ export function selectTrackedWindowsProcessIds(
   return processIds.filter((pid) => Number.isInteger(pid) && pid > 0 && !ignoredPids.has(pid));
 }
 
-export function buildPerformanceMediaFixture(
-  itemCount: number,
-  now = Date.now(),
-  coverBaseUrl?: string,
-): PerformanceMediaFixture {
-  const count = Math.max(0, Math.trunc(itemCount));
-  const embyEntries: PerformanceMediaFixture['emby_library_state']['entries'] = {};
-  const driveEntries: PerformanceMediaFixture['drive115_library_state']['entries'] = [];
-  const normalizedCoverBaseUrl = coverBaseUrl?.replace(/\/+$/, '');
-
-  for (let index = 0; index < count; index += 1) {
-    const number = index + 1;
-    const code = `PERF-${String(number).padStart(4, '0')}`;
-    const fileName = `${code}.mp4`;
-    const coverUrl = normalizedCoverBaseUrl ? `${normalizedCoverBaseUrl}/${code}.jpg` : undefined;
-    embyEntries[code] = [{
-      serverType: 'emby',
-      serverName: '性能测试 Emby',
-      serverUrl: '',
-      itemId: `perf-emby-item-${number}`,
-      itemName: `${code} 测试影片`,
-      path: fileName,
-      ...(coverUrl ? { imageUrls: { Thumb: coverUrl } } : {}),
-      updatedAt: now,
-    }];
-    driveEntries.push({
-      code,
-      title: `${code} 测试影片`,
-      videoFileId: `perf-file-${number}`,
-      pickCode: `perf-pick-${number}`,
-      fileName,
-      folderName: code,
-      updatedAt: now,
-    });
-  }
-
-  return {
-    settings: {},
-    emby_library_state: { updatedAt: now, entries: embyEntries },
-    drive115_library_state: { updatedAt: now, entries: driveEntries },
-  };
-}
-
 export function buildContentStressHtml(): string {
   const passwordInputs = Array.from({ length: 500 }, (_, index) => (
     `<input type="password" name="perf-password-${index}" value="fixture">`
@@ -435,7 +394,7 @@ export function buildJavDbStressHtml(itemCount: number): string {
   const count = Math.max(0, Math.trunc(itemCount));
   const items = Array.from({ length: count }, (_, index) => {
     const code = `PERF-${String(index + 1).padStart(4, '0')}`;
-    return `<div class="item"><a class="box" href="/v/${code}"><div class="video-title">${code} 测试影片</div><img alt="${code}" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="></a><div class="tags"><a class="tag">测试</a><a class="tag">列表</a></div></div>`;
+    return `<div class="item"><a class="box" href="/v/${code}"><div class="video-title"><strong>${code}</strong> 测试影片</div><img alt="${code}" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="></a><div class="tags"><a class="tag">测试</a><a class="tag">列表</a></div></div>`;
   }).join('');
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>JavDB performance fixture</title></head>
@@ -452,7 +411,12 @@ export function buildJavDbStressHtml(itemCount: number): string {
       const link = document.createElement('a');
       link.className = 'box';
       link.href = '/v/' + code;
-      link.textContent = code;
+       const title = document.createElement('div');
+       title.className = 'video-title';
+       const strong = document.createElement('strong');
+       strong.textContent = code;
+       title.append(strong, document.createTextNode(' 测试影片'));
+       link.appendChild(title);
       item.appendChild(link);
       list.appendChild(item);
       tick += 1;
@@ -799,6 +763,29 @@ async function resolveProfileDirectory(): Promise<string> {
   return path.resolve(process.cwd(), '.test-profiles', `windows-performance-${Date.now()}`);
 }
 
+async function prepareWindowsHostDataProfile(profileDir: string): Promise<string> {
+  const harnessOptions = resolveExtensionHarnessOptions({
+    ...process.env,
+    JAVDB_EXTENSION_USE_CHROME_DATA: '1',
+  }, process.cwd());
+  if (!harnessOptions.chromeDataSnapshot.enabled) {
+    throw new Error('Windows 宿主数据性能模式需要启用 Chrome 快照。');
+  }
+  const snapshot = await ensureChromeDataSnapshot(harnessOptions.chromeDataSnapshot);
+  await prepareChromeTestProfile({
+    snapshotDir: harnessOptions.chromeDataSnapshot.snapshotDir,
+    destinationUserDataDir: profileDir,
+    sourceUserDataDir: snapshot.metadata.sourceUserDataDir,
+    sourceProfile: snapshot.metadata.sourceProfile,
+    allowedExtensionIds: ['gnegjfjccmeafanpmbjboegcbchcghka'],
+  });
+  console.info(
+    `[Windows] 使用宿主 Chrome 隔离快照：${new Date(snapshot.metadata.copiedAt).toISOString()}`
+      + `（${snapshot.refreshed ? '本次已刷新' : '10 天内复用'}，profile=${snapshot.metadata.sourceProfile}）`,
+  );
+  return snapshot.metadata.sourceProfile;
+}
+
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback;
@@ -809,9 +796,24 @@ export function shouldRunNoExtensionControl(value: string | undefined): boolean 
   return normalized === '1' || normalized === 'true';
 }
 
+export function shouldUseHostChromeData(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true';
+}
+
 export function shouldDisableGpu(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase();
   return normalized === '1' || normalized === 'true';
+}
+
+export function shouldEnableListPreview(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true';
+}
+
+export function buildPerformanceProxyArgs(value: string | undefined): string[] {
+  const normalized = value?.trim();
+  return normalized ? [`--proxy-server=${normalized}`] : [];
 }
 
 export function parsePerformanceScenarioSelection(value: string | undefined): Set<string> | null {
@@ -825,10 +827,46 @@ export function parsePerformanceScenarioSelection(value: string | undefined): Se
   return new Set(names);
 }
 
+export function parseJavDbSourceTabCounts(value: string | undefined): number[] {
+  const counts = (value ?? '1,2,3,4,5,6,7,8,9,10')
+    .split(',')
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isFinite(item) && item >= 1)
+    .map((item) => Math.trunc(item));
+  return [...new Set(counts)].sort((left, right) => left - right);
+}
+
+const DEFAULT_DASHBOARD_TAB_SEQUENCE = [
+  'tab-home',
+  'tab-records',
+  'tab-media',
+  'tab-actors',
+  'tab-new-works',
+  'tab-settings',
+] as const;
+
+export function parseDashboardTabSequence(value: string | undefined): string[] {
+  const allowed = new Set(DEFAULT_DASHBOARD_TAB_SEQUENCE);
+  const parsed = (value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item): item is string => allowed.has(item as typeof DEFAULT_DASHBOARD_TAB_SEQUENCE[number]));
+  return parsed.length > 0 ? [...new Set(parsed)] : [...DEFAULT_DASHBOARD_TAB_SEQUENCE];
+}
+
+export function javDbSourceTabScenarioName(count: number): string {
+  return `javdb-source-home-${Math.max(1, Math.trunc(count))}-tabs`;
+}
+
 export function shouldRunPerformanceScenario(selection: Set<string> | null, name: string): boolean {
   return selection === null
     || selection.has(name)
-    || (name.startsWith('drive115-index-mock-') && selection.has('drive115-index-mock'));
+    || (name.startsWith('drive115-index-mock-') && selection.has('drive115-index-mock'))
+    || (name.startsWith('javdb-source-home-') && selection.has('javdb-source-tab-matrix'));
+}
+
+export function shouldKeepBrowserAliveForAfterDashboardClose(selection: Set<string> | null): boolean {
+  return shouldRunPerformanceScenario(selection, 'after-dashboard-close');
 }
 
 export function selectInitialDashboardHash(selection: Set<string> | null): '#tab-home' | '#tab-media' {
@@ -841,6 +879,7 @@ export function selectInitialDashboardHash(selection: Set<string> | null): '#tab
     || selection.has('dashboard-tab-switch-churn')
     || selection.has('dashboard-media-115-multi-tab')
     || selection.has('dashboard-media-115-same-tab')
+    || selection.has('javdb-source-tab-matrix')
     ? '#tab-home'
     : '#tab-media';
 }
@@ -872,6 +911,7 @@ async function runNoExtensionControl(options: {
     args: [
       '--no-first-run',
       '--no-default-browser-check',
+      ...buildPerformanceProxyArgs(process.env.JAVDB_PERF_PROXY_SERVER),
       ...(options.disableGpu ? ['--disable-gpu'] : []),
     ],
   });
@@ -936,13 +976,21 @@ async function main(): Promise<void> {
   const scenarioSelection = parsePerformanceScenarioSelection(process.env.JAVDB_PERF_SCENARIOS);
   const shouldRunScenario = (name: string): boolean => shouldRunPerformanceScenario(scenarioSelection, name);
   const disableGpu = shouldDisableGpu(process.env.JAVDB_PERF_DISABLE_GPU);
+  const useHostChromeData = shouldUseHostChromeData(process.env.JAVDB_PERF_USE_CHROME_DATA);
+  const isSourceTabMatrix = scenarioSelection?.has('javdb-source-tab-matrix') === true;
+  const enableListPreviewStress = shouldEnableListPreview(process.env.JAVDB_PERF_ENABLE_LIST_PREVIEW);
   const useSystemChrome = browserChannel === 'chrome' || browserChannel === 'msedge';
   const browserExecutable = useSystemChrome
     ? await resolveChromeExecutable()
     : chromium.executablePath();
   await fs.mkdir(reportDir, { recursive: true });
-  await fs.rm(profileDir, { recursive: true, force: true });
-  await fs.mkdir(profileDir, { recursive: true });
+  const sourceProfile = useHostChromeData
+    ? await prepareWindowsHostDataProfile(profileDir)
+    : null;
+  if (!useHostChromeData) {
+    await fs.rm(profileDir, { recursive: true, force: true });
+    await fs.mkdir(profileDir, { recursive: true });
+  }
 
   if (shouldRunNoExtensionControl(process.env.JAVDB_PERF_NO_EXTENSION)) {
     await runNoExtensionControl({
@@ -972,6 +1020,11 @@ async function main(): Promise<void> {
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-features=DisableLoadExtensionCommandLineSwitch',
+      ...(sourceProfile ? [`--profile-directory=${sourceProfile}`] : []),
+      ...buildPerformanceProxyArgs(process.env.JAVDB_PERF_PROXY_SERVER),
+      ...(useHostChromeData && !isSourceTabMatrix
+        ? ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost']
+        : []),
       ...(disableGpu ? ['--disable-gpu'] : []),
       `--disable-extensions-except=${extensionDir}`,
       `--load-extension=${extensionDir}`,
@@ -996,6 +1049,7 @@ async function main(): Promise<void> {
   let extensionId: string;
   try {
     extensionId = await readExtensionId(context);
+    await suppressReleaseAnnouncementForTest(context);
   } catch (error) {
     await context.close();
     throw error;
@@ -1008,10 +1062,85 @@ async function main(): Promise<void> {
   });
   const client = await context.newCDPSession(page);
   await client.send('Performance.enable');
+  if (useHostChromeData) {
+    const isolationResponse = await client.send('Runtime.evaluate', {
+      expression: buildWslExternalSyncIsolationExpression({ clearCloudPending: true }),
+      returnByValue: true,
+      awaitPromise: true,
+    }) as {
+      result?: { value?: unknown };
+      exceptionDetails?: unknown;
+    };
+    const isolationResult = isolationResponse.result?.value;
+    if (isolationResponse.exceptionDetails
+      || !isolationResult
+      || typeof isolationResult !== 'object'
+      || (isolationResult as { ok?: unknown }).ok !== true) {
+      throw new Error(`Windows 宿主数据性能模式无法关闭外部同步：${JSON.stringify(
+        isolationResult && typeof isolationResult === 'object'
+          ? (isolationResult as { checks?: unknown }).checks
+          : isolationResult,
+      )}`);
+    }
+  }
   const currentPids = await getChromeProcessIds();
   selectTrackedWindowsProcessIds(currentPids, ignoredPids).forEach((pid) => trackedPids.add(pid));
 
   const scenarios: WindowsProbeScenario[] = [];
+  if (scenarioSelection?.has('javdb-source-tab-matrix')) {
+    const sourceTabCounts = parseJavDbSourceTabCounts(process.env.JAVDB_PERF_SOURCE_TAB_COUNTS);
+    const sourcePages: Page[] = [];
+    try {
+      await page.evaluate(async () => {
+        await chrome.storage.local.set({
+          settings: {
+            userExperience: {
+              enablePasswordHelper: false,
+              enableListEnhancement: true,
+              enableContentFilter: false,
+              enableActorEnhancement: false,
+            },
+            listEnhancement: {
+              enableClickEnhancement: true,
+              enableClickEnhancementList: true,
+              enableClickEnhancementDetail: true,
+              enableVideoPreview: enableListPreviewStress,
+              enableListOptimization: true,
+              enableScrollPaging: false,
+              enableRightClickBackground: true,
+            },
+          },
+        });
+      });
+      for (const count of sourceTabCounts) {
+        while (sourcePages.length < count) {
+          const sourcePage = sourcePages.length === 0 ? page : await context.newPage();
+          capturePageErrors(sourcePage);
+          sourcePages.push(sourcePage);
+          await sourcePage.goto('https://javdb.com/', { waitUntil: 'domcontentloaded' });
+        }
+        const manualPauseMs = parsePositiveInteger(process.env.JAVDB_PERF_SOURCE_TAB_MANUAL_PAUSE_MS, 0);
+        if (manualPauseMs > 0 && count === sourceTabCounts[sourceTabCounts.length - 1]) {
+          console.log(`源站标签矩阵已打开 ${count} 个页面，等待人工通过验证 ${manualPauseMs}ms。`);
+          await waitForMilliseconds(manualPauseMs);
+        }
+        const samplePage = sourcePages[0] ?? null;
+        const sampleClient = samplePage && !samplePage.isClosed()
+          ? await context.newCDPSession(samplePage)
+          : null;
+        if (sampleClient) await sampleClient.send('Performance.enable');
+        scenarios.push(await sampleScenario(samplePage, sampleClient, browserClient, trackedPids, ignoredPids, javDbSourceTabScenarioName(count), {
+          warmupMs: Math.min(warmupMs, 5_000),
+          sampleMs: Math.min(sampleMs, 15_000),
+          cooldownMs: 0,
+          intervalMs: sampleIntervalMs,
+        }, consoleErrors));
+        if (sampleClient) await sampleClient.detach().catch(() => {});
+      }
+    } finally {
+      await Promise.all(sourcePages.filter((sourcePage) => sourcePage !== page).map((sourcePage) => sourcePage.close()));
+    }
+  }
   if (shouldRunScenario('popup-dashboard-reuse')) {
     const popupPage = await context.newPage();
     let dashboardPageCount = 0;
@@ -1114,14 +1243,7 @@ async function main(): Promise<void> {
       await chrome.storage.local.set(fixtureValue);
     }, churnFixture);
     await page.waitForTimeout(500);
-    const tabSequence = [
-      'tab-home',
-      'tab-records',
-      'tab-media',
-      'tab-actors',
-      'tab-new-works',
-      'tab-settings',
-    ];
+    const tabSequence = parseDashboardTabSequence(process.env.JAVDB_PERF_TAB_SEQUENCE);
     const rounds = Math.max(1, parsePositiveInteger(process.env.JAVDB_PERF_TAB_SWITCH_ROUNDS, 30));
     const tabSwitchChurn = page.evaluate(async ({ sequence, repeat }) => {
       for (let round = 0; round < repeat; round += 1) {
@@ -1228,81 +1350,80 @@ async function main(): Promise<void> {
   const shouldPrepareMediaFixture = [mediaItemsScenario, mediaSearchScenario, mediaChurnScenario, mediaCoverScenario]
     .some((name) => shouldRunScenario(name));
   let fixture: PerformanceMediaFixture | null = null;
-  if (shouldPrepareMediaFixture) {
-    fixture = buildPerformanceMediaFixture(fixtureCount, Date.now(), mockCover?.url);
-    await page.evaluate(async (value: PerformanceMediaFixture) => {
-      await chrome.storage.local.set(value);
-    }, fixture);
-    await page.reload({ waitUntil: 'domcontentloaded' });
-  }
-  if (fixture && shouldRunScenario(mediaItemsScenario)) {
-    scenarios.push(await sampleScenario(page, client, browserClient, trackedPids, ignoredPids, mediaItemsScenario, {
-      warmupMs,
-      sampleMs,
-      cooldownMs: 0,
-      intervalMs: sampleIntervalMs,
-    }, consoleErrors));
-  }
+  await withWindowsPerformanceServer(mockCover ?? { close: async () => undefined }, async () => {
+    if (shouldPrepareMediaFixture) {
+      fixture = buildPerformanceMediaFixture(fixtureCount, Date.now(), mockCover?.url);
+      await page.evaluate(async (value: PerformanceMediaFixture) => {
+        await chrome.storage.local.set(value);
+      }, fixture);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+    }
+    if (fixture && shouldRunScenario(mediaItemsScenario)) {
+      scenarios.push(await sampleScenario(page, client, browserClient, trackedPids, ignoredPids, mediaItemsScenario, {
+        warmupMs,
+        sampleMs,
+        cooldownMs: 0,
+        intervalMs: sampleIntervalMs,
+      }, consoleErrors));
+    }
 
-  if (fixture && shouldRunScenario(mediaSearchScenario)) {
-    const searchInput = page.locator('input[aria-label="搜索媒体库"]');
-    if (await searchInput.count() > 0) {
-      await searchInput.fill('PERF-0002');
-      scenarios.push(await sampleScenario(page, client, browserClient, trackedPids, ignoredPids, mediaSearchScenario, {
+    if (fixture && shouldRunScenario(mediaSearchScenario)) {
+      const searchInput = page.locator('input[aria-label="搜索媒体库"]');
+      if (await searchInput.count() > 0) {
+        await searchInput.fill('PERF-0002');
+        scenarios.push(await sampleScenario(page, client, browserClient, trackedPids, ignoredPids, mediaSearchScenario, {
+          warmupMs: 1_000,
+          sampleMs: Math.min(sampleMs, 15_000),
+          cooldownMs: 0,
+          intervalMs: sampleIntervalMs,
+        }, consoleErrors));
+        await searchInput.fill('');
+      }
+    }
+
+    if (fixture && shouldRunScenario(mediaChurnScenario)) {
+      const snapshotChurnEntries = fixture.drive115_library_state.entries;
+      await page.evaluate((entries: PerformanceMediaFixture['drive115_library_state']['entries']) => {
+        const scope = globalThis as typeof globalThis & { __javdbPerfSnapshotChurn?: Promise<void> };
+        scope.__javdbPerfSnapshotChurn = (async () => {
+          for (let index = 1; index <= 60; index += 1) {
+            await chrome.storage.local.set({
+              drive115_library_state: {
+                updatedAt: Date.now(),
+                entries: entries.slice(0, Math.min(entries.length, Math.max(1, index * 24))),
+              },
+            });
+            await new Promise<void>((resolve) => setTimeout(resolve, 100));
+          }
+        })();
+      }, snapshotChurnEntries);
+      scenarios.push(await sampleScenario(page, client, browserClient, trackedPids, ignoredPids, mediaChurnScenario, {
+        warmupMs: 500,
+        sampleMs: Math.min(sampleMs, 15_000),
+        cooldownMs: 0,
+        intervalMs: sampleIntervalMs,
+      }, consoleErrors));
+    }
+
+    if (fixture && shouldRunMediaCoverScenario) {
+      await page.evaluate(async () => {
+        const step = Math.max(window.innerHeight || 600, 600);
+        const maxTop = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+        for (let top = 0; top < maxTop; top += step) {
+          window.scrollTo(0, top);
+          await new Promise<void>((resolve) => setTimeout(resolve, 75));
+        }
+        window.scrollTo(0, 0);
+      });
+      scenarios.push(await sampleScenario(page, client, browserClient, trackedPids, ignoredPids, mediaCoverScenario, {
         warmupMs: 1_000,
         sampleMs: Math.min(sampleMs, 15_000),
         cooldownMs: 0,
         intervalMs: sampleIntervalMs,
       }, consoleErrors));
-      await searchInput.fill('');
+      console.log(`封面 Mock 请求数：${mockCover?.requestCount ?? 0}`);
     }
-  }
-
-  if (fixture && shouldRunScenario(mediaChurnScenario)) {
-    const snapshotChurnEntries = fixture.drive115_library_state.entries;
-    await page.evaluate((entries: PerformanceMediaFixture['drive115_library_state']['entries']) => {
-      const scope = globalThis as typeof globalThis & { __javdbPerfSnapshotChurn?: Promise<void> };
-      scope.__javdbPerfSnapshotChurn = (async () => {
-        for (let index = 1; index <= 60; index += 1) {
-          await chrome.storage.local.set({
-            drive115_library_state: {
-              updatedAt: Date.now(),
-              entries: entries.slice(0, Math.min(entries.length, Math.max(1, index * 24))),
-            },
-          });
-          await new Promise<void>((resolve) => setTimeout(resolve, 100));
-        }
-      })();
-    }, snapshotChurnEntries);
-    scenarios.push(await sampleScenario(page, client, browserClient, trackedPids, ignoredPids, mediaChurnScenario, {
-      warmupMs: 500,
-      sampleMs: Math.min(sampleMs, 15_000),
-      cooldownMs: 0,
-      intervalMs: sampleIntervalMs,
-    }, consoleErrors));
-  }
-
-  if (fixture && shouldRunMediaCoverScenario) {
-    await page.evaluate(async () => {
-      const step = Math.max(window.innerHeight || 600, 600);
-      const maxTop = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-      for (let top = 0; top < maxTop; top += step) {
-        window.scrollTo(0, top);
-        await new Promise<void>((resolve) => setTimeout(resolve, 75));
-      }
-      window.scrollTo(0, 0);
-    });
-    scenarios.push(await sampleScenario(page, client, browserClient, trackedPids, ignoredPids, mediaCoverScenario, {
-      warmupMs: 1_000,
-      sampleMs: Math.min(sampleMs, 15_000),
-      cooldownMs: 0,
-      intervalMs: sampleIntervalMs,
-    }, consoleErrors));
-    console.log(`封面 Mock 请求数：${mockCover?.requestCount ?? 0}`);
-  }
-  if (mockCover) {
-    await mockCover.close();
-  }
+  });
 
   const mock115FolderCount = parsePositiveInteger(process.env.JAVDB_PERF_115_FOLDERS, 24);
   const mock115SampleMs = parsePositiveInteger(
@@ -1430,7 +1551,7 @@ async function main(): Promise<void> {
               enableClickEnhancement: true,
               enableClickEnhancementList: true,
               enableClickEnhancementDetail: true,
-              enableVideoPreview: false,
+              enableVideoPreview: enableListPreviewStress,
               enableListOptimization: true,
               enableScrollPaging: false,
               enableRightClickBackground: true,
@@ -1496,19 +1617,22 @@ async function main(): Promise<void> {
         enableClickEnhancement: true,
         enableClickEnhancementList: true,
         enableClickEnhancementDetail: true,
-        enableVideoPreview: false,
+        enableVideoPreview: enableListPreviewStress,
         enableListOptimization: true,
         enableScrollPaging: false,
         enableRightClickBackground: true,
       },
     });
     await contentPage.goto('https://javdb.com/search?q=PERF', { waitUntil: 'domcontentloaded' });
-    scenarios.push(await sampleScenario(contentPage, contentClient, browserClient, trackedPids, ignoredPids, 'javdb-list-enhancement', {
+    const listEnhancementClient = await context.newCDPSession(contentPage);
+    await listEnhancementClient.send('Performance.enable');
+    scenarios.push(await sampleScenario(contentPage, listEnhancementClient, browserClient, trackedPids, ignoredPids, 'javdb-list-enhancement', {
       warmupMs: 2_000,
       sampleMs: Math.min(sampleMs, 15_000),
       cooldownMs: 0,
       intervalMs: sampleIntervalMs,
     }, consoleErrors));
+    await listEnhancementClient.detach().catch(() => {});
     await context.unroute('https://javdb.com/*');
   }
 
@@ -1554,6 +1678,10 @@ async function main(): Promise<void> {
     }
     await context.unroute('http://localhost/web/*');
   }
+  // 保留一个空白页维持持久上下文和浏览器级 CDP 会话，才能在关闭 Dashboard 后继续采集进程回落。
+  const closeRecoveryKeepAlivePage = shouldKeepBrowserAliveForAfterDashboardClose(scenarioSelection)
+    ? await context.newPage()
+    : null;
   await contentPage.close();
 
   if (shouldRunScenario('after-dashboard-close')) {
@@ -1563,6 +1691,7 @@ async function main(): Promise<void> {
       intervalMs: sampleIntervalMs,
     }, consoleErrors));
   }
+  await closeRecoveryKeepAlivePage?.close();
 
   const report: WindowsPerformanceReport = {
     version: 4,

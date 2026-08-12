@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jav 助手",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Jav视频浏览助手，提供观看标记、高级筛选和数据管理功能。",
   "permissions": [
     "storage",

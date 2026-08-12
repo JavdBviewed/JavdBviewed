@@ -2,7 +2,7 @@
   "name": "javdbviewed",
   "private": true,
   "type": "module",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "license": "AGPL-3.0-only",
   "description": "JavdBviewed monorepo — browser extension + shared sync packages",
   "scripts": {
@@ -31,7 +31,8 @@
     "version:patch": "pnpm tsx scripts/version.ts patch",
     "version:build": "pnpm tsx scripts/version.ts",
     "test:extension:e2e": "pnpm run build:extension && playwright test --config playwright.extension.config.ts",
-    "test:extension:open": "pnpm run build:extension && tsx scripts/openExtensionBrowser.ts"
+    "test:extension:open": "pnpm run build:extension && tsx scripts/openExtensionBrowser.ts",
+    "perf:remote": "tsx scripts/remoteCdpPerformanceProbe.ts"
   },
   "dependencies": {
     "@javdb/sync-client": "workspace:*",
@@ -62,7 +63,7 @@
     "@vitest/coverage-v8": "^2.1.9",
     "archiver": "^7.0.1",
     "autoprefixer": "^10.5.3",
-    "jsdom": "^29.1.1",
+    "jsdom": "24.1.3",
     "postcss": "^8.5.19",
     "rimraf": "^6.0.1",
     "storybook": "^8.6.18",

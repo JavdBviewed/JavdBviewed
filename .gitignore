@@ -125,4 +125,5 @@ docs/superpowers/
 
 # Local browser profiles for extension E2E/manual testing
 .test-profiles/
+.test-tools/
 test-results/

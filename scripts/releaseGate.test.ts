@@ -4,6 +4,7 @@ import {
   assertReleaseFileSet,
   assertReleaseVersionArtifacts,
   assertSafeReleaseEntries,
+  buildPnpmInvocation,
   assertSourceManifest,
   getForbiddenReleaseEntryReason,
 } from './releaseGate';
@@ -34,5 +35,16 @@ describe('release gate', () => {
     expect(() => assertReleaseFileSet(['manifest.json', 'assets/app.js'], ['manifest.json', 'assets/app.js'])).not.toThrow();
     expect(() => assertReleaseFileSet(['manifest.json'], ['manifest.json', 'assets/app.js'])).toThrow(/缺少/);
     expect(() => assertReleaseFileSet(['manifest.json', 'assets/app.js', 'extra.js'], ['manifest.json', 'assets/app.js'])).toThrow(/多出/);
+  });
+
+  it('uses an explicit cmd invocation on Windows so build environment variables reach pnpm scripts', () => {
+    expect(buildPnpmInvocation(['run', 'build'], 'win32', 'C:\\Windows\\System32\\cmd.exe')).toEqual({
+      file: 'C:\\Windows\\System32\\cmd.exe',
+      args: ['/d', '/s', '/c', 'pnpm.cmd run build'],
+    });
+    expect(buildPnpmInvocation(['run', 'build'], 'linux')).toEqual({
+      file: 'pnpm',
+      args: ['run', 'build'],
+    });
   });
 });
