@@ -32,6 +32,7 @@ import {
 } from './indexedDbViewedIndexes';
 import { loadActorsForTrend } from './actorTrendQuery';
 export { initDB } from './indexedDbConnection';
+export { viewedStatusGetMany } from './indexedDbViewedStatus';
 export type {
   MagnetCacheRecord,
   NewWorksDailyStat,
@@ -892,7 +893,6 @@ export async function viewedGet(videoId: string): Promise<VideoRecord | undefine
   const db = await initDB();
   return db.get('viewedRecords', videoId);
 }
-
 export async function viewedDelete(videoId: string): Promise<void> {
   const db = await initDB();
   const record = await db.get('viewedRecords', videoId) as VideoRecord | undefined;
@@ -1898,46 +1898,48 @@ export async function actorsStats(): Promise<{ total: number; byGender: Record<s
   const db = await initDB();
   const tx = db.transaction('actors');
   const store = tx.store;
-  
-  // 使用索引优化查询
-  const total = await store.count();
-  
+
   const now = Date.now();
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-  
-  // 统计性别分布 - 直接遍历所有记录
-  const byGender: Record<string, number> = {};
-  const byCategory: Record<string, number> = {};
-  let blacklisted = 0;
-  let recentlyAdded = 0;
-  let recentlyUpdated = 0;
 
-  // 一次性获取所有数据进行统计
-  const all = await store.getAll();
-  for (const actor of all) {
-    // 统计性别
-    if (actor.gender) {
-      byGender[actor.gender] = (byGender[actor.gender] || 0) + 1;
-    }
-    // 统计分类
-    if (actor.category) {
-      byCategory[actor.category] = (byCategory[actor.category] || 0) + 1;
-    }
-    // 统计黑名单
-    if (actor.blacklisted) {
-      blacklisted++;
-    }
-    // 统计最近添加
-    if (actor.createdAt && actor.createdAt > weekAgo) {
-      recentlyAdded++;
-    }
-    // 统计最近更新
-    if (actor.updatedAt && actor.updatedAt > weekAgo) {
-      recentlyUpdated++;
-    }
-  }
-  
-  return { total, byGender, byCategory, blacklisted, recentlyAdded, recentlyUpdated };
+  const countIndexed = (indexName: 'by_gender' | 'by_category' | 'by_createdAt' | 'by_updatedAt', key: IDBValidKey | IDBKeyRange): Promise<number> => (
+    store.index(indexName).count(key as any).catch(() => 0)
+  );
+  // IndexedDB does not support boolean index keys, so legacy `blacklisted`
+  // values are absent from `by_blacklisted` and must be counted directly.
+  const blacklistedActors = await store.getAll();
+  const [
+    total,
+    female,
+    male,
+    unknownGender,
+    censored,
+    uncensored,
+    western,
+    unknownCategory,
+    recentlyAdded,
+    recentlyUpdated,
+  ] = await Promise.all([
+    store.count(),
+    countIndexed('by_gender', IDBKeyRange.only('female')),
+    countIndexed('by_gender', IDBKeyRange.only('male')),
+    countIndexed('by_gender', IDBKeyRange.only('unknown')),
+    countIndexed('by_category', IDBKeyRange.only('censored')),
+    countIndexed('by_category', IDBKeyRange.only('uncensored')),
+    countIndexed('by_category', IDBKeyRange.only('western')),
+    countIndexed('by_category', IDBKeyRange.only('unknown')),
+    countIndexed('by_createdAt', IDBKeyRange.lowerBound(weekAgo, true)),
+    countIndexed('by_updatedAt', IDBKeyRange.lowerBound(weekAgo, true)),
+  ]);
+
+  return {
+    total,
+    byGender: { female, male, unknown: unknownGender },
+    byCategory: { censored, uncensored, western, unknown: unknownCategory },
+    blacklisted: blacklistedActors.filter((actor: any) => actor?.blacklisted === true).length,
+    recentlyAdded,
+    recentlyUpdated,
+  };
 }
 
 export async function actorsExportJSON(): Promise<string> {
@@ -2013,10 +2015,39 @@ export async function newWorksGet(id: string): Promise<NewWorkRecord | undefined
 export async function newWorksQuery(params: NewWorksQueryParams): Promise<{ items: NewWorkRecord[]; total: number; }> {
   const { search = '', filter = 'all', sort = 'discoveredAt', order = 'desc', offset = 0, limit = 20 } = params || {} as any;
   const db = await initDB();
+  const normalizedSearch = search.trim();
+  const canUseDiscoveredAtPage = normalizedSearch.length === 0
+    && filter === 'all'
+    && sort === 'discoveredAt'
+    && Number.isInteger(offset)
+    && offset >= 0
+    && Number.isInteger(limit)
+    && limit >= 0;
+
+  if (canUseDiscoveredAtPage) {
+    const store = db.transaction('newWorks').store;
+    const discoveredAtIndex = store.index('by_discoveredAt');
+    const total = await discoveredAtIndex.count();
+    const items: NewWorkRecord[] = [];
+    let cursor = await discoveredAtIndex.openCursor(undefined, order === 'asc' ? 'next' : 'prev');
+    let skipped = 0;
+
+    while (cursor && skipped < offset) {
+      cursor = await cursor.continue();
+      skipped += 1;
+    }
+    while (cursor && items.length < limit) {
+      items.push(cursor.value);
+      cursor = await cursor.continue();
+    }
+
+    return { items, total };
+  }
+
   let items = await db.getAll('newWorks');
   console.log(`[IDB] newWorksQuery: 从 IndexedDB 获取到 ${items.length} 个作品`, { search, filter, sort, order, offset, limit });
 
-  const q = (search || '').trim().toLowerCase();
+  const q = normalizedSearch.toLowerCase();
   if (q) {
     items = items.filter(w => (w.title || '').toLowerCase().includes(q) || (w.actorName || '').toLowerCase().includes(q) || (w.id || '').toLowerCase().includes(q));
   }

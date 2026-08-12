@@ -4,6 +4,7 @@
 import type { LogEntry, VideoRecord, ListRecord, NewWorkRecord } from '../types';
 import type { ViewsDaily, ReportMonthly } from '../types/insights';
 import type { ActorRecord } from '../types';
+import { readLocalViewedStatuses } from './localViewedStatus';
 
 export interface MagnetsQueryParams {
   videoId: string;
@@ -179,6 +180,24 @@ export async function dbViewedGet(id: string): Promise<VideoRecord | undefined> 
   const resp = await sendMessage<{ success: true; record?: VideoRecord }>('DB:VIEWED_GET', { id });
   // @ts-ignore
   return resp.record;
+}
+
+export async function dbViewedStatusGetMany(
+  ids: readonly string[],
+): Promise<Array<Pick<VideoRecord, 'id' | 'status'>>> {
+  if (ids.length === 0) return [];
+  if (typeof window !== 'undefined' && typeof indexedDB !== 'undefined') {
+    try {
+      return await readLocalViewedStatuses(ids);
+    } catch {
+      // 非 Dashboard 页面、旧数据库或升级窗口继续使用后台兼容路径。
+    }
+  }
+  const resp = await sendMessage<{
+    success: true;
+    records?: Array<Pick<VideoRecord, 'id' | 'status'>>;
+  }>('DB:VIEWED_STATUS_GET_MANY', { ids: [...new Set(ids)] }, 30000);
+  return resp.records || [];
 }
 
 export async function dbViewedDelete(id: string): Promise<void> {

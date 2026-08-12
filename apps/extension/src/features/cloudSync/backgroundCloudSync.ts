@@ -39,7 +39,7 @@ async function ensureCloudSessionFromSavedCredentials(): Promise<boolean> {
           id: settings.deviceId,
           label: settings.deviceLabel,
           clientType: 'extension',
-          platform: navigator.userAgent.slice(0, 120),
+          platform: typeof navigator === 'undefined' ? '' : navigator.userAgent.slice(0, 120),
         },
       });
       return Boolean((await loadCloudSession())?.accessToken);

@@ -18,14 +18,33 @@ import type {
 } from './types';
 import type { VideoRecord } from '../../types';
 import { actorManager } from '../actors';
-import { dbNewWorksQuery, dbNewWorksStats, dbNewWorksGet, dbNewWorksPut, dbNewWorksBulkPut, dbNewWorksDelete, dbNewWorksGetAll } from '../../dashboard/dbClient';
+import { dbNewWorksQuery, dbNewWorksStats, dbNewWorksGet, dbNewWorksPut, dbNewWorksBulkPut, dbNewWorksDelete, dbNewWorksGetAll, dbViewedStatusGetMany } from '../../dashboard/dbClient';
 import { dbViewedPage } from '../../dashboard/dbClient';
+import { recordNewWorksDiagnosticCounter, recordNewWorksDiagnosticError, recordNewWorksDiagnosticValue, beginNewWorksDiagnosticSpan } from './newWorksDiagnostics';
+import { createNewWorksAutoStatusSyncGate } from './autoStatusSyncGate';
+import { buildViewedStatusMap, collectNewWorkMatchIds } from './statusSyncSelection';
+
+const NEW_WORKS_AUTO_STATUS_SYNC_TTL_MS = 5 * 60 * 1000;
+
+export interface NewWorksStatusSyncOptions {
+    force?: boolean;
+}
+
+export interface NewWorksStatusSyncResult {
+    updated: number;
+    details: Array<{ id: string; oldStatus: string; newStatus: string }>;
+    skipped?: boolean;
+}
 
 export class NewWorksManager {
     private subscriptions: Map<string, ActorSubscription> = new Map();
     private newWorks: Map<string, NewWorkRecord> = new Map();
     private globalConfig: NewWorksGlobalConfig = DEFAULT_NEW_WORKS_CONFIG;
     private isLoaded = false;
+    private readonly autoStatusSyncGate = createNewWorksAutoStatusSyncGate<NewWorksStatusSyncResult>({
+        ttlMs: NEW_WORKS_AUTO_STATUS_SYNC_TTL_MS,
+        createSkipped: () => ({ updated: 0, details: [], skipped: true }),
+    });
 
     /**
      * 初始化新作品管理器
@@ -207,13 +226,17 @@ export class NewWorksManager {
         sort?: string;
         page?: number;
         pageSize?: number;
+        includeStats?: boolean;
     }): Promise<NewWorksSearchResult> {
         await this.initialize();
 
         const { search = '', filter = 'all', sort = 'discoveredAt_desc', page = 1, pageSize = 20 } = filters || {};
+        const includeStats = filters?.includeStats !== false;
 
         // 优先使用 IDB 查询
         try {
+            recordNewWorksDiagnosticCounter('manager.dbNewWorksQuery.calls');
+            const queryEnd = beginNewWorksDiagnosticSpan('manager.dbNewWorksQuery.duration');
             const sortField = (sort.split('_')[0] as 'discoveredAt' | 'releaseDate' | 'actorName');
             const sortOrder = (sort.split('_')[1] === 'asc' ? 'asc' : 'desc');
             const { items, total } = await dbNewWorksQuery({
@@ -224,15 +247,10 @@ export class NewWorksManager {
                 offset: (page - 1) * pageSize,
                 limit: pageSize,
             });
-            const statsLite = await dbNewWorksStats();
-            const stats = {
-                totalSubscriptions: (await this.getSubscriptions()).length,
-                activeSubscriptions: (await this.getSubscriptions()).filter(s => s.enabled).length,
-                totalNewWorks: statsLite.total,
-                unreadWorks: statsLite.unread,
-                todayDiscovered: statsLite.today,
-                lastCheckTime: this.globalConfig.lastGlobalCheck,
-            } as NewWorksStats;
+            queryEnd();
+            recordNewWorksDiagnosticValue('manager.dbNewWorksQuery.total', total);
+            recordNewWorksDiagnosticValue('manager.dbNewWorksQuery.items', items.length);
+            const stats = includeStats ? await this.getStats() : this.getCachedStats();
 
             return {
                 works: items,
@@ -360,65 +378,78 @@ export class NewWorksManager {
      * 同步新作品状态与番号库记录
      * 检查番号库中是否有对应记录，如果有则更新新作品的状态
      */
-    async syncWithVideoRecords(): Promise<{ updated: number; details: Array<{ id: string; oldStatus: string; newStatus: string }> }> {
+    async syncWithVideoRecords(options: NewWorksStatusSyncOptions = { force: true }): Promise<NewWorksStatusSyncResult> {
         await this.initialize();
+        return this.autoStatusSyncGate.run(
+            () => this.syncWithVideoRecordsInternal(),
+            { force: options.force !== false },
+        );
+    }
 
-        // 优先从 IDB 分页获取所有 viewed 记录，构建 Map
-        const viewedMap: Record<string, VideoRecord> = {} as any;
-        try {
-            let offset = 0;
-            const limit = 1000;
-            // 先获取总数
-            let page = await dbViewedPage({ offset, limit, orderBy: 'updatedAt', order: 'desc' });
-            let total = page.total;
-            while (true) {
-                page.items.forEach(v => { if (v?.id) viewedMap[v.id] = v; });
-                offset += limit;
-                if (offset >= total) break;
-                page = await dbViewedPage({ offset, limit, orderBy: 'updatedAt', order: 'desc' });
-            }
-        } catch (e) {
-            const fallback = await getValue<Record<string, VideoRecord>>(STORAGE_KEYS.VIEWED_RECORDS, {});
-            Object.assign(viewedMap, fallback);
-        }
-
-        log.info(`[NewWorks] 番号库中共有 ${Object.keys(viewedMap).length} 条记录`);
-
-        // 从 IDB 获取全部新作品
-        let works = [] as NewWorkRecord[];
+    private async syncWithVideoRecordsInternal(): Promise<NewWorksStatusSyncResult> {
+        // 先读取新作品，再只查询它们实际涉及的番号状态，避免复制整张番号库。
+        let works: NewWorkRecord[] = [];
         try {
             works = await dbNewWorksGetAll();
+            recordNewWorksDiagnosticCounter('manager.dbNewWorksGetAll.calls');
+            recordNewWorksDiagnosticValue('manager.dbNewWorksGetAll.count', works.length);
         } catch {
             works = Array.from(this.newWorks.values());
         }
 
-        log.info(`[NewWorks] 新作品列表中共有 ${works.length} 个作品`);
+        const matchIds = [...new Set(collectNewWorkMatchIds(works).values())];
+        let viewedStatusMap = new Map<string, VideoRecord['status']>();
+        try {
+            recordNewWorksDiagnosticCounter('manager.dbViewedStatusGetMany.calls');
+            recordNewWorksDiagnosticValue('manager.dbViewedStatusGetMany.ids', matchIds.length);
+            viewedStatusMap = buildViewedStatusMap(await dbViewedStatusGetMany(matchIds));
+        } catch (error) {
+            // 兼容旧数据库/旧后台构建：批量接口不可用时才回退到旧分页路径。
+            recordNewWorksDiagnosticCounter('manager.dbViewedPage.fallbacks');
+            recordNewWorksDiagnosticError('manager.dbViewedStatusGetMany.error', error);
+            log.warn('[NewWorks] 批量读取番号状态失败，回退到分页查询', error);
+            const viewedMap: Record<string, VideoRecord> = {};
+            try {
+                let offset = 0;
+                const limit = 1000;
+                let page = await dbViewedPage({ offset, limit, orderBy: 'updatedAt', order: 'desc' });
+                recordNewWorksDiagnosticCounter('manager.dbViewedPage.calls');
+                const total = page.total;
+                recordNewWorksDiagnosticValue('manager.dbViewedPage.total', total);
+                while (true) {
+                    page.items.forEach((record) => { if (record?.id) viewedMap[record.id] = record; });
+                    offset += limit;
+                    if (offset >= total) break;
+                    page = await dbViewedPage({ offset, limit, orderBy: 'updatedAt', order: 'desc' });
+                    recordNewWorksDiagnosticCounter('manager.dbViewedPage.calls');
+                }
+                viewedStatusMap = buildViewedStatusMap(Object.values(viewedMap));
+            } catch {
+                const fallback = await getValue<Record<string, VideoRecord>>(STORAGE_KEYS.VIEWED_RECORDS, {});
+                viewedStatusMap = buildViewedStatusMap(Object.values(fallback));
+            }
+        }
+
+        log.info(`[NewWorks] 新作品列表中共有 ${works.length} 个作品，按需读取 ${matchIds.length} 个番号状态`);
 
         let updatedCount = 0;
         const updateDetails: Array<{ id: string; oldStatus: string; newStatus: string }> = [];
         const toUpdate: NewWorkRecord[] = [];
 
         for (const work of works) {
-            // 尝试从标题提取番号作为匹配ID
-            let matchId = work.id;
-            if (work.title) {
-                const codeMatch = work.title.match(/^([A-Z]+-\d+)/);
-                if (codeMatch) {
-                    matchId = codeMatch[1];
-                    log.verbose(`[NewWorks] 从标题提取番号: ${matchId} (原ID: ${work.id})`);
-                }
-            }
+            const matchId = collectNewWorkMatchIds([work]).get(work.id) ?? work.id;
+            if (matchId !== work.id) log.verbose(`[NewWorks] 从标题提取番号: ${matchId} (原ID: ${work.id})`);
             
-            const videoRecord = viewedMap[matchId];
-            if (!videoRecord) {
+            const status = viewedStatusMap.get(matchId);
+            if (!status) {
                 log.verbose(`[NewWorks] 作品 ${work.id} (匹配ID: ${matchId}) 不在番号库中，跳过`);
                 continue;
             }
-            log.verbose(`[NewWorks] 作品 ${work.id} (匹配ID: ${matchId}) 在番号库中，状态: ${videoRecord.status}`);
+            log.verbose(`[NewWorks] 作品 ${work.id} (匹配ID: ${matchId}) 在番号库中，状态: ${status}`);
             const oldStatus = work.isRead ? 'read' : 'unread';
             let newIsRead = false;
             let newStatus: NewWorkRecord['status'] = 'new';
-            switch (videoRecord.status) {
+            switch (status) {
                 case 'viewed': newIsRead = true; newStatus = 'viewed'; break;
                 case 'browsed': newIsRead = true; newStatus = 'browsed'; break;
                 case 'want': newIsRead = false; newStatus = 'want'; break;
@@ -450,6 +481,7 @@ export class NewWorksManager {
      */
     async getStats(): Promise<NewWorksStats> {
         await this.initialize();
+        recordNewWorksDiagnosticCounter('manager.getStats.calls');
 
         const subscriptions = Array.from(this.subscriptions.values());
         const todayStart = new Date().setHours(0, 0, 0, 0);
@@ -481,6 +513,20 @@ export class NewWorksManager {
             log.verbose('NewWorksManager: 返回统计信息(内存回退):', stats);
             return stats;
         }
+    }
+
+    private getCachedStats(): NewWorksStats {
+        const subscriptions = Array.from(this.subscriptions.values());
+        const todayStart = new Date().setHours(0, 0, 0, 0);
+        const works = Array.from(this.newWorks.values());
+        return {
+            totalSubscriptions: subscriptions.length,
+            activeSubscriptions: subscriptions.filter(sub => sub.enabled).length,
+            totalNewWorks: works.length,
+            unreadWorks: works.filter(work => !work.isRead).length,
+            todayDiscovered: works.filter(work => (work.discoveredAt || 0) >= todayStart).length,
+            lastCheckTime: this.globalConfig.lastGlobalCheck,
+        };
     }
 
     /**

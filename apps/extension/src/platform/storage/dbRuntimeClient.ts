@@ -6,7 +6,7 @@
  * 所有数据库操作都通过消息代理在 background 执行，content 端只发消息不直接操作 IDB。
  */
 
-import type { VideoRecord } from '../../types';
+import type { VideoRecord, ViewedStatusSummary } from '../../types';
 
 function log(...args: any[]): void {
   try {
@@ -77,6 +77,15 @@ export async function dbViewedGet(videoId: string): Promise<VideoRecord | undefi
   const resp = await sendMessage<{ success: true; record?: VideoRecord }>('DB:VIEWED_GET', { id: videoId });
   log('[DBClient] viewedGet:done', { videoId, found: !!resp.record });
   return resp.record;
+}
+
+export async function dbViewedStatusGetMany(videoIds: readonly string[]): Promise<ViewedStatusSummary[]> {
+  if (videoIds.length === 0) return [];
+  const resp = await sendMessage<{ success: true; records: ViewedStatusSummary[] }>(
+    'DB:VIEWED_STATUS_GET_MANY',
+    { ids: [...videoIds] },
+  );
+  return Array.isArray(resp.records) ? resp.records : [];
 }
 
 export function dbViewedBulkPut(records: VideoRecord[]): Promise<void> {
