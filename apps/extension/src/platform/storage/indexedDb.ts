@@ -10,7 +10,7 @@ import { buildNewWorksTrendPointsFromDailyMap, mergeNewWorksDailyStatForTrend } 
 import { getSettings } from '../../utils/storage';
 import { normalizeListRecordForUse } from '../../shared/utils/listRecordHelpers';
 import { cleanVideoRecordInjectedSourceTags } from '../../shared/utils/tagFilter';
-import { enqueueVideoChange } from '../../features/cloudSync/enqueueLocalChange';
+import { enqueueVideoChange, scheduleEnqueue } from '../../features/cloudSync/enqueueLocalChange';
 import type { ViewsDaily, ReportMonthly } from '../../types/insights';
 import { initDB, resetDBConnection } from './indexedDbConnection';
 import { buildLogsIndexedCursorSource, deriveLogCategory, deriveLogSource } from './indexedDbLogFields';
@@ -742,10 +742,9 @@ export async function viewedPut(record: VideoRecord): Promise<ViewedPutResult> {
   await viewedStore.put(normalized as any);
   await syncViewedSecondaryIndexes(tx.objectStore('viewedByTag'), tx.objectStore('viewedByList'), oldRecord, normalized);
   await tx.done;
-  try {
-    // Queue before returning so a user-triggered sync cannot miss this update.
-    await enqueueVideoChange(normalized as VideoRecord);
-  } catch { /* Cloud 可选 */ }
+  // A local database write is durable before this point. Cloud's pending queue
+  // must not hold content-page work or its cross-page lease open.
+  scheduleEnqueue(() => enqueueVideoChange(normalized as VideoRecord));
   return { success: true };
 }
 
