@@ -1,4 +1,7 @@
-import { MAX_NEW_WORKS_BATCH_OPEN_COUNT } from './newWorksBatchOpenPolicy';
+import {
+  MAX_NEW_WORKS_BATCH_OPEN_COUNT,
+  NEW_WORKS_BATCH_OPEN_PERFORMANCE_NOTICE,
+} from './newWorksBatchOpenPolicy';
 
 type MessageType = 'success' | 'error' | 'info' | 'warn' | 'warning';
 type ConfirmType = 'danger' | 'warning' | 'info';
@@ -9,6 +12,7 @@ export interface NewWorksSelectedConfirmOptions {
   confirmText: string;
   cancelText: string;
   type: ConfirmType;
+  isHtml?: boolean;
 }
 
 export interface ResolvedSelectedWork {
@@ -58,11 +62,12 @@ export async function runSelectedBatchOpenWorkflow(input: RunSelectedBatchOpenWo
   const confirmed = await deps.confirm({
     title: '批量打开（已选）',
     message: selectedIds.length > MAX_NEW_WORKS_BATCH_OPEN_COUNT
-      ? `已选 ${selectedIds.length} 个作品，本次将打开前 ${selectedIdsToOpen.length} 个新标签页，并为未读项标记为已读，继续吗？`
-      : `将打开 ${selectedIdsToOpen.length} 个已选作品的新标签页，并为未读项标记为已读，继续吗？`,
+      ? buildSelectedBatchOpenConfirmMessage(`已选 ${selectedIds.length} 个作品，本次将打开前 ${selectedIdsToOpen.length} 个新标签页，并为未读项标记为已读，继续吗？`)
+      : buildSelectedBatchOpenConfirmMessage(`将打开 ${selectedIdsToOpen.length} 个已选作品的新标签页，并为未读项标记为已读，继续吗？`),
     confirmText: '继续',
     cancelText: '取消',
     type: 'warning',
+    isHtml: true,
   });
   if (!confirmed) return;
 
@@ -102,6 +107,10 @@ export async function runSelectedBatchOpenWorkflow(input: RunSelectedBatchOpenWo
     deps.setLoading(false);
     deps.updateBatchOperations();
   }
+}
+
+function buildSelectedBatchOpenConfirmMessage(summary: string): string {
+  return `<p>${summary}</p><p style="margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid var(--warning, #d97706); background: color-mix(in srgb, var(--warning, #d97706) 12%, transparent); color: var(--warning, #d97706); line-height: 1.55;"><strong>性能提示：</strong>${NEW_WORKS_BATCH_OPEN_PERFORMANCE_NOTICE}</p>`;
 }
 
 async function resolveSelectedWorks(

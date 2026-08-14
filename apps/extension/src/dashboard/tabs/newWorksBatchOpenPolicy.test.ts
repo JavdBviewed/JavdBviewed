@@ -26,9 +26,11 @@ function makeWork(index: number, isRead: boolean): NewWorkRecord {
 }
 
 describe('new works batch open policy', () => {
-    it('uses smaller page size for unread mode', () => {
-        expect(getNewWorksPageSize('unread')).toBe(UNREAD_NEW_WORKS_PAGE_SIZE);
-        expect(getNewWorksPageSize('all')).toBe(DEFAULT_NEW_WORKS_PAGE_SIZE);
+    it('uses the six-item batch size for every new works page', () => {
+        expect(getNewWorksPageSize('unread')).toBe(MAX_NEW_WORKS_BATCH_OPEN_COUNT);
+        expect(getNewWorksPageSize('all')).toBe(MAX_NEW_WORKS_BATCH_OPEN_COUNT);
+        expect(UNREAD_NEW_WORKS_PAGE_SIZE).toBe(MAX_NEW_WORKS_BATCH_OPEN_COUNT);
+        expect(DEFAULT_NEW_WORKS_PAGE_SIZE).toBe(MAX_NEW_WORKS_BATCH_OPEN_COUNT);
     });
 
     it('picks only unread targets up to the batch limit', () => {

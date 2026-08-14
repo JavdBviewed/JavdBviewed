@@ -2,6 +2,7 @@ import type { NewWorkRecord } from '../../types';
 import type { NewWorksQueryFilters } from './newWorksFilterTypes';
 import {
   MAX_UNREAD_BATCH_OPEN_COUNT,
+  NEW_WORKS_BATCH_OPEN_PERFORMANCE_NOTICE,
   pickUnreadBatchOpenTargets,
 } from './newWorksBatchOpenPolicy';
 
@@ -14,6 +15,7 @@ export interface NewWorksConfirmOptions {
   confirmText: string;
   cancelText: string;
   type: ConfirmType;
+  isHtml?: boolean;
 }
 
 export interface NewWorksBatchOpenResult {
@@ -71,11 +73,12 @@ export async function runUnreadBatchOpenWorkflow(input: RunUnreadBatchOpenWorkfl
     const confirmed = await deps.confirm({
       title: '批量打开未读',
       message: unread.length > MAX_UNREAD_BATCH_OPEN_COUNT
-        ? `当前页共有 ${unread.length} 个未读作品，本次将打开前 ${targets.length} 个新标签页，并标记为已读，继续吗？`
-        : `将打开 ${targets.length} 个未读作品的新标签页，并标记为已读，继续吗？`,
+        ? buildBatchOpenConfirmMessage(`当前页共有 ${unread.length} 个未读作品，本次将打开前 ${targets.length} 个新标签页，并标记为已读，继续吗？`)
+        : buildBatchOpenConfirmMessage(`将打开 ${targets.length} 个未读作品的新标签页，并标记为已读，继续吗？`),
       confirmText: '继续',
       cancelText: '取消',
       type: 'warning',
+      isHtml: true,
     });
     if (!confirmed) return;
 
@@ -102,4 +105,8 @@ export async function runUnreadBatchOpenWorkflow(input: RunUnreadBatchOpenWorkfl
   } finally {
     deps.updateButton();
   }
+}
+
+function buildBatchOpenConfirmMessage(summary: string): string {
+  return `<p>${summary}</p><p style="margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid var(--warning, #d97706); background: color-mix(in srgb, var(--warning, #d97706) 12%, transparent); color: var(--warning, #d97706); line-height: 1.55;"><strong>性能提示：</strong>${NEW_WORKS_BATCH_OPEN_PERFORMANCE_NOTICE}</p>`;
 }

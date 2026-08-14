@@ -42,6 +42,8 @@ describe('new works selected batch open workflow', () => {
     expect(runtimeDeps.confirm).toHaveBeenCalledWith(expect.objectContaining({
       title: '批量打开（已选）',
       type: 'warning',
+      isHtml: true,
+      message: expect.stringContaining('可能提高浏览器的 CPU 和内存占用'),
     }));
     expect(runtimeDeps.openWorkUrl).not.toHaveBeenCalled();
   });

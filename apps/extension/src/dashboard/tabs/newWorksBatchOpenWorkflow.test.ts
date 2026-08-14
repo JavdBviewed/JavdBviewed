@@ -85,6 +85,8 @@ describe('new works unread batch open workflow', () => {
     expect(runtimeDeps.confirm).toHaveBeenCalledWith(expect.objectContaining({
       title: '批量打开未读',
       type: 'warning',
+      isHtml: true,
+      message: expect.stringContaining('可能提高浏览器的 CPU 和内存占用'),
     }));
     expect(runtimeDeps.openWorkUrl).not.toHaveBeenCalled();
     expect(runtimeDeps.markAsRead).not.toHaveBeenCalled();
