@@ -1,6 +1,8 @@
 export type EnhancementBindEventsHost = any;
 
 export function bindEvents(host: EnhancementBindEventsHost): void {
+  document.querySelectorAll<HTMLInputElement>('input[name="videoEnhancementSchedulingMode"]')
+    .forEach((input) => input.addEventListener('change', host.handleSettingChange.bind(host)));
   host.magnetSourceSukebei?.addEventListener('change', host.handleSettingChange.bind(host));
   host.magnetSourceBtdig?.addEventListener('change', host.handleSettingChange.bind(host));
   host.magnetSourceBtsow?.addEventListener('change', host.handleSettingChange.bind(host));

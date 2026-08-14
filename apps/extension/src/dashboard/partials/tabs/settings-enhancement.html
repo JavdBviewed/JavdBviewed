@@ -18,7 +18,13 @@
             <button type="button" class="subtab-link" data-subtab="actor">演员页增强</button>
             <button type="button" class="subtab-link" data-subtab="other">其他增强</button>
             <span style="flex:1"></span>
-            <button type="button" id="showAlarmDiagnosticsBtn" class="button-like" title="查看后台定时任务最近执行">后台定时</button>
+            <div class="enhancement-scheduling-mode" data-scheduling-mode-control role="radiogroup" aria-label="详情页增强调度方式">
+                <span class="enhancement-scheduling-indicator" aria-hidden="true"></span>
+                <input type="radio" id="videoEnhancementSchedulingModeSmart" name="videoEnhancementSchedulingMode" value="smart" checked>
+                <label for="videoEnhancementSchedulingModeSmart">智能调度</label>
+                <input type="radio" id="videoEnhancementSchedulingModeImmediate" name="videoEnhancementSchedulingMode" value="immediate">
+                <label for="videoEnhancementSchedulingModeImmediate">立即增强</label>
+            </div>
             <button type="button" id="showOrchestratorBtn" class="button-like" title="查看当前页面功能编排">编排可视化</button>
         </div>
     </div>

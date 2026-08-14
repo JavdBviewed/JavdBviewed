@@ -16,8 +16,6 @@ import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import { SettingsHighlightNotice } from '../shared/SettingsHighlightNotice';
 import { useDebouncedSettingsSave } from '../shared/settingsPersist';
 import {
-  exportOrchestrationDiagnostics,
-  fetchAlarmDiagnosticsSummary,
   loadEnhancementSettingsForm,
   navigateToAISettings,
   persistEnhancementForm,
@@ -79,8 +77,6 @@ export function EnhancementSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [aiModel, setAiModel] = useState('');
-  const [diagBusy, setDiagBusy] = useState(false);
-  const [diagNote, setDiagNote] = useState<string | null>(null);
   const [newRuleKeyword, setNewRuleKeyword] = useState('');
 
   const persist = useCallback(async (nextForm: EnhancementSettingsFormState) => {
@@ -164,33 +160,6 @@ export function EnhancementSettingsPage() {
     patchForm({ filterRules: removeFilterRuleAt(form.filterRules, index) });
   };
 
-  const onAlarmDiag = async () => {
-    setDiagBusy(true);
-    try {
-      const summary = await fetchAlarmDiagnosticsSummary();
-      setDiagNote(summary);
-      await toast(summary, 'info');
-    } finally {
-      setDiagBusy(false);
-    }
-  };
-
-  const onExportDiag = async () => {
-    setDiagBusy(true);
-    try {
-      const result = await exportOrchestrationDiagnostics();
-      if (result.ok) {
-        setDiagNote('诊断包已导出');
-        await toast('编排诊断包已导出', 'success');
-      } else {
-        setDiagNote(result.error || '导出失败');
-        await toast(result.error || '导出失败', 'error');
-      }
-    } finally {
-      setDiagBusy(false);
-    }
-  };
-
   if (loading) {
     return (
       <SettingsPageFrame
@@ -230,28 +199,38 @@ export function EnhancementSettingsPage() {
             onChange={onSubtab}
             size="sm"
           />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              id="showAlarmDiagnosticsBtn"
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={diagBusy}
-              onClick={() => void onAlarmDiag()}
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="relative inline-grid h-8 grid-cols-2 overflow-hidden rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-0.5 text-xs font-medium"
+              data-scheduling-mode-control
+              role="radiogroup"
+              aria-label="影片页增强调度方式"
             >
-              后台定时
-            </Button>
-            <Button
-              id="showOrchestratorBtn"
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={diagBusy}
-              onClick={() => void onExportDiag()}
-              title="导出编排/定时诊断包（完整可视化面板仍走遗留 DOM）"
-            >
-              导出诊断包
-            </Button>
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-[calc(var(--radius-2)-2px)] bg-[var(--color-primary)] shadow-[var(--shadow-1)] transition-transform duration-200 ${form.videoEnhancementSchedulingMode === 'immediate' ? 'translate-x-full' : 'translate-x-0'}`}
+              />
+              <button
+                id="videoEnhancementSchedulingMode-smart"
+                type="button"
+                role="radio"
+                aria-checked={form.videoEnhancementSchedulingMode === 'smart'}
+                className={`relative z-10 min-w-24 px-2.5 transition-colors ${form.videoEnhancementSchedulingMode === 'smart' ? 'text-[var(--color-primary-fg,#fff)]' : 'text-[var(--color-fg-muted)]'}`}
+                onClick={() => patchForm({ videoEnhancementSchedulingMode: 'smart' })}
+              >
+                智能调度
+              </button>
+              <button
+                id="videoEnhancementSchedulingMode-immediate"
+                type="button"
+                role="radio"
+                aria-checked={form.videoEnhancementSchedulingMode === 'immediate'}
+                className={`relative z-10 min-w-24 px-2.5 transition-colors ${form.videoEnhancementSchedulingMode === 'immediate' ? 'text-[var(--color-primary-fg,#fff)]' : 'text-[var(--color-fg-muted)]'}`}
+                onClick={() => patchForm({ videoEnhancementSchedulingMode: 'immediate' })}
+              >
+                立即增强
+              </button>
+            </div>
           </div>
         </div>
 
@@ -260,10 +239,6 @@ export function EnhancementSettingsPage() {
             {saveError}
           </p>
         ) : null}
-        {diagNote ? (
-          <p className="m-0 text-xs text-[var(--color-fg-muted)]">{diagNote}</p>
-        ) : null}
-
         {subtab === 'list' ? <ListTab form={form} setToggle={setToggle} patchForm={patchForm} newRuleKeyword={newRuleKeyword} setNewRuleKeyword={setNewRuleKeyword} onAddFilterRule={onAddFilterRule} onToggleRule={onToggleRule} onDeleteRule={onDeleteRule} /> : null}
         {subtab === 'video' ? <VideoTab form={form} setToggle={setToggle} patchForm={patchForm} aiModel={aiModel} /> : null}
         {subtab === 'actor' ? <ActorTab form={form} setToggle={setToggle} patchForm={patchForm} /> : null}

@@ -118,6 +118,67 @@
     line-height: 1.6;
 }
 
+#enhancement-settings .enhancement-scheduling-mode {
+    position: relative;
+    display: inline-grid;
+    grid-template-columns: repeat(2, minmax(84px, 1fr));
+    align-items: center;
+    height: 32px;
+    overflow: hidden;
+    border: 1px solid var(--enhancement-border);
+    border-radius: 6px;
+    background: var(--enhancement-bg);
+    box-shadow: var(--enhancement-shadow);
+    isolation: isolate;
+}
+
+#enhancement-settings .enhancement-scheduling-mode input {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    opacity: 0;
+}
+
+#enhancement-settings .enhancement-scheduling-mode label {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    height: 100%;
+    place-items: center;
+    padding: 0 10px;
+    color: var(--enhancement-text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 160ms ease;
+    white-space: nowrap;
+}
+
+#enhancement-settings .enhancement-scheduling-indicator {
+    position: absolute;
+    inset: 3px auto 3px 3px;
+    z-index: 0;
+    width: calc(50% - 4px);
+    border-radius: 4px;
+    background: var(--enhancement-primary);
+    box-shadow: var(--enhancement-shadow);
+    transition: transform 160ms ease;
+}
+
+#enhancement-settings .enhancement-scheduling-mode:has(input[value="immediate"]:checked) .enhancement-scheduling-indicator {
+    transform: translateX(100%);
+}
+
+#enhancement-settings .enhancement-scheduling-mode:has(input[value="smart"]:checked) label[for="videoEnhancementSchedulingModeSmart"],
+#enhancement-settings .enhancement-scheduling-mode:has(input[value="immediate"]:checked) label[for="videoEnhancementSchedulingModeImmediate"] {
+    color: #fff;
+}
+
+#enhancement-settings .enhancement-scheduling-mode input:focus-visible + label {
+    outline: 2px solid var(--enhancement-primary);
+    outline-offset: -2px;
+}
+
 /* 状态徽章：名称与状态并排显示 */
 .enhancement-feature-title {
     display: flex;

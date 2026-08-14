@@ -15,53 +15,6 @@ export function bindSubtabLinks(host: EnhancementBindHost): void {
 
 export function bindOrchestratorControls(host: EnhancementBindHost): void {
 
-  const alarmDiagBtn = document.getElementById('showAlarmDiagnosticsBtn') as HTMLButtonElement | null;
-  if (alarmDiagBtn && alarmDiagBtn.dataset.orchestratorBound !== '1') {
-    alarmDiagBtn.dataset.orchestratorBound = '1';
-    alarmDiagBtn.addEventListener('click', async () => {
-      try {
-        const resp = await new Promise<any>((resolve) => {
-          try {
-            chrome.runtime.sendMessage({ type: 'ALARM_DIAGNOSTICS_GET' }, (r) => resolve(r));
-          } catch (e) {
-            resolve({ success: false, error: String(e) });
-          }
-        });
-        if (!resp?.success) {
-          alert('读取后台定时诊断失败：' + (resp?.error || 'unknown'));
-          return;
-        }
-        const map = resp.diagnostics || {};
-        const keys = Object.keys(map);
-        if (keys.length === 0) {
-          alert('暂无后台定时任务执行记录（alarm 触发后会写入）');
-          return;
-        }
-        const lines = keys
-          .sort()
-          .map((name) => {
-            const e = map[name] || {};
-            const when = e.lastFiredAt ? new Date(e.lastFiredAt).toLocaleString() : '-';
-            const next = e.nextScheduledAt ? new Date(e.nextScheduledAt).toLocaleString() : '-';
-            return (
-              name +
-              ' | ' +
-              (e.lastResult || '-') +
-              ' | 上次: ' +
-              when +
-              ' | 下次: ' +
-              next +
-              (e.lastSummary ? ' | ' + e.lastSummary : '') +
-              (e.lastError ? ' | err=' + e.lastError : '')
-            );
-          });
-        alert(['后台定时任务诊断', ''].concat(lines).join('\n'));
-      } catch (e) {
-        alert('读取后台定时诊断异常：' + e);
-      }
-    });
-  }
-
   if (host.showOrchestratorBtn && host.showOrchestratorBtn.dataset.orchestratorBound !== '1') {
     host.showOrchestratorBtn.dataset.orchestratorBound = '1';
     host.showOrchestratorBtn.addEventListener('click', () => host.openOrchestratorModal());

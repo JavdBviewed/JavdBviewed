@@ -23,4 +23,14 @@ describe('EnhancementSettingsPage layout', () => {
     expect(pageSource).toContain('https://github.com/JavdBviewed/JavdBviewed/issues');
     expect(sharedStyleSource).toContain('.settings-highlight-notice');
   });
+
+  it('keeps scheduling as a top-level two-option slider without diagnostics controls', () => {
+    expect(pageSource).toContain('data-scheduling-mode-control');
+    expect(pageSource).toContain('role="radiogroup"');
+    expect(pageSource).toContain('智能调度');
+    expect(pageSource).toContain('立即增强');
+    expect(pageSource).not.toContain('showAlarmDiagnosticsBtn');
+    expect(pageSource).not.toContain('导出诊断包');
+    expect(pageSource).not.toContain('增强任务调度方式');
+  });
 });

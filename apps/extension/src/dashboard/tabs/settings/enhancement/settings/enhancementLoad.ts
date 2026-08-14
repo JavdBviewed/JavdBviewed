@@ -85,6 +85,11 @@ export async function doLoadSettings(host: EnhancementLoadHost): Promise<void> {
   }
 
   const ve = settings?.videoEnhancement || {};
+  const schedulingMode = (ve as any).schedulingMode === 'immediate' ? 'immediate' : 'smart';
+  const schedulingModeInput = document.querySelector<HTMLInputElement>(
+    `input[name="videoEnhancementSchedulingMode"][value="${schedulingMode}"]`,
+  );
+  if (schedulingModeInput) schedulingModeInput.checked = true;
   if (host.enableVideoEnhancement) host.enableVideoEnhancement.checked = !!(ve as any).enabled;
   if (host.veEnableCoverImage) host.veEnableCoverImage.checked = (ve as any).enableCoverImage !== false;
   if (host.veShowLoadingIndicator) host.veShowLoadingIndicator.checked = (ve as any).showLoadingIndicator !== false;

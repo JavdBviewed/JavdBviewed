@@ -182,6 +182,12 @@ export class EnhancementSettings extends BaseSettingsPanel {
 
     private currentFilterRules: KeywordFilterRule[] = [];
 
+    public getVideoEnhancementSchedulingMode(): 'smart' | 'immediate' {
+        return document.querySelector<HTMLInputElement>(
+            'input[name="videoEnhancementSchedulingMode"]:checked',
+        )?.value === 'immediate' ? 'immediate' : 'smart';
+    }
+
     // 子标签元素
     private subtabLinks!: NodeListOf<HTMLButtonElement>;
     public currentSubtab: 'list' | 'video' | 'actor' | 'other' = 'list';
@@ -856,6 +862,7 @@ export class EnhancementSettings extends BaseSettingsPanel {
                 },
                 // 影片页增强配置保存（启用状态由主开关决定）
                 videoEnhancement: {
+                    schedulingMode: this.getVideoEnhancementSchedulingMode(),
                     enabled: this.enableVideoEnhancement?.checked === true,
                     enableCoverImage: this.veEnableCoverImage?.checked !== false,
                     // 与"翻译"总开关保持一致，避免两处状态不一致

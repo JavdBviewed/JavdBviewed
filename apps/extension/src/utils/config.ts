@@ -510,6 +510,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
     // 新增：影片页增强默认配置
     videoEnhancement: {
         enabled: false,
+        schedulingMode: 'smart' as const,
         enableCoverImage: true,
         enableTranslation: true,
         showLoadingIndicator: true,

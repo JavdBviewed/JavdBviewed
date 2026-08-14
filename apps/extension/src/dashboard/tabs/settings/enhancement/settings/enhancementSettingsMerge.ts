@@ -37,6 +37,7 @@ type EnhancementSaveHost = {
   veEnableSubtitleSearch?: HTMLInputElement;
   onlineAvailabilitySiteInputs?: ArrayLike<HTMLInputElement>;
   getPreferredPreviewSource?: () => 'auto' | 'javdb' | 'javspyl' | 'avpreview' | 'vbgfl';
+  getVideoEnhancementSchedulingMode?: () => 'smart' | 'immediate';
 };
 
 function parseNumber(value: string | undefined, fallback: number): number {
@@ -76,6 +77,8 @@ export function mergeEnhancementSettingsForSave(
     },
     videoEnhancement: {
       ...existingVideoEnhancement,
+      schedulingMode: host.getVideoEnhancementSchedulingMode?.()
+        ?? (existingVideoEnhancement.schedulingMode === 'immediate' ? 'immediate' : 'smart'),
       enableRelatedLists: host.veEnableRelatedLists?.checked ?? existingVideoEnhancement.enableRelatedLists ?? true,
       enableLocalListInSourceModal: host.veEnableLocalListInSourceModal?.checked ?? existingVideoEnhancement.enableLocalListInSourceModal ?? true,
       enableExternalEntryPanel: host.veEnableExternalEntryPanel?.checked ?? existingVideoEnhancement.enableExternalEntryPanel ?? true,

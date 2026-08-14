@@ -8,6 +8,10 @@ import { getDefaultTags, ACTOR_FILTER_TAGS } from '../../../../../dashboard/conf
 import { normalizeMagnetSortMode } from '../../../../../features/magnets/application/resultSort';
 import type { MagnetSortMode } from '../../../../../features/magnets/domain/types';
 import { DEFAULT_ONLINE_AVAILABILITY_SITES } from '../../../../../features/onlineAvailability';
+import {
+  normalizeVideoEnhancementSchedulingMode,
+  type VideoEnhancementSchedulingMode,
+} from '../../../../../features/videoDetail/schedulingMode';
 
 export type EnhancementSubtab = 'list' | 'video' | 'actor' | 'other';
 
@@ -54,6 +58,7 @@ export type EnhancementSettingsFormState = {
   enableScrollPaging: boolean;
 
   // 影片页
+  videoEnhancementSchedulingMode: VideoEnhancementSchedulingMode;
   enableTranslation: boolean;
   translationProvider: TranslationProvider;
   traditionalApiKey: string;
@@ -177,6 +182,14 @@ export const ANCHOR_POSITION_OPTIONS: { value: AnchorButtonPosition; label: stri
   { value: 'right-bottom', label: '右下角' },
 ];
 
+export const VIDEO_ENHANCEMENT_SCHEDULING_MODE_OPTIONS: {
+  value: VideoEnhancementSchedulingMode;
+  label: string;
+}[] = [
+  { value: 'smart', label: '智能调度（推荐）' },
+  { value: 'immediate', label: '打开后立即增强' },
+];
+
 export const MAGNET_SORT_OPTIONS: { value: MagnetSortMode; label: string }[] = [
   { value: 'default', label: '默认排序' },
   { value: 'quality', label: '质量优先' },
@@ -247,6 +260,7 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   popularityMinRatingCount: 350,
   enableScrollPaging: false,
 
+  videoEnhancementSchedulingMode: 'smart',
   enableTranslation: false,
   translationProvider: 'traditional',
   traditionalApiKey: '',
@@ -490,6 +504,7 @@ export function mapSettingsToEnhancementForm(
     ),
     enableScrollPaging: le.enableScrollPaging === true,
 
+    videoEnhancementSchedulingMode: normalizeVideoEnhancementSchedulingMode(ve.schedulingMode),
     enableTranslation: !!(de.enableTranslation ?? ve.enableTranslation),
     translationProvider: normalizeProvider(tr.provider),
     traditionalApiKey: String(tr.traditional?.apiKey ?? ''),
@@ -647,6 +662,7 @@ export function applyEnhancementFormToSettings(
     videoEnhancement: {
       ...((current as any).videoEnhancement || {}),
       enabled: form.enableVideoEnhancement,
+      schedulingMode: form.videoEnhancementSchedulingMode,
       enableCoverImage: form.veEnableCoverImage,
       enableTranslation: form.enableTranslation,
       showLoadingIndicator: form.veShowLoadingIndicator,
