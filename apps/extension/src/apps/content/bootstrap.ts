@@ -8,9 +8,15 @@
 import { getSettings, getValue } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../utils/config';
 import type { EmbyLibraryState } from '../../features/embyLibrary/types';
+import type { GlobalTaskVisibilityPolicy } from '../../shared/taskCenterTypes';
 import { STATE, SELECTORS, log, currentFaviconState, currentTitleStatus } from '../../features/contentState';
 import { processVisibleItems, setupObserver } from '../../features/listEnhancement/content/itemProcessor';
-import { handleVideoDetailPage, getVideoDetailTaskBlueprints } from '../../features/videoDetail';
+import {
+    getAutomaticHeavyTaskVisibilityPolicy,
+    handleVideoDetailPage,
+    getVideoDetailTaskBlueprints,
+    normalizeVideoEnhancementSchedulingMode,
+} from '../../features/videoDetail';
 import { checkAndUpdateVideoStatus } from '../../features/videoStatus';
 import { initExportFeature } from '../../features/pageExport/content';
 import { initDrive115Features } from '../../features/drive115/content';
@@ -241,16 +247,19 @@ async function initialize(): Promise<void> {
     const path = window.location.pathname;
     const isVideoPage = path.startsWith('/v/');
     const isActorPage = path.startsWith('/actors/');
-    const preregisterBlueprints: Array<{ phase: InitPhase; label: string; priority?: number; timeout?: number; visibilityPolicy?: 'foreground_first' | 'background_allowed' | 'foreground_only'; dependsOn?: string[] }> = [];
+    const preregisterBlueprints: Array<{ phase: InitPhase; label: string; priority?: number; timeout?: number; visibilityPolicy?: GlobalTaskVisibilityPolicy; dependsOn?: string[] }> = [];
 
     if (isVideoPage) {
+        const heavyTaskVisibilityPolicy = getAutomaticHeavyTaskVisibilityPolicy(
+            normalizeVideoEnhancementSchedulingMode((settings.videoEnhancement as any)?.schedulingMode),
+        );
         preregisterBlueprints.push(...getVideoDetailTaskBlueprints(settings as any));
         if ((settings.videoEnhancement as any)?.showLoadingIndicator !== false) {
             preregisterBlueprints.push({ phase: 'critical', label: 'enhancementUI:showLoadingIndicator', priority: 13, visibilityPolicy: 'background_allowed' });
         }
         preregisterBlueprints.push(
             { phase: 'idle', label: 'drive115:init:video', dependsOn: ['videoStatus:initialSync'] },
-            { phase: 'idle', label: 'insights:collector', dependsOn: ['videoStatus:initialSync'] },
+            { phase: 'idle', label: 'insights:collector', visibilityPolicy: heavyTaskVisibilityPolicy, dependsOn: ['videoStatus:initialSync'] },
         );
         if ((settings.videoEnhancement as any)?.enableActorQuickActions !== false) {
             preregisterBlueprints.push({ phase: 'high', label: 'actorQuickActions:init', priority: 6, visibilityPolicy: 'background_allowed', dependsOn: ['videoStatus:initialSync'] });
@@ -355,7 +364,16 @@ async function initialize(): Promise<void> {
 
         initOrchestrator.add('idle', async () => {
             await initInsightsCollector();
-        }, { label: 'insights:collector', idle: true, idleTimeout: 5000, delayMs: 1800 });
+        }, {
+            label: 'insights:collector',
+            idle: true,
+            idleTimeout: 5000,
+            delayMs: 1800,
+            visibilityPolicy: getAutomaticHeavyTaskVisibilityPolicy(
+                normalizeVideoEnhancementSchedulingMode((settings.videoEnhancement as any)?.schedulingMode),
+            ),
+            dependsOn: ['videoStatus:initialSync'],
+        });
 
     }
 

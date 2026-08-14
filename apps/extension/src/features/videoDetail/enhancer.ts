@@ -16,6 +16,7 @@ import { relatedListsService, RelatedListItem } from '../relatedLists';
 import { fc2BreakerService, FC2VideoInfo } from '../fc2Breaker';
 import { saveSubtaskDetail, yieldToMainThread } from '../../platform/tasks';
 import { initOrchestrator } from '../../apps/content/orchestrator';
+import { getUserTriggeredHeavyTaskScheduling } from './schedulingMode';
 import { showEnhancementDone } from '../../platform/browser/enhancementLoadingIndicator';
 import { getJavdbTheme, isDarkTheme, type JavdbTheme } from '../../platform/browser/domUtils';
 import { addTaskUrlsV2 } from '../drive115/router';
@@ -726,7 +727,8 @@ export class VideoDetailEnhancer {
           const runFlag = '__jdb_review_breaker_running__';
           if ((window as any)[runFlag]) return;
           (window as any)[runFlag] = true;
-          initOrchestrator.add('idle', async () => {
+          const scheduling = getUserTriggeredHeavyTaskScheduling();
+          initOrchestrator.add(scheduling.phase, async () => {
             try {
               log('[ReviewBreaker] Review tab clicked, showing loading indicator immediately');
               const earlyLoadingIndicator = this.createEarlyLoadingIndicator();
@@ -741,7 +743,12 @@ export class VideoDetailEnhancer {
             } finally {
               (window as any)[runFlag] = false;
             }
-          }, { label: 'videoEnhancement:runReviewBreaker:click', idle: true, idleTimeout: 5000, delayMs: 0 });
+          }, {
+            label: 'videoEnhancement:runReviewBreaker:click',
+            priority: scheduling.priority,
+            visibilityPolicy: scheduling.visibilityPolicy,
+            delayMs: 0,
+          });
         };
 
         trigger.addEventListener('click', () => {
@@ -914,6 +921,13 @@ export class VideoDetailEnhancer {
   }
 
   private neutralizeRelatedListsTab(tab: HTMLElement): void {
+    const anchors = tab.matches('a')
+      ? [tab as HTMLAnchorElement]
+      : Array.from(tab.querySelectorAll<HTMLAnchorElement>('a'));
+    if (anchors.length > 0 && anchors.every((anchor) => anchor.dataset.jdbRelatedListsOriginalHref)) {
+      return;
+    }
+
     const relatedElements = [tab, ...Array.from(tab.querySelectorAll<HTMLElement>('[data-action], [data-movie-tab-target], a'))];
     relatedElements.forEach((el) => {
       el.removeAttribute('data-action');
@@ -922,9 +936,6 @@ export class VideoDetailEnhancer {
       }
     });
 
-    const anchors = tab.matches('a')
-      ? [tab as HTMLAnchorElement]
-      : Array.from(tab.querySelectorAll<HTMLAnchorElement>('a'));
     anchors.forEach((anchor) => {
       const href = anchor.getAttribute('href') || '';
       if (href && !anchor.dataset.jdbRelatedListsOriginalHref) {

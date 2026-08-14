@@ -37,6 +37,10 @@ import { videoDetailEnhancer } from './enhancer';
 import { videoFavoriteRatingEnhancer } from './favoriteRating';
 import { localListInSourceModalEnhancer } from './localListInSourceModal';
 import { isRelevantStatusMutation, resolveLibraryStatusFromPageStatus } from './statusSyncPolicy';
+import {
+    getAutomaticHeavyTaskVisibilityPolicy,
+    normalizeVideoEnhancementSchedulingMode,
+} from './schedulingMode';
 
 function getActorRemarksTaskTimeoutMs(settings: any): number {
     const seconds = Number(settings?.videoEnhancement?.actorRemarksTaskTimeoutSeconds);
@@ -400,6 +404,10 @@ export function getVideoDetailTaskBlueprints(settings: any): VideoDetailTaskBlue
     const enableRelatedLists = enableVideoEnhancement && (settings as any)?.videoEnhancement?.enableRelatedLists !== false;
     const enableLocalListInSourceModal = enableVideoEnhancement && (settings as any)?.videoEnhancement?.enableLocalListInSourceModal !== false;
     const actorRemarksTaskTimeoutMs = getActorRemarksTaskTimeoutMs(settings as any);
+    const schedulingMode = normalizeVideoEnhancementSchedulingMode(
+        settings?.videoEnhancement?.schedulingMode,
+    );
+    const heavyTaskVisibilityPolicy = getAutomaticHeavyTaskVisibilityPolicy(schedulingMode);
 
     log('[VideoDetailBlueprints] gates', {
         enableVideoEnhancement,
@@ -414,7 +422,6 @@ export function getVideoDetailTaskBlueprints(settings: any): VideoDetailTaskBlue
     });
 
     blueprints.push({ phase: 'critical', label: 'videoStatus:initialSync', priority: 12, visibilityPolicy: 'background_allowed' });
-
     if (enableVideoEnhancement || enableMultiSource || enableCurrentTitleTranslation) {
         // clickEnhancement 无独立 managed 执行路径，不预注册虚假 label
         blueprints.push(
@@ -444,7 +451,7 @@ export function getVideoDetailTaskBlueprints(settings: any): VideoDetailTaskBlue
     }
 
     if (enableVideoEnhancement && (settings as any)?.videoEnhancement?.enableVideoFavoriteRating === true) {
-        blueprints.push({ phase: 'high', label: 'videoFavoriteRating:init', priority: 4, visibilityPolicy: 'background_allowed', dependsOn: ['videoStatus:initialSync'] });
+        blueprints.push({ phase: 'high', label: 'videoFavoriteRating:init', priority: 4, visibilityPolicy: heavyTaskVisibilityPolicy, dependsOn: ['videoStatus:initialSync'] });
     }
 
     if (enableLocalListInSourceModal) {
@@ -452,7 +459,7 @@ export function getVideoDetailTaskBlueprints(settings: any): VideoDetailTaskBlue
     }
 
     if (enableActorNameMarks) {
-        blueprints.push({ phase: 'idle', label: 'actorMarks:page', dependsOn: ['videoStatus:initialSync'] });
+        blueprints.push({ phase: 'idle', label: 'actorMarks:page', visibilityPolicy: heavyTaskVisibilityPolicy, dependsOn: ['videoStatus:initialSync'] });
     }
 
     return blueprints;
@@ -567,7 +574,13 @@ async function syncVideoStatusFullRefresh(
     const result = await storageManager.putRecord(
         mergedRecord,
         operationId,
-        { backupToStorage: false, verifyAfterWrite: true }
+        {
+            backupToStorage: false,
+            verifyAfterWrite: true,
+            // IndexedDB messages cannot be canceled safely. Keep the same
+            // refresh operation exclusive until its database write returns.
+            dbTimeoutBehavior: 'diagnostic',
+        }
     );
 
     if (!result.success) {
@@ -693,6 +706,7 @@ export async function handleVideoDetailPage(): Promise<void> {
                 idleTimeout: 3000,
                 delayMs: 1200,
                 timeout: 12000,
+                timeoutBehavior: 'diagnostic',
                 dependsOn: ['videoStatus:initialSync'],
             });
         } catch (e) {
@@ -700,7 +714,12 @@ export async function handleVideoDetailPage(): Promise<void> {
         }
 
         try {
+            const schedulingMode = normalizeVideoEnhancementSchedulingMode(
+                STATE.settings?.videoEnhancement?.schedulingMode,
+            );
+            const heavyTaskVisibilityPolicy = getAutomaticHeavyTaskVisibilityPolicy(schedulingMode);
             log('[VideoDetail] scheduling enhancement tasks', {
+                schedulingMode,
                 enableCurrentTitleTranslation: STATE.settings?.dataEnhancement?.enableTranslation && (STATE.settings?.translation?.targets ? STATE.settings.translation.targets.currentTitle !== false : true),
                 enableActorNameMarks: (STATE.settings as any)?.videoEnhancement?.enableActorNameMarks !== false,
                 enableActorRemarks: (STATE.settings as any)?.videoEnhancement?.enableActorRemarks === true,
@@ -811,7 +830,7 @@ export async function handleVideoDetailPage(): Promise<void> {
             }
 
             if ((STATE.settings as any)?.videoEnhancement?.enableActorNameMarks !== false) {
-                scheduleMarkActorsOnPage(0);
+                scheduleMarkActorsOnPage(0, heavyTaskVisibilityPolicy);
             }
 
             if ((STATE.settings as any)?.videoEnhancement?.enableVideoFavoriteRating === true) {
@@ -820,7 +839,7 @@ export async function handleVideoDetailPage(): Promise<void> {
                 }, {
                     label: 'videoFavoriteRating:init',
                     priority: 4,
-                    visibilityPolicy: 'background_allowed',
+                    visibilityPolicy: heavyTaskVisibilityPolicy,
                     dependsOn: ['videoStatus:initialSync'],
                     delayMs: 80,
                 });
@@ -986,13 +1005,16 @@ export async function refreshActorMarksOnPage(): Promise<void> {
     await markActorsOnPage();
 }
 
-export function scheduleMarkActorsOnPage(delayMs: number = 0): void {
+export function scheduleMarkActorsOnPage(
+    delayMs: number = 0,
+    visibilityPolicy: GlobalTaskVisibilityPolicy = 'background_allowed',
+): void {
     try {
         initOrchestrator.add('idle', async () => {
             try {
                 await markActorsOnPage();
             } catch (markErr) { log('Marking actors on page failed:', markErr); }
-        }, { label: 'actorMarks:page', idle: true, idleTimeout: 3000, delayMs, dependsOn: ['videoStatus:initialSync'] });
+        }, { label: 'actorMarks:page', idle: true, idleTimeout: 3000, delayMs, visibilityPolicy, dependsOn: ['videoStatus:initialSync'] });
     } catch (markErr) {
         log('Marking actors scheduling failed:', markErr);
     }

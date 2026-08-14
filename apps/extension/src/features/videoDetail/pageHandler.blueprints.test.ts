@@ -34,3 +34,48 @@ describe('video detail task blueprints', () => {
         ]);
     });
 });
+
+describe('video detail scheduling modes', () => {
+    it('prewarms only the known expensive automatic tasks at the smart background rate', () => {
+        const blueprints = getVideoDetailTaskBlueprints({
+            videoEnhancement: {
+                enabled: true,
+                schedulingMode: 'smart',
+                enableRelatedLists: true,
+                enableReviewBreaker: true,
+                enableVideoFavoriteRating: true,
+                enableActorNameMarks: true,
+            },
+        });
+        const byLabel = new Map(blueprints.map(blueprint => [blueprint.label, blueprint]));
+
+        expect(byLabel.get('videoStatus:initialSync')?.visibilityPolicy).toBe('background_allowed');
+        expect(byLabel.get('videoEnhancement:initCore')?.visibilityPolicy).toBe('background_allowed');
+        expect(byLabel.get('videoEnhancement:loadData')?.visibilityPolicy).toBeUndefined();
+        expect(byLabel.get('videoEnhancement:runRelatedLists')?.visibilityPolicy).toBeUndefined();
+        expect(byLabel.get('videoStatus:fullRefresh')).toBeUndefined();
+        expect(byLabel.get('onlineAvailability:check')).toBeUndefined();
+        expect(byLabel.get('videoFavoriteRating:init')?.visibilityPolicy).toBe('background_throttled');
+        expect(byLabel.get('actorMarks:page')?.visibilityPolicy).toBe('background_throttled');
+    });
+
+    it('keeps automatic heavy data tasks background-eligible in immediate mode', () => {
+        const blueprints = getVideoDetailTaskBlueprints({
+            videoEnhancement: {
+                enabled: true,
+                schedulingMode: 'immediate',
+                enableRelatedLists: true,
+                enableVideoFavoriteRating: true,
+                enableActorNameMarks: true,
+            },
+        });
+        const byLabel = new Map(blueprints.map(blueprint => [blueprint.label, blueprint]));
+
+        expect(byLabel.get('videoEnhancement:loadData')?.visibilityPolicy).toBeUndefined();
+        expect(byLabel.get('videoEnhancement:runRelatedLists')?.visibilityPolicy).toBeUndefined();
+        expect(byLabel.get('videoStatus:fullRefresh')).toBeUndefined();
+        expect(byLabel.get('onlineAvailability:check')).toBeUndefined();
+        expect(byLabel.get('videoFavoriteRating:init')?.visibilityPolicy).toBe('background_allowed');
+        expect(byLabel.get('actorMarks:page')?.visibilityPolicy).toBe('background_allowed');
+    });
+});
