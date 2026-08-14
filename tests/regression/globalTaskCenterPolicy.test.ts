@@ -100,4 +100,112 @@ describe('global task center policy runtime', () => {
     });
     expect(response).toEqual({ ok: false, error: 'missing-page-instance-id' });
   });
+
+  it('returns an acquired foreground task to the hidden queue without consuming its retry budget', () => {
+    const center = new GlobalTaskCenter();
+    center.registerTask(createDescriptor({
+      taskId: 'hidden-after-lease',
+      label: 'videoEnhancement:loadData',
+      visibilityPolicy: 'foreground_first',
+    }));
+    center.updateVisibility(1, true);
+
+    expect(center.requestLease('hidden-after-lease')).toEqual({ granted: true });
+
+    const deferred = handle(center, {
+      type: TASK_CENTER_MESSAGE.DEFER,
+      payload: { taskId: 'hidden-after-lease', reason: 'tab-hidden' },
+    });
+
+    expect(deferred).toEqual({ ok: true, status: 'queued', waitReason: 'tab-hidden' });
+    expect(center.queryState().tasks).toEqual([
+      expect.objectContaining({
+        taskId: 'hidden-after-lease',
+        status: 'queued',
+        waitReason: 'tab-hidden',
+        retryCount: 0,
+      }),
+    ]);
+  });
+
+  it('serializes smart-mode detail tasks across visible tabs', () => {
+    const center = new GlobalTaskCenter();
+    center.registerTask(createDescriptor({
+      taskId: 'smart-rating',
+      label: 'videoFavoriteRating:init',
+      tabId: 1,
+      pageInstanceId: 'smart-page-1',
+      visibilityPolicy: 'foreground_first',
+    }));
+    center.registerTask(createDescriptor({
+      taskId: 'smart-insights',
+      label: 'insights:collector',
+      tabId: 2,
+      pageInstanceId: 'smart-page-2',
+      visibilityPolicy: 'foreground_first',
+    }));
+    center.updateVisibility(1, true);
+    center.updateVisibility(2, true);
+
+    expect(center.requestLease('smart-rating')).toEqual({ granted: true });
+    expect(center.requestLease('smart-insights')).toEqual({
+      granted: false,
+      waitReason: 'source-page-heavy-budget',
+    });
+  });
+
+  it('keeps immediate-mode detail tasks outside the smart lease group', () => {
+    const center = new GlobalTaskCenter();
+    center.registerTask(createDescriptor({
+      taskId: 'immediate-rating',
+      label: 'videoFavoriteRating:init',
+      tabId: 1,
+      pageInstanceId: 'immediate-page-1',
+      visibilityPolicy: 'background_allowed',
+    }));
+    center.registerTask(createDescriptor({
+      taskId: 'immediate-insights',
+      label: 'insights:collector',
+      tabId: 2,
+      pageInstanceId: 'immediate-page-2',
+      visibilityPolicy: 'background_allowed',
+    }));
+    center.updateVisibility(1, true);
+    center.updateVisibility(2, true);
+
+    expect(center.requestLease('immediate-rating')).toEqual({ granted: true });
+    expect(center.requestLease('immediate-insights')).toEqual({ granted: true });
+  });
+
+  it('serializes core status synchronization even when enhancement is immediate', () => {
+    const center = new GlobalTaskCenter();
+    center.registerTask(createDescriptor({
+      taskId: 'immediate-status-first',
+      label: 'videoStatus:initialSync',
+      tabId: 1,
+      pageInstanceId: 'immediate-status-page-1',
+      mainId: 'status-one',
+      pageUrl: '/v/status-one',
+      visibilityPolicy: 'background_allowed',
+      phase: 'critical',
+    }));
+    center.registerTask(createDescriptor({
+      taskId: 'immediate-status-second',
+      label: 'videoStatus:initialSync',
+      tabId: 2,
+      pageInstanceId: 'immediate-status-page-2',
+      mainId: 'status-two',
+      pageUrl: '/v/status-two',
+      visibilityPolicy: 'background_allowed',
+      phase: 'critical',
+    }));
+    center.updateVisibility(1, true);
+    center.updateVisibility(2, true);
+
+    expect(center.requestLease('immediate-status-first')).toEqual({ granted: true });
+    expect(center.requestLease('immediate-status-second')).toEqual({
+      granted: false,
+      waitReason: 'source-page-heavy-budget',
+    });
+  });
 });

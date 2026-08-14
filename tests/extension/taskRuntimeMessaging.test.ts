@@ -8,9 +8,11 @@ import { createManagedTaskDescriptor } from '../../apps/extension/src/content/ta
 import {
   completeManagedTask,
   failManagedTask,
+  getActiveManagedTaskIds,
   progressManagedTask,
   registerManagedTask,
   requestTaskLease,
+  runRegisteredManagedTask,
 } from '../../apps/extension/src/platform/tasks/runtimeMessaging';
 import { TASK_CENTER_MESSAGE } from '../../apps/extension/src/shared/taskCenterProtocol';
 import type { GlobalTaskDescriptor } from '../../apps/extension/src/shared/taskCenterTypes';
@@ -187,6 +189,72 @@ describe('task runtime messaging', () => {
     });
 
     await expect(failManagedTask('task-retry', 'temporary-network-error')).resolves.toEqual(retryResponse);
+  });
+
+  it('returns a foreground-first task to the queue when its page becomes hidden after receiving a lease', async () => {
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    const runner = vi.fn(async () => 'should-not-run');
+    setRuntimeMessageHandler((message) => {
+      if (message.type === TASK_CENTER_MESSAGE.REQUEST_LEASE) {
+        return { granted: true };
+      }
+      if (message.type === TASK_CENTER_MESSAGE.DEFER) {
+        return { ok: true, status: 'queued', waitReason: 'tab-hidden' };
+      }
+      return { ok: true };
+    });
+
+    await expect(runRegisteredManagedTask(makeDescriptor(), runner)).resolves.toEqual({
+      executed: false,
+      waitReason: 'tab-hidden',
+    });
+    expect(runner).not.toHaveBeenCalled();
+    expect(getRuntimeMessages()).toEqual([
+      { type: TASK_CENTER_MESSAGE.REQUEST_LEASE, payload: { taskId: 'task-1' } },
+      { type: TASK_CENTER_MESSAGE.DEFER, payload: { taskId: 'task-1', reason: 'tab-hidden' } },
+    ]);
+  });
+
+  it('keeps background-allowed work runnable when its page is hidden', async () => {
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    const runner = vi.fn(async () => 'ran-in-background');
+    setRuntimeMessageHandler((message) => {
+      if (message.type === TASK_CENTER_MESSAGE.REQUEST_LEASE) {
+        return { granted: true };
+      }
+      return { ok: true };
+    });
+
+    await expect(runRegisteredManagedTask(makeDescriptor({ visibilityPolicy: 'background_allowed' }), runner)).resolves.toEqual({
+      executed: true,
+      result: 'ran-in-background',
+    });
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(getRuntimeMessages().map((message) => message.type)).toEqual([
+      TASK_CENTER_MESSAGE.REQUEST_LEASE,
+      TASK_CENTER_MESSAGE.COMPLETE,
+    ]);
+  });
+
+  it('does not leave a local task active when hidden-task deferral cannot reach the background', async () => {
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    const runner = vi.fn(async () => 'should-not-run');
+    setRuntimeMessageHandler((message) => {
+      if (message.type === TASK_CENTER_MESSAGE.REQUEST_LEASE) {
+        return { granted: true };
+      }
+      if (message.type === TASK_CENTER_MESSAGE.DEFER) {
+        throw new Error('background-unavailable');
+      }
+      return { ok: true };
+    });
+
+    await expect(runRegisteredManagedTask(makeDescriptor(), runner)).resolves.toEqual({
+      executed: false,
+      waitReason: 'tab-hidden',
+    });
+    expect(runner).not.toHaveBeenCalled();
+    expect(getActiveManagedTaskIds()).toEqual([]);
   });
 
 });

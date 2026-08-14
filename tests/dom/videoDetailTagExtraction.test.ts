@@ -186,4 +186,17 @@ describe('video detail tag extraction', () => {
     expect(STATE.records['SSIS-795']?.tags).toEqual(['劇情', '中文字幕']);
     expect(STATE.records['SSIS-795']?.categories).toEqual(['劇情', '中文字幕']);
   });
+
+  it('让全量资料回填保持独占，避免超时后并发重试写入同一记录', async () => {
+    await handleVideoDetailPage();
+
+    const fullRefreshOptions = vi.mocked(initOrchestrator.add).mock.calls
+      .find(([, , options]) => options?.label === 'videoStatus:fullRefresh')?.[2];
+
+    expect(fullRefreshOptions).toMatchObject({
+      label: 'videoStatus:fullRefresh',
+      timeout: 12_000,
+    });
+    expect(fullRefreshOptions?.timeoutBehavior).toBe('diagnostic');
+  });
 });

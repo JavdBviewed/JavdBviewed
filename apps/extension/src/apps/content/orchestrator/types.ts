@@ -15,6 +15,7 @@ export interface InitTaskOptions {
   idleTimeout?: number;
   priority?: number;
   timeout?: number;
+  timeoutBehavior?: 'hard' | 'diagnostic';
   dependsOn?: string[];
   visibilityPolicy?: GlobalTaskVisibilityPolicy;
 }

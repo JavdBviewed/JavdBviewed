@@ -87,6 +87,7 @@ class InitOrchestrator {
   private completedTasks = new Set<string>(); // 已完成的任务标签
   private taskDependencies = new Map<string, string[]>(); // 任务依赖关系
   private retryTimers = new OrchestratorRetryTimers();
+  private foregroundDeferredTaskKeys = new Set<string>();
   private stallDetectionTimer?: number;
   private hiddenLeaseProtectionTimer?: number;
   private removeVisibilityListener?: () => void;
@@ -181,6 +182,18 @@ class InitOrchestrator {
             }
           }
         }
+        return;
+      }
+
+      for (const [phase, tasks] of Object.entries(this.phases) as Array<[InitPhase, ManagedScheduledTask[]]>) {
+        for (const st of tasks) {
+          const label = st.options.label;
+          if (!label || st.completed || st.running) continue;
+          const taskKey = createTaskKey(phase, label);
+          if (!this.foregroundDeferredTaskKeys.delete(taskKey)) continue;
+          this.log('foreground task resumed after visibility restore', { phase, label });
+          this.runTask(phase, st).catch(() => {});
+        }
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -219,6 +232,20 @@ class InitOrchestrator {
     const label = st.options.label || 'anonymous';
     if (label === 'anonymous') return;
     const taskId = st.managedDescriptor?.taskId || '';
+
+    const visibilityPolicy = st.managedDescriptor?.visibilityPolicy
+      ?? st.options.visibilityPolicy
+      ?? getDefaultVisibilityPolicy(phase);
+    if (
+      waitReason === 'tab-hidden'
+      && visibilityPolicy === 'foreground_first'
+      && typeof document !== 'undefined'
+      && document.visibilityState !== 'visible'
+    ) {
+      this.foregroundDeferredTaskKeys.add(createTaskKey(phase, label));
+      this.log('foreground task waiting for visibility restore', { phase, label });
+      return;
+    }
 
     const usesLocalRetryBudget = waitReason !== 'retryable-error'
       && !isLeaseAvailabilityWaitReason(waitReason);
@@ -470,6 +497,7 @@ class InitOrchestrator {
     this.removeVisibilityListener?.();
     this.removeVisibilityListener = undefined;
     this.retryTimers.clearAll();
+    this.foregroundDeferredTaskKeys.clear();
     if (this.metricsSaveTimeout !== undefined) {
       window.clearTimeout(this.metricsSaveTimeout);
       this.metricsSaveTimeout = undefined;
@@ -604,16 +632,36 @@ class InitOrchestrator {
     const timeout = st.options.timeout || 0;
     const executeTask = async () => {
       if (timeout <= 0) return await st.task();
+      if (st.options.timeoutBehavior !== 'diagnostic') {
+        let timeoutId: number | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = window.setTimeout(() => {
+            reject(new Error(`Task timeout after ${timeout}ms`));
+          }, timeout);
+        });
+        try {
+          return await Promise.race([st.task(), timeoutPromise]);
+        } finally {
+          if (timeoutId !== undefined) clearTimeout(timeoutId);
+        }
+      }
       let timeoutId: number | undefined;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = window.setTimeout(() => {
-          reject(new Error(`Task timeout after ${timeout}ms`));
-        }, timeout);
-      });
+      let timeoutReported = false;
+      const execution = Promise.resolve().then(() => st.task());
+      timeoutId = window.setTimeout(() => {
+        timeoutReported = true;
+        // Most content work (DOM/IndexedDB) has no cancellation primitive.
+        // Releasing its lease here would allow a retry to overlap the still
+        // running operation, multiplying page and storage pressure.
+        console.warn(`[InitOrchestrator] task exceeded timeout: phase=${phase} label=${label} timeout=${timeout}ms`);
+      }, timeout);
       try {
-        return await Promise.race([st.task(), timeoutPromise]);
+        return await execution;
       } finally {
         if (timeoutId !== undefined) clearTimeout(timeoutId);
+        if (timeoutReported) {
+          this.log('timeout-diagnostic-complete', { phase, label, timeout, durationMs: Math.round(performance.now() - startAbs) });
+        }
       }
     };
 

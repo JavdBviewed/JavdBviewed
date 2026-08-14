@@ -93,6 +93,10 @@ export async function failManagedTask(taskId: string, error: string): Promise<Fa
   return response && typeof response === 'object' ? response : {};
 }
 
+export async function deferManagedTask(taskId: string, reason: string): Promise<void> {
+  await chrome.runtime.sendMessage({ type: TASK_CENTER_MESSAGE.DEFER, payload: { taskId, reason } });
+}
+
 export async function pauseManagedTask(taskId: string, reason: string = 'paused'): Promise<void> {
   await chrome.runtime.sendMessage({ type: TASK_CENTER_MESSAGE.PAUSE, payload: { taskId, reason } });
 }
@@ -210,6 +214,21 @@ async function executeRegisteredManagedTask<T>(
       await failManagedTask(registeredDescriptor.taskId, waitReason);
     }
     return { executed: false, waitReason };
+  }
+
+  if (
+    registeredDescriptor.visibilityPolicy === 'foreground_first'
+    && typeof document !== 'undefined'
+    && document.visibilityState !== 'visible'
+  ) {
+    try {
+      await deferManagedTask(registeredDescriptor.taskId, 'tab-hidden');
+    } catch {
+      // The local orchestrator will retry when this page becomes visible.
+    } finally {
+      untrackActiveManagedTask(registeredDescriptor.taskId);
+    }
+    return { executed: false, waitReason: 'tab-hidden' };
   }
 
   try {
