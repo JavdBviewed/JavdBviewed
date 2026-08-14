@@ -35,9 +35,47 @@ import {
 
 const AUTO_SAVE_MS = 1000;
 
+type AlarmDiagnosticEntry = {
+  lastFiredAt?: number;
+  lastResult?: string;
+  lastError?: string;
+  lastSummary?: string;
+  nextScheduledAt?: number;
+};
+
+type AlarmDiagnostics = Record<string, AlarmDiagnosticEntry>;
+
 function parseNum(raw: string, fallback: number): number {
   const n = parseInt(raw, 10);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function formatDiagnosticTime(value?: number): string {
+  return typeof value === 'number' ? new Date(value).toLocaleString() : '暂无记录';
+}
+
+async function fetchBackgroundTaskDiagnostics(): Promise<AlarmDiagnostics> {
+  const response = await chrome.runtime.sendMessage({ type: 'ALARM_DIAGNOSTICS_GET' });
+  if (!response?.success) {
+    throw new Error(response?.error || '未获取到后台任务诊断数据');
+  }
+  return response.diagnostics && typeof response.diagnostics === 'object'
+    ? response.diagnostics as AlarmDiagnostics
+    : {};
+}
+
+function downloadBackgroundTaskDiagnostics(diagnostics: AlarmDiagnostics): void {
+  const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), diagnostics }, null, 2)], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `background-task-diagnostics-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 async function notifyLogController(): Promise<void> {
@@ -65,6 +103,9 @@ export function LogSettingsPage() {
   const [form, setForm] = useState<LogSettingsFormState>(DEFAULT_LOG_SETTINGS_FORM);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<AlarmDiagnostics | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
 
   const persist = useCallback(async (nextForm: LogSettingsFormState) => {
     const v = validateLogForm(nextForm);
@@ -144,6 +185,26 @@ export function LogSettingsPage() {
     },
     [flush],
   );
+
+  const refreshDiagnostics = useCallback(async (): Promise<AlarmDiagnostics | null> => {
+    setDiagnosticsBusy(true);
+    setDiagnosticsError(null);
+    try {
+      const next = await fetchBackgroundTaskDiagnostics();
+      setDiagnostics(next);
+      return next;
+    } catch (err) {
+      setDiagnosticsError(err instanceof Error ? err.message : '获取失败');
+      return null;
+    } finally {
+      setDiagnosticsBusy(false);
+    }
+  }, []);
+
+  const exportDiagnostics = useCallback(async () => {
+    const data = diagnostics || await refreshDiagnostics();
+    if (data) downloadBackgroundTaskDiagnostics(data);
+  }, [diagnostics, refreshDiagnostics]);
 
   return (
     <SettingsPageFrame
@@ -338,6 +399,60 @@ export function LogSettingsPage() {
               勾选模块后，该模块的日志会在浏览器控制台（F12）中显示。日志格式：
               [时间] [级别] [标签] 消息内容。建议日常保持默认，遇问题再启用相关模块。
             </div>
+          </SettingSection>
+
+          <SettingSection title="运行诊断" description="用于查看后台定时任务的最近执行记录，不会启动或修改任何任务。">
+            <details className="mx-2 text-[12px] text-[var(--color-fg-muted)]">
+              <summary className="cursor-pointer select-none font-semibold text-[var(--color-fg)]">
+                后台任务诊断
+              </summary>
+              <p className="mb-2 mt-1 leading-relaxed">
+                包含新作品检查、媒体库同步及其它已启用后台任务的最近执行状态。
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  id="refreshBackgroundTaskDiagnosticsBtn"
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={diagnosticsBusy}
+                  onClick={() => void refreshDiagnostics()}
+                >
+                  {diagnosticsBusy ? '读取中…' : '刷新状态'}
+                </Button>
+                <Button
+                  id="exportBackgroundTaskDiagnosticsBtn"
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={diagnosticsBusy}
+                  onClick={() => void exportDiagnostics()}
+                >
+                  导出诊断包
+                </Button>
+              </div>
+              {diagnosticsError ? (
+                <p className="mb-0 mt-2 text-[var(--color-danger,#c0392b)]" role="alert">
+                  获取失败：{diagnosticsError}
+                </p>
+              ) : null}
+              {diagnostics ? (
+                Object.keys(diagnostics).length > 0 ? (
+                  <div className="mt-2 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
+                    {Object.entries(diagnostics).sort(([a], [b]) => a.localeCompare(b)).map(([name, entry]) => (
+                      <div key={name} className="py-2">
+                        <strong className="text-[var(--color-fg)]">{name}</strong>
+                        <div className="mt-0.5">结果：{entry.lastResult || '暂无记录'} · 上次：{formatDiagnosticTime(entry.lastFiredAt)} · 下次：{formatDiagnosticTime(entry.nextScheduledAt)}</div>
+                        {entry.lastSummary ? <div>摘要：{entry.lastSummary}</div> : null}
+                        {entry.lastError ? <div className="text-[var(--color-danger,#c0392b)]">错误：{entry.lastError}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mb-0 mt-2">暂无后台任务执行记录。</p>
+                )
+              ) : null}
+            </details>
           </SettingSection>
 
           {saveError ? (
