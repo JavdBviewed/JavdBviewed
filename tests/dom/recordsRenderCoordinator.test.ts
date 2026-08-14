@@ -27,7 +27,7 @@ describe('records render coordinator', () => {
 
     expect(videoList.innerHTML).toContain('加载中');
     expect(renderServerPage).toHaveBeenCalledTimes(1);
-    expect(updateStats).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(updateStats).toHaveBeenCalledTimes(1));
   });
 
   it('runs local mode render flow when IDB is disabled', () => {

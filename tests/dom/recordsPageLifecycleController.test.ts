@@ -108,8 +108,6 @@ describe('records page lifecycle controller', () => {
       'viewToolbar.update',
       'updateFilteredRecords',
       'render',
-      'tags.render',
-      'lists.render',
       'updateBatchUI',
     ]);
   });
