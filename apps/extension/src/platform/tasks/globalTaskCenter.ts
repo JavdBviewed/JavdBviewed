@@ -15,6 +15,7 @@ import {
   TASK_GLOBAL_LEASE_LIMITS,
   TASK_LEASE_GROUP_LIMITS,
   TASK_PAGE_LEASE_LIMITS,
+  TASK_SMART_BACKGROUND_PREWARM_LIMITS,
   resolveTaskBucket,
   resolveTaskLeaseGroup,
 } from './taskPolicy';
@@ -57,6 +58,7 @@ export class GlobalTaskCenter {
   private isRestored = false;
   private persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly persistDebounceMs = 500;
+  private lastGrantedLeasePersistence: Promise<void> = Promise.resolve();
 
   private getPhaseWeight(phase: string): number {
     if (phase === 'critical') return 4000;
@@ -111,6 +113,7 @@ export class GlobalTaskCenter {
         this.dedupeIndex = new Map(Object.entries(dedupeData));
         console.log('[TaskCenter] Restored dedupe index:', this.dedupeIndex.size, 'entries');
       }
+      await this.cancelRestoredTasksForClosedTabs();
       this.isRestored = true;
       // P1 FIX: 恢复后启动定期快照
       this.startPeriodicSnapshot();
@@ -120,10 +123,41 @@ export class GlobalTaskCenter {
     }
   }
 
+  /**
+   * Visibility is intentionally in-memory, so a service-worker restart cannot
+   * prove that a restored task still owns a live tab. Reconcile persisted work
+   * with Chrome before it is allowed to affect a new scheduling cycle.
+   */
+  private async cancelRestoredTasksForClosedTabs(): Promise<void> {
+    if (!chrome.tabs?.query) return;
+    try {
+      const tabs = await chrome.tabs.query({});
+      const openTabIds = new Set(tabs
+        .map((tab) => tab.id)
+        .filter((tabId): tabId is number => typeof tabId === 'number'));
+      let canceled = 0;
+      for (const record of this.store.listTasks()) {
+        if (['done', 'error', 'canceled'].includes(record.runtime.status)) continue;
+        if (openTabIds.has(record.descriptor.tabId)) continue;
+        record.runtime.status = 'canceled';
+        record.runtime.waitReason = 'page-closed-by-user';
+        record.runtime.endedAt = Date.now();
+        this.store.setTask(record.descriptor.taskId, record);
+        canceled += 1;
+      }
+      if (canceled > 0) {
+        console.log('[TaskCenter] Canceled restored tasks for closed tabs', { canceled });
+        this.persistToStorage();
+      }
+    } catch (error) {
+      console.warn('[TaskCenter] Failed to reconcile restored tasks with tabs:', error);
+    }
+  }
+
   // P1 FIX: 定期快照到 chrome.storage，防止 Service Worker 重启丢失状态
-  private persistToStorage(): void {
+  private persistToStorage(): Promise<void> {
     const storage = typeof chrome !== 'undefined' ? chrome.storage?.local : undefined;
-    if (!storage) return;
+    if (!storage) return Promise.resolve();
     const snapshot = {
       tasks: this.store.listTasks().map(record => ({
         descriptor: record.descriptor,
@@ -132,12 +166,15 @@ export class GlobalTaskCenter {
       completedLabels: Array.from(this.completedTaskLabels),
       savedAt: Date.now(),
     };
-    storage.set({ [this.storageKey]: snapshot }).catch(() => {});
+    const writes: Promise<unknown>[] = [
+      Promise.resolve(storage.set({ [this.storageKey]: snapshot })).catch(() => undefined),
+    ];
     // P2 FIX: 同时持久化 dedupe index，防止 SW 重启后 dedupe 失效导致重复任务
     if (this.dedupeIndex.size > 0) {
       const dedupeSnapshot = Object.fromEntries(this.dedupeIndex.entries());
-      storage.set({ [this.dedupeStorageKey]: dedupeSnapshot }).catch(() => {});
+      writes.push(Promise.resolve(storage.set({ [this.dedupeStorageKey]: dedupeSnapshot })).catch(() => undefined));
     }
+    return Promise.all(writes).then(() => undefined);
   }
 
   /** Collapse bursty task completions into one full snapshot write. */
@@ -236,7 +273,11 @@ export class GlobalTaskCenter {
     }).length;
   }
 
-  private getActiveLeaseCount(visible: boolean, pageInstanceId?: string): number {
+  private getActiveLeaseCount(
+    visible: boolean,
+    pageInstanceId?: string,
+    visibilityPolicy?: GlobalTaskDescriptor['visibilityPolicy'],
+  ): number {
     const now = Date.now();
     return this.store.listTasks().filter(record => {
       const disposition = computeTaskDisposition({
@@ -247,6 +288,7 @@ export class GlobalTaskCenter {
       });
       return this.store.isTabVisible(record.descriptor.tabId) === visible
         && (!pageInstanceId || record.descriptor.pageInstanceId === pageInstanceId)
+        && (!visibilityPolicy || record.descriptor.visibilityPolicy === visibilityPolicy)
         && disposition === 'active'
         && (record.runtime.status === 'leased' || record.runtime.status === 'running');
     }).length;
@@ -261,7 +303,10 @@ export class GlobalTaskCenter {
         timeoutMs: record.descriptor.timeoutMs,
         now,
       });
-      return resolveTaskLeaseGroup(record.descriptor.label) === group
+      return resolveTaskLeaseGroup(
+        record.descriptor.label,
+        record.descriptor.visibilityPolicy,
+      ) === group
         && disposition === 'active'
         && (record.runtime.status === 'leased' || record.runtime.status === 'running');
     }).length;
@@ -293,7 +338,8 @@ export class GlobalTaskCenter {
       const isHidden = !this.store.isTabVisible(descriptor.tabId);
       const isActiveRunningTask = runtime.status === 'leased' || runtime.status === 'running';
       const hiddenBaseTs = runtime.heartbeatTs || runtime.startedAt || descriptor.createdAt;
-      const shouldApplyHiddenRunningTimeout = descriptor.visibilityPolicy !== 'background_allowed';
+      const shouldApplyHiddenRunningTimeout = descriptor.visibilityPolicy !== 'background_allowed'
+        && descriptor.visibilityPolicy !== 'background_throttled';
       if (
         shouldApplyHiddenRunningTimeout
         && isHidden
@@ -489,6 +535,36 @@ export class GlobalTaskCenter {
       this.store.setTask(taskId, task);
       return { granted: false, waitReason: task.runtime.waitReason };
     }
+    if (task.descriptor.visibilityPolicy === 'background_throttled') {
+      const activePagePrewarmCount = this.getActiveLeaseCount(
+        visible,
+        task.descriptor.pageInstanceId,
+        'background_throttled',
+      );
+      if (activePagePrewarmCount >= TASK_SMART_BACKGROUND_PREWARM_LIMITS.page) {
+        task.runtime.status = 'queued';
+        task.runtime.waitReason = 'smart-background-page-budget';
+        this.store.setTask(taskId, task);
+        return { granted: false, waitReason: task.runtime.waitReason };
+      }
+      const activePrewarmCount = this.store.listTasks().filter((record) => {
+        const disposition = computeTaskDisposition({
+          status: record.runtime.status,
+          heartbeatTs: record.runtime.heartbeatTs,
+          timeoutMs: record.descriptor.timeoutMs,
+          now: Date.now(),
+        });
+        return record.descriptor.visibilityPolicy === 'background_throttled'
+          && disposition === 'active'
+          && (record.runtime.status === 'leased' || record.runtime.status === 'running');
+      }).length;
+      if (activePrewarmCount >= TASK_SMART_BACKGROUND_PREWARM_LIMITS.global) {
+        task.runtime.status = 'queued';
+        task.runtime.waitReason = 'smart-background-global-budget';
+        this.store.setTask(taskId, task);
+        return { granted: false, waitReason: task.runtime.waitReason };
+      }
+    }
     const globalLeaseLimit = visible ? TASK_GLOBAL_LEASE_LIMITS.visible : TASK_GLOBAL_LEASE_LIMITS.hidden;
     const activeLeaseCount = this.getActiveLeaseCount(visible);
     const isPriorityPhase = task.descriptor.phase === 'critical' || task.descriptor.phase === 'high';
@@ -508,7 +584,10 @@ export class GlobalTaskCenter {
       this.store.setTask(taskId, task);
       return { granted: false, waitReason: task.runtime.waitReason };
     }
-    const leaseGroup = resolveTaskLeaseGroup(task.descriptor.label);
+    const leaseGroup = resolveTaskLeaseGroup(
+      task.descriptor.label,
+      task.descriptor.visibilityPolicy,
+    );
     const leaseGroupLimit = leaseGroup ? TASK_LEASE_GROUP_LIMITS[leaseGroup] : undefined;
     if (leaseGroup && leaseGroupLimit !== undefined && this.getActiveLeaseGroupCount(leaseGroup) >= leaseGroupLimit) {
       task.runtime.status = 'queued';
@@ -521,6 +600,9 @@ export class GlobalTaskCenter {
     task.runtime.startedAt = task.runtime.startedAt || Date.now();
     task.runtime.heartbeatTs = Date.now();
     this.store.setTask(taskId, task);
+    // A granted lease is the cross-page concurrency boundary. Persist it now
+    // so an MV3 worker restart cannot admit a competing heavy task first.
+    this.lastGrantedLeasePersistence = this.persistToStorage();
     return { granted: true };
   }
 
@@ -621,6 +703,23 @@ export class GlobalTaskCenter {
       status: task.runtime.status,
       waitReason: task.runtime.waitReason,
     };
+  }
+
+  deferTask(taskId: string, reason: string): { ok: true; status?: string; waitReason?: string } {
+    this.cleanupStaleTasks();
+    const task = this.store.getTask(taskId);
+    if (!task) return { ok: true, waitReason: 'task-not-found' };
+
+    if (!['done', 'error', 'canceled'].includes(task.runtime.status)) {
+      task.runtime.status = 'queued';
+      task.runtime.waitReason = reason || 'deferred';
+      task.runtime.startedAt = undefined;
+      task.runtime.endedAt = undefined;
+      task.runtime.heartbeatTs = undefined;
+      task.runtime.lastProgressAt = Date.now();
+      this.store.setTask(taskId, task);
+    }
+    return { ok: true, status: task.runtime.status, waitReason: task.runtime.waitReason };
   }
 
   cancelTask(taskId: string, reason: string): { ok: true } {
@@ -786,7 +885,14 @@ export class GlobalTaskCenter {
           sendResponse({ results: this.registerTasks(Array.isArray(message.payload?.descriptors) ? message.payload.descriptors : [], sender) });
           return;
         case TASK_CENTER_MESSAGE.REQUEST_LEASE:
-          sendResponse(this.requestLease(message.payload.taskId));
+          {
+            const leaseResponse = this.requestLease(message.payload.taskId);
+            if (!leaseResponse.granted) {
+              sendResponse(leaseResponse);
+              return;
+            }
+            void this.lastGrantedLeasePersistence.then(() => sendResponse(leaseResponse));
+          }
           return;
         case TASK_CENTER_MESSAGE.HEARTBEAT:
           sendResponse(this.heartbeatTask(message.payload.taskId));
@@ -805,6 +911,9 @@ export class GlobalTaskCenter {
           return;
         case TASK_CENTER_MESSAGE.FAIL:
           sendResponse(this.failTask(message.payload.taskId, String(message.payload.error || '')));
+          return;
+        case TASK_CENTER_MESSAGE.DEFER:
+          sendResponse(this.deferTask(message.payload.taskId, String(message.payload.reason || 'deferred')));
           return;
         case TASK_CENTER_MESSAGE.CANCEL:
           sendResponse(this.cancelTask(message.payload.taskId, String(message.payload.reason || '')));
@@ -857,7 +966,7 @@ export class GlobalTaskCenter {
   }
 
   isAsyncMessage(messageType: string | undefined): boolean {
-    return messageType === 'task-center:restore';
+    return messageType === 'task-center:restore' || messageType === TASK_CENTER_MESSAGE.REQUEST_LEASE;
   }
 }
 

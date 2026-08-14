@@ -10,6 +10,7 @@ export const TASK_CENTER_MESSAGE = {
   RESUME: 'task-center:resume',
   COMPLETE: 'task-center:complete',
   FAIL: 'task-center:fail',
+  DEFER: 'task-center:defer',
   CANCEL: 'task-center:cancel',
   VISIBILITY: 'task-center:visibility',
   QUERY: 'task-center:query',
@@ -31,4 +32,9 @@ export interface RegisterTaskBatchMessage {
 export interface RequestLeaseMessage {
   type: typeof TASK_CENTER_MESSAGE.REQUEST_LEASE;
   payload: { taskId: string };
+}
+
+export interface DeferTaskMessage {
+  type: typeof TASK_CENTER_MESSAGE.DEFER;
+  payload: { taskId: string; reason: string };
 }

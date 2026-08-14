@@ -15,9 +15,10 @@ export type GlobalTaskCost = 'light' | 'medium' | 'heavy';
  * Visibility policy for task scheduling.
  * - foreground_first: runs with the base limit while visible; waits while hidden.
  * - background_allowed: can run while visible or hidden; hidden pages use a capped background limit.
+ * - background_throttled: can prewarm while hidden with a stricter global and per-page budget.
  * - foreground_only: only runs while visible.
  */
-export type GlobalTaskVisibilityPolicy = 'foreground_first' | 'background_allowed' | 'foreground_only';
+export type GlobalTaskVisibilityPolicy = 'foreground_first' | 'background_allowed' | 'background_throttled' | 'foreground_only';
 /** 任务恢复策略 —— 页面刷新后如何处理未完成任务 */
 export type GlobalTaskResumePolicy = 'restart' | 'resume' | 'cache_then_skip';
 /** 执行保证语义：用于可观察性与后续调度策略，不单独改变默认并发算法 */

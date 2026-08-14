@@ -22,6 +22,9 @@ export function getPhaseTaskCost(phase: InitPhase): GlobalTaskCost {
 }
 
 export function getDeferredRetryDelayMs(waitReason?: string): number {
+  if (waitReason === 'smart-background-global-budget' || waitReason === 'smart-background-page-budget') {
+    return 1200;
+  }
   return waitReason === 'tab-hidden' ? 1200 : 400;
 }
 
@@ -42,6 +45,7 @@ export function getDependencyWaitLimitMs(timeoutMs?: number): number {
 }
 
 export function getHiddenIdleDelayMs(visibilityPolicy?: string): number {
+  if (visibilityPolicy === 'background_throttled') return 1000;
   return visibilityPolicy === 'background_allowed' ? 300 : 150;
 }
 

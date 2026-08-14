@@ -16,7 +16,9 @@ export function getEffectiveBucketLimit(input: {
   const baseLimit = Math.max(0, input.baseLimit);
   if (input.visible) return baseLimit;
   if (input.policy === 'foreground_only') return 0;
-  if (input.policy === 'background_allowed') return Math.max(0, Math.min(4, baseLimit));
+  if (input.policy === 'background_allowed' || input.policy === 'background_throttled') {
+    return Math.max(0, Math.min(4, baseLimit));
+  }
   // Current product contract: foreground_first prioritizes visible pages, but does not run while hidden.
   return 0;
 }

@@ -85,6 +85,111 @@ function handle(center: GlobalTaskCenter, message: any, sender: chrome.runtime.M
 }
 
 describe('GlobalTaskCenter scheduling', () => {
+  it('does not reply to a granted lease before its snapshot is persisted', async () => {
+    const previousSet = (globalThis as any).chrome.storage.local.set;
+    const finishWrites: Array<() => void> = [];
+    (globalThis as any).chrome.storage.local.set = () => new Promise<void>((resolve) => {
+      finishWrites.push(resolve);
+    });
+
+    try {
+      const center = new GlobalTaskCenter();
+      center.updateVisibility(1, true);
+      center.registerTask(createDescriptor({
+        taskId: 'durable-lease-reply',
+        label: 'videoStatus:fullRefresh',
+        dedupeKey: 'durable-lease-reply',
+      }));
+      let resolveResponse: ((value: unknown) => void) | undefined;
+      const responsePromise = new Promise<unknown>((resolve) => {
+        resolveResponse = resolve;
+      });
+
+      center.handleMessage(
+        { type: TASK_CENTER_MESSAGE.REQUEST_LEASE, payload: { taskId: 'durable-lease-reply' } },
+        {} as chrome.runtime.MessageSender,
+        (value) => { resolveResponse?.(value); },
+      );
+
+      let settled = false;
+      void responsePromise.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      finishWrites.splice(0).forEach((finishWrite) => finishWrite());
+      await expect(responsePromise).resolves.toEqual({ granted: true });
+    } finally {
+      (globalThis as any).chrome.storage.local.set = previousSet;
+    }
+  });
+
+  it('persists a granted source-page lease before the service worker can stop', () => {
+    const previousSet = (globalThis as any).chrome.storage.local.set;
+    const snapshots: Array<Record<string, unknown>> = [];
+    (globalThis as any).chrome.storage.local.set = async (value: Record<string, unknown>) => {
+      snapshots.push(value);
+    };
+
+    try {
+      const center = new GlobalTaskCenter();
+      center.updateVisibility(1, true);
+      center.registerTask(createDescriptor({
+        taskId: 'durable-source-lease',
+        label: 'videoStatus:fullRefresh',
+        dedupeKey: 'durable-source-lease',
+      }));
+
+      expect(center.requestLease('durable-source-lease')).toEqual({ granted: true });
+      const persistedTasks = snapshots
+        .flatMap((snapshot) => ((snapshot['taskCenter:snapshot'] as any)?.tasks ?? []));
+      expect(persistedTasks).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          descriptor: expect.objectContaining({ taskId: 'durable-source-lease' }),
+          runtime: expect.objectContaining({ status: 'leased' }),
+        }),
+      ]));
+    } finally {
+      (globalThis as any).chrome.storage.local.set = previousSet;
+    }
+  });
+
+  it('keeps a live lease when asynchronous startup restoration completes', async () => {
+    let resolveSnapshot: ((value: Record<string, unknown>) => void) | undefined;
+    (globalThis as any).chrome.storage.local.get = (_keys: unknown, callback?: (value: Record<string, unknown>) => void) => {
+      const pending = new Promise<Record<string, unknown>>((resolve) => {
+        resolveSnapshot = (value) => {
+          callback?.(value);
+          resolve(value);
+        };
+      });
+      return pending;
+    };
+
+    const center = new GlobalTaskCenter();
+    const restore = center.restoreFromStorage();
+    center.updateVisibility(1, true);
+    center.registerTask(createDescriptor({
+      taskId: 'live-full-refresh',
+      label: 'videoStatus:fullRefresh',
+      pageInstanceId: 'live-page',
+      dedupeKey: 'live-full-refresh',
+    }));
+
+    expect(center.requestLease('live-full-refresh')).toEqual({ granted: true });
+
+    resolveSnapshot?.({
+      'taskCenter:snapshot': {
+        tasks: [],
+        completedLabels: [],
+      },
+      'taskCenter:dedupeIndex': {},
+    });
+    await restore;
+
+    expect(center.queryState().tasks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ taskId: 'live-full-refresh', status: 'leased' }),
+    ]));
+  });
+
   it('requestLease ignores preregistered tasks that have not queued yet', () => {
     const center = new GlobalTaskCenter();
     center.updateVisibility(1, true);
@@ -519,6 +624,54 @@ describe('GlobalTaskCenter scheduling', () => {
       expect(task?.retryCount).toBe(1);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('cancels restored queued tasks whose tabs no longer exist', async () => {
+    const previousChrome = (globalThis as any).chrome;
+    const descriptor = createDescriptor({
+      taskId: 'restored-closed-tab-task',
+      label: 'videoEnhancement:runTitle',
+      tabId: 9876,
+      pageInstanceId: 'restored-closed-page',
+    });
+    (globalThis as any).chrome = {
+      ...previousChrome,
+      tabs: {
+        query: async () => [{ id: 1 }],
+      },
+      storage: {
+        local: {
+          get: (_keys: any, callback?: (result: any) => void) => {
+            const snapshot = {
+              'taskCenter:snapshot': {
+                tasks: [{
+                  descriptor,
+                  runtime: { status: 'queued', retryCount: 0, pauseCount: 0, resumeCount: 0 },
+                }],
+                completedLabels: [],
+              },
+            };
+            if (typeof callback === 'function') callback(snapshot);
+            return Promise.resolve(snapshot);
+          },
+          set: async () => undefined,
+          remove: async () => undefined,
+        },
+      },
+    };
+
+    try {
+      const center = new GlobalTaskCenter();
+      await center.restoreFromStorage();
+
+      const task = center.queryState().tasks.find((item: any) => item.taskId === descriptor.taskId);
+      expect(task).toMatchObject({
+        status: 'canceled',
+        waitReason: 'page-closed-by-user',
+      });
+    } finally {
+      (globalThis as any).chrome = previousChrome;
     }
   });
 
@@ -1123,6 +1276,7 @@ describe('GlobalTaskCenter multi pageInstance pressure (P2 R3)', () => {
       tabId: 2,
       pageInstanceId: 'source-heavy-page-2',
       phase: 'idle',
+      visibilityPolicy: 'foreground_first',
       dedupeKey: 'source-heavy:actors',
     }));
     center.registerTask(createDescriptor({
@@ -1135,7 +1289,10 @@ describe('GlobalTaskCenter multi pageInstance pressure (P2 R3)', () => {
     }));
 
     expect(center.requestLease('source-heavy-status')).toEqual({ granted: true });
-    expect(center.requestLease('source-light-refresh')).toEqual({ granted: true });
+    expect(center.requestLease('source-light-refresh')).toEqual({
+      granted: false,
+      waitReason: 'source-page-heavy-budget',
+    });
     expect(center.requestLease('source-heavy-actors')).toEqual({
       granted: false,
       waitReason: 'source-page-heavy-budget',
@@ -1301,6 +1458,115 @@ describe('GlobalTaskCenter multi pageInstance pressure (P2 R3)', () => {
 
     expect(idleGranted).toHaveLength(2);
     expect(center.requestLease('hidden-high')).toEqual({ granted: true });
+  });
+
+  it('prewarms smart hidden pages with at most two concurrent tasks across fifteen tabs', () => {
+    const center = new GlobalTaskCenter();
+
+    for (let index = 0; index < 15; index += 1) {
+      const tabId = index + 1;
+      center.updateVisibility(tabId, false);
+      center.registerTask(createDescriptor({
+        taskId: `smart-prewarm-${index}`,
+        label: 'videoEnhancement:runTitle',
+        tabId,
+        pageInstanceId: `smart-prewarm-page-${index}`,
+        cost: 'heavy',
+        visibilityPolicy: 'background_throttled',
+        dedupeKey: `smart-prewarm:${index}`,
+      }));
+    }
+
+    const granted = Array.from({ length: 15 }, (_, index) => (
+      center.requestLease(`smart-prewarm-${index}`).granted
+    ));
+
+    expect(granted.filter(Boolean)).toHaveLength(2);
+    expect(center.queryState().tasks.filter((task: any) => task.status === 'leased')).toHaveLength(2);
+    expect(center.queryState().tasks.find((task: any) => task.taskId === 'smart-prewarm-2')?.waitReason)
+      .toBe('smart-background-global-budget');
+  });
+
+  it('keeps the smart prewarm budget during the initial visibility-report race', () => {
+    const center = new GlobalTaskCenter();
+
+    for (let index = 0; index < 15; index += 1) {
+      const tabId = index + 1;
+      center.updateVisibility(tabId, true);
+      center.registerTask(createDescriptor({
+        taskId: `smart-visible-startup-${index}`,
+        label: 'videoEnhancement:runTitle',
+        tabId,
+        pageInstanceId: `smart-visible-startup-page-${index}`,
+        cost: 'heavy',
+        visibilityPolicy: 'background_throttled',
+        dedupeKey: `smart-visible-startup:${index}`,
+      }));
+    }
+
+    const granted = Array.from({ length: 15 }, (_, index) => (
+      center.requestLease(`smart-visible-startup-${index}`).granted
+    ));
+
+    expect(granted.filter(Boolean)).toHaveLength(2);
+    expect(center.queryState().tasks.find((task: any) => task.taskId === 'smart-visible-startup-2')?.waitReason)
+      .toBe('smart-background-global-budget');
+  });
+
+  it('limits smart background prewarming to one task per hidden page without reducing immediate background work', () => {
+    const center = new GlobalTaskCenter();
+    center.updateVisibility(1, false);
+    center.updateVisibility(2, false);
+    center.updateVisibility(3, false);
+
+    center.registerTask(createDescriptor({
+      taskId: 'smart-prewarm-page-one-first',
+      label: 'videoEnhancement:runTitle',
+      tabId: 1,
+      pageInstanceId: 'smart-prewarm-page-one',
+      cost: 'heavy',
+      visibilityPolicy: 'background_throttled',
+      dedupeKey: 'smart-prewarm-page-one:first',
+    }));
+    center.registerTask(createDescriptor({
+      taskId: 'smart-prewarm-page-two',
+      label: 'videoEnhancement:runFC2Breaker',
+      tabId: 2,
+      pageInstanceId: 'smart-prewarm-page-two',
+      cost: 'heavy',
+      phase: 'high',
+      priority: 8,
+      visibilityPolicy: 'background_throttled',
+      dedupeKey: 'smart-prewarm-page-two',
+    }));
+
+    expect(center.requestLease('smart-prewarm-page-two')).toEqual({ granted: true });
+    expect(center.requestLease('smart-prewarm-page-one-first')).toEqual({ granted: true });
+    center.registerTask(createDescriptor({
+      taskId: 'smart-prewarm-page-one-second',
+      label: 'videoEnhancement:runFC2Breaker',
+      tabId: 1,
+      pageInstanceId: 'smart-prewarm-page-one',
+      cost: 'heavy',
+      visibilityPolicy: 'background_throttled',
+      dedupeKey: 'smart-prewarm-page-one:second',
+    }));
+    expect(center.requestLease('smart-prewarm-page-one-second')).toEqual({
+      granted: false,
+      waitReason: 'smart-background-page-budget',
+    });
+    center.registerTask(createDescriptor({
+      taskId: 'immediate-background-third',
+      label: 'videoEnhancement:runMosaic',
+      tabId: 3,
+      pageInstanceId: 'immediate-background-page',
+      cost: 'heavy',
+      phase: 'high',
+      priority: 8,
+      visibilityPolicy: 'background_allowed',
+      dedupeKey: 'immediate-background-third',
+    }));
+    expect(center.requestLease('immediate-background-third')).toEqual({ granted: true });
   });
 
   it('registers many pageInstances without exceeding translate bucket concurrency', () => {

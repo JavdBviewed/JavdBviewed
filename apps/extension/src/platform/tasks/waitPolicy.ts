@@ -4,8 +4,10 @@ export function isDeferredTaskWaitReason(reason: string): boolean {
     || reason === 'global-priority-reserve'
     || reason === 'global-budget'
     || reason === 'background-global-budget'
+    || reason === 'smart-background-global-budget'
     || reason === 'page-budget'
     || reason === 'background-page-budget'
+    || reason === 'smart-background-page-budget'
     || reason === 'source-page-heavy-budget'
     || reason.startsWith('bucket:');
 }
@@ -19,8 +21,10 @@ export function isTaskLeaseAvailabilityWaitReason(reason: string): boolean {
     || reason === 'global-priority-reserve'
     || reason === 'global-budget'
     || reason === 'background-global-budget'
+    || reason === 'smart-background-global-budget'
     || reason === 'page-budget'
     || reason === 'background-page-budget'
+    || reason === 'smart-background-page-budget'
     || reason === 'source-page-heavy-budget'
     || reason.startsWith('bucket:');
 }

@@ -1,3 +1,5 @@
+import type { GlobalTaskVisibilityPolicy } from '../../shared/taskCenterTypes';
+
 /**
  * @file taskPolicy.ts
  * @description 任务调度策略 —— 定义任务桶（bucket）分类和并发限制
@@ -36,17 +38,33 @@ export const TASK_PAGE_LEASE_LIMITS = {
   hidden: 1,
 } as const;
 
+/** Smart mode keeps hidden-page enhancement moving without creating a burst. */
+export const TASK_SMART_BACKGROUND_PREWARM_LIMITS = {
+  global: 2,
+  page: 1,
+} as const;
+
 /**
- * Cross-bucket limits for source-page operations which each perform a large
- * local-library read/write or DOM pass. They must not start together on
- * several source tabs.
+ * Cross-bucket limits for foreground-first source-page operations which each
+ * perform a large local-library read/write or DOM pass.
  */
 export const TASK_LEASE_GROUP_LIMITS: Record<string, number> = {
   'source-page-heavy': 1,
 };
 
-export function resolveTaskLeaseGroup(label: string): string | null {
-  if (label === 'videoStatus:initialSync' || label === 'actorMarks:page') {
+export function resolveTaskLeaseGroup(
+  label: string,
+  visibilityPolicy?: GlobalTaskVisibilityPolicy,
+): string | null {
+  if (label === 'videoStatus:initialSync' || label === 'videoStatus:fullRefresh') {
+    return 'source-page-heavy';
+  }
+  if (visibilityPolicy === 'background_allowed') return null;
+  if (
+    label === 'videoFavoriteRating:init'
+    || label === 'actorMarks:page'
+    || label === 'insights:collector'
+  ) {
     return 'source-page-heavy';
   }
   return null;
