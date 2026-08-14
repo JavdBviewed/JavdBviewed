@@ -3,10 +3,14 @@ import { log } from '../../../../../utils/logController';
 export type EnhancementTogglesHost = any;
 
 export function initEnhancementToggles(host: EnhancementTogglesHost): void {
-  if (host.enhancementTogglesInitialized) return;
+  const toggles = document.querySelectorAll<HTMLElement>('#enhancement-settings .enhancement-toggle[data-target]');
+  if (host.enhancementTogglesInitialized
+    && [...toggles].every((toggleEl) => toggleEl.dataset.enhancementToggleBound === '1')) {
+    return;
+  }
 
-  const toggles = document.querySelectorAll('#enhancement-settings .enhancement-toggle[data-target]');
   toggles.forEach((toggleEl) => {
+    if (toggleEl.dataset.enhancementToggleBound === '1') return;
     const targetId = toggleEl.getAttribute('data-target');
     if (!targetId) return;
     const toggleButton = toggleEl as HTMLButtonElement;
@@ -57,6 +61,7 @@ export function initEnhancementToggles(host: EnhancementTogglesHost): void {
         host.updateTranslationConfigVisibility();
       }
     });
+    toggleEl.dataset.enhancementToggleBound = '1';
   });
 
   host.enhancementTogglesInitialized = true;

@@ -74,6 +74,33 @@ describe('enhancement settings toggles', () => {
     expect(host.scheduleAutoSave).toHaveBeenCalledTimes(1);
   });
 
+  it('binds replacement toggle nodes after the settings page remounts', () => {
+    document.body.innerHTML = `
+      <section id="enhancement-settings">
+        <input type="checkbox" id="enableStatusQuickAction">
+        <button class="enhancement-toggle" data-target="enableStatusQuickAction"></button>
+      </section>
+    `;
+    const host = createHost();
+
+    initEnhancementToggles(host);
+
+    document.body.innerHTML = `
+      <section id="enhancement-settings">
+        <input type="checkbox" id="enableStatusQuickAction">
+        <button class="enhancement-toggle" data-target="enableStatusQuickAction"></button>
+      </section>
+    `;
+    const replacementCheckbox = document.getElementById('enableStatusQuickAction') as HTMLInputElement;
+    const replacementToggle = document.querySelector('.enhancement-toggle') as HTMLButtonElement;
+
+    initEnhancementToggles(host);
+    replacementToggle.click();
+
+    expect(replacementCheckbox.checked).toBe(true);
+    expect(host.scheduleAutoSave).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps always-on toggles enabled during global toggle refresh', () => {
     document.body.innerHTML = `
       <section id="enhancement-settings">
