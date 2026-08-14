@@ -1832,6 +1832,7 @@ describe('source architecture cleanup', () => {
       'apps/extension/src/platform/storage/indexedDbSchema.ts',
       'apps/extension/src/platform/storage/indexedDbLogFields.ts',
       'apps/extension/src/platform/storage/indexedDbViewedIndexes.ts',
+      'apps/extension/src/platform/storage/indexedDbActorsStats.ts',
     ];
 
     for (const file of expectedFiles) {
