@@ -221,6 +221,20 @@ export function buildHomeTagsBarOptions(data: HomeTagsBarDatum[], theme: HomeTag
   };
 }
 
+export function buildHomeStatusDonutOptions(theme: Pick<HomeTagsBarTheme, 'text' | 'muted'>): any {
+  return {
+    label: {
+      type: 'inner',
+      offset: '-50%',
+      formatter: (datum: any) => String(Number(datum?.value) || 0),
+      style: { fill: '#fff', fontWeight: 700 },
+    },
+    statistic: {
+      title: { content: '总数', style: { fill: theme.muted, fontSize: 12 } },
+    },
+  };
+}
+
 function renderChartEmptyState(el: HTMLElement, text: string): void {
   el.innerHTML = `<div class="chart-empty-state">${text}</div>`;
 }
@@ -939,15 +953,16 @@ async function renderHomeCharts(): Promise<void> {
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
         const data = buildHomeStatusData(s, COLORS, isDark);
         const total = data.reduce((sum, datum) => sum + Number(datum.value || 0), 0);
+        const statusOptions = buildHomeStatusDonutOptions(COLORS);
         updateG2Plot(HC, 'statusDonut', Pie, statusEl, {
           angleField: 'value',
           colorField: 'name',
           radius: 0.72,
           innerRadius: 0.46,
           legend: { position: 'bottom', itemName: { style: { fill: COLORS.muted, fontSize: 12 } } },
-          label: { type: 'inner', offset: '-50%', content: 'value', style: { fill: '#fff', fontWeight: 700 } },
+          label: statusOptions.label,
           statistic: {
-            title: { content: '总数', style: { fill: COLORS.muted, fontSize: 12 } },
+            title: statusOptions.statistic.title,
             content: { content: String(total), style: { fill: COLORS.text, fontSize: 16, fontWeight: 700 } },
           },
           tooltip: { showTitle: false },

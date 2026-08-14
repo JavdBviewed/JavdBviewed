@@ -28,4 +28,16 @@ describe('home tags chart config', () => {
     expect(options.yAxis.label.style.fill).toBe('#94a3b8');
     expect(options.xAxis.grid.line.style.stroke).toBe('rgba(148, 163, 184, 0.25)');
   });
+
+  it('formats status donut labels from each datum value', async () => {
+    const { buildHomeStatusDonutOptions } = await import('../../apps/extension/src/dashboard/home/charts');
+    const options = buildHomeStatusDonutOptions({
+      muted: '#94a3b8',
+      text: '#e5e7eb',
+    });
+
+    expect(options.label.content).toBeUndefined();
+    expect(options.label.formatter({ value: 42 })).toBe('42');
+    expect(options.label.formatter({ value: 0 })).toBe('0');
+  });
 });
