@@ -20,6 +20,12 @@ interface VideoOperation {
     reject: (error: any) => void;
 }
 
+type StorageWriteOptions = {
+    backupToStorage?: boolean;
+    verifyAfterWrite?: boolean;
+    dbTimeoutBehavior?: 'hard' | 'diagnostic';
+};
+
 // 存储操作管理器 - 解决并发存储冲突
 class StorageManager {
     private operationQueue: Promise<any> = Promise.resolve();
@@ -29,7 +35,7 @@ class StorageManager {
     private async putRecordInternal(
         record: VideoRecord,
         operationId: string,
-        options: { backupToStorage?: boolean; verifyAfterWrite?: boolean } = {}
+        options: StorageWriteOptions = {}
     ): Promise<{ success: boolean; error?: string }> {
         const backupToStorage = options.backupToStorage !== false;
         const verifyAfterWrite = options.verifyAfterWrite !== false;
@@ -40,7 +46,7 @@ class StorageManager {
                 log(`[StorageManager] Attempt ${attempt} to put ${record.id} (operation ${operationId})`);
 
                 log(`[StorageManager] putRecord -> dbViewedPut:start ${record.id} (operation ${operationId})`);
-                const result = await dbViewedPut(record);
+                const result = await dbViewedPut(record, { timeoutBehavior: options.dbTimeoutBehavior });
                 log(`[StorageManager] putRecord -> dbViewedPut:done ${record.id} (operation ${operationId})`, { skipped: result?.skipped });
 
                 // 如果记录在回收站中，跳过后续操作
@@ -93,7 +99,7 @@ class StorageManager {
     async putRecord(
         record: VideoRecord,
         operationId: string,
-        options: { backupToStorage?: boolean; verifyAfterWrite?: boolean } = {}
+        options: StorageWriteOptions = {}
     ): Promise<{ success: boolean; error?: string }> {
         return this.operationQueue = this.operationQueue.then(async () => {
             return this.putRecordInternal(record, operationId, options);

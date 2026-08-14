@@ -8,13 +8,22 @@
 
 import type { VideoRecord, ViewedStatusSummary } from '../../types';
 
+type DbMessageOptions = {
+  timeoutBehavior?: 'hard' | 'diagnostic';
+};
+
 function log(...args: any[]): void {
   try {
     console.log('[JavDB Ext]', ...args);
   } catch {}
 }
 
-function sendMessage<T = any>(type: string, payload?: any, timeoutMs = 8000): Promise<T> {
+function sendMessage<T = any>(
+  type: string,
+  payload?: any,
+  timeoutMs = 8000,
+  options: DbMessageOptions = {},
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const requestId = `${type}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     let timer: number | undefined;
@@ -22,6 +31,10 @@ function sendMessage<T = any>(type: string, payload?: any, timeoutMs = 8000): Pr
       log('[DBClient] send:start', { type, requestId, timeoutMs, payload });
       timer = window.setTimeout(() => {
         log('[DBClient] send:timeout', { type, requestId, timeoutMs });
+        if (options.timeoutBehavior === 'diagnostic') {
+          console.warn(`[DBClient] response exceeded diagnostic threshold: ${type}`, { requestId, timeoutMs });
+          return;
+        }
         reject(new Error(`DB message timeout: ${type}`));
       }, timeoutMs);
     } catch {}
@@ -64,9 +77,9 @@ export interface ViewedPutResult {
   reason?: string;
 }
 
-export function dbViewedPut(record: VideoRecord): Promise<ViewedPutResult> {
+export function dbViewedPut(record: VideoRecord, options?: DbMessageOptions): Promise<ViewedPutResult> {
   log('[DBClient] viewedPut:request', { id: record?.id, status: record?.status, title: record?.title });
-  return sendMessage<ViewedPutResult>('DB:VIEWED_PUT', { record }).then((result) => {
+  return sendMessage<ViewedPutResult>('DB:VIEWED_PUT', { record }, 8000, options).then((result) => {
     log('[DBClient] viewedPut:done', { id: record?.id, skipped: result?.skipped });
     return result;
   });
