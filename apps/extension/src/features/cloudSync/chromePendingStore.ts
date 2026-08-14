@@ -4,6 +4,7 @@
  * @module features/cloudSync
  */
 import type { SyncEntity } from '@javdb/sync-protocol';
+import { shouldSyncLogEntry } from './logSyncPolicy';
 
 export const CLOUD_PENDING_STORAGE_KEY = 'cloud_sync_pending_v1';
 export const CLOUD_PENDING_DELTA_STORAGE_KEY = 'cloud_sync_pending_delta_v1';
@@ -78,10 +79,17 @@ export async function listCloudPending(): Promise<SyncEntity[]> {
 
 /** 按 type+id 覆盖写入 pending（后者覆盖前者） */
 export async function upsertCloudPending(entities: SyncEntity[]): Promise<void> {
-  if (!entities.length) return;
+  const syncableEntities = entities.filter((entity) => {
+    if (entity.type !== 'log') return true;
+    const payload = entity.payload;
+    return payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+      ? shouldSyncLogEntry(payload as Record<string, unknown>)
+      : false;
+  });
+  if (!syncableEntities.length) return;
   await enqueuePendingMutation(async () => {
     await loadPendingSnapshots();
-    for (const e of entities) {
+    for (const e of syncableEntities) {
       pendingDeltaSnapshot![entityKey(e.type, e.id)] = e;
     }
     await writePending({ [CLOUD_PENDING_DELTA_STORAGE_KEY]: pendingDeltaSnapshot });

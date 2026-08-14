@@ -6,7 +6,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SyncEntity } from '@javdb/sync-protocol';
 import { STORAGE_KEYS } from '../../apps/extension/src/utils/config';
-import { CLOUD_PENDING_STORAGE_KEY } from '../../apps/extension/src/features/cloudSync/chromePendingStore';
+import {
+  CLOUD_PENDING_DELTA_STORAGE_KEY,
+  CLOUD_PENDING_STORAGE_KEY,
+} from '../../apps/extension/src/features/cloudSync/chromePendingStore';
 import { getChromeStorageSnapshot, resetChromeMock } from '../setup/chrome';
 
 async function flushStorageListener(): Promise<void> {
@@ -18,8 +21,18 @@ async function flushStorageListener(): Promise<void> {
 
 function readPending(): SyncEntity[] {
   const snapshot = getChromeStorageSnapshot();
-  const value = snapshot[CLOUD_PENDING_STORAGE_KEY];
-  return Array.isArray(value) ? (value as SyncEntity[]) : [];
+  const base = snapshot[CLOUD_PENDING_STORAGE_KEY];
+  const delta = snapshot[CLOUD_PENDING_DELTA_STORAGE_KEY];
+  const entities = new Map<string, SyncEntity>();
+  for (const entity of Array.isArray(base) ? base as SyncEntity[] : []) {
+    entities.set(`${entity.type}\0${entity.id}`, entity);
+  }
+  for (const entity of delta && typeof delta === 'object' && !Array.isArray(delta)
+    ? Object.values(delta as Record<string, SyncEntity>)
+    : []) {
+    entities.set(`${entity.type}\0${entity.id}`, entity);
+  }
+  return [...entities.values()];
 }
 
 describe('Cloud 同步 storage 监听', () => {
@@ -195,7 +208,7 @@ describe('Cloud 同步 storage 监听', () => {
     ).toBe(true);
   });
 
-  it('IDB logs 写入会增量入队为 log 实体', async () => {
+  it('IDB 普通日志保留本地，但只有告警和错误会增量入队', async () => {
     vi.resetModules();
     const add = vi.fn().mockResolvedValue(7);
     const txStore = { add: vi.fn().mockResolvedValue(undefined), index: vi.fn() };
@@ -223,26 +236,28 @@ describe('Cloud 同步 storage 监听', () => {
     });
     await logsBulkAdd([
       {
+        level: 'DEBUG',
+        message: 'bulk debug log',
+        timestamp: '2026-07-20T01:00:30.000Z',
+      },
+      {
         level: 'WARN',
-        message: 'bulk log',
+        message: 'bulk warning log',
         timestamp: '2026-07-20T01:01:00.000Z',
+      },
+      {
+        level: 'ERROR',
+        message: 'bulk error log',
+        timestamp: '2026-07-20T01:01:30.000Z',
       },
     ]);
     await flushStorageListener();
 
-    expect(readPending()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: '7',
-          type: 'log',
-          payload: expect.objectContaining({ message: 'single log' }),
-        }),
-        expect.objectContaining({
-          type: 'log',
-          payload: expect.objectContaining({ message: 'bulk log' }),
-        }),
-      ]),
-    );
+    const logEntities = readPending().filter((item) => item.type === 'log');
+    expect(logEntities.map((item) => item.payload?.message)).toEqual([
+      'bulk warning log',
+      'bulk error log',
+    ]);
   });
 
   it('IDB magnetPushLogs 写入会增量入队为 magnet_push_log 实体', async () => {

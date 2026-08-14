@@ -73,7 +73,7 @@ describe('Cloud 全量资产同步', () => {
     vi.resetModules();
   });
 
-  it('采集所有可恢复持久资产（含日志与 Cloud 配置），排除设备运行态', async () => {
+  it('采集所有可恢复持久资产，只将告警和错误日志纳入 Cloud 快照', async () => {
     idbMock.stores = {
       viewedRecords: [{ id: 'ABC-001', title: 'A', status: 'viewed', updatedAt: 100 }],
       actors: [{ id: 'actor-1', name: 'Actor', updatedAt: 110 }],
@@ -83,7 +83,12 @@ describe('Cloud 全量资产同步', () => {
       insightsViews: [{ date: '2026-07-18', total: 3 }],
       insightsReports: [{ month: '2026-07', html: '<p>report</p>', createdAt: 150 }],
       newWorksDailyStats: [{ date: '2026-07-18', total: 4, unread: 2 }],
-      logs: [{ id: 1, message: 'general log', timestampMs: 160, level: 'info' }],
+      logs: [
+        { id: 1, message: 'routine info', timestampMs: 160, level: 'INFO' },
+        { id: 2, message: 'routine debug', timestampMs: 161, level: 'DEBUG' },
+        { id: 3, message: 'warning log', timestampMs: 162, level: 'WARN' },
+        { id: 4, message: 'error log', timestampMs: 163, level: 'ERROR' },
+      ],
       magnetPushLogs: [{ id: 2, message: 'push log', timestampMs: 170, type: 'push_success', videoId: 'ABC-001' }],
     };
     setChromeStorage({
@@ -157,7 +162,8 @@ describe('Cloud 全量资产同步', () => {
         'insights_view/2026-07-18',
         'insights_report/2026-07',
         'new_work_daily_stat/2026-07-18',
-        'log/1',
+        'log/3',
+        'log/4',
         'magnet_push_log/2',
         `storage_item/${STORAGE_KEYS.SETTINGS}`,
         `storage_item/${STORAGE_KEYS.LOGS}`,
@@ -175,6 +181,8 @@ describe('Cloud 全量资产同步', () => {
       ]),
     );
     expect(keys.has('storage_item/cloud_sync_session_v1')).toBe(false);
+    expect(keys.has('log/1')).toBe(false);
+    expect(keys.has('log/2')).toBe(false);
     expect(keys.has('storage_item/cloud_sync_pending_v1')).toBe(false);
     expect(keys.has('storage_item/cloud_sync_cursors_v1')).toBe(false);
     expect(keys.has(`storage_item/${STORAGE_KEYS.IDB_MIGRATED}`)).toBe(false);

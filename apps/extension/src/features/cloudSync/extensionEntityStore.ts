@@ -38,6 +38,7 @@ import {
 import { markCloudStorageWrite } from './storageChangeGate';
 import { shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
 import { resolveLogEntityId } from './toSyncEntity';
+import { shouldSyncLogEntry } from './logSyncPolicy';
 import { mergeMediaCleanupStorageValue } from '../mediaCleanup';
 
 export const EXTENSION_SYNC_ENTITY_TYPES: readonly SyncEntityType[] = [
@@ -289,6 +290,7 @@ export async function collectLocalSyncEntities(): Promise<SyncEntity[]> {
   try {
     const logs = (await db.getAll('logs')) as unknown as Array<Record<string, unknown>>;
     for (const entry of logs) {
+      if (!shouldSyncLogEntry(entry || {})) continue;
       const id = resolveLogEntityId(entry || {});
       if (!id) continue;
       out.push(

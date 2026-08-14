@@ -8,6 +8,7 @@ import type { ActorRecord, ListRecord, NewWorkRecord, VideoRecord } from '../../
 import type { ReportMonthly, ViewsDaily } from '../../types/insights';
 import type { MagnetCacheRecord, NewWorksDailyStat } from '../../platform/storage/indexedDb';
 import { upsertCloudPending } from './chromePendingStore';
+import { shouldSyncLogEntry } from './logSyncPolicy';
 import {
   actorToSyncEntity,
   insightsReportToSyncEntity,
@@ -114,12 +115,16 @@ export async function enqueueNewWorkDailyStatChange(stat: NewWorksDailyStat): Pr
 }
 
 export async function enqueueLogChange(entry: Record<string, unknown>): Promise<void> {
+  if (!shouldSyncLogEntry(entry)) return;
   const e = logToSyncEntity(entry);
   if (e) await upsertCloudPending([e]);
 }
 
 export async function enqueueLogChanges(entries: Array<Record<string, unknown>>): Promise<void> {
-  const list = entries.map(logToSyncEntity).filter(Boolean) as SyncEntity[];
+  const list = entries
+    .filter(shouldSyncLogEntry)
+    .map(logToSyncEntity)
+    .filter(Boolean) as SyncEntity[];
   if (list.length) await upsertCloudPending(list);
 }
 

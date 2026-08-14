@@ -66,4 +66,22 @@ describe('chromePendingStore', () => {
       { type: 'video', id: 'ABP-003' },
     ]);
   });
+
+  it('does not persist routine log entities in the pending delta', async () => {
+    const { listCloudPending, upsertCloudPending } = await import('./chromePendingStore');
+
+    await upsertCloudPending([
+      { type: 'log', id: 'info-1', payload: { level: 'INFO' } },
+      { type: 'log', id: 'debug-1', payload: { level: 'DEBUG' } },
+      { type: 'log', id: 'warn-1', payload: { level: 'WARN' } },
+      { type: 'log', id: 'error-1', payload: { level: 'ERROR' } },
+      { type: 'video', id: 'ABP-004' },
+    ] as any);
+
+    expect(await listCloudPending()).toEqual([
+      { type: 'log', id: 'warn-1', payload: { level: 'WARN' } },
+      { type: 'log', id: 'error-1', payload: { level: 'ERROR' } },
+      { type: 'video', id: 'ABP-004' },
+    ]);
+  });
 });
