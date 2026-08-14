@@ -8,21 +8,20 @@ import { log } from '../../utils/logController';
 
 export function registerDashboardPrivacyLockHandler(): void {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.type === 'privacy-lock-trigger') {
-      try {
-        import('../../features/privacy').then(({ getPrivacyManager }) => {
-          const privacyManager = getPrivacyManager();
-          privacyManager.lock().catch((error: any) => {
-            console.error('Failed to lock from message:', error);
-          });
-        }).catch((error) => {
-          console.error('Failed to load privacy manager:', error);
+    if (message?.type !== 'privacy-lock-trigger') return false;
+    try {
+      import('../../features/privacy').then(({ getPrivacyManager }) => {
+        const privacyManager = getPrivacyManager();
+        privacyManager.lock().catch((error: any) => {
+          console.error('Failed to lock from message:', error);
         });
-        sendResponse({ success: true });
-      } catch (error) {
-        console.error('Failed to handle lock trigger:', error);
-        sendResponse({ success: false });
-      }
+      }).catch((error) => {
+        console.error('Failed to load privacy manager:', error);
+      });
+      sendResponse({ success: true });
+    } catch (error) {
+      console.error('Failed to handle lock trigger:', error);
+      sendResponse({ success: false });
     }
     return true;
   });
