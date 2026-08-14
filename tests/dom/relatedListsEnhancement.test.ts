@@ -133,6 +133,21 @@ describe('VideoDetailEnhancer related lists enhancement', () => {
     expect(getRelatedLists).toHaveBeenCalledWith('NQ6pPb', 1, 10);
     expect(document.getElementById('jdb-related-lists-panel')?.getAttribute('aria-hidden')).toBe('false');
   });
+
+  it('does not rewrite an already neutralized related-lists tab', () => {
+    document.body.innerHTML = '<div class="tabs"><a href="/plans/ypay">Related lists</a></div>';
+    const enhancer = new VideoDetailEnhancer({ enableRelatedLists: true }) as any;
+    const tab = document.querySelector<HTMLElement>('.tabs a')!;
+    const observer = new MutationObserver(() => undefined);
+    observer.observe(tab, { attributes: true });
+
+    enhancer.neutralizeRelatedListsTab(tab);
+    observer.takeRecords();
+    enhancer.neutralizeRelatedListsTab(tab);
+
+    expect(observer.takeRecords()).toEqual([]);
+    observer.disconnect();
+  });
 });
 describe('isBulmaModalTrigger excludes modal buttons from interception', () => {
   /**
