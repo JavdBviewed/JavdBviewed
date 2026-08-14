@@ -29,7 +29,12 @@ export {
   assertExtensionCloudAdapterCoverage,
   EXTENSION_SYNC_ENTITY_TYPES,
 } from './extensionEntityStore';
-export { runCloudSyncNow, type CloudSyncNowResult } from './runCloudSyncNow';
+export {
+  runCloudSyncNow,
+  type CloudSyncNowOptions,
+  type CloudSyncNowResult,
+  type CloudSyncProgress,
+} from './runCloudSyncNow';
 export {
   createExtensionCloudFacade,
   extensionCloudFacade,

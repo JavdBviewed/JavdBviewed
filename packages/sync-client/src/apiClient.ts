@@ -24,11 +24,37 @@ import {
   type VaultPutRequest,
 } from '@javdb/sync-protocol';
 import { SyncHttpError, createFetchTransport } from './fetchTransport';
-import type { CloudApi, HttpTransport, SyncClientConfig, TokenStore } from './types';
+import type {
+  CloudApi,
+  HttpTransport,
+  RefreshCoordinator,
+  SyncClientConfig,
+  TokenStore,
+} from './types';
 
 export interface ApiClient extends CloudApi {
   readonly protocolVersion: ProtocolVersion;
   readonly tokens: TokenStore;
+}
+
+const tokenStoreRefreshes = new WeakMap<TokenStore, Promise<unknown>>();
+
+function createTokenStoreRefreshCoordinator(tokens: TokenStore): RefreshCoordinator {
+  return {
+    async run<T>(work: () => Promise<T>): Promise<T> {
+      const existing = tokenStoreRefreshes.get(tokens);
+      if (existing) return existing as Promise<T>;
+      const current = work();
+      tokenStoreRefreshes.set(tokens, current);
+      try {
+        return await current;
+      } finally {
+        if (tokenStoreRefreshes.get(tokens) === current) {
+          tokenStoreRefreshes.delete(tokens);
+        }
+      }
+    },
+  };
 }
 
 export function createApiClient(config: SyncClientConfig): ApiClient {
@@ -36,6 +62,7 @@ export function createApiClient(config: SyncClientConfig): ApiClient {
   const transport: HttpTransport =
     config.transport ?? createFetchTransport(config.baseUrl);
   const tokens = config.tokens;
+  const refreshCoordinator = config.refreshCoordinator ?? createTokenStoreRefreshCoordinator(tokens);
 
   async function raw<T>(
     method: string,
@@ -47,9 +74,10 @@ export function createApiClient(config: SyncClientConfig): ApiClient {
     return transport.request<T>({ method, path, body, token });
   }
 
-  async function withAuthRetry<T>(fn: () => Promise<T>): Promise<T> {
+  async function withAuthRetry<T>(fn: (token: string | null) => Promise<T>): Promise<T> {
+    const failedAccessToken = await tokens.getAccessToken();
     try {
-      return await fn();
+      return await fn(failedAccessToken);
     } catch (err) {
       if (!(err instanceof SyncHttpError) || err.status !== 401) throw err;
       const refreshToken = await tokens.getRefreshToken();
@@ -57,17 +85,39 @@ export function createApiClient(config: SyncClientConfig): ApiClient {
         config.onAuthFailure?.(err);
         throw err;
       }
+
+      const currentAccessToken = await tokens.getAccessToken();
+      if (currentAccessToken && currentAccessToken !== failedAccessToken) {
+        return fn(currentAccessToken);
+      }
+
       try {
-        const pair = await raw<AuthTokenPair>('POST', '/v1/auth/refresh', {
-          refreshToken,
-        } satisfies AuthRefreshRequest);
-        await tokens.setTokens(pair);
+        await refreshCoordinator.run(async () => {
+          const latestAccessToken = await tokens.getAccessToken();
+          const latestRefreshToken = await tokens.getRefreshToken();
+          if (
+            (latestAccessToken && latestAccessToken !== failedAccessToken) ||
+            latestRefreshToken !== refreshToken
+          ) {
+            return;
+          }
+          try {
+            const pair = await raw<AuthTokenPair>('POST', '/v1/auth/refresh', {
+              refreshToken,
+            } satisfies AuthRefreshRequest);
+            await tokens.setTokens(pair);
+          } catch (refreshErr) {
+            if ((await tokens.getRefreshToken()) === refreshToken) {
+              await tokens.clear();
+              config.onAuthFailure?.(refreshErr);
+            }
+            throw refreshErr;
+          }
+        });
       } catch (refreshErr) {
-        await tokens.clear();
-        config.onAuthFailure?.(refreshErr);
         throw refreshErr;
       }
-      return fn();
+      return fn(await tokens.getAccessToken());
     }
   }
 
@@ -93,55 +143,77 @@ export function createApiClient(config: SyncClientConfig): ApiClient {
 
     async logout() {
       try {
-        await withAuthRetry(() => raw('POST', '/v1/auth/logout', undefined, true));
+        await withAuthRetry((token) =>
+          transport.request<void>({ method: 'POST', path: '/v1/auth/logout', token }),
+        );
       } finally {
         await tokens.clear();
       }
     },
 
     listDevices() {
-      return withAuthRetry(() => raw<DeviceInfo[]>('GET', '/v1/devices', undefined, true));
+      return withAuthRetry((token) =>
+        transport.request<DeviceInfo[]>({ method: 'GET', path: '/v1/devices', token }),
+      );
     },
 
     revokeDevice(deviceId: string) {
-      return withAuthRetry(() =>
-        raw<void>('DELETE', `/v1/devices/${encodeURIComponent(deviceId)}`, undefined, true),
+      return withAuthRetry((token) =>
+        transport.request<void>({
+          method: 'DELETE',
+          path: `/v1/devices/${encodeURIComponent(deviceId)}`,
+          token,
+        }),
       );
     },
 
     pull(body: SyncPullRequest) {
-      return withAuthRetry(() =>
-        raw<SyncPullResponse>('POST', '/v1/sync/pull', body, true),
+      return withAuthRetry((token) =>
+        transport.request<SyncPullResponse>({ method: 'POST', path: '/v1/sync/pull', body, token }),
       );
     },
 
     push(body: SyncPushRequest) {
-      return withAuthRetry(() =>
-        raw<SyncPushResponse>('POST', '/v1/sync/push', body, true),
+      return withAuthRetry((token) =>
+        transport.request<SyncPushResponse>({ method: 'POST', path: '/v1/sync/push', body, token }),
       );
     },
 
     session(body: SyncSessionRequest) {
-      return withAuthRetry(() =>
-        raw<SyncSessionResponse>('POST', '/v1/sync/session', body, true),
+      return withAuthRetry((token) =>
+        transport.request<SyncSessionResponse>({
+          method: 'POST',
+          path: '/v1/sync/session',
+          body,
+          token,
+        }),
       );
     },
 
     listVault() {
-      return withAuthRetry(() =>
-        raw<VaultListResponse>('GET', '/v1/vault/items', undefined, true),
+      return withAuthRetry((token) =>
+        transport.request<VaultListResponse>({ method: 'GET', path: '/v1/vault/items', token }),
       );
     },
 
     putVault(id: string, body: VaultPutRequest) {
-      return withAuthRetry(() =>
-        raw<VaultItem>('PUT', `/v1/vault/items/${encodeURIComponent(id)}`, body, true),
+      return withAuthRetry((token) =>
+        transport.request<VaultItem>({
+          method: 'PUT',
+          path: `/v1/vault/items/${encodeURIComponent(id)}`,
+          body,
+          token,
+        }),
       );
     },
 
     deleteVault(id: string) {
-      return withAuthRetry(() =>
-        raw<void>('DELETE', `/v1/vault/items/${encodeURIComponent(id)}`, undefined, true),
+      return withAuthRetry((token) =>
+        transport.request<void>({
+          method: 'DELETE',
+          path: `/v1/vault/items/${encodeURIComponent(id)}`,
+          token,
+        }),
       );
     },
   };

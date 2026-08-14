@@ -3,9 +3,16 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createApiClient } from './apiClient';
+import { SyncHttpError } from './fetchTransport';
 import { createMemoryTokenStore } from './memoryTokenStore';
 import { createMockCloudTransport } from './mockTransport';
-import { createSyncEngine, createMemoryCursorStore, createMemoryLocalStore } from './syncEngine';
+import {
+  createSyncEngine,
+  createMemoryCursorStore,
+  createMemoryLocalStore,
+  type SyncSessionProgress,
+} from './syncEngine';
+import type { HttpTransport, TokenStore } from './types';
 import type { SyncEntity } from '@javdb/sync-protocol';
 
 describe('apiClient + mock cloud', () => {
@@ -37,7 +44,127 @@ describe('apiClient + mock cloud', () => {
   });
 });
 
+describe('apiClient authentication recovery', () => {
+  it('shares one refresh when two clients retry the same expired session', async () => {
+    let accessToken = 'access-old';
+    let refreshToken = 'refresh-old';
+    let refreshCalls = 0;
+    let staleRequests = 0;
+    let releaseStaleRequests: (() => void) | undefined;
+    let resolveTokenWrite: (() => void) | undefined;
+    const staleRequestsReady = new Promise<void>((resolve) => {
+      releaseStaleRequests = resolve;
+    });
+    const tokenWritten = new Promise<void>((resolve) => {
+      resolveTokenWrite = resolve;
+    });
+
+    const tokens: TokenStore = {
+      async getAccessToken() {
+        return accessToken;
+      },
+      async getRefreshToken() {
+        return refreshToken;
+      },
+      async setTokens(pair) {
+        accessToken = pair.accessToken;
+        refreshToken = pair.refreshToken;
+        resolveTokenWrite?.();
+      },
+      async clear() {
+        accessToken = '';
+        refreshToken = '';
+      },
+    };
+    const transport: HttpTransport = {
+      async request<T>(opts: {
+        method: string;
+        path: string;
+        body?: unknown;
+        token?: string | null;
+      }): Promise<T> {
+        const { method, path, token, body } = opts;
+        if (method === 'GET' && path === '/v1/devices') {
+          if (token === 'access-old') {
+            staleRequests += 1;
+            if (staleRequests === 2) releaseStaleRequests?.();
+            await staleRequestsReady;
+            throw new SyncHttpError(401, 'unauthorized');
+          }
+          if (token === 'access-new') return [] as T;
+          throw new SyncHttpError(401, 'unauthorized');
+        }
+        if (method === 'POST' && path === '/v1/auth/refresh') {
+          refreshCalls += 1;
+          const submitted = body as { refreshToken?: string };
+          if (refreshCalls === 1 && submitted.refreshToken === 'refresh-old') {
+            return {
+              accessToken: 'access-new',
+              refreshToken: 'refresh-new',
+              userId: 'user-1',
+              deviceId: 'device-1',
+            } as T;
+          }
+          await tokenWritten;
+          throw new SyncHttpError(401, 'invalid refresh');
+        }
+        throw new Error(`Unexpected request: ${method} ${path}`);
+      },
+    };
+    const firstClient = createApiClient({ baseUrl: 'http://mock', tokens, transport });
+    const secondClient = createApiClient({ baseUrl: 'http://mock', tokens, transport });
+
+    await expect(Promise.all([firstClient.listDevices(), secondClient.listDevices()])).resolves.toEqual([
+      [],
+      [],
+    ]);
+    expect(refreshCalls).toBe(1);
+    expect(await tokens.getAccessToken()).toBe('access-new');
+    expect(await tokens.getRefreshToken()).toBe('refresh-new');
+  });
+});
+
 describe('syncEngine session (server-authoritative)', () => {
+  it('reports session request telemetry before applying the Cloud response', async () => {
+    const { transport } = createMockCloudTransport();
+    const tokens = createMemoryTokenStore();
+    const api = createApiClient({ baseUrl: 'http://mock', transport, tokens });
+    await api.register({ identifier: 'telemetry@t', password: 'p' });
+    await api.login({
+      identifier: 'telemetry@t',
+      password: 'p',
+      device: { id: 'dtelemetry', label: 'Telemetry', clientType: 'extension' },
+    });
+    const video: SyncEntity = {
+      id: 'telemetry-video',
+      type: 'video',
+      revision: 1,
+      updatedAt: 10,
+      payload: { status: 'viewed' },
+    };
+    const local = createMemoryLocalStore() as ReturnType<typeof createMemoryLocalStore> & {
+      enqueuePending: (e: SyncEntity) => Promise<void>;
+    };
+    await local.enqueuePending(video);
+    const events: SyncSessionProgress[] = [];
+    const engine = createSyncEngine({
+      api,
+      local,
+      cursors: createMemoryCursorStore(),
+    });
+
+    const result = await engine.syncSession('dtelemetry', {
+      onProgress: (event) => events.push(event),
+    });
+
+    expect(events.map((event) => event.stage)).toEqual(['uploading', 'applying']);
+    expect(events[0]).toMatchObject({ stage: 'uploading', pendingCount: 1 });
+    expect(events[0]?.requestBytes).toBeGreaterThan(0);
+    expect(events[1]).toMatchObject({ stage: 'applying', uploaded: 1, downloaded: 1 });
+    expect(result.metrics.requestBytes).toBe(events[0]?.requestBytes);
+    expect(result.metrics.sessionDurationMs).toBeGreaterThanOrEqual(0);
+  });
+
   it('syncSession applies server apply and reports stats.message', async () => {
     const { transport, state } = createMockCloudTransport();
     const tokensA = createMemoryTokenStore();

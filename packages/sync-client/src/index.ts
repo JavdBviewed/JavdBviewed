@@ -31,12 +31,15 @@ export {
   createMemoryCursorStore,
   type SyncEngine,
   type SyncSessionEngineResult,
+  type SyncSessionProgress,
+  type SyncSessionOptions,
   type LocalEntityStore,
   type CursorStore,
 } from './syncEngine';
 export type {
   TokenStore,
   HttpTransport,
+  RefreshCoordinator,
   SyncClientConfig,
   CloudApi,
 } from './types';

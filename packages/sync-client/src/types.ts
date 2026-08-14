@@ -34,6 +34,11 @@ export interface TokenStore {
   clear(): Promise<void>;
 }
 
+/** 将同一会话的 token 刷新合并为一次；扩展可提供跨上下文实现。 */
+export interface RefreshCoordinator {
+  run<T>(work: () => Promise<T>): Promise<T>;
+}
+
 export interface HttpTransport {
   request<T>(opts: {
     method: string;
@@ -48,6 +53,7 @@ export interface SyncClientConfig {
   protocolVersion?: ProtocolVersion;
   transport?: HttpTransport;
   tokens: TokenStore;
+  refreshCoordinator?: RefreshCoordinator;
   /** Called when access token refresh fails permanently. */
   onAuthFailure?: (err: unknown) => void;
 }

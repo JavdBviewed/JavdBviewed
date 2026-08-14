@@ -24,6 +24,7 @@ import {
   type CloudAutoSyncSettings,
   type CloudConnectionSettings,
   type CloudSessionRecord,
+  type CloudSyncProgress,
   type CloudSyncNowResult,
   type TypeCountMap,
 } from '../../../../../features/cloudSync';
@@ -39,7 +40,8 @@ type SyncReport = CloudSyncNowResult & {
 
 type SyncProgressState = {
   open: boolean;
-  stage: 'preparing' | 'syncing' | 'complete' | 'error';
+  stage: 'preparing' | 'uploading' | 'applying' | 'complete' | 'error';
+  event?: CloudSyncProgress;
   report?: SyncReport;
   error?: string;
 };
@@ -218,8 +220,12 @@ export function CloudSettingsPage() {
   const runSyncWithProgress = useCallback(async (showProgress = true): Promise<SyncReport> => {
     if (showProgress) setSyncProgress({ open: true, stage: 'preparing' });
     await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-    if (showProgress) setSyncProgress({ open: true, stage: 'syncing' });
-    const result = await facade.syncNow();
+    const result = await facade.syncNow({
+      onProgress: (event) => {
+        if (!showProgress) return;
+        setSyncProgress({ open: true, stage: event.stage, event });
+      },
+    });
     const report: SyncReport = { ...result, finishedAt: Date.now() };
     setSyncReport(report);
     if (showProgress) setSyncProgress({ open: true, stage: 'complete', report });
@@ -1102,7 +1108,7 @@ function CloudSyncProgressDialog(props: {
   onClose: () => void;
   onRetry: () => void;
 }) {
-  const working = props.state.stage === 'preparing' || props.state.stage === 'syncing';
+  const working = ['preparing', 'uploading', 'applying'].includes(props.state.stage);
   const title =
     props.state.stage === 'complete'
       ? '同步完成'
@@ -1112,8 +1118,10 @@ function CloudSyncProgressDialog(props: {
   const status =
     props.state.stage === 'preparing'
       ? '正在整理本机数据'
-      : props.state.stage === 'syncing'
-        ? '正在与 Cloud 服务同步并合并数据'
+      : props.state.stage === 'uploading'
+        ? '正在发送同步请求'
+        : props.state.stage === 'applying'
+          ? '正在应用 Cloud 结果'
         : props.state.stage === 'complete'
           ? props.state.report?.message || '本次同步已完成'
           : props.state.error || '同步过程中发生未知错误';
@@ -1164,15 +1172,24 @@ function CloudSyncProgressDialog(props: {
         </div>
 
         <ol className="m-0 grid list-none gap-2 p-0 text-[12px]">
-          <SyncProgressStep label="整理本机数据" active={props.state.stage === 'preparing'} done={props.state.stage !== 'preparing'} />
+          <SyncProgressStep label="整理本机数据" active={props.state.stage === 'preparing'} done={['uploading', 'applying', 'complete'].includes(props.state.stage)} />
           <SyncProgressStep
-            label="与 Cloud 同步并合并"
-            active={props.state.stage === 'syncing'}
-            done={props.state.stage === 'complete'}
+            label="发送同步请求"
+            active={props.state.stage === 'uploading'}
+            done={['applying', 'complete'].includes(props.state.stage)}
             failed={props.state.stage === 'error'}
           />
+          <SyncProgressStep label="应用 Cloud 结果" active={props.state.stage === 'applying'} done={props.state.stage === 'complete'} />
           <SyncProgressStep label="完成" done={props.state.stage === 'complete'} />
         </ol>
+
+        <div className="flex h-1.5 overflow-hidden rounded-[var(--radius-2)] bg-[var(--color-bg-muted,#f4f5f7)]" aria-label="同步阶段进度">
+          {[0, 1, 2, 3].map((step) => {
+            const activeStep = props.state.stage === 'preparing' ? 0 : props.state.stage === 'uploading' ? 1 : props.state.stage === 'applying' ? 2 : 3;
+            return <span key={step} className={`flex-1 border-r border-[var(--color-bg)] last:border-r-0 ${step <= activeStep && props.state.stage !== 'error' ? 'bg-[var(--color-primary)]' : ''}`} />;
+          })}
+        </div>
+        {props.state.event ? <p className="m-0 text-[12px] text-[var(--color-fg-muted)]">{syncProgressDetail(props.state.event)}</p> : null}
 
         {props.state.report ? <SyncResultPanel report={props.state.report} /> : null}
       </div>
@@ -1308,6 +1325,13 @@ function SyncResultPanel({ report }: { report: SyncReport }) {
           emphasize={Boolean(report.stats?.rejected)}
         />
       </div>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Metric label="请求大小" value={formatBytes(report.requestBytes)} />
+        <Metric label="会话耗时" value={formatDuration(report.sessionDurationMs)} />
+        <Metric label="会话平均速率" value={formatRate(report.averageSessionRateBytesPerSecond)} />
+        <Metric label="总耗时" value={formatDuration(report.totalDurationMs)} />
+      </div>
+      <p className="mt-1.5 mb-0 text-[11px] text-[var(--color-fg-muted)]">会话平均速率包含 Cloud 处理与响应等待，用于定位同步瓶颈，并非纯网络带宽。</p>
       <p className="mt-2 mb-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
         <span className="font-semibold text-[var(--color-fg)]">下载类型：</span>
         {hasServerTypes ? formatTypeCounts(serverByType) : '无'}
@@ -1380,6 +1404,27 @@ function formatTime(ts: number): string {
   } catch {
     return String(ts);
   }
+}
+
+function formatBytes(value: number): string {
+  if (value < 1_024) return `${value} B`;
+  if (value < 1_024 * 1_024) return `${(value / 1_024).toFixed(1)} KB`;
+  return `${(value / (1_024 * 1_024)).toFixed(1)} MB`;
+}
+
+function formatDuration(value: number): string {
+  return value < 1_000 ? `${value} ms` : `${(value / 1_000).toFixed(1)} s`;
+}
+
+function formatRate(value: number): string {
+  return `${formatBytes(value)}/s`;
+}
+
+function syncProgressDetail(event: CloudSyncProgress): string {
+  if (event.stage === 'preparing') return `本地实体 ${event.localEntityCount} 条 · 待上传 ${event.pendingCount} 条`;
+  if (event.stage === 'uploading') return `待上传 ${event.pendingCount} 条 · 请求大小 ${formatBytes(event.requestBytes)}`;
+  if (event.stage === 'applying') return `服务端确认上传 ${event.uploaded} 条 · 下载 ${event.downloaded} 条`;
+  return `请求大小 ${formatBytes(event.requestBytes)} · 会话平均速率 ${formatRate(event.averageSessionRateBytesPerSecond)}`;
 }
 
 function formatDeviceTime(ts?: number): string {

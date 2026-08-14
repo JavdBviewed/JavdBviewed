@@ -109,11 +109,21 @@ describe('CloudSettingsPage copy', () => {
     expect(pageSource).toContain('onSync={onSyncNow}');
     expect(pageSource).toContain('CloudSyncProgressDialog');
     expect(pageSource).toContain('正在整理本机数据');
-    expect(pageSource).toContain('正在与 Cloud 服务同步并合并数据');
+    expect(pageSource).toContain('正在发送同步请求');
+    expect(pageSource).toContain('正在应用 Cloud 结果');
     expect(pageSource).toContain('同步失败');
     expect(pageSource).toContain('重试同步');
     expect(pageSource).not.toContain('sessionPreference.autoReconnect');
     expect(pageSource).not.toContain('用户主动退出后保持本机未登录');
+  });
+
+  it('shows stage-based sync progress and truthful session telemetry labels', () => {
+    expect(pageSource).toContain('正在发送同步请求');
+    expect(pageSource).toContain('正在应用 Cloud 结果');
+    expect(pageSource).toContain('请求大小');
+    expect(pageSource).toContain('会话耗时');
+    expect(pageSource).toContain('会话平均速率');
+    expect(pageSource).toContain('包含 Cloud 处理与响应等待');
   });
 
   it('uses persisted account credentials without a logout or passwordless device-access path', () => {

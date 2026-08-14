@@ -39,6 +39,30 @@ export interface SyncSessionEngineResult {
   pulled: number;
   pushed: number;
   cursors: SyncCursorMap;
+  metrics: SyncSessionMetrics;
+}
+
+export type SyncSessionProgress =
+  | {
+      stage: 'uploading';
+      pendingCount: number;
+      requestBytes: number;
+    }
+  | {
+      stage: 'applying';
+      pendingCount: number;
+      requestBytes: number;
+      uploaded: number;
+      downloaded: number;
+    };
+
+export interface SyncSessionMetrics {
+  requestBytes: number;
+  sessionDurationMs: number;
+}
+
+export interface SyncSessionOptions {
+  onProgress?: (event: SyncSessionProgress) => void;
 }
 
 export interface SyncEngine {
@@ -47,7 +71,7 @@ export interface SyncEngine {
    * Server-authoritative path: POST /v1/sync/session.
    * Applies `apply` as-is (no local LWW); clears accepted/merged pending.
    */
-  syncSession(deviceId: string): Promise<SyncSessionEngineResult>;
+  syncSession(deviceId: string, options?: SyncSessionOptions): Promise<SyncSessionEngineResult>;
   /**
    * @deprecated Prefer syncSession. Legacy pull → local merge → push.
    */
@@ -62,17 +86,41 @@ export function createSyncEngine(opts: {
 }): SyncEngine {
   const protocolVersion = opts.protocolVersion ?? PROTOCOL_VERSION;
 
+  function reportSessionProgress(options: SyncSessionOptions | undefined, event: SyncSessionProgress): void {
+    try {
+      options?.onProgress?.(event);
+    } catch {
+      // 进度订阅失败不能中断同步。
+    }
+  }
+
   return {
     protocolVersion,
 
-    async syncSession(deviceId: string) {
+    async syncSession(deviceId: string, options?: SyncSessionOptions) {
       const cursors = await opts.cursors.get();
       const pending = await opts.local.listPending();
-      const response = await opts.api.session({
+      const request = {
         protocolVersion,
         deviceId,
         cursors,
         changes: pending,
+      };
+      const requestBytes = new TextEncoder().encode(JSON.stringify(request)).byteLength;
+      reportSessionProgress(options, {
+        stage: 'uploading',
+        pendingCount: pending.length,
+        requestBytes,
+      });
+      const sessionStartedAt = Date.now();
+      const response = await opts.api.session(request);
+      const sessionDurationMs = Date.now() - sessionStartedAt;
+      reportSessionProgress(options, {
+        stage: 'applying',
+        pendingCount: pending.length,
+        requestBytes,
+        uploaded: response.stats.uploaded,
+        downloaded: response.stats.downloaded,
       });
 
       if (response.apply.length) {
@@ -95,6 +143,10 @@ export function createSyncEngine(opts: {
         pulled: response.stats.downloaded,
         pushed: response.stats.uploaded,
         cursors: response.cursors,
+        metrics: {
+          requestBytes,
+          sessionDurationMs,
+        },
       };
     },
 

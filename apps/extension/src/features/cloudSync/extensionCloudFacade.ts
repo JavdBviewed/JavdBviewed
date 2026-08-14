@@ -21,7 +21,11 @@ import {
   type CloudConnectionSettings,
 } from './cloudSettingsStorage';
 import { createExtensionCloudClient } from './createExtensionCloudClient';
-import { runCloudSyncNow, type CloudSyncNowResult } from './runCloudSyncNow';
+import {
+  runCloudSyncNow,
+  type CloudSyncNowOptions,
+  type CloudSyncNowResult,
+} from './runCloudSyncNow';
 
 export type CloudFacadeState = {
   settings: CloudConnectionSettings;
@@ -55,7 +59,7 @@ export type ExtensionCloudFacadeOptions = {
   platform?: string;
   fetchImpl?: typeof fetch;
   setupAutoSyncAlarm?: () => Promise<void>;
-  syncNow?: () => Promise<CloudSyncNowResult>;
+  syncNow?: (options?: CloudSyncNowOptions) => Promise<CloudSyncNowResult>;
 };
 
 export type ExtensionCloudFacade = {
@@ -66,7 +70,7 @@ export type ExtensionCloudFacade = {
   login(input: CloudLoginInput): Promise<CloudFacadeState>;
   listDevices(): Promise<DeviceInfo[]>;
   revokeDevice(deviceId: string): Promise<DeviceInfo[]>;
-  syncNow(): Promise<CloudSyncNowResult>;
+  syncNow(options?: CloudSyncNowOptions): Promise<CloudSyncNowResult>;
   setAutoSync(patch: Partial<CloudAutoSyncSettings>): Promise<CloudAutoSyncSettings>;
 };
 
@@ -231,7 +235,9 @@ export function createExtensionCloudFacade(
     login,
     listDevices,
     revokeDevice,
-    syncNow: options.syncNow ?? runCloudSyncNow,
+    syncNow(syncOptions) {
+      return (options.syncNow ?? runCloudSyncNow)(syncOptions);
+    },
     setAutoSync,
   };
 }
