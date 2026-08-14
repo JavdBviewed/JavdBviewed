@@ -1,6 +1,6 @@
 /**
  * @file releaseGate.ts
- * @description 2.0.0 自托管扩展发布门禁
+ * @description 扩展发布门禁
  * @module scripts
  */
 import { execFileSync } from 'node:child_process';
@@ -12,7 +12,6 @@ import { assertManifestKeyGate, loadFixedExtensionIdentity } from './extensionId
 import { formatArtifactVersion } from './versioning';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const EXPECTED_VERSION = '2.0.0';
 const EXPECTED_EXTENSION_ID = 'gnegjfjccmeafanpmbjboegcbchcghka';
 const ZIP_EOCD_SIGNATURE = 0x06054b50;
 const ZIP_CENTRAL_SIGNATURE = 0x02014b50;
@@ -41,9 +40,10 @@ export function assertReleaseVersionArtifacts(root: string = ROOT): ReleaseVersi
   const extensionPackageJson = readJsonFile<{ version: string }>(path.join(root, 'apps/extension/package.json'));
   const manifest = readJsonFile<{ version: string; key?: string }>(path.join(root, 'apps/extension/src/manifest.json'));
 
+  const expectedVersion = versionJson.version.trim();
   const values = [versionJson.version, packageJson.version, extensionPackageJson.version, manifest.version];
-  if (values.some((value) => value !== EXPECTED_VERSION)) {
-    throw new Error(`发布版本必须全部为 ${EXPECTED_VERSION}，实际为：${values.join(', ')}`);
+  if (!expectedVersion || values.some((value) => value !== expectedVersion)) {
+    throw new Error(`发布版本必须与 version.json 一致（${expectedVersion || '未设置'}），实际为：${values.join(', ')}`);
   }
   if (!Number.isInteger(versionJson.build) || versionJson.build < 0) {
     throw new Error('version.json 的 build 必须是非负整数');
@@ -59,6 +59,10 @@ export function assertReleaseVersionArtifacts(root: string = ROOT): ReleaseVersi
 }
 
 export function assertReleaseManifest(manifest: { version?: string; key?: string }, root: string = ROOT): void {
+  const expectedVersion = readJsonFile<{ version: string }>(path.join(root, 'version.json')).version.trim();
+  if (manifest.version !== expectedVersion) {
+    throw new Error(`构建 manifest 版本必须为 ${expectedVersion}`);
+  }
   const identity = loadFixedExtensionIdentity(path.join(root, 'scripts/extension-identity.json'));
   assertManifestKeyGate(manifest, { version: manifest.version, identity });
   if (identity.fixedExtensionId !== EXPECTED_EXTENSION_ID) {
@@ -66,9 +70,9 @@ export function assertReleaseManifest(manifest: { version?: string; key?: string
   }
 }
 
-export function assertSourceManifest(manifest: { version?: string; key?: string }): void {
-  if (manifest.version !== EXPECTED_VERSION) {
-    throw new Error(`源码 manifest 版本必须为 ${EXPECTED_VERSION}`);
+export function assertSourceManifest(manifest: { version?: string; key?: string }, expectedVersion: string): void {
+  if (manifest.version !== expectedVersion) {
+    throw new Error(`源码 manifest 版本必须为 ${expectedVersion}`);
   }
   if (Object.prototype.hasOwnProperty.call(manifest, 'key')) {
     throw new Error('源码 manifest 不应提交固定 key，固定 key 只能由 2.0.0 构建流程注入');
@@ -224,7 +228,7 @@ function runPnpm(args: string[]): void {
 export function runReleaseGate(root: string = ROOT): void {
   const version = assertReleaseVersionArtifacts(root);
   const sourceManifest = readJsonFile<{ version: string; key?: string }>(path.join(root, 'apps/extension/src/manifest.json'));
-  assertSourceManifest(sourceManifest);
+  assertSourceManifest(sourceManifest, version.version);
 
   runPnpm(['run', 'typecheck']);
   runPnpm(['run', 'test']);
@@ -240,7 +244,7 @@ export function runReleaseGate(root: string = ROOT): void {
   if (!fs.existsSync(zipPath)) throw new Error(`未找到预期发布 ZIP：${zipPath}`);
   assertReleaseZip(zipPath, distManifestPath);
   assertSafeReleaseEntries(fs.readdirSync(path.join(root, 'dist'), { recursive: true }).map(String));
-  console.log(`\n[release:gate] 2.0.0 自托管发布门禁通过：${zipPath}`);
+  console.log(`\n[release:gate] ${version.version} 扩展发布门禁通过：${zipPath}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {

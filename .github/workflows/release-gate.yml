@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v2.0.0'
+      - 'v*'
 
 permissions:
   contents: read
@@ -36,5 +36,5 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run 2.0.0 release gate
+      - name: Run extension release gate
         run: pnpm run release:gate

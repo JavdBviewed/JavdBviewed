@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   assertReleaseManifest,
@@ -10,13 +13,31 @@ import {
 } from './releaseGate';
 
 describe('release gate', () => {
-  it('accepts the locked 2.0.0 source identity and version artifacts', () => {
+  it('uses the version declared by version.json instead of a historical release constant', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'javdb-release-gate-'));
+    const version = '2.0.2';
+
+    try {
+      fs.mkdirSync(path.join(root, 'apps/extension/src'), { recursive: true });
+      fs.writeFileSync(path.join(root, 'version.json'), JSON.stringify({ version, build: 1 }));
+      fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version }));
+      fs.writeFileSync(path.join(root, 'apps/extension/package.json'), JSON.stringify({ version }));
+      fs.writeFileSync(path.join(root, 'apps/extension/src/manifest.json'), JSON.stringify({ version }));
+
+      expect(assertReleaseVersionArtifacts(root)).toMatchObject({ version, build: 1 });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts the configured source identity and version artifacts', () => {
     const artifacts = assertReleaseVersionArtifacts();
-    expect(artifacts.version).toBe('2.0.0');
+    expect(artifacts.version).toBe('2.0.1');
     expect(artifacts.build).toBeGreaterThanOrEqual(0);
-    expect(() => assertSourceManifest({ version: '2.0.0' })).not.toThrow();
-    expect(() => assertSourceManifest({ version: '2.0.0', key: 'accidental' })).toThrow(/源码 manifest/);
-    expect(() => assertReleaseManifest({ version: '2.0.0', key: 'invalid' })).toThrow(/does not match locked identity/);
+    expect(() => assertSourceManifest({ version: '2.0.1' }, artifacts.version)).not.toThrow();
+    expect(() => assertSourceManifest({ version: '2.0.2' }, artifacts.version)).toThrow(/源码 manifest/);
+    expect(() => assertSourceManifest({ version: '2.0.1', key: 'accidental' }, artifacts.version)).toThrow(/源码 manifest/);
+    expect(() => assertReleaseManifest({ version: '2.0.1', key: 'invalid' })).toThrow(/does not match locked identity/);
   });
 
   it('rejects release entries that can leak local credentials or debug data', () => {
