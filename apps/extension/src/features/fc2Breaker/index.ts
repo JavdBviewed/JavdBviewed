@@ -1133,6 +1133,11 @@ export class FC2BreakerService {
 
     try {
       const { isDrive115Enabled, addTaskUrlsV2 } = await import('../drive115/router');
+      const {
+        getDefaultManualPushDirectory,
+        resolveManualPushDirectory,
+        shouldUseDefaultDirectoryForManualPush,
+      } = await import('../drive115/ui/manualPushDirectory');
       const { showToast } = await import('../../platform/browser/toast');
       const { getSettings } = await import('../../utils/storage');
 
@@ -1141,15 +1146,29 @@ export class FC2BreakerService {
         return;
       }
 
+      const settings = await getSettings();
+      const configuredDirectory = String(settings?.drive115?.downloadDir ?? settings?.drive115?.defaultWpPathId ?? '');
+      const selection = shouldUseDefaultDirectoryForManualPush(
+        settings?.drive115?.skipManualPushDirectoryPicker === true,
+        configuredDirectory,
+      )
+        ? getDefaultManualPushDirectory(
+          configuredDirectory,
+          String(settings?.drive115?.downloadDirName ?? ''),
+          String(settings?.drive115?.downloadDirPath ?? ''),
+        )
+        : await resolveManualPushDirectory(configuredDirectory, configuredDirectory);
+      if (!selection) return;
+
       const pushResult = await addTaskUrlsV2({
         urls: result.magnet,
-        wp_path_id: '',
+        wp_path_id: selection.cid,
         context: {
           source: 'fc2',
           videoId: videoInfo.carNum,
           magnetName: result.name,
           pageUrl: url,
-          wpPathId: '',
+          wpPathId: selection.cid,
         },
       });
 
@@ -1163,7 +1182,6 @@ export class FC2BreakerService {
       showToast(`${result.name} 推送到115网盘成功`, 'success');
 
       try {
-        const settings = await getSettings();
         const autoMark = settings?.videoEnhancement?.autoMarkWatchedAfter115 !== false;
         if (autoMark && url) {
           await FC2BreakerService.markAsViewed(videoInfo.carNum, videoInfo, url);

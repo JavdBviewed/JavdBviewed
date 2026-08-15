@@ -76,6 +76,20 @@ describe('Drive115SettingsPage layout', () => {
     expect(pageSource).toContain('id="drive115CancelMediaLibraryIndex"');
   });
 
+  it('exposes the default download directory and the manual-picker opt-out control', () => {
+    expect(pageSource).toContain('label="默认下载目录"');
+    expect(pageSource).toContain('id="drive115SkipManualPushDirectoryPicker"');
+    expect(pageSource).toContain("update('skipManualPushDirectoryPicker'");
+    expect(legacyPartialSource).toContain('默认下载目录');
+    expect(legacyPartialSource).toContain('id="drive115SkipManualPushDirectoryPicker"');
+    expect(legacyPaneSource).toContain('skipManualPushDirectoryPicker');
+  });
+
+  it('refreshes the default-directory controls after external settings changes', () => {
+    expect(pageSource).toContain('prev.downloadDir === mapped.downloadDir');
+    expect(pageSource).toContain('prev.skipManualPushDirectoryPicker === mapped.skipManualPushDirectoryPicker');
+  });
+
   it('exposes an index result detail window fed by the report storage key', () => {
     expect(pageSource).toContain('id="drive115ViewLastIndexReport"');
     expect(pageSource).toContain('Drive115IndexReportModal');

@@ -20,6 +20,11 @@ import { getUserTriggeredHeavyTaskScheduling } from './schedulingMode';
 import { showEnhancementDone } from '../../platform/browser/enhancementLoadingIndicator';
 import { getJavdbTheme, isDarkTheme, type JavdbTheme } from '../../platform/browser/domUtils';
 import { addTaskUrlsV2 } from '../drive115/router';
+import {
+  getDefaultManualPushDirectory,
+  resolveManualPushDirectory,
+  shouldUseDefaultDirectoryForManualPush,
+} from '../drive115/ui/manualPushDirectory';
 import { enhanceReviewCodeRecognition as enhanceReviewCodeRecognitionInRoot } from './ui/reviewCodeRecognition';
 import {
   activatePreviewVideoPreload,
@@ -2988,7 +2993,23 @@ export class VideoDetailEnhancer {
         const videoId = this.videoId || extractVideoIdFromPage() || 'unknown';
         btn.disabled = true;
         try {
-          const result = await addTaskUrlsV2({ urls: magnetLink.href, context: { source: 'detail', videoId, pageUrl: window.location.href } as any });
+          const configuredDirectory = String(STATE.settings?.drive115?.downloadDir ?? STATE.settings?.drive115?.defaultWpPathId ?? '');
+          const selection = shouldUseDefaultDirectoryForManualPush(
+            STATE.settings?.drive115?.skipManualPushDirectoryPicker === true,
+            configuredDirectory,
+          )
+            ? getDefaultManualPushDirectory(
+              configuredDirectory,
+              String(STATE.settings?.drive115?.downloadDirName ?? ''),
+              String(STATE.settings?.drive115?.downloadDirPath ?? ''),
+            )
+            : await resolveManualPushDirectory(configuredDirectory, configuredDirectory);
+          if (!selection) return;
+          const result = await addTaskUrlsV2({
+            urls: magnetLink.href,
+            wp_path_id: selection.cid,
+            context: { source: 'detail', videoId, pageUrl: window.location.href, wpPathId: selection.cid } as any,
+          });
           showToast(result?.success ? '已提交 115 推送' : (result?.message || '115 推送失败'));
         } catch (error) {
           showToast('115 推送失败');

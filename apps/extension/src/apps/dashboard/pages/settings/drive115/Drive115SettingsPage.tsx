@@ -777,7 +777,11 @@ export function Drive115SettingsPage() {
           prev.v2TokenExpiresAt === mapped.v2TokenExpiresAt &&
           prev.enabled === mapped.enabled &&
           prev.v2AuthMode === mapped.v2AuthMode &&
-          prev.v2ClientId === mapped.v2ClientId
+          prev.v2ClientId === mapped.v2ClientId &&
+          prev.downloadDir === mapped.downloadDir &&
+          prev.downloadDirName === mapped.downloadDirName &&
+          prev.downloadDirPath === mapped.downloadDirPath &&
+          prev.skipManualPushDirectoryPicker === mapped.skipManualPushDirectoryPicker
         ) {
           return prev;
         }
@@ -795,6 +799,7 @@ export function Drive115SettingsPage() {
   }, []);
 
   const disabled = !form.enabled;
+  const hasManualPushDefaultDirectory = form.downloadDir.trim() !== '' && form.downloadDir.trim() !== '0';
 
   const update = useCallback(
     <K extends keyof Drive115SettingsFormState>(
@@ -957,6 +962,10 @@ export function Drive115SettingsPage() {
       downloadDir: selection.cid,
       downloadDirName: selection.name,
       downloadDirPath: selection.path,
+      skipManualPushDirectoryPicker:
+        selection.cid.trim() !== '' && selection.cid.trim() !== '0'
+          ? formRef.current.skipManualPushDirectoryPicker
+          : false,
     };
     setForm(next);
     await flush(next);
@@ -1638,8 +1647,8 @@ export function Drive115SettingsPage() {
           <Drive115Group title="下载设置" navId={DRIVE115_SECTION_IDS.download}>
             <Drive115Field
               id="drive115DownloadDir"
-              label="下载目录"
-              description="离线下载保存目录。显示文件夹名称，可与媒体库片库目录相同，但字段独立。"
+              label="默认下载目录"
+              description="离线下载保存目录，也是手动推送跳过目录选择时的目标。可与媒体库片库目录相同，但字段独立。"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <div
@@ -1691,6 +1700,19 @@ export function Drive115SettingsPage() {
                 </div>
               ) : null}
             </Drive115Field>
+
+            <Drive115LegacyToggle
+              id="drive115SkipManualPushDirectoryPicker"
+              label="手动推送时不再选择目录"
+              checked={form.skipManualPushDirectoryPicker && hasManualPushDefaultDirectory}
+              disabled={disabled || !hasManualPushDefaultDirectory}
+              onChange={(next) => update('skipManualPushDirectoryPicker', next)}
+              description={
+                hasManualPushDefaultDirectory
+                  ? '开启后，手动推送会直接使用上方默认下载目录。关闭可恢复每次选择。'
+                  : '请先选择一个非根目录的默认下载目录，才能跳过手动目录选择。'
+              }
+            />
 
             <div className="grid gap-2 sm:grid-cols-2">
               <Drive115Field
@@ -2039,5 +2061,3 @@ export function Drive115SettingsPage() {
     </div>
   );
 }
-
-

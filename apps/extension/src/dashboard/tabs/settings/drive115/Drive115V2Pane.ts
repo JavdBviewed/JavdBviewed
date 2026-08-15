@@ -1005,6 +1005,14 @@ export class Drive115V2Pane implements IDrive115Pane {
 
     const downloadDirInput = document.getElementById('drive115DownloadDir') as HTMLInputElement | null;
     const downloadDirSummary = document.getElementById('drive115DownloadDirSummary') as HTMLDivElement | null;
+    const skipManualPickerInput = document.getElementById('drive115SkipManualPushDirectoryPicker') as HTMLInputElement | null;
+    const syncSkipManualPickerAvailability = (): void => {
+      if (!skipManualPickerInput) return;
+      const cid = (downloadDirInput?.value || '').trim();
+      const hasDefaultDirectory = cid !== '' && cid !== '0';
+      skipManualPickerInput.disabled = !hasDefaultDirectory;
+      if (!hasDefaultDirectory) skipManualPickerInput.checked = false;
+    };
     const renderDownloadDirSummary = (name?: string, path?: string, cid?: string) => {
       if (!downloadDirSummary) return;
       const displayName = String(name || '').trim();
@@ -1030,6 +1038,10 @@ export class Drive115V2Pane implements IDrive115Pane {
       getSettings().then((settings: any) => {
         const def = (settings?.drive115?.downloadDir ?? settings?.drive115?.defaultWpPathId ?? '').toString();
         downloadDirInput.value = def;
+        if (skipManualPickerInput) {
+          skipManualPickerInput.checked = settings?.drive115?.skipManualPushDirectoryPicker === true;
+        }
+        syncSkipManualPickerAvailability();
         renderDownloadDirSummary(settings?.drive115?.downloadDirName, settings?.drive115?.downloadDirPath, def);
       }).catch(() => {});
       // 变更时保存
@@ -1043,12 +1055,28 @@ export class Drive115V2Pane implements IDrive115Pane {
           delete ns.drive115.downloadDirName;
           delete ns.drive115.downloadDirPath;
           await saveSettings(ns);
+          syncSkipManualPickerAvailability();
           renderDownloadDirSummary('', '', val);
         } catch {}
       };
       downloadDirInput.addEventListener('input', onDownloadDirChange);
       downloadDirInput.addEventListener('change', onDownloadDirChange);
     }
+
+    skipManualPickerInput?.addEventListener('change', async () => {
+      try {
+        const cid = (downloadDirInput?.value || '').trim();
+        const enabled = skipManualPickerInput.checked && cid !== '' && cid !== '0';
+        skipManualPickerInput.checked = enabled;
+        const settings: any = await getSettings();
+        const ns: any = { ...settings };
+        ns.drive115 = {
+          ...(settings?.drive115 || {}),
+          skipManualPushDirectoryPicker: enabled,
+        };
+        await saveSettings(ns);
+      } catch {}
+    });
 
     const chooseDownloadDirBtn = document.getElementById('drive115ChooseDownloadDir') as HTMLButtonElement | null;
     chooseDownloadDirBtn?.addEventListener('click', () => {
@@ -1066,6 +1094,7 @@ export class Drive115V2Pane implements IDrive115Pane {
           };
           delete ns.drive115.defaultWpPathId;
           await saveSettings(ns);
+          syncSkipManualPickerAvailability();
           renderDownloadDirSummary(selection.name, selection.path, selection.cid);
           showToast(`已选择目录：${selection.path}`, 'success');
         },

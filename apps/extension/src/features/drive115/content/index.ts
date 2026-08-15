@@ -10,13 +10,24 @@ import { waitForElement } from '../../../platform/browser/domUtils';
 import { showToast } from '../../../platform/browser/toast';
 import { log, setContentRecord } from '../../contentState';
 import { extractVideoIdFromPage } from '../../../platform/browser';
-import { getSettings } from '../../../utils/storage';
+import { getSettings, saveSettings } from '../../../utils/storage';
+import {
+    getDefaultManualPushDirectory,
+    getManualPushInitialDirectory,
+    resolveManualPushDirectory,
+    shouldUseDefaultDirectoryForManualPush,
+    type Drive115FolderSelection,
+} from '../ui/manualPushDirectory';
 import { completeManagedTask, createManagedTaskDescriptor, ensureManagedTaskRegistered, failManagedTask, progressManagedTask, requestTaskLease, runChunkedWork, saveSubtaskDetail, waitForTaskLease, yieldToMainThread } from '../../../platform/tasks';
 import { getPageContext } from '../../../platform/browser';
 
 type Drive115PushSettingsCache = {
     enabled: boolean;
     downloadDir: string;
+    downloadDirName: string;
+    downloadDirPath: string;
+    lastManualPushDirectory: string;
+    skipManualPushDirectoryPicker: boolean;
     autoMarkWatchedAfter115: boolean;
     autoMarkWatchedStars: number;
 };
@@ -32,6 +43,10 @@ async function refreshDrive115PushSettingsCache(): Promise<Drive115PushSettingsC
     const cache: Drive115PushSettingsCache = {
         enabled,
         downloadDir: ((settings as any)?.drive115?.downloadDir ?? (settings as any)?.drive115?.defaultWpPathId ?? '').toString().trim(),
+        downloadDirName: ((settings as any)?.drive115?.downloadDirName ?? '').toString().trim(),
+        downloadDirPath: ((settings as any)?.drive115?.downloadDirPath ?? '').toString().trim(),
+        lastManualPushDirectory: ((settings as any)?.drive115?.lastManualPushDirectory ?? '').toString().trim(),
+        skipManualPushDirectoryPicker: (settings as any)?.drive115?.skipManualPushDirectoryPicker === true,
         autoMarkWatchedAfter115: (settings as any)?.videoEnhancement?.autoMarkWatchedAfter115 !== false,
         autoMarkWatchedStars: (settings as any)?.videoEnhancement?.autoMarkWatchedStars ?? 4,
     };
@@ -319,6 +334,66 @@ export async function handlePushToDrive115(
             showToast('115网盘功能未启用，请先在设置中启用', 'error');
             return;
         }
+
+        button.disabled = true;
+        button.innerHTML = '&nbsp;选择目录...&nbsp;';
+        let directorySelection: Drive115FolderSelection | null;
+        try {
+            directorySelection = shouldUseDefaultDirectoryForManualPush(
+                cachedSettings.skipManualPushDirectoryPicker,
+                cachedSettings.downloadDir,
+            )
+                ? getDefaultManualPushDirectory(
+                    cachedSettings.downloadDir,
+                    cachedSettings.downloadDirName,
+                    cachedSettings.downloadDirPath,
+                )
+                : await resolveManualPushDirectory(
+                    getManualPushInitialDirectory(cachedSettings.lastManualPushDirectory, cachedSettings.downloadDir),
+                    cachedSettings.downloadDir,
+                );
+        } catch (error) {
+            log('[Drive115] Manual directory picker failed:', error);
+            showToast('加载 115 目录失败，请重试', 'error');
+            button.innerHTML = originalText;
+            button.disabled = false;
+            return;
+        }
+        if (!directorySelection) {
+            button.innerHTML = originalText;
+            button.disabled = false;
+            return;
+        }
+        const shouldPersistSelection = directorySelection.cid !== cachedSettings.lastManualPushDirectory
+            || directorySelection.setAsDefault === true
+            || directorySelection.skipManualDirectoryPicker === true;
+        if (shouldPersistSelection) {
+            const settings = await getSettings();
+            const nextDrive115Settings = {
+                ...(settings.drive115 || {}),
+                lastManualPushDirectory: directorySelection.cid,
+            } as Record<string, unknown>;
+            if (directorySelection.setAsDefault) {
+                nextDrive115Settings.downloadDir = directorySelection.cid;
+                nextDrive115Settings.downloadDirName = directorySelection.name;
+                nextDrive115Settings.downloadDirPath = directorySelection.path;
+                delete nextDrive115Settings.defaultWpPathId;
+                cachedSettings.downloadDir = directorySelection.cid;
+                cachedSettings.downloadDirName = directorySelection.name;
+                cachedSettings.downloadDirPath = directorySelection.path;
+            }
+            if (directorySelection.skipManualDirectoryPicker) {
+                nextDrive115Settings.skipManualPushDirectoryPicker = true;
+                cachedSettings.skipManualPushDirectoryPicker = true;
+            }
+            const nextSettings = {
+                ...settings,
+                drive115: nextDrive115Settings,
+            };
+            await saveSettings(nextSettings);
+            cachedSettings.lastManualPushDirectory = directorySelection.cid;
+        }
+
         // 跨页同磁链同动作合并；force 时追加唯一后缀绕过 dedupe
         const actionDedupeKey = options.force
             ? `drive115:push:${videoId}:${magnetUrl}:force:${Date.now()}`
@@ -410,11 +485,7 @@ export async function handlePushToDrive115(
         try {
             await beginStage('prepare', `videoId=${videoId}`, 5);
             await addLogV2({ timestamp: Date.now(), level: 'info', message: `内容脚本：发起 115 推送，videoId=${videoId}，name=${magnetName}，magnet=${magnetUrl}，page=${window.location.href}` });
-            let wpPathId: string | undefined;
-            try {
-                const def = cachedSettings.downloadDir;
-                wpPathId = def === '' ? '0' : def;
-            } catch {}
+            const wpPathId = directorySelection.cid;
 
             endStage('prepare', 'done', 'request prepared');
             await beginStage('push-api', `wpPathId=${wpPathId ?? 'root'}`, 40);

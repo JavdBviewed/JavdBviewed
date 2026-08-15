@@ -164,7 +164,7 @@
                     <h4>下载设置</h4>
                     <div class="form-grid drive115-download-settings">
                         <div class="form-group">
-                            <label for="drive115DownloadDir">下载目录 ID:</label>
+                            <label for="drive115DownloadDir">默认下载目录 ID:</label>
                             <div class="form-group-inline">
                                 <input type="text" id="drive115DownloadDir" placeholder="请输入目录 ID（cid），例如：123456789">
                                 <button type="button" id="drive115ChooseDownloadDir" class="button-like secondary">
@@ -173,8 +173,16 @@
                                 </button>
                             </div>
                             <div id="drive115DownloadDirSummary" class="drive115-dir-summary" style="display:none;"></div>
-                            <p class="input-description">可手动填写目录 ID，也可通过文件夹选择器快速选择。</p>
+                            <p class="input-description">可手动填写目录 ID，也可通过文件夹选择器快速选择；手动推送跳过目录选择时会使用这里的默认目录。</p>
                             <p id="drive115DownloadDirError" class="input-error" style="display:none;">请输入目录 ID</p>
+                            <label class="drive115-toggle-label" style="margin-top:10px;">
+                                <span class="drive115-toggle-text">手动推送时不再选择目录</span>
+                                <div class="drive115-toggle-switch">
+                                    <input type="checkbox" id="drive115SkipManualPushDirectoryPicker" class="drive115-toggle-input">
+                                    <span class="drive115-toggle-slider"></span>
+                                </div>
+                            </label>
+                            <p class="input-description">开启后，手动推送会直接使用默认下载目录；关闭可恢复每次选择。</p>
                         </div>
 
                         <div class="form-group">

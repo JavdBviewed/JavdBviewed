@@ -87,6 +87,7 @@ describe('drive115SettingsModel', () => {
         downloadDir: '12345',
         downloadDirName: 'Movies',
         downloadDirPath: '/Movies',
+        skipManualPushDirectoryPicker: true,
         verifyCount: 3,
         maxFailures: 2,
         v2RefreshTokenStatus: 'valid',
@@ -113,6 +114,7 @@ describe('drive115SettingsModel', () => {
     expect(form.v2MinRefreshIntervalMin).toBe(90);
     expect(form.downloadDir).toBe('12345');
     expect(form.downloadDirName).toBe('Movies');
+    expect(form.skipManualPushDirectoryPicker).toBe(true);
     expect(form.verifyCount).toBe(3);
     expect(form.maxFailures).toBe(2);
     expect(form.v2RefreshTokenStatus).toBe('valid');
@@ -131,6 +133,7 @@ describe('drive115SettingsModel', () => {
       ...DEFAULT_DRIVE115_SETTINGS_FORM,
       downloadDir: 'dl-cid',
       downloadDirName: 'Downloads',
+      skipManualPushDirectoryPicker: true,
       mediaLibraryRoots: [
         { cid: 'lib-a', name: 'A', path: '/A', enabled: true },
         { cid: 'lib-b', enabled: false },
@@ -140,6 +143,7 @@ describe('drive115SettingsModel', () => {
       mediaLibraryAutoIndexEnabled: false,
     });
     expect(patch.downloadDir).toBe('dl-cid');
+    expect(patch.skipManualPushDirectoryPicker).toBe(true);
     expect(patch.mediaLibraryRoots).toEqual([
       { cid: 'lib-a', name: 'A', path: '/A', enabled: true },
       { cid: 'lib-b', name: undefined, path: undefined, enabled: false },
