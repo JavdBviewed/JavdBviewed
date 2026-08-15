@@ -1,6 +1,6 @@
 /**
  * @file Modal.tsx
- * @description 轻量弹窗壳：遮罩 + 标题栏 + 内容区 + 可选页脚
+ * @description 轻量弹窗壳：标题栏 + 内容区 + 可选页脚
  * @module ui/primitives
  */
 import type { ReactNode } from 'react';
@@ -18,7 +18,7 @@ export type ModalProps = {
 };
 
 /**
- * 自研弹窗（对齐 Dashboard 浮层层级 token）
+ * 自研弹窗（对齐 Dashboard 浮层层级 token，不渲染全屏遮罩）
  * 通过 Portal 挂到 document.body，避免被祖先的 transform/overflow/层叠上下文困住或被页面局部 CSS 污染。
  */
 export function Modal({ open, title, children, onClose, footer, className }: ModalProps) {
@@ -29,12 +29,6 @@ export function Modal({ open, title, children, onClose, footer, className }: Mod
       className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-4"
       role="presentation"
     >
-      <button
-        type="button"
-        aria-label="关闭遮罩"
-        className="absolute inset-0 bg-[var(--color-overlay)]"
-        onClick={onClose}
-      />
       <div
         role="dialog"
         aria-modal="true"

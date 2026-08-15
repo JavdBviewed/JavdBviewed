@@ -10,10 +10,14 @@ import {
   type ProtocolVersion,
   type SyncCursorMap,
   type SyncEntity,
+  type SyncSessionItemResult,
   type SyncSessionResponse,
+  type SyncSessionStats,
 } from '@javdb/sync-protocol';
 import type { ApiClient } from './apiClient';
 import { advanceCursors, mergeEntityBatches } from './conflictPolicy';
+
+const SYNC_SESSION_BATCH_SIZE = 500;
 
 export interface LocalEntityStore {
   listAll(): Promise<SyncEntity[]>;
@@ -47,6 +51,8 @@ export type SyncSessionProgress =
       stage: 'uploading';
       pendingCount: number;
       requestBytes: number;
+      batchNumber?: number;
+      batchCount?: number;
     }
   | {
       stage: 'applying';
@@ -54,22 +60,28 @@ export type SyncSessionProgress =
       requestBytes: number;
       uploaded: number;
       downloaded: number;
+      batchNumber?: number;
+      batchCount?: number;
     };
 
 export interface SyncSessionMetrics {
+  /** Actual request body bytes after optional gzip compression. */
   requestBytes: number;
+  /** JSON UTF-8 bytes before optional gzip compression. */
+  uncompressedRequestBytes: number;
   sessionDurationMs: number;
 }
 
 export interface SyncSessionOptions {
   onProgress?: (event: SyncSessionProgress) => void;
+  signal?: AbortSignal;
 }
 
 export interface SyncEngine {
   readonly protocolVersion: ProtocolVersion;
   /**
-   * Server-authoritative path: POST /v1/sync/session.
-   * Applies `apply` as-is (no local LWW); clears accepted/merged pending.
+   * Server-authoritative path: one or more POST /v1/sync/session requests.
+   * Applies `apply` as-is (no local LWW); clears accepted/merged pending per batch.
    */
   syncSession(deviceId: string, options?: SyncSessionOptions): Promise<SyncSessionEngineResult>;
   /**
@@ -94,49 +106,153 @@ export function createSyncEngine(opts: {
     }
   }
 
+  function mergeCountMap(target: Record<string, number>, source?: Record<string, number>): void {
+    for (const [type, count] of Object.entries(source ?? {})) {
+      target[type] = (target[type] ?? 0) + count;
+    }
+  }
+
+  function emptySessionStats(): SyncSessionStats {
+    return {
+      uploaded: 0,
+      downloaded: 0,
+      merged: 0,
+      rejected: 0,
+      byType: {},
+      uploadedByType: {},
+      downloadedByType: {},
+      rejectedByType: {},
+    };
+  }
+
+  function throwIfAborted(signal?: AbortSignal): void {
+    if (signal?.aborted) throw new DOMException('同步已取消', 'AbortError');
+  }
+
+  function splitPending(pending: SyncEntity[]): SyncEntity[][] {
+    if (!pending.length) return [[]];
+    const batches: SyncEntity[][] = [];
+    for (let offset = 0; offset < pending.length; offset += SYNC_SESSION_BATCH_SIZE) {
+      batches.push(pending.slice(offset, offset + SYNC_SESSION_BATCH_SIZE));
+    }
+    return batches;
+  }
+
   return {
     protocolVersion,
 
     async syncSession(deviceId: string, options?: SyncSessionOptions) {
-      const cursors = await opts.cursors.get();
+      throwIfAborted(options?.signal);
+      let cursors = await opts.cursors.get();
       const pending = await opts.local.listPending();
-      const request = {
-        protocolVersion,
-        deviceId,
-        cursors,
-        changes: pending,
-      };
-      const requestBytes = new TextEncoder().encode(JSON.stringify(request)).byteLength;
-      reportSessionProgress(options, {
-        stage: 'uploading',
-        pendingCount: pending.length,
-        requestBytes,
-      });
-      const sessionStartedAt = Date.now();
-      const response = await opts.api.session(request);
-      const sessionDurationMs = Date.now() - sessionStartedAt;
-      reportSessionProgress(options, {
-        stage: 'applying',
-        pendingCount: pending.length,
-        requestBytes,
-        uploaded: response.stats.uploaded,
-        downloaded: response.stats.downloaded,
-      });
+      const batches = splitPending(pending);
+      const aggregateStats = emptySessionStats();
+      const aggregateApply: SyncEntity[] = [];
+      const aggregateResults: SyncSessionItemResult[] = [];
+      let requestBytes = 0;
+      let uncompressedRequestBytes = 0;
+      let sessionDurationMs = 0;
+      let lastResponse: SyncSessionResponse | undefined;
 
-      if (response.apply.length) {
-        // Trust server apply only — do not mergeEntityBatches locally.
-        await opts.local.applyRemote(response.apply);
-      }
+      for (const [batchIndex, changes] of batches.entries()) {
+        throwIfAborted(options?.signal);
+        const request = {
+          protocolVersion,
+          deviceId,
+          cursors,
+          changes,
+        };
+        const batchUncompressedBytes = new TextEncoder().encode(JSON.stringify(request)).byteLength;
+        // Non-fetch/custom transports do not report body metrics, so keep the JSON size as a safe fallback.
+        let batchReported = false;
+        requestBytes += batchUncompressedBytes;
+        uncompressedRequestBytes += batchUncompressedBytes;
+        const remainingPending = Math.max(0, pending.length - batchIndex * SYNC_SESSION_BATCH_SIZE);
+        reportSessionProgress(options, {
+          stage: 'uploading',
+          pendingCount: remainingPending,
+          requestBytes,
+          batchNumber: batchIndex + 1,
+          batchCount: batches.length,
+        });
 
-      const done: Array<{ type: string; id: string }> = [];
-      for (const r of response.results) {
-        if (r.status === 'accepted' || r.status === 'merged') {
-          done.push({ type: r.type, id: r.id });
+        const sessionStartedAt = Date.now();
+        const response = await opts.api.session(request, {
+          signal: options?.signal,
+          onRequestBodyMetrics: (metrics) => {
+            if (batchReported) {
+              // A 401 retry sends another physical request body; include it in actual traffic totals.
+              requestBytes += metrics.transmittedBytes;
+              uncompressedRequestBytes += metrics.uncompressedBytes;
+              return;
+            }
+            batchReported = true;
+            requestBytes += metrics.transmittedBytes - batchUncompressedBytes;
+            uncompressedRequestBytes += metrics.uncompressedBytes - batchUncompressedBytes;
+          },
+        });
+        throwIfAborted(options?.signal);
+        sessionDurationMs += Date.now() - sessionStartedAt;
+        lastResponse = response;
+        aggregateApply.push(...response.apply);
+        aggregateResults.push(...response.results);
+        aggregateStats.uploaded += response.stats.uploaded;
+        aggregateStats.downloaded += response.stats.downloaded;
+        aggregateStats.merged += response.stats.merged;
+        aggregateStats.rejected += response.stats.rejected;
+        mergeCountMap(aggregateStats.byType, response.stats.byType);
+        mergeCountMap(aggregateStats.uploadedByType ?? {}, response.stats.uploadedByType);
+        mergeCountMap(aggregateStats.downloadedByType ?? {}, response.stats.downloadedByType);
+        mergeCountMap(aggregateStats.rejectedByType ?? {}, response.stats.rejectedByType);
+
+        if (response.apply.length) {
+          // Trust server apply only — do not mergeEntityBatches locally.
+          await opts.local.applyRemote(response.apply);
         }
-      }
-      if (done.length) await opts.local.clearPending(done);
+        throwIfAborted(options?.signal);
 
-      await opts.cursors.set(response.cursors);
+        const done: Array<{ type: string; id: string }> = [];
+        for (const result of response.results) {
+          if (result.status === 'accepted' || result.status === 'merged') {
+            done.push({ type: result.type, id: result.id });
+          }
+        }
+        if (done.length) await opts.local.clearPending(done);
+        throwIfAborted(options?.signal);
+        cursors = response.cursors;
+        await opts.cursors.set(cursors);
+
+        reportSessionProgress(options, {
+          stage: 'applying',
+          pendingCount: remainingPending,
+          requestBytes,
+          uploaded: aggregateStats.uploaded,
+          downloaded: aggregateStats.downloaded,
+          batchNumber: batchIndex + 1,
+          batchCount: batches.length,
+        });
+      }
+
+      const code = aggregateStats.rejected > 0
+        ? 'SYNC_PARTIAL'
+        : aggregateStats.uploaded === 0 && aggregateStats.downloaded === 0
+          ? 'SYNC_EMPTY'
+          : 'SYNC_OK';
+      const message = code === 'SYNC_EMPTY'
+        ? '同步完成（无变更）'
+        : code === 'SYNC_PARTIAL'
+          ? `同步部分成功：上传 ${aggregateStats.uploaded}，下载 ${aggregateStats.downloaded}，拒绝 ${aggregateStats.rejected}`
+          : `同步完成：上传 ${aggregateStats.uploaded}，下载 ${aggregateStats.downloaded}`;
+      const response: SyncSessionResponse = {
+        protocolVersion,
+        apply: aggregateApply,
+        results: aggregateResults,
+        stats: aggregateStats,
+        code,
+        message,
+        cursors,
+        hasMore: lastResponse?.hasMore,
+      };
 
       return {
         response,
@@ -145,6 +261,7 @@ export function createSyncEngine(opts: {
         cursors: response.cursors,
         metrics: {
           requestBytes,
+          uncompressedRequestBytes,
           sessionDurationMs,
         },
       };

@@ -67,7 +67,7 @@ describe('chromePendingStore', () => {
     ]);
   });
 
-  it('does not persist routine log entities in the pending delta', async () => {
+  it('does not persist diagnostic or magnet push logs in the pending delta', async () => {
     const { listCloudPending, upsertCloudPending } = await import('./chromePendingStore');
 
     await upsertCloudPending([
@@ -75,13 +75,10 @@ describe('chromePendingStore', () => {
       { type: 'log', id: 'debug-1', payload: { level: 'DEBUG' } },
       { type: 'log', id: 'warn-1', payload: { level: 'WARN' } },
       { type: 'log', id: 'error-1', payload: { level: 'ERROR' } },
+      { type: 'magnet_push_log', id: 'magnet-1', payload: { status: 'done' } },
       { type: 'video', id: 'ABP-004' },
     ] as any);
 
-    expect(await listCloudPending()).toEqual([
-      { type: 'log', id: 'warn-1', payload: { level: 'WARN' } },
-      { type: 'log', id: 'error-1', payload: { level: 'ERROR' } },
-      { type: 'video', id: 'ABP-004' },
-    ]);
+    expect(await listCloudPending()).toEqual([{ type: 'video', id: 'ABP-004' }]);
   });
 });

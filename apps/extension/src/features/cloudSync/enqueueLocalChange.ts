@@ -8,14 +8,11 @@ import type { ActorRecord, ListRecord, NewWorkRecord, VideoRecord } from '../../
 import type { ReportMonthly, ViewsDaily } from '../../types/insights';
 import type { MagnetCacheRecord, NewWorksDailyStat } from '../../platform/storage/indexedDb';
 import { upsertCloudPending } from './chromePendingStore';
-import { shouldSyncLogEntry } from './logSyncPolicy';
 import {
   actorToSyncEntity,
   insightsReportToSyncEntity,
   insightsViewToSyncEntity,
-  logToSyncEntity,
   listToSyncEntity,
-  magnetPushLogToSyncEntity,
   magnetToSyncEntity,
   newWorkDailyStatToSyncEntity,
   newWorkToSyncEntity,
@@ -115,27 +112,19 @@ export async function enqueueNewWorkDailyStatChange(stat: NewWorksDailyStat): Pr
 }
 
 export async function enqueueLogChange(entry: Record<string, unknown>): Promise<void> {
-  if (!shouldSyncLogEntry(entry)) return;
-  const e = logToSyncEntity(entry);
-  if (e) await upsertCloudPending([e]);
+  void entry;
 }
 
 export async function enqueueLogChanges(entries: Array<Record<string, unknown>>): Promise<void> {
-  const list = entries
-    .filter(shouldSyncLogEntry)
-    .map(logToSyncEntity)
-    .filter(Boolean) as SyncEntity[];
-  if (list.length) await upsertCloudPending(list);
+  void entries;
 }
 
 export async function enqueueMagnetPushLogChange(entry: Record<string, unknown>): Promise<void> {
-  const e = magnetPushLogToSyncEntity(entry);
-  if (e) await upsertCloudPending([e]);
+  void entry;
 }
 
 export async function enqueueMagnetPushLogChanges(entries: Array<Record<string, unknown>>): Promise<void> {
-  const list = entries.map(magnetPushLogToSyncEntity).filter(Boolean) as SyncEntity[];
-  if (list.length) await upsertCloudPending(list);
+  void entries;
 }
 
 export async function enqueueStorageItemChange(key: string, value: unknown): Promise<void> {

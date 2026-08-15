@@ -81,6 +81,17 @@ describe('CloudSettingsPage copy', () => {
     expect(pageSource).toContain('id="cloud-device-label"');
     expect(pageSource).toContain('保存连接');
     expect(pageSource).toContain('测试连接');
+    expect(pageSource).toContain('onTestConnection');
+    expect(pageSource).not.toContain('注册新账号');
+  });
+
+  it('keeps editable credentials visible while a session is active', () => {
+    expect(pageSource).toContain('修改账号或密码后，请先测试连接并保存配置');
+    expect(pageSource).not.toContain('重新登录并同步');
+    expect(pageSource).not.toContain("props.loggedIn ? '重新登录并同步' : '登录并同步'");
+    expect(pageSource).toContain('onIdentifierChange={(value) => {');
+    expect(pageSource).toContain('onPasswordChange={(value) => {');
+    expect(pageSource).toContain('setConnDirty(true);');
   });
 
   it('keeps account sign-in inside the connection editor instead of a separate page section', () => {
@@ -99,6 +110,12 @@ describe('CloudSettingsPage copy', () => {
     expect(pageSource).toContain('已保存账号，将自动连接并同步');
   });
 
+  it('keeps connection editing in one modal flow', () => {
+    expect(pageSource).toContain('连接配置已保存，请使用摘要卡中的“立即同步”');
+    expect(pageSource).toContain('测试连接成功，尚未执行同步');
+    expect(pageSource).not.toContain('setConnectionEditorOpen(false);\n        void probeHealthUrl');
+  });
+
   it('starts automatic connection and sync from saved credentials while retaining manual retry', () => {
     expect(pageSource).toContain('立即同步');
     expect(pageSource).toContain('正在自动连接…');
@@ -108,6 +125,8 @@ describe('CloudSettingsPage copy', () => {
     expect(pageSource).toContain('自动连接或同步失败');
     expect(pageSource).toContain('onSync={onSyncNow}');
     expect(pageSource).toContain('CloudSyncProgressDialog');
+    expect(pageSource).toContain('取消同步');
+    expect(pageSource).toContain('已取消同步');
     expect(pageSource).toContain('正在整理本机数据');
     expect(pageSource).toContain('正在发送同步请求');
     expect(pageSource).toContain('正在应用 Cloud 结果');
@@ -121,6 +140,9 @@ describe('CloudSettingsPage copy', () => {
     expect(pageSource).toContain('正在发送同步请求');
     expect(pageSource).toContain('正在应用 Cloud 结果');
     expect(pageSource).toContain('请求大小');
+    expect(pageSource).toContain('请求大小（实际传输）');
+    expect(pageSource).toContain('压缩前 JSON 大小');
+    expect(pageSource).toContain('请求会优先使用 gzip 压缩传输');
     expect(pageSource).toContain('会话耗时');
     expect(pageSource).toContain('会话平均速率');
     expect(pageSource).toContain('包含 Cloud 处理与响应等待');

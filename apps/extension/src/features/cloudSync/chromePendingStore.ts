@@ -4,7 +4,6 @@
  * @module features/cloudSync
  */
 import type { SyncEntity } from '@javdb/sync-protocol';
-import { shouldSyncLogEntry } from './logSyncPolicy';
 
 export const CLOUD_PENDING_STORAGE_KEY = 'cloud_sync_pending_v1';
 export const CLOUD_PENDING_DELTA_STORAGE_KEY = 'cloud_sync_pending_delta_v1';
@@ -12,6 +11,8 @@ export const CLOUD_PENDING_DELTA_STORAGE_KEY = 'cloud_sync_pending_delta_v1';
 let pendingMutationQueue: Promise<void> = Promise.resolve();
 let pendingBaseSnapshot: SyncEntity[] | null = null;
 let pendingDeltaSnapshot: Record<string, SyncEntity> | null = null;
+
+const UNSYNCABLE_LOG_TYPES = new Set(['log', 'magnet_push_log']);
 
 function entityKey(type: string, id: string): string {
   return `${type}\0${id}`;
@@ -59,7 +60,7 @@ function pendingEntities(): SyncEntity[] {
   for (const [key, entity] of Object.entries(pendingDeltaSnapshot ?? {})) {
     map.set(key, entity);
   }
-  return [...map.values()];
+  return [...map.values()].filter((entity) => !UNSYNCABLE_LOG_TYPES.has(entity.type));
 }
 
 function enqueuePendingMutation<T>(mutation: () => Promise<T>): Promise<T> {
@@ -79,13 +80,7 @@ export async function listCloudPending(): Promise<SyncEntity[]> {
 
 /** 按 type+id 覆盖写入 pending（后者覆盖前者） */
 export async function upsertCloudPending(entities: SyncEntity[]): Promise<void> {
-  const syncableEntities = entities.filter((entity) => {
-    if (entity.type !== 'log') return true;
-    const payload = entity.payload;
-    return payload !== null && typeof payload === 'object' && !Array.isArray(payload)
-      ? shouldSyncLogEntry(payload as Record<string, unknown>)
-      : false;
-  });
+  const syncableEntities = entities.filter((entity) => !UNSYNCABLE_LOG_TYPES.has(entity.type));
   if (!syncableEntities.length) return;
   await enqueuePendingMutation(async () => {
     await loadPendingSnapshots();

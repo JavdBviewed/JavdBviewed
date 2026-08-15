@@ -104,6 +104,7 @@ export function createExtensionCloudFacade(
       loadCloudSession(),
     ]);
     let devices: DeviceInfo[] = [];
+    let activeSession = session;
     if (session?.accessToken) {
       try {
         const { api } = await createExtensionCloudClient(settings, {
@@ -111,14 +112,15 @@ export function createExtensionCloudFacade(
         });
         devices = await api.listDevices();
       } catch {
-        devices = [];
+        // 401 会在 ApiClient 中清除 token；重新读取以免 UI 继续显示过期会话。
+        activeSession = await loadCloudSession();
       }
     }
     return {
       settings,
       autoSync,
-      session,
-      loggedIn: Boolean(session?.accessToken),
+      session: activeSession,
+      loggedIn: Boolean(activeSession?.accessToken),
       devices,
     };
   }

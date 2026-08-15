@@ -4,7 +4,22 @@
  * @module @javdb/sync-client
  */
 
-import type { HttpTransport } from './types';
+import type { HttpTransport, RequestBodyMetrics } from './types';
+
+const GZIP_THRESHOLD_BYTES = 16 * 1024;
+
+async function gzipText(text: string): Promise<Blob | null> {
+  if (typeof CompressionStream === 'undefined') return null;
+  try {
+    const stream = new Blob([text])
+      .stream()
+      .pipeThrough(new CompressionStream('gzip'));
+    return await new Response(stream).blob();
+  } catch {
+    // Older extension runtimes may expose fetch without CompressionStream.
+    return null;
+  }
+}
 
 export class SyncHttpError extends Error {
   readonly status: number;
@@ -26,19 +41,40 @@ export function createFetchTransport(baseUrl: string): HttpTransport {
       path: string;
       body?: unknown;
       token?: string | null;
+      signal?: AbortSignal;
+      onRequestBodyMetrics?: (metrics: RequestBodyMetrics) => void;
     }): Promise<T> {
-      const { method, path, body, token } = opts;
+      const { method, path, body, token, signal, onRequestBodyMetrics } = opts;
       const url = `${root}${path.startsWith('/') ? path : `/${path}`}`;
       const headers: Record<string, string> = {
         Accept: 'application/json',
       };
-      if (body !== undefined) headers['Content-Type'] = 'application/json';
+      let requestBody: string | Blob | undefined;
+      if (body !== undefined) {
+        const json = JSON.stringify(body);
+        const uncompressedBytes = new TextEncoder().encode(json).byteLength;
+        headers['Content-Type'] = 'application/json';
+        if (uncompressedBytes >= GZIP_THRESHOLD_BYTES) {
+          const compressed = await gzipText(json);
+          if (compressed) {
+            requestBody = compressed;
+            headers['Content-Encoding'] = 'gzip';
+          }
+        }
+        requestBody ??= json;
+        onRequestBodyMetrics?.({
+          uncompressedBytes,
+          transmittedBytes: requestBody instanceof Blob ? requestBody.size : uncompressedBytes,
+          contentEncoding: headers['Content-Encoding'] === 'gzip' ? 'gzip' : undefined,
+        });
+      }
       if (token) headers.Authorization = `Bearer ${token}`;
 
       const res = await fetch(url, {
         method,
         headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: requestBody,
+        signal,
       });
 
       if (res.status === 204) {

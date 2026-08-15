@@ -39,12 +39,23 @@ export interface RefreshCoordinator {
   run<T>(work: () => Promise<T>): Promise<T>;
 }
 
+export interface RequestBodyMetrics {
+  /** JSON UTF-8 bytes before optional gzip compression. */
+  uncompressedBytes: number;
+  /** Actual request body bytes after optional gzip compression. */
+  transmittedBytes: number;
+  contentEncoding?: 'gzip';
+}
+
 export interface HttpTransport {
   request<T>(opts: {
     method: string;
     path: string;
     body?: unknown;
     token?: string | null;
+    signal?: AbortSignal;
+    /** Reports the serialized HTTP request body that will be sent to Cloud. */
+    onRequestBodyMetrics?: (metrics: RequestBodyMetrics) => void;
   }): Promise<T>;
 }
 
@@ -68,7 +79,15 @@ export interface CloudApi {
   pull(body: SyncPullRequest): Promise<SyncPullResponse>;
   push(body: SyncPushRequest): Promise<SyncPushResponse>;
   /** Server-authoritative one-shot sync (preferred). */
-  session(body: SyncSessionRequest): Promise<SyncSessionResponse>;
+  session(
+    body: SyncSessionRequest,
+    options?: {
+      signal?: AbortSignal;
+      onRequestBodyMetrics?: (metrics: RequestBodyMetrics) => void;
+    },
+  ): Promise<SyncSessionResponse>;
+  /** Permanently removes explicitly allowed non-business sync types for this account. */
+  cleanupSyncData(types: readonly string[]): Promise<{ deleted: Record<string, number> }>;
   listVault(): Promise<VaultListResponse>;
   putVault(id: string, body: VaultPutRequest): Promise<VaultItem>;
   deleteVault(id: string): Promise<void>;

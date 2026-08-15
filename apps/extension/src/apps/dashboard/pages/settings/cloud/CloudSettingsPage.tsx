@@ -40,7 +40,7 @@ type SyncReport = CloudSyncNowResult & {
 
 type SyncProgressState = {
   open: boolean;
-  stage: 'preparing' | 'uploading' | 'applying' | 'complete' | 'error';
+  stage: 'preparing' | 'uploading' | 'applying' | 'complete' | 'cancelled' | 'error';
   event?: CloudSyncProgress;
   report?: SyncReport;
   error?: string;
@@ -81,6 +81,10 @@ async function toast(
   }
 }
 
+function isAbortError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
+}
+
 /**
  * Cloud 同步设置完整页面
  */
@@ -112,6 +116,7 @@ export function CloudSettingsPage() {
     updatedAt: 0,
   });
   const autoConnectAttemptRef = useRef('');
+  const syncAbortControllerRef = useRef<AbortController | null>(null);
 
   const facade = useMemo(() => createExtensionCloudFacade(), []);
   const busy = busyAction != null;
@@ -218,27 +223,36 @@ export function CloudSettingsPage() {
   );
 
   const runSyncWithProgress = useCallback(async (showProgress = true): Promise<SyncReport> => {
+    const controller = showProgress ? new AbortController() : null;
+    if (controller) syncAbortControllerRef.current = controller;
     if (showProgress) setSyncProgress({ open: true, stage: 'preparing' });
-    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
-    const result = await facade.syncNow({
-      onProgress: (event) => {
-        if (!showProgress) return;
-        setSyncProgress({ open: true, stage: event.stage, event });
-      },
-    });
-    const report: SyncReport = { ...result, finishedAt: Date.now() };
-    setSyncReport(report);
-    if (showProgress) setSyncProgress({ open: true, stage: 'complete', report });
-    setStatus(
-      result.message || `同步完成：↑${result.pushed} ↓${result.pulled}`,
-      result.code === 'SYNC_PARTIAL' ? 'warn' : 'ok',
-    );
     try {
-      setDevices(await facade.listDevices());
-    } catch {
-      // 同步成功不依赖设备列表刷新
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      const result = await facade.syncNow({
+        signal: controller?.signal,
+        onProgress: (event) => {
+          if (!showProgress) return;
+          setSyncProgress({ open: true, stage: event.stage, event });
+        },
+      });
+      const report: SyncReport = { ...result, finishedAt: Date.now() };
+      setSyncReport(report);
+      if (showProgress) setSyncProgress({ open: true, stage: 'complete', report });
+      setStatus(
+        result.message || `同步完成：↑${result.pushed} ↓${result.pulled}`,
+        result.code === 'SYNC_PARTIAL' ? 'warn' : 'ok',
+      );
+      try {
+        setDevices(await facade.listDevices());
+      } catch {
+        // 同步成功不依赖设备列表刷新
+      }
+      return report;
+    } finally {
+      if (controller && syncAbortControllerRef.current === controller) {
+        syncAbortControllerRef.current = null;
+      }
     }
-    return report;
   }, [facade, setStatus]);
 
   const loginAndSync = useCallback(async (showProgress = true) => {
@@ -294,42 +308,46 @@ export function CloudSettingsPage() {
       try {
         const saved = await persistConnection();
         if (!saved) return;
-        // 保存动作已负责首轮自动连接，避免 effect 随后用同一份凭证重复发起登录请求。
+        // 保存仅更新连接草稿；登录与同步分别由测试连接和摘要卡操作触发。
         autoConnectAttemptRef.current = `${saved.updatedAt}:${saved.baseUrl}:${saved.accountIdentifier}`;
-        if (!identifier.trim() || !password) {
-          setAutoConnectionState('idle');
-          setStatus('连接已保存，请补充账号密码后自动连接', 'warn');
-          await toast('连接已保存，请填写账号密码', 'info');
-          setConnectionEditorOpen(false);
-          void probeHealthUrl(saved.baseUrl, { silent: true });
-          return;
-        }
-        setAutoConnectionState('connecting');
-        if (!await probeHealthUrl(saved.baseUrl, { silent: true })) {
-          setAutoConnectionState('failed');
-          setStatus('连接已保存，但自动连接失败：请检查服务地址', 'err');
-          setConnectionEditorOpen(false);
-          return;
-        }
-        await loginAndSync(true);
         setAutoConnectionState('idle');
-        setStatus('已自动登录并完成首次同步', 'ok');
-        await toast('✓ 已自动登录并完成首次同步', 'success');
-        setConnectionEditorOpen(false);
+        setStatus('连接配置已保存，请使用摘要卡中的“立即同步”', 'ok');
+        await toast('✓ 连接配置已保存', 'success');
       } catch (e) {
-        setAutoConnectionState('failed');
         const msg = humanizeCloudError(e);
-        setStatus(`自动连接或同步失败：${msg}`, 'err');
-        setConnectionEditorOpen(false);
+        setStatus(msg, 'err');
       }
     });
 
-  const onProbeHealth = () =>
-    void withBusy('health', async () => {
-      // 测试连接时一并保存草稿，避免「测的是旧地址」
-      const saved = await persistConnection();
-      if (!saved) return;
-      await probeHealthUrl(saved.baseUrl, { silent: false });
+  const onTestConnection = () =>
+    void withBusy('test', async () => {
+      try {
+        if (!identifier.trim() || !password) {
+          setStatus('请填写账号与密码', 'err');
+          await toast('请填写账号与密码', 'warning');
+          return;
+        }
+        const saved = await persistConnection();
+        if (!saved) return;
+        const ok = await probeHealthUrl(saved.baseUrl, { silent: true });
+        if (!ok) {
+          setStatus('无法连接 Cloud，请先确认地址与服务状态', 'err');
+          await toast('连接失败', 'error');
+          return;
+        }
+        const state = await facade.login({ identifier: identifier.trim(), password });
+        setSettings(state.settings);
+        setAutoSync(state.autoSync);
+        setSession(state.session);
+        setDevices(state.devices);
+        setShowPassword(false);
+        setStatus('测试连接成功，尚未执行同步', 'ok');
+        await toast('✓ 连接正常，未执行同步', 'success');
+      } catch (e) {
+        const msg = humanizeCloudError(e);
+        setStatus(msg, 'err');
+        await toast(msg, 'error');
+      }
     });
 
   const openConnectionEditor = () => {
@@ -344,7 +362,7 @@ export function CloudSettingsPage() {
   };
 
   const closeConnectionEditor = () => {
-    if (!settings || busyAction === 'save' || busyAction === 'health') return;
+    if (!settings || busyAction) return;
     setBaseUrlDraft(settings.baseUrl);
     setDeviceLabelDraft(settings.deviceLabel);
     setIdentifier(settings.accountIdentifier || '');
@@ -353,59 +371,6 @@ export function CloudSettingsPage() {
     setConnDirty(false);
     setConnectionEditorOpen(false);
   };
-
-  const onRegister = () =>
-    void withBusy('register', async () => {
-      try {
-        const saved = await persistConnection();
-        if (!saved) return;
-        if (!identifier.trim() || !password) {
-          setStatus('请填写账号与密码', 'err');
-          await toast('请填写账号与密码', 'warning');
-          return;
-        }
-        const ok = await probeHealthUrl(saved.baseUrl, { silent: true });
-        if (!ok) {
-          setStatus('无法连接 Cloud，请先确认地址与服务状态', 'err');
-          await toast('请先测试连接成功再注册', 'warning');
-          return;
-        }
-        await facade.register({ identifier: identifier.trim(), password });
-        setStatus('注册成功，请点击登录', 'ok');
-        await toast('✓ 注册成功，请登录', 'success');
-      } catch (e) {
-        const msg = humanizeCloudError(e);
-        setStatus(msg, 'err');
-        await toast(msg, 'error');
-      }
-    });
-
-  const onLogin = () =>
-    void withBusy('login', async () => {
-      try {
-        const saved = await persistConnection();
-        if (!saved) return;
-        if (!identifier.trim() || !password) {
-          setStatus('请填写账号与密码', 'err');
-          await toast('请填写账号与密码', 'warning');
-          return;
-        }
-        const ok = await probeHealthUrl(saved.baseUrl, { silent: true });
-        if (!ok) {
-          setStatus('无法连接 Cloud，请先确认地址与服务状态', 'err');
-          await toast('请先测试连接成功再登录', 'warning');
-          return;
-        }
-        await loginAndSync(true);
-        setStatus('已自动登录并完成首次同步', 'ok');
-        await toast('✓ 已自动登录并完成首次同步', 'success');
-        setConnectionEditorOpen(false);
-      } catch (e) {
-        const msg = humanizeCloudError(e);
-        setStatus(msg, 'err');
-        await toast(msg, 'error');
-      }
-    });
 
   // 兼容旧版本只保存账号密码但尚未建立本机会话的用户：进入设置后自动恢复并同步一次。
   useEffect(() => {
@@ -497,11 +462,21 @@ export function CloudSettingsPage() {
       try {
         await runSyncWithProgress(true);
       } catch (e) {
+        if (isAbortError(e)) {
+          setStatus('同步已取消', 'warn');
+          return;
+        }
         const msg = humanizeCloudError(e);
         setStatus(msg, 'err');
         setSyncProgress({ open: true, stage: 'error', error: msg });
       }
     });
+  };
+
+  const onCancelSync = () => {
+    syncAbortControllerRef.current?.abort();
+    setSyncProgress((state) => ({ ...state, open: false, stage: 'cancelled' }));
+    setStatus('正在取消同步请求…', 'busy');
   };
 
   const onToggleAutoSync = (enabled: boolean) =>
@@ -725,14 +700,18 @@ export function CloudSettingsPage() {
             setDeviceLabelDraft(value);
             setConnDirty(true);
           }}
-          onIdentifierChange={setIdentifier}
-          onPasswordChange={setPassword}
+          onIdentifierChange={(value) => {
+            setIdentifier(value);
+            setConnDirty(true);
+          }}
+          onPasswordChange={(value) => {
+            setPassword(value);
+            setConnDirty(true);
+          }}
           onTogglePassword={() => setShowPassword((value) => !value)}
           onClose={closeConnectionEditor}
           onSave={onSaveConnection}
-          onProbe={onProbeHealth}
-          onLogin={onLogin}
-          onRegister={onRegister}
+          onTestConnection={onTestConnection}
         />
       </SettingSection>
 
@@ -828,6 +807,7 @@ export function CloudSettingsPage() {
       <CloudSyncProgressDialog
         state={syncProgress}
         onClose={() => setSyncProgress((state) => ({ ...state, open: false }))}
+        onCancel={onCancelSync}
         onRetry={onSyncNow}
       />
       </div>
@@ -938,9 +918,7 @@ function CloudConnectionEditDialog(props: {
   onTogglePassword: () => void;
   onClose: () => void;
   onSave: () => void;
-  onProbe: () => void;
-  onLogin: () => void;
-  onRegister: () => void;
+  onTestConnection: () => void;
 }) {
   const connectionBusy = props.busyAction != null;
 
@@ -956,18 +934,11 @@ function CloudConnectionEditDialog(props: {
             取消
           </Button>
           <Button
-            variant="secondary"
-            disabled={connectionBusy || !props.connectionReady}
-            onClick={props.onProbe}
-          >
-            {props.busyAction === 'health' ? '检测中…' : '测试连接'}
-          </Button>
-          <Button
             variant="primary"
             disabled={connectionBusy || !props.connectionReady}
             onClick={props.onSave}
           >
-            {props.busyAction === 'save' ? '保存中…' : props.connDirty ? '保存修改' : '保存连接'}
+            {props.busyAction === 'save' ? '保存中…' : '保存连接'}
           </Button>
         </>
       }
@@ -1029,13 +1000,15 @@ function CloudConnectionEditDialog(props: {
           <div>
             <div className="text-[13px] font-bold text-[var(--color-fg)]">账号与会话</div>
             <p className="mt-0.5 mb-0 text-[12px] leading-snug text-[var(--color-fg-muted)]">
-              {props.loggedIn ? '当前浏览器已连接到该 Cloud 账号。' : '登录后可在服务摘要中立即同步。'}
+              {props.loggedIn
+                ? '当前浏览器已连接到该 Cloud 账号。'
+                : '填写 Cloud 管理员账号后，测试连接成功即可从服务摘要卡同步。'}
             </p>
           </div>
           {props.loggedIn ? <Badge tone="success">已登录</Badge> : <Badge tone="warning">未登录</Badge>}
         </div>
         {props.loggedIn ? (
-          <div className="mt-3 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-bg-muted,#f4f5f7)] px-3 py-2.5">
+          <div className="mt-3 rounded-[var(--radius-2)] border border-[var(--color-success,#27ae60)]/30 bg-[var(--color-success,#27ae60)]/8 px-3 py-2.5">
             <dl className="m-0 grid gap-2 text-[12px] sm:grid-cols-2">
               <div className="min-w-0">
                 <dt className="text-[var(--color-fg-muted)]">用户 ID</dt>
@@ -1043,61 +1016,60 @@ function CloudConnectionEditDialog(props: {
               </div>
               <div className="min-w-0">
                 <dt className="text-[var(--color-fg-muted)]">登录状态</dt>
-                <dd className="m-0 mt-0.5 font-semibold text-[var(--color-fg)]">本机会话有效</dd>
+                <dd className="m-0 mt-0.5 font-semibold text-[var(--color-success,#1e8449)]">本机会话有效</dd>
               </div>
             </dl>
+            <p className="mt-2 mb-0 text-[11.5px] leading-relaxed text-[var(--color-fg-muted)]">
+              修改账号或密码后，请先测试连接并保存配置。Cloud 改密会使旧会话失效。
+            </p>
           </div>
-        ) : (
-          <>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <SettingField id="cloud-identifier" label="账号">
-                <Input
-                  id="cloud-identifier"
-                  value={props.identifier}
-                  onChange={(event) => props.onIdentifierChange(event.currentTarget.value)}
-                  placeholder="admin"
-                  autoComplete="username"
-                  disabled={connectionBusy}
-                />
-              </SettingField>
-              <SettingField id="cloud-password" label="密码">
-                <div className="relative">
-                  <Input
-                    id="cloud-password"
-                    type={props.showPassword ? 'text' : 'password'}
-                    value={props.password}
-                    onChange={(event) => props.onPasswordChange(event.currentTarget.value)}
-                    placeholder="••••••••"
-                    autoComplete="current-password"
-                    disabled={connectionBusy}
-                    className="pr-10"
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') props.onLogin();
-                    }}
-                  />
-                  <button
-                    type="button"
-                    disabled={connectionBusy}
-                    aria-label={props.showPassword ? '隐藏密码' : '显示密码'}
-                    title={props.showPassword ? '隐藏密码' : '显示密码'}
-                    onClick={props.onTogglePassword}
-                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-[var(--radius-2)] text-[var(--color-fg-muted)] transition-colors hover:text-[var(--color-fg)] focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <i className={props.showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'} aria-hidden="true" />
-                  </button>
-                </div>
-              </SettingField>
+        ) : null}
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <SettingField id="cloud-identifier" label="账号">
+            <Input
+              id="cloud-identifier"
+              value={props.identifier}
+              onChange={(event) => props.onIdentifierChange(event.currentTarget.value)}
+              placeholder="admin"
+              autoComplete="username"
+              disabled={connectionBusy}
+            />
+          </SettingField>
+          <SettingField id="cloud-password" label="密码">
+            <div className="relative">
+              <Input
+                id="cloud-password"
+                type={props.showPassword ? 'text' : 'password'}
+                value={props.password}
+                onChange={(event) => props.onPasswordChange(event.currentTarget.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                disabled={connectionBusy}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                disabled={connectionBusy}
+                aria-label={props.showPassword ? '隐藏密码' : '显示密码'}
+                title={props.showPassword ? '隐藏密码' : '显示密码'}
+                onClick={props.onTogglePassword}
+                className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-[var(--radius-2)] text-[var(--color-fg-muted)] transition-colors hover:text-[var(--color-fg)] focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <i className={props.showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'} aria-hidden="true" />
+              </button>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" variant="primary" disabled={connectionBusy} onClick={props.onLogin}>
-                {props.busyAction === 'login' ? '登录中…' : '登录'}
-              </Button>
-              <Button type="button" variant="secondary" disabled={connectionBusy} onClick={props.onRegister}>
-                {props.busyAction === 'register' ? '注册中…' : '注册新账号'}
-              </Button>
-            </div>
-          </>
-        )}
+          </SettingField>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={connectionBusy || !props.connectionReady || !props.identifier.trim() || !props.password}
+            onClick={props.onTestConnection}
+          >
+            {props.busyAction === 'test' ? '测试中…' : '测试连接'}
+          </Button>
+        </div>
       </div>
     </Modal>
   );
@@ -1106,12 +1078,15 @@ function CloudConnectionEditDialog(props: {
 function CloudSyncProgressDialog(props: {
   state: SyncProgressState;
   onClose: () => void;
+  onCancel: () => void;
   onRetry: () => void;
 }) {
   const working = ['preparing', 'uploading', 'applying'].includes(props.state.stage);
   const title =
     props.state.stage === 'complete'
       ? '同步完成'
+      : props.state.stage === 'cancelled'
+        ? '同步已取消'
       : props.state.stage === 'error'
         ? '同步失败'
         : '正在同步 Cloud';
@@ -1124,19 +1099,19 @@ function CloudSyncProgressDialog(props: {
           ? '正在应用 Cloud 结果'
         : props.state.stage === 'complete'
           ? props.state.report?.message || '本次同步已完成'
+          : props.state.stage === 'cancelled'
+            ? '已取消同步请求，未完成的变更会保留到下次同步。'
           : props.state.error || '同步过程中发生未知错误';
 
   return (
     <Modal
       open={props.state.open}
       title={title}
-      onClose={() => {
-        if (!working) props.onClose();
-      }}
+      onClose={working ? props.onCancel : props.onClose}
       className="cloud-sync-progress-modal !max-w-xl"
       footer={
         working ? (
-          <span className="text-[12px] text-[var(--color-fg-muted)]">同步进行中，请勿关闭此窗口。</span>
+          <Button variant="secondary" onClick={props.onCancel}>取消同步</Button>
         ) : props.state.stage === 'error' ? (
           <>
             <Button variant="secondary" onClick={props.onClose}>关闭</Button>
@@ -1155,24 +1130,26 @@ function CloudSyncProgressDialog(props: {
                 ? 'bg-[var(--color-danger,#c0392b)]/12 text-[var(--color-danger,#c0392b)]'
                 : props.state.stage === 'complete'
                   ? 'bg-[var(--color-success,#27ae60)]/12 text-[var(--color-success,#1e8449)]'
+                  : props.state.stage === 'cancelled'
+                    ? 'bg-[var(--color-warning,#d68910)]/12 text-[var(--color-warning,#b9770e)]'
                   : 'bg-[var(--color-primary-soft,#eef5ff)] text-[var(--color-primary)]'
             }`}
             aria-hidden
           >
-            {props.state.stage === 'error' ? '!' : props.state.stage === 'complete' ? '✓' : '…'}
+            {props.state.stage === 'error' ? '!' : props.state.stage === 'complete' ? '✓' : props.state.stage === 'cancelled' ? '!' : '…'}
           </span>
           <div>
             <p className="m-0 font-semibold text-[var(--color-fg)]">{status}</p>
             {working ? (
               <p className="mt-1 mb-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
-                完成前会保留本窗口；同步不会因切换页面而取消。
+                可通过右上角关闭按钮或下方按钮取消正在发送的同步请求。
               </p>
             ) : null}
           </div>
         </div>
 
         <ol className="m-0 grid list-none gap-2 p-0 text-[12px]">
-          <SyncProgressStep label="整理本机数据" active={props.state.stage === 'preparing'} done={['uploading', 'applying', 'complete'].includes(props.state.stage)} />
+          <SyncProgressStep label="整理本机数据" active={props.state.stage === 'preparing'} done={['uploading', 'applying', 'complete', 'cancelled'].includes(props.state.stage)} />
           <SyncProgressStep
             label="发送同步请求"
             active={props.state.stage === 'uploading'}
@@ -1185,7 +1162,7 @@ function CloudSyncProgressDialog(props: {
 
         <div className="flex h-1.5 overflow-hidden rounded-[var(--radius-2)] bg-[var(--color-bg-muted,#f4f5f7)]" aria-label="同步阶段进度">
           {[0, 1, 2, 3].map((step) => {
-            const activeStep = props.state.stage === 'preparing' ? 0 : props.state.stage === 'uploading' ? 1 : props.state.stage === 'applying' ? 2 : 3;
+            const activeStep = props.state.stage === 'preparing' ? 0 : props.state.stage === 'uploading' ? 1 : props.state.stage === 'applying' ? 2 : props.state.stage === 'cancelled' ? 1 : 3;
             return <span key={step} className={`flex-1 border-r border-[var(--color-bg)] last:border-r-0 ${step <= activeStep && props.state.stage !== 'error' ? 'bg-[var(--color-primary)]' : ''}`} />;
           })}
         </div>
@@ -1326,12 +1303,12 @@ function SyncResultPanel({ report }: { report: SyncReport }) {
         />
       </div>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Metric label="请求大小" value={formatBytes(report.requestBytes)} />
+        <Metric label="请求大小（实际传输）" value={formatBytes(report.requestBytes)} />
         <Metric label="会话耗时" value={formatDuration(report.sessionDurationMs)} />
         <Metric label="会话平均速率" value={formatRate(report.averageSessionRateBytesPerSecond)} />
         <Metric label="总耗时" value={formatDuration(report.totalDurationMs)} />
       </div>
-      <p className="mt-1.5 mb-0 text-[11px] text-[var(--color-fg-muted)]">会话平均速率包含 Cloud 处理与响应等待，用于定位同步瓶颈，并非纯网络带宽。</p>
+      <p className="mt-1.5 mb-0 text-[11px] text-[var(--color-fg-muted)]">请求会优先使用 gzip 压缩传输；实际传输 {formatBytes(report.requestBytes)}，压缩前 JSON 大小 {formatBytes(report.uncompressedRequestBytes)}。会话平均速率包含 Cloud 处理与响应等待，用于定位同步瓶颈，并非纯网络带宽。</p>
       <p className="mt-2 mb-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
         <span className="font-semibold text-[var(--color-fg)]">下载类型：</span>
         {hasServerTypes ? formatTypeCounts(serverByType) : '无'}
@@ -1422,9 +1399,9 @@ function formatRate(value: number): string {
 
 function syncProgressDetail(event: CloudSyncProgress): string {
   if (event.stage === 'preparing') return `本地实体 ${event.localEntityCount} 条 · 待上传 ${event.pendingCount} 条`;
-  if (event.stage === 'uploading') return `待上传 ${event.pendingCount} 条 · 请求大小 ${formatBytes(event.requestBytes)}`;
+  if (event.stage === 'uploading') return `待上传 ${event.pendingCount} 条 · 预计请求大小（压缩前）${formatBytes(event.requestBytes)}`;
   if (event.stage === 'applying') return `服务端确认上传 ${event.uploaded} 条 · 下载 ${event.downloaded} 条`;
-  return `请求大小 ${formatBytes(event.requestBytes)} · 会话平均速率 ${formatRate(event.averageSessionRateBytesPerSecond)}`;
+  return `实际传输 ${formatBytes(event.requestBytes)} · 压缩前 JSON ${formatBytes(event.uncompressedRequestBytes)} · 会话平均速率 ${formatRate(event.averageSessionRateBytesPerSecond)}`;
 }
 
 function formatDeviceTime(ts?: number): string {

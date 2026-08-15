@@ -27,6 +27,7 @@ import { SyncHttpError, createFetchTransport } from './fetchTransport';
 import type {
   CloudApi,
   HttpTransport,
+  RequestBodyMetrics,
   RefreshCoordinator,
   SyncClientConfig,
   TokenStore,
@@ -179,12 +180,31 @@ export function createApiClient(config: SyncClientConfig): ApiClient {
       );
     },
 
-    session(body: SyncSessionRequest) {
+    session(
+      body: SyncSessionRequest,
+      options?: {
+        signal?: AbortSignal;
+        onRequestBodyMetrics?: (metrics: RequestBodyMetrics) => void;
+      },
+    ) {
       return withAuthRetry((token) =>
         transport.request<SyncSessionResponse>({
           method: 'POST',
           path: '/v1/sync/session',
           body,
+          token,
+          signal: options?.signal,
+          onRequestBodyMetrics: options?.onRequestBodyMetrics,
+        }),
+      );
+    },
+
+    cleanupSyncData(types: readonly string[]) {
+      return withAuthRetry((token) =>
+        transport.request<{ deleted: Record<string, number> }>({
+          method: 'POST',
+          path: '/v1/sync/cleanup',
+          body: { types },
           token,
         }),
       );

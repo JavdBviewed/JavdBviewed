@@ -37,8 +37,6 @@ import {
 } from './cloudSettingsStorage';
 import { markCloudStorageWrite } from './storageChangeGate';
 import { shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
-import { resolveLogEntityId } from './toSyncEntity';
-import { shouldSyncLogEntry } from './logSyncPolicy';
 import { mergeMediaCleanupStorageValue } from '../mediaCleanup';
 
 export const EXTENSION_SYNC_ENTITY_TYPES: readonly SyncEntityType[] = [
@@ -285,43 +283,6 @@ export async function collectLocalSyncEntities(): Promise<SyncEntity[]> {
     }
   } catch {
     // 忽略：本地资产缺失不阻断全量同步
-  }
-
-  try {
-    const logs = (await db.getAll('logs')) as unknown as Array<Record<string, unknown>>;
-    for (const entry of logs) {
-      if (!shouldSyncLogEntry(entry || {})) continue;
-      const id = resolveLogEntityId(entry || {});
-      if (!id) continue;
-      out.push(
-        toEntity(
-          'log',
-          id,
-          entry,
-          timestampFromPayload(entry, ['timestampMs', 'timestamp', 'updatedAt', 'createdAt']),
-        ),
-      );
-    }
-  } catch {
-    // 忽略：本地日志缺失不阻断全量同步
-  }
-
-  try {
-    const magnetLogs = (await db.getAll('magnetPushLogs')) as unknown as Array<Record<string, unknown>>;
-    for (const entry of magnetLogs) {
-      const id = resolveLogEntityId(entry || {});
-      if (!id) continue;
-      out.push(
-        toEntity(
-          'magnet_push_log',
-          id,
-          entry,
-          timestampFromPayload(entry, ['timestampMs', 'timestamp', 'updatedAt', 'createdAt']),
-        ),
-      );
-    }
-  } catch {
-    // 忽略：本地推送日志缺失不阻断全量同步
   }
 
   try {

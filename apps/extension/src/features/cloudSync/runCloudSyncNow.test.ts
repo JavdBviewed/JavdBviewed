@@ -63,7 +63,7 @@ describe('runCloudSyncNow progress', () => {
             code: 'SYNC_OK',
             message: '同步完成',
           },
-          metrics: { requestBytes: 2_048, sessionDurationMs: 400 },
+          metrics: { requestBytes: 2_048, uncompressedRequestBytes: 4_096, sessionDurationMs: 400 },
         };
       },
     });
@@ -88,6 +88,7 @@ describe('runCloudSyncNow progress', () => {
     expect(events[3]).toMatchObject({ averageSessionRateBytesPerSecond: 5_120 });
     expect(result).toMatchObject({
       requestBytes: 2_048,
+      uncompressedRequestBytes: 4_096,
       sessionDurationMs: 400,
       averageSessionRateBytesPerSecond: 5_120,
     });

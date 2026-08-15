@@ -1,7 +1,7 @@
 /**
  * @file apiClient.test.ts
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApiClient } from './apiClient';
 import { SyncHttpError } from './fetchTransport';
 import { createMemoryTokenStore } from './memoryTokenStore';
@@ -125,6 +125,49 @@ describe('apiClient authentication recovery', () => {
 });
 
 describe('syncEngine session (server-authoritative)', () => {
+  it('passes the abort signal to each session request and stops before the next batch', async () => {
+    const firstBatch: SyncEntity = {
+      id: 'cancel-0',
+      type: 'video',
+      revision: 1,
+      updatedAt: 1,
+      payload: { status: 'viewed' },
+    };
+    const secondBatch: SyncEntity = {
+      id: 'cancel-1',
+      type: 'video',
+      revision: 1,
+      updatedAt: 2,
+      payload: { status: 'viewed' },
+    };
+    const controller = new AbortController();
+    const signals: Array<AbortSignal | undefined> = [];
+    const api = {
+      session: vi.fn(async (_request: unknown, options?: { signal?: AbortSignal }) => {
+        signals.push(options?.signal);
+        controller.abort();
+        return {
+          protocolVersion: 1,
+          apply: [],
+          results: [],
+          stats: { uploaded: 500, downloaded: 0, merged: 0, rejected: 0, byType: {}, uploadedByType: {}, downloadedByType: {}, rejectedByType: {} },
+          cursors: {},
+          code: 'SYNC_OK',
+          message: 'ok',
+        };
+      }),
+    } as unknown as ReturnType<typeof createApiClient>;
+    const local = createMemoryLocalStore() as ReturnType<typeof createMemoryLocalStore> & {
+      enqueuePending: (entity: SyncEntity) => Promise<void>;
+    };
+    for (let index = 0; index < 501; index += 1) {
+      await local.enqueuePending(index === 0 ? firstBatch : index === 1 ? secondBatch : { ...firstBatch, id: `cancel-${index}` });
+    }
+
+    await expect(createSyncEngine({ api, local, cursors: createMemoryCursorStore() }).syncSession('cancel-device', { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(signals).toEqual([controller.signal]);
+  });
+
   it('reports session request telemetry before applying the Cloud response', async () => {
     const { transport } = createMockCloudTransport();
     const tokens = createMemoryTokenStore();
@@ -163,6 +206,104 @@ describe('syncEngine session (server-authoritative)', () => {
     expect(events[1]).toMatchObject({ stage: 'applying', uploaded: 1, downloaded: 1 });
     expect(result.metrics.requestBytes).toBe(events[0]?.requestBytes);
     expect(result.metrics.sessionDurationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('uses the transport-reported gzip body size in session metrics', async () => {
+    const api = {
+      session: vi.fn(async (
+        _request: unknown,
+        options?: {
+          onRequestBodyMetrics?: (metrics: {
+            uncompressedBytes: number;
+            transmittedBytes: number;
+            contentEncoding?: 'gzip';
+          }) => void;
+        },
+      ) => {
+        options?.onRequestBodyMetrics?.({
+          uncompressedBytes: 2_048,
+          transmittedBytes: 256,
+          contentEncoding: 'gzip',
+        });
+        return {
+          protocolVersion: 1,
+          apply: [],
+          results: [],
+          stats: {
+            uploaded: 0,
+            downloaded: 0,
+            merged: 0,
+            rejected: 0,
+            byType: {},
+            uploadedByType: {},
+            downloadedByType: {},
+            rejectedByType: {},
+          },
+          cursors: {},
+          code: 'SYNC_EMPTY',
+          message: '同步完成（无变更）',
+        };
+      }),
+    } as unknown as ReturnType<typeof createApiClient>;
+
+    const result = await createSyncEngine({
+      api,
+      local: createMemoryLocalStore(),
+      cursors: createMemoryCursorStore(),
+    }).syncSession('gzip-device');
+
+    expect(result.metrics).toMatchObject({
+      requestBytes: 256,
+      uncompressedRequestBytes: 2_048,
+    });
+  });
+
+  it('splits a large pending queue into resumable session batches', async () => {
+    const { transport } = createMockCloudTransport();
+    let sessionCalls = 0;
+    const countingTransport: HttpTransport = {
+      async request<T>(opts: {
+        method: string;
+        path: string;
+        body?: unknown;
+        token?: string | null;
+      }) {
+        if (opts.path === '/v1/sync/session') sessionCalls += 1;
+        return transport.request<T>(opts);
+      },
+    };
+    const tokens = createMemoryTokenStore();
+    const api = createApiClient({ baseUrl: 'http://mock', transport: countingTransport, tokens });
+    await api.register({ identifier: 'batch@t', password: 'p' });
+    await api.login({
+      identifier: 'batch@t',
+      password: 'p',
+      device: { id: 'dbatch', label: 'Batch', clientType: 'extension' },
+    });
+
+    const local = createMemoryLocalStore() as ReturnType<typeof createMemoryLocalStore> & {
+      enqueuePending: (entity: SyncEntity) => Promise<void>;
+    };
+    for (let index = 0; index < 501; index += 1) {
+      await local.enqueuePending({
+        id: `batch-${index}`,
+        type: 'video',
+        revision: 1,
+        updatedAt: index + 1,
+        payload: { status: 'viewed' },
+      });
+    }
+    const events: SyncSessionProgress[] = [];
+    const result = await createSyncEngine({
+      api,
+      local,
+      cursors: createMemoryCursorStore(),
+    }).syncSession('dbatch', { onProgress: (event) => events.push(event) });
+
+    expect(sessionCalls).toBe(2);
+    expect(result.response.stats.uploaded).toBe(501);
+    expect(await local.listPending()).toHaveLength(0);
+    expect(events.filter((event) => event.stage === 'uploading').map((event) => event.batchCount)).toEqual([2, 2]);
   });
 
   it('syncSession applies server apply and reports stats.message', async () => {
