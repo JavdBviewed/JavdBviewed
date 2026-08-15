@@ -9,6 +9,7 @@ import { VIDEO_STATUS } from '../../../utils/config';
 import { STATE, SELECTORS, getContentRecord, log } from '../../contentState';
 import { loadContentRecordSummaries } from '../../contentState/recordCache';
 import { ensureListTagContainer, renderLibraryStatusBadges } from '../../embyLibrary/content/statusBadges';
+import { renderDrive115LibraryStatusBadge } from '../../drive115/content/libraryStatusBadges';
 import { normalizeVideoCode } from '../../embyLibrary/domain/libraryIndex';
 import { buildRealtimeCheckConfig, embyLibraryRealtimeCheckQueue } from '../../embyLibrary/content/realtimeCheck';
 import { isPageProperlyLoaded } from '../../videoDetail';
@@ -290,11 +291,22 @@ function processItem(item: HTMLElement): string | null {
     renderListStatusQuickActions(item, videoId, STATE.settings);
     renderListFavoriteQuickAction(item, videoId, STATE.settings);
 
-    if ((STATE.settings as any)?.emby?.libraryStatus?.enabled === true) {
+    const aggregateLibraryMatchStatus = (STATE.settings as any)?.libraryMatchStatus
+        ?? (STATE.settings as any)?.listEnhancement?.libraryMatchStatus;
+    const aggregateEmbyEnabled = aggregateLibraryMatchStatus?.enabled === true
+        && aggregateLibraryMatchStatus.sources?.emby !== false;
+    const aggregateDrive115Enabled = aggregateLibraryMatchStatus?.enabled === true
+        && aggregateLibraryMatchStatus.sources?.drive115 !== false;
+
+    if ((STATE.settings as any)?.emby?.libraryStatus?.enabled === true || aggregateEmbyEnabled) {
         const tagContainer = ensureListTagContainer(item);
         if (tagContainer) {
             renderLibraryStatusBadges(tagContainer, videoId, 'list');
         }
+    }
+    if (aggregateDrive115Enabled || (STATE.settings as any)?.listEnhancement?.drive115LibraryStatus?.enabled === true) {
+        const tagContainer = ensureListTagContainer(item);
+        if (tagContainer) void renderDrive115LibraryStatusBadge(tagContainer, videoId, STATE.settings as Record<string, unknown>);
     }
 
     // 检查VR标签 - 改进检测逻辑，参考油猴脚本

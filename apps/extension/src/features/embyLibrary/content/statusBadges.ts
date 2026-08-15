@@ -20,6 +20,8 @@ import type { EmbyLibraryIndexEntry } from '../types';
 type BadgeContext = 'list' | 'detail';
 
 function isLibraryStatusEnabled(context: BadgeContext): boolean {
+  const aggregate = (STATE.settings as any)?.libraryMatchStatus || (STATE.settings as any)?.listEnhancement?.libraryMatchStatus;
+  if (aggregate?.enabled === true && aggregate?.sources?.emby !== false) return true;
   const config = (STATE.settings as any)?.emby?.libraryStatus;
   if (config?.enabled !== true) return false;
   if (context === 'list') return config.showOnList !== false;

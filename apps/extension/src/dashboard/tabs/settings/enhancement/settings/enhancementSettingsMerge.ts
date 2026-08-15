@@ -20,6 +20,7 @@ type EnhancementSaveHost = {
   listContainerWidth?: HTMLInputElement;
   enableContainerExpansion?: HTMLInputElement;
   showStatusBadge?: HTMLInputElement;
+  enableLibraryMatchStatus?: HTMLInputElement;
   enableStatusQuickAction?: HTMLInputElement;
   enableListFavoriteQuickAction?: HTMLInputElement;
   enablePopularityEffects?: HTMLInputElement;
@@ -62,11 +63,13 @@ export function mergeEnhancementSettingsForSave(
   host: EnhancementSaveHost
 ): ExtensionSettings {
   const existingListEnhancement = current.listEnhancement || {};
+  const { libraryMatchStatus: legacyLibraryMatchStatus, ...listEnhancementWithoutLibraryMatchStatus } = existingListEnhancement as any;
   const existingListDisplayControl = (existingListEnhancement as any).listDisplayControl || {};
   const existingPopularityEffects = (existingListEnhancement as any).popularityEffects || {};
   const existingListSorting = (existingListEnhancement as any).sorting || {};
   const existingVideoEnhancement = (current as any).videoEnhancement || {};
   const existingUserExperience = (current as any).userExperience || {};
+  const existingLibraryMatchStatus = (current as any).libraryMatchStatus ?? legacyLibraryMatchStatus ?? {};
   const onlineAvailabilitySites = collectOnlineAvailabilitySiteStates(host.onlineAvailabilitySiteInputs);
 
   return {
@@ -88,8 +91,12 @@ export function mergeEnhancementSettingsForSave(
       onlineAvailabilitySites: onlineAvailabilitySites ?? existingVideoEnhancement.onlineAvailabilitySites ?? {},
       enableSubtitleSearch: host.veEnableSubtitleSearch?.checked ?? existingVideoEnhancement.enableSubtitleSearch ?? true,
     },
+    libraryMatchStatus: {
+      enabled: host.enableLibraryMatchStatus?.checked ?? existingLibraryMatchStatus.enabled ?? false,
+      sources: { drive115: true, emby: true, ...(existingLibraryMatchStatus.sources || {}) },
+    },
     listEnhancement: {
-      ...existingListEnhancement,
+      ...listEnhancementWithoutLibraryMatchStatus,
       enabled: host.enableListEnhancement?.checked ?? existingListEnhancement.enabled,
       enableClickEnhancement: host.enableClickEnhancement?.checked ?? existingListEnhancement.enableClickEnhancement,
       enableClickEnhancementList: host.enableClickEnhancementList?.checked ?? (existingListEnhancement as any).enableClickEnhancementList,

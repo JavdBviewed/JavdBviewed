@@ -28,4 +28,26 @@ describe('legacy enhancement scheduling mode', () => {
 
     expect((next.videoEnhancement as any).schedulingMode).toBe('immediate');
   });
+
+  it('writes local library matching as a top-level setting', () => {
+    const next = mergeEnhancementSettingsForSave({
+      listEnhancement: { libraryMatchStatus: { enabled: false } },
+    } as any, {
+      enableLibraryMatchStatus: { checked: true },
+    });
+
+    expect((next as any).libraryMatchStatus).toEqual({
+      enabled: true,
+      sources: { drive115: true, emby: true },
+    });
+    expect((next.listEnhancement as any).libraryMatchStatus).toBeUndefined();
+  });
+
+  it('places local library matching under other enhancements', () => {
+    const cardStart = pageSource.indexOf('本地媒体库匹配');
+    const openingGroup = pageSource.lastIndexOf('<div class="form-group"', cardStart);
+
+    expect(openingGroup).toBeGreaterThan(-1);
+    expect(pageSource.slice(openingGroup, cardStart)).toContain('data-subtab="other"');
+  });
 });

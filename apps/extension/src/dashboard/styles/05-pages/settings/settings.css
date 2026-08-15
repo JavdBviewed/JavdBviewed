@@ -2610,6 +2610,48 @@ input:checked + .toggle-slider:before {
     --enhancement-shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 
+#enhancement-settings .enhancement-feature-icon {
+    display: inline-block;
+    margin-right: 6px;
+}
+
+#enhancement-settings .enhancement-risk-notice {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-top: 10px;
+    padding: 9px 10px;
+    border: 1px solid color-mix(in srgb, var(--enhancement-warning) 55%, transparent);
+    border-left: 3px solid var(--enhancement-warning);
+    background: color-mix(in srgb, var(--enhancement-warning) 12%, transparent);
+    color: var(--text-primary, #3d3420);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+#enhancement-settings .enhancement-risk-notice strong {
+    flex: 0 0 auto;
+    color: #8a6200;
+}
+
+#enhancement-settings .enhancement-usage-help {
+    margin-top: 10px;
+    color: var(--text-secondary, #596579);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+#enhancement-settings .enhancement-usage-help summary {
+    cursor: pointer;
+    color: var(--enhancement-primary);
+    font-weight: 600;
+}
+
+#enhancement-settings .enhancement-usage-help ol {
+    margin: 7px 0 0;
+    padding-left: 20px;
+}
+
 /* 功能增强页面的设置区块重新设计 */
 #enhancement-settings .settings-section {
     margin-bottom: 30px;

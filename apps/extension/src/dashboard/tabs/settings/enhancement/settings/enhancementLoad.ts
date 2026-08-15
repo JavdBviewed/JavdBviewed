@@ -56,6 +56,10 @@ export async function doLoadSettings(host: EnhancementLoadHost): Promise<void> {
   if (host.enableScrollPaging) host.enableScrollPaging.checked = listEnhancement.enableScrollPaging || false;
   if (host.enableActorWatermark) host.enableActorWatermark.checked = (listEnhancement as any).enableActorWatermark === true;
   if (host.showStatusBadge) host.showStatusBadge.checked = (listEnhancement as any).showStatusBadge !== false;
+  if (host.enableLibraryMatchStatus) {
+    const libraryMatchStatus = (settings as any)?.libraryMatchStatus ?? (listEnhancement as any).libraryMatchStatus;
+    host.enableLibraryMatchStatus.checked = libraryMatchStatus?.enabled === true;
+  }
   if (host.enableStatusQuickAction) host.enableStatusQuickAction.checked = (listEnhancement as any).enableStatusQuickAction === true;
   if (host.enableListFavoriteQuickAction) host.enableListFavoriteQuickAction.checked = (listEnhancement as any).enableListFavoriteQuickAction === true;
   if (host.enablePopularityEffects) host.enablePopularityEffects.checked = (listEnhancement as any).popularityEffects?.enabled === true;

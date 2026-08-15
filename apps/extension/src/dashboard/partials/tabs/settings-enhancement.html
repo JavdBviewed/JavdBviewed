@@ -53,6 +53,7 @@
                                     <input type="checkbox" id="enableListDisplayControl">
                                     <input type="checkbox" id="enableContainerExpansion">
                                     <input type="checkbox" id="showStatusBadge">
+                                    <input type="checkbox" id="enableLibraryMatchStatus">
                                     <input type="checkbox" id="enableStatusQuickAction">
                                     <input type="checkbox" id="enableListFavoriteQuickAction">
                                     <input type="checkbox" id="enableListSorting">
@@ -792,6 +793,34 @@
                                         </p>
                                     </div>
                                     <!-- 状态标签显示 结束 -->
+
+                                    <div class="form-group" data-subtab="other">
+                                        <label class="checkbox-label">
+                                            <div class="enhancement-feature-info">
+                                                <div class="enhancement-feature-title">
+                                                    <h6 class="enhancement-feature-name"><span class="enhancement-feature-icon" aria-hidden="true">🗂️</span>本地媒体库匹配</h6>
+                                                    <span class="enhancement-feature-status available">可选</span>
+                                                </div>
+                                            </div>
+                                            <div class="enhancement-toggle-wrapper">
+                                                <button class="enhancement-toggle" data-target="enableLibraryMatchStatus"></button>
+                                            </div>
+                                        </label>
+                                        <p class="input-description">统一显示 115、Emby/Jellyfin 等本地媒体库来源的精确匹配结果，标签保留来源名称。</p>
+                                        <div class="enhancement-risk-notice" role="note">
+                                            <strong>调用限制提示</strong>
+                                            <span>115 接口和目录结构可能导致匹配不完整。当前只读取本地索引；如日后启用实时查询，连续浏览可能触发 115 调用限流。</span>
+                                        </div>
+                                        <details class="enhancement-usage-help">
+                                            <summary>使用帮助</summary>
+                                            <ol>
+                                                <li>先在 115 设置中配置媒体库根目录并完成一次索引。</li>
+                                                <li>列表卡片只在本地索引精确匹配番号时显示“115 已有”。</li>
+                                                <li>目录名或模糊文件名不作为存在依据；未命中不会显示“不存在”。</li>
+                                                <li>当前版本不在列表页实时搜索 115，避免连续浏览触发调用限流。</li>
+                                            </ol>
+                                        </details>
+                                    </div>
 
                                     <!-- 🆕 列表页状态快捷标识 -->
                                     <div class="form-group" data-subtab="list">

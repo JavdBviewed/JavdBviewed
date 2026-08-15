@@ -76,6 +76,7 @@ export function initializeElements(host: EnhancementInitHost): void {
     ['listContainerWidthValue', 'listContainerWidthValue'],
     ['enableContainerExpansion', 'enableContainerExpansion'],
     ['showStatusBadge', 'showStatusBadge'],
+    ['enableLibraryMatchStatus', 'enableLibraryMatchStatus'],
     ['enableStatusQuickAction', 'enableStatusQuickAction'],
     ['enableListFavoriteQuickAction', 'enableListFavoriteQuickAction'],
     ['enablePopularityEffects', 'enablePopularityEffects'],

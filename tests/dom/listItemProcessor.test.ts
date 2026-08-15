@@ -126,6 +126,10 @@ describe('list item processor', () => {
     const list = document.querySelector('.movie-list')!;
     const item = renderListItem('ABC-004');
     list.appendChild(item);
+    (STATE.settings as any).libraryMatchStatus = {
+      enabled: true,
+      sources: { drive115: true, emby: true },
+    };
     (STATE.settings as any).emby = {
       mediaServers: [
         {
@@ -146,7 +150,7 @@ describe('list item processor', () => {
         },
       ],
       libraryStatus: {
-        enabled: true,
+        enabled: false,
         showOnList: true,
       },
     };

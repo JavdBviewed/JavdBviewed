@@ -138,6 +138,7 @@ export class EnhancementSettings extends BaseSettingsPanel {
     private enableContainerExpansion!: HTMLInputElement;
     // 🆕 状态标签显示
     private showStatusBadge!: HTMLInputElement;
+    private enableLibraryMatchStatus!: HTMLInputElement;
     private enableStatusQuickAction!: HTMLInputElement;
     private enableListFavoriteQuickAction!: HTMLInputElement;
     private enablePopularityEffects!: HTMLInputElement;
@@ -933,6 +934,7 @@ export class EnhancementSettings extends BaseSettingsPanel {
                     showPreviewButton: this.showPreviewButton?.checked !== false,
                     buttonPosition: (this.anchorButtonPosition?.value as 'right-center' | 'right-bottom') || 'right-center',
                 },
+                libraryMatchStatus: mergedEnhancementSettings.libraryMatchStatus,
                 listEnhancement: mergedEnhancementSettings.listEnhancement,
                 actorEnhancement: {
                     // 演员页增强运行总开关与主开关保持一致

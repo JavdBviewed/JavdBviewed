@@ -69,6 +69,10 @@ export function doGetSettings(host: EnhancementSettingsSyncHost): Partial<Extens
       onlineAvailabilitySites: collectOnlineAvailabilitySiteStates(host.onlineAvailabilitySiteInputs) ?? {},
       enableSubtitleSearch: host.veEnableSubtitleSearch?.checked !== false,
     } as any,
+    libraryMatchStatus: {
+      enabled: host.enableLibraryMatchStatus?.checked === true,
+      sources: { drive115: true, emby: true },
+    } as any,
     listEnhancement: collectListEnhancementSettings(host) as any,
     contentFilter: {
       keywordRules: host.currentFilterRules,
@@ -129,6 +133,11 @@ export function doSetSettings(host: EnhancementSettingsSyncHost, settings: Parti
         if (host.listContainerWidth && typeof ldc.containerWidth === 'number') host.listContainerWidth.value = String(ldc.containerWidth);
         if (host.enableContainerExpansion && typeof ldc.enableContainerExpansion === 'boolean') host.enableContainerExpansion.checked = ldc.enableContainerExpansion;
       }
+    }
+
+    const libraryMatchStatus = (settings as any).libraryMatchStatus ?? (settings.listEnhancement as any)?.libraryMatchStatus;
+    if (host.enableLibraryMatchStatus && typeof libraryMatchStatus?.enabled === 'boolean') {
+      host.enableLibraryMatchStatus.checked = libraryMatchStatus.enabled;
     }
 
     if (settings.actorEnhancement) {
