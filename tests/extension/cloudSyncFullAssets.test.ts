@@ -73,7 +73,7 @@ describe('Cloud 全量资产同步', () => {
     vi.resetModules();
   });
 
-  it('采集所有可恢复持久资产，只将告警和错误日志纳入 Cloud 快照', async () => {
+  it('采集所有可恢复持久资产，但不将诊断和磁力推送日志纳入 Cloud 快照', async () => {
     idbMock.stores = {
       viewedRecords: [{ id: 'ABC-001', title: 'A', status: 'viewed', updatedAt: 100 }],
       actors: [{ id: 'actor-1', name: 'Actor', updatedAt: 110 }],
@@ -162,9 +162,6 @@ describe('Cloud 全量资产同步', () => {
         'insights_view/2026-07-18',
         'insights_report/2026-07',
         'new_work_daily_stat/2026-07-18',
-        'log/3',
-        'log/4',
-        'magnet_push_log/2',
         `storage_item/${STORAGE_KEYS.SETTINGS}`,
         `storage_item/${STORAGE_KEYS.LOGS}`,
         'storage_item/drive115_logs',
@@ -183,6 +180,9 @@ describe('Cloud 全量资产同步', () => {
     expect(keys.has('storage_item/cloud_sync_session_v1')).toBe(false);
     expect(keys.has('log/1')).toBe(false);
     expect(keys.has('log/2')).toBe(false);
+    expect(keys.has('log/3')).toBe(false);
+    expect(keys.has('log/4')).toBe(false);
+    expect(keys.has('magnet_push_log/2')).toBe(false);
     expect(keys.has('storage_item/cloud_sync_pending_v1')).toBe(false);
     expect(keys.has('storage_item/cloud_sync_cursors_v1')).toBe(false);
     expect(keys.has(`storage_item/${STORAGE_KEYS.IDB_MIGRATED}`)).toBe(false);

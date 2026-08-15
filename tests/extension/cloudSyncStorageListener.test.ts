@@ -208,7 +208,7 @@ describe('Cloud 同步 storage 监听', () => {
     ).toBe(true);
   });
 
-  it('IDB 普通日志保留本地，但只有告警和错误会增量入队', async () => {
+  it('IDB 运行日志保留本地，任何级别都不会增量入队', async () => {
     vi.resetModules();
     const add = vi.fn().mockResolvedValue(7);
     const txStore = { add: vi.fn().mockResolvedValue(undefined), index: vi.fn() };
@@ -253,14 +253,10 @@ describe('Cloud 同步 storage 监听', () => {
     ]);
     await flushStorageListener();
 
-    const logEntities = readPending().filter((item) => item.type === 'log');
-    expect(logEntities.map((item) => item.payload?.message)).toEqual([
-      'bulk warning log',
-      'bulk error log',
-    ]);
+    expect(readPending().filter((item) => item.type === 'log')).toEqual([]);
   });
 
-  it('IDB magnetPushLogs 写入会增量入队为 magnet_push_log 实体', async () => {
+  it('IDB magnetPushLogs 写入保留本地，但不会增量入队', async () => {
     vi.resetModules();
     const add = vi.fn().mockResolvedValue(8);
     const txStore = { add: vi.fn().mockResolvedValue(undefined), index: vi.fn() };
@@ -297,18 +293,6 @@ describe('Cloud 同步 storage 监听', () => {
     ]);
     await flushStorageListener();
 
-    expect(readPending()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: '8',
-          type: 'magnet_push_log',
-          payload: expect.objectContaining({ message: 'single push', videoId: 'AAA-001' }),
-        }),
-        expect.objectContaining({
-          type: 'magnet_push_log',
-          payload: expect.objectContaining({ message: 'bulk push', videoId: 'BBB-002' }),
-        }),
-      ]),
-    );
+    expect(readPending().filter((item) => item.type === 'magnet_push_log')).toEqual([]);
   });
 });
