@@ -60,8 +60,24 @@ import { getEffectiveEmbyMatchUrls, matchesEmbyUrlPattern } from '../../features
 import { shouldInstallStandaloneListObserver } from './listObserverPolicy';
 import { loadCurrentPageRecordState } from '../../features/contentState/recordCache';
 import { extractVideoIdFromPage } from '../../platform/browser';
+import {
+    ContentScreenshotBlurController,
+    getContentPageKind,
+    resolveContentScreenshotSettings,
+} from '../../features/privacy/content/contentScreenshotBlur';
 
 const disposeContentConsoleSettingsBridge = installContentConsoleSettingsBridge();
+const contentScreenshotBlurController = new ContentScreenshotBlurController();
+const disposeContentScreenshotStorageListener = (() => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return () => {};
+    const onStorageChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
+        if (area !== 'local' || !changes[STORAGE_KEYS.SETTINGS]) return;
+        const nextSettings = changes[STORAGE_KEYS.SETTINGS].newValue as any;
+        contentScreenshotBlurController.update(resolveContentScreenshotSettings(nextSettings));
+    };
+    chrome.storage.onChanged.addListener(onStorageChanged);
+    return () => chrome.storage.onChanged.removeListener(onStorageChanged);
+})();
 installContentPerformanceDiagnostics();
 installContentTelemetryErrorReporter();
 installOrchestratorStateBridge();
@@ -69,7 +85,11 @@ installContentMessageRouter();
 void installPreviewVolumeControl();
 exposePreviewVolumeDebug();
 exposeContentDebugManagers();
-installContentLifecycleHandlers([disposeContentConsoleSettingsBridge]);
+installContentLifecycleHandlers([
+    disposeContentConsoleSettingsBridge,
+    disposeContentScreenshotStorageListener,
+    () => contentScreenshotBlurController.destroy(),
+]);
 
 function getActorRemarksTaskTimeoutMs(settings: any): number {
     const seconds = Number(settings?.videoEnhancement?.actorRemarksTaskTimeoutSeconds);
@@ -243,6 +263,16 @@ async function initialize(): Promise<void> {
 
     const settings = await settingsPromise;
     STATE.settings = settings;
+
+    if (getContentPageKind(window.location)) {
+        initOrchestrator.add('critical', () => {
+            contentScreenshotBlurController.initialize(resolveContentScreenshotSettings(settings));
+        }, {
+            label: 'privacy:content-screenshot',
+            priority: 6,
+            visibilityPolicy: 'background_allowed',
+        });
+    }
 
     const path = window.location.pathname;
     const isVideoPage = path.startsWith('/v/');

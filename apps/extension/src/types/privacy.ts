@@ -15,6 +15,7 @@ export interface PrivacyConfig {
 // 截图模式配置
 export interface ScreenshotModeConfig {
   enabled: boolean;                    // 是否启用截图模式
+  contentPages: ContentPagesScreenshotConfig; // 普通 JavDB/JavBus 内容页范围
   autoBlurTrigger: BlurTrigger;       // 自动模糊触发条件
   blurIntensity: number;              // 模糊强度 (1-10)
   protectedElements: string[];        // 需要保护的元素选择器
@@ -22,6 +23,14 @@ export interface ScreenshotModeConfig {
   showEyeIcon: boolean;               // 是否显示眼睛图标
   eyeIconPosition: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left';
   temporaryViewDuration: number;      // 临时查看持续时间(秒)
+}
+
+export interface ContentPagesScreenshotConfig {
+  enabled: boolean;
+  sites: {
+    javdb: boolean;
+    javbus: boolean;
+  };
 }
 
 // 模糊区域类型

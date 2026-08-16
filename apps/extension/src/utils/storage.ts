@@ -224,6 +224,14 @@ export async function getSettings(): Promise<ExtensionSettings> {
       screenshotMode: {
         ...DEFAULT_SETTINGS.privacy.screenshotMode,
         ...(storedSettings.privacy?.screenshotMode || {}),
+        contentPages: {
+          ...DEFAULT_SETTINGS.privacy.screenshotMode.contentPages,
+          ...(storedSettings.privacy?.screenshotMode?.contentPages || {}),
+          sites: {
+            ...DEFAULT_SETTINGS.privacy.screenshotMode.contentPages.sites,
+            ...(storedSettings.privacy?.screenshotMode?.contentPages?.sites || {}),
+          },
+        },
       },
       privateMode: {
         ...DEFAULT_SETTINGS.privacy.privateMode,

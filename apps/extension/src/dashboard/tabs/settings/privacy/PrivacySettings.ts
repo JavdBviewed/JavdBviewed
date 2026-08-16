@@ -20,6 +20,7 @@ export class PrivacySettings extends BaseSettingsPanel {
     private blurIntensityValue!: HTMLSpanElement;
     private autoBlurTrigger!: HTMLSelectElement;
     private blurAreaCheckboxes!: NodeListOf<HTMLInputElement>;
+    private contentPagesScreenshotEnabled!: HTMLInputElement;
 
     // 私密模式元素
     private privateModeEnabled!: HTMLInputElement;
@@ -54,6 +55,7 @@ export class PrivacySettings extends BaseSettingsPanel {
         this.blurIntensityValue = document.getElementById('blurIntensityValue') as HTMLSpanElement;
         this.autoBlurTrigger = document.getElementById('autoBlurTrigger') as HTMLSelectElement;
         this.blurAreaCheckboxes = document.querySelectorAll('[data-area]') as NodeListOf<HTMLInputElement>;
+        this.contentPagesScreenshotEnabled = document.getElementById('contentPagesScreenshotEnabled') as HTMLInputElement;
 
         // 私密模式元素
         this.privateModeEnabled = document.getElementById('privateModeEnabled') as HTMLInputElement;
@@ -84,6 +86,7 @@ export class PrivacySettings extends BaseSettingsPanel {
         this.screenshotEnabled?.addEventListener('change', this.handleScreenshotModeToggle.bind(this), { signal });
         this.blurIntensity?.addEventListener('input', this.handleBlurIntensityChange.bind(this), { signal });
         this.autoBlurTrigger?.addEventListener('change', this.handleAutoBlurTriggerChange.bind(this), { signal });
+        this.contentPagesScreenshotEnabled?.addEventListener('change', this.handleContentPagesScreenshotToggle.bind(this), { signal });
         
         // 模糊区域选择事件
         this.blurAreaCheckboxes?.forEach(checkbox => {
@@ -127,6 +130,9 @@ export class PrivacySettings extends BaseSettingsPanel {
                 if (this.blurIntensityValue) this.blurIntensityValue.textContent = privacyConfig.screenshotMode.blurIntensity.toString();
             }
             if (this.autoBlurTrigger) this.autoBlurTrigger.value = privacyConfig.screenshotMode.autoBlurTrigger;
+            if (this.contentPagesScreenshotEnabled) {
+                this.contentPagesScreenshotEnabled.checked = privacyConfig.screenshotMode.contentPages?.enabled === true;
+            }
             
             // 加载模糊区域选择
             const enabledAreas = privacyConfig.screenshotMode.blurAreas || [];
@@ -287,6 +293,32 @@ export class PrivacySettings extends BaseSettingsPanel {
         } catch (error) {
             console.error('[Settings] Failed to update auto blur trigger:', error);
             showMessage('更新自动模糊触发条件失败', 'error');
+        }
+    }
+
+    /**
+     * 处理普通内容页截图模糊范围开关。
+     * 该范围独立保存，不调用完整隐私管理器，避免在 content 中触发锁屏。
+     */
+    private async handleContentPagesScreenshotToggle(event: Event): Promise<void> {
+        const checkbox = event.target as HTMLInputElement;
+        try {
+            const settings = await getSettings();
+            settings.privacy.screenshotMode.contentPages = {
+                ...settings.privacy.screenshotMode.contentPages,
+                enabled: checkbox.checked,
+                sites: {
+                    javdb: settings.privacy.screenshotMode.contentPages?.sites?.javdb !== false,
+                    javbus: settings.privacy.screenshotMode.contentPages?.sites?.javbus !== false,
+                },
+            };
+            await saveSettings(settings);
+            showMessage(checkbox.checked ? '普通内容页截图模糊已启用' : '普通内容页截图模糊已禁用', 'success');
+            this.emit('change');
+        } catch (error) {
+            console.error('[Settings] Failed to toggle content-page screenshot blur:', error);
+            checkbox.checked = !checkbox.checked;
+            showMessage('切换普通内容页截图模糊失败', 'error');
         }
     }
 

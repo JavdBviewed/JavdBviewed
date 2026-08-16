@@ -135,6 +135,10 @@ export const DEFAULT_NEW_WORKS_CONFIG: NewWorksGlobalConfig = {
 export const DEFAULT_PRIVACY_CONFIG: PrivacyConfig = {
     screenshotMode: {
         enabled: false,
+        contentPages: {
+            enabled: false,
+            sites: { javdb: true, javbus: true },
+        },
         autoBlurTrigger: 'manual',
         blurIntensity: 5,
         blurAreas: ['account-menu', 'navigation', 'video-library', 'actor-library', 'playlist-page', 'lists-page', 'home-page'], // 默认启用所有区域
