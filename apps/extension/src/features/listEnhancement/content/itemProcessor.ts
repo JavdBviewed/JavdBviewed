@@ -15,6 +15,7 @@ import { buildRealtimeCheckConfig, embyLibraryRealtimeCheckQueue } from '../../e
 import { isPageProperlyLoaded } from '../../videoDetail';
 import { countContentPerformanceEvent } from '../../../platform/tasks';
 import { renderListFavoriteQuickAction } from './favoriteQuickAction';
+import { renderResourceTagsForItems } from './resourceTags';
 import { renderListStatusQuickActions } from './statusQuickActions';
 import {
     selectListItemsByCodes,
@@ -100,6 +101,15 @@ export function processListItems(items: readonly HTMLElement[], options: ListPro
         visibleCodes,
         buildRealtimeCheckConfig(STATE.settings),
     );
+
+    const resourceTagsEnabled = (STATE.settings as any)?.listEnhancement?.resourceTags === true;
+    void renderResourceTagsForItems(
+        itemsToProcess.map((item) => ({
+            item,
+            videoId: item.querySelector<HTMLElement>(SELECTORS.VIDEO_ID)?.textContent?.trim() || '',
+        })).filter(({ videoId }) => Boolean(videoId)),
+        resourceTagsEnabled,
+    ).catch((error) => log('Failed to render list resource tags:', error));
 }
 
 export function setupObserver(): void {

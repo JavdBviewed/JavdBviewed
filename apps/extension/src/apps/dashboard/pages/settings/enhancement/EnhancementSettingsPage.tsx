@@ -568,6 +568,16 @@ function ListTab({
           onChange={(v) => setToggle('enableListFavoriteQuickAction', v)}
         />
       </SettingSection>
+
+      <SettingSection title="资源标签">
+        <SettingToggleRow
+          id="enableResourceTags"
+          label="卡片资源标签"
+          description="显示中字和已验证的破解标识；不会为列表卡片新增详情、115 或外部搜索请求"
+          checked={form.enableResourceTags}
+          onChange={(v) => setToggle('enableResourceTags', v)}
+        />
+      </SettingSection>
     </div>
   );
 }

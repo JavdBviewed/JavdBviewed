@@ -49,6 +49,7 @@ export type EnhancementSettingsFormState = {
   showStatusBadge: boolean;
   enableStatusQuickAction: boolean;
   enableListFavoriteQuickAction: boolean;
+  enableResourceTags: boolean;
   enableListSorting: boolean;
   listSortingAppendStrategy: ListSortingAppendStrategy;
   listSortingAutoResortPosition: ListSortingPosition;
@@ -252,6 +253,7 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   showStatusBadge: true,
   enableStatusQuickAction: false,
   enableListFavoriteQuickAction: false,
+  enableResourceTags: false,
   enableListSorting: false,
   listSortingAppendStrategy: 'prompt',
   listSortingAutoResortPosition: 'preserve',
@@ -484,6 +486,7 @@ export function mapSettingsToEnhancementForm(
     showStatusBadge: le.showStatusBadge !== false,
     enableStatusQuickAction: le.enableStatusQuickAction === true,
     enableListFavoriteQuickAction: le.enableListFavoriteQuickAction === true,
+    enableResourceTags: le.resourceTags === true,
     enableListSorting: sorting.enabled === true,
     listSortingAppendStrategy: normalizeAppendStrategy(sorting.appendStrategy),
     listSortingAutoResortPosition: normalizeSortPosition(sorting.autoResortPosition),
@@ -758,6 +761,7 @@ export function applyEnhancementFormToSettings(
       showStatusBadge: form.showStatusBadge,
       enableStatusQuickAction: form.enableStatusQuickAction,
       enableListFavoriteQuickAction: form.enableListFavoriteQuickAction,
+      resourceTags: form.enableResourceTags,
       popularityEffects: {
         ...existingPop,
         enabled: form.enablePopularityEffects,

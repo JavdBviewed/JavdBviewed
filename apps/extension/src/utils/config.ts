@@ -586,6 +586,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
         showStatusBadge: true,
         enableStatusQuickAction: false,
         enableListFavoriteQuickAction: false,
+        resourceTags: false,
         sorting: {
             enabled: false,
             appendStrategy: 'prompt',

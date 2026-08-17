@@ -57,6 +57,7 @@ export interface ListEnhancementConfig {
   showStatusBadge?: boolean;
   enableStatusQuickAction?: boolean;
   enableListFavoriteQuickAction?: boolean;
+  resourceTags?: boolean;
   popularityEffects?: PopularityEffectsConfig;
   sorting?: ListSortingConfig;
 }
@@ -104,6 +105,7 @@ export function createDefaultListEnhancementConfig(): ListEnhancementConfig {
     showStatusBadge: true,
     enableStatusQuickAction: false,
     enableListFavoriteQuickAction: false,
+    resourceTags: false,
     popularityEffects: {
       enabled: false,
       minRating: 4,

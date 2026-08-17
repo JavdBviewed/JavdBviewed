@@ -69,6 +69,7 @@ import {
 } from './magnetSourceFilterControls';
 import { decorateNativeMagnetRow } from './nativeMagnetRows';
 import { createUnifiedMagnetItem } from './unifiedMagnetItem';
+import { writeResourceTagIndexFromMagnetResults } from '../../listEnhancement';
 
 // 磁链缓存 TTL（默认 7 天）
 const MAGNET_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -294,12 +295,14 @@ export class MagnetSearchManager {
       if (allSearchSources.length === 0) {
         log('No external sources configured, displaying JavDB results only');
         this.processAndDisplayAllMagnets(allMagnetResults);
+        this.writeResourceTagEvidence(videoId, allMagnetResults);
         return;
       }
 
       if (searchSources.length === 0) {
         log('All external sources are temporarily in backoff, displaying local results only');
         this.processAndDisplayAllMagnets(allMagnetResults, { discoveredCount });
+        this.writeResourceTagEvidence(videoId, allMagnetResults);
         return;
       }
 
@@ -343,12 +346,14 @@ export class MagnetSearchManager {
 
         // 异步写入缓存（带 TTL）
         this.upsertMagnetsToCache(videoId, allMagnetResults).catch(err => log('Upsert magnets cache failed:', err));
+        this.writeResourceTagEvidence(videoId, allMagnetResults);
       }).catch(error => {
         if (runId !== this.searchRunId) return;
         // 这个catch理论上不会被触发，因为我们已经在每个promise中处理了错误
         log('Unexpected error in Promise.all:', error);
         this.processAndDisplayAllMagnets(allMagnetResults, { discoveredCount });
         this.upsertMagnetsToCache(videoId, allMagnetResults).catch(err => log('Upsert magnets cache failed:', err));
+        this.writeResourceTagEvidence(videoId, allMagnetResults);
       });
     } catch (error) {
       log('Error searching magnets:', error);
@@ -1385,6 +1390,12 @@ export class MagnetSearchManager {
       } as any;
     });
     await dbMagnetsUpsert(recs);
+  }
+
+  /** 搜索完成后只回写可供列表使用的布尔资源证据。 */
+  private writeResourceTagEvidence(videoId: string, results: MagnetResult[]): void {
+    void writeResourceTagIndexFromMagnetResults(videoId, results)
+      .catch((error) => log('Write list resource tag index failed:', error));
   }
 
   /**
