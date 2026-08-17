@@ -61,6 +61,12 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
               console.debug('[mount] 设置子页：React 全页 update-settings');
               return;
             }
+            if (subSection === 'enhancement-settings') {
+              const { mountEnhancementSettingsPage } = await import('../../apps/dashboard/pages/settings/enhancement/mountEnhancementSettingsPage');
+              mountEnhancementSettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 enhancement-settings');
+              return;
+            }
           }
         } catch (e) {
           console.warn('[mount] React 全页设置挂载失败，回退 partial（若有）', e);
@@ -148,5 +154,4 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
     console.warn('[Dashboard] mountTabIfNeeded failed for', tabId, e);
   }
 }
-
 

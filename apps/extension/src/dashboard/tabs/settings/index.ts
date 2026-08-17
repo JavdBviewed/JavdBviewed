@@ -64,7 +64,7 @@ function ensureSettingsLifecycle(): void {
  * 完整 React 内容页 id（默认空：全部子页走壳 + partial + 遗留 init，保留原 CSS/弹窗）
  * 与 shared/reactFullPageIds 保持一致；代码侧 React 页仍保留供后续渐进接入。
  */
-const REACT_FULL_SETTINGS_PAGE_IDS = new Set<string>(['cloud-settings', 'drive115-settings', 'emby-settings']);
+const REACT_FULL_SETTINGS_PAGE_IDS = new Set<string>(['cloud-settings', 'drive115-settings', 'emby-settings', 'enhancement-settings']);
 function isReactFullSettingsPage(subSection: string | null | undefined): boolean {
     if (!subSection) return false;
     return REACT_FULL_SETTINGS_PAGE_IDS.has(subSection);
@@ -398,5 +398,4 @@ export async function initSettingsTab(): Promise<void> {
         throw error;
     }
 }
-
 

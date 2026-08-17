@@ -20,6 +20,8 @@ export const REACT_FULL_SETTINGS_PAGE_IDS = new Set<string>([
   'emby-settings',
   // 版本与关于页面包含系列产品入口，使用 React 内容页
   'update-settings',
+  // 功能增强设置已提供完整 React 页面，确保其他增强开关可见
+  'enhancement-settings',
 ]);
 
 /**

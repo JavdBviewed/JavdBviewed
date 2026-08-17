@@ -14,8 +14,23 @@ const sharedStyleSource = readFileSync(
   join(here, '..', 'shared', 'settingsHighlightNotice.css'),
   'utf8',
 );
+const reactFullPageIdsSource = readFileSync(join(here, '..', 'shared', 'reactFullPageIds.ts'), 'utf8');
+const settingsMountSource = readFileSync(
+  join(here, '..', '..', '..', '..', '..', 'dashboard', 'tabs', 'mount.ts'),
+  'utf8',
+);
+const legacySettingsSource = readFileSync(
+  join(here, '..', '..', '..', '..', '..', 'dashboard', 'tabs', 'settings', 'index.ts'),
+  'utf8',
+);
 
 describe('EnhancementSettingsPage layout', () => {
+  it('routes the enhancement settings page to the React implementation', () => {
+    expect(reactFullPageIdsSource).toContain("'enhancement-settings'");
+    expect(settingsMountSource).toContain('mountEnhancementSettingsPage');
+    expect(legacySettingsSource).toContain("'cloud-settings', 'drive115-settings', 'emby-settings', 'enhancement-settings'");
+  });
+
   it('uses the shared highlight notice style for the beta warning', () => {
     expect(pageSource).toContain('SettingsHighlightNotice');
     expect(pageSource).toContain('功能增强仍在测试中');
