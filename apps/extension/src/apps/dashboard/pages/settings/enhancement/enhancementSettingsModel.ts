@@ -122,6 +122,12 @@ export type EnhancementSettingsFormState = {
   enablePasswordHelper: boolean;
   passwordShowMethod: number;
   passwordWaitTime: number;
+  enableSiteAppearance: boolean;
+  siteAppearanceListCards: boolean;
+  siteAppearanceDetailAndRelated: boolean;
+  siteAppearanceMagnetList: boolean;
+  siteAppearancePreviewImages: boolean;
+  siteAppearanceAutoExpandReplaceTip: boolean;
 
   // 内部保留（无独立 UI 时保持兼容）
   enableListEnhancement: boolean;
@@ -323,6 +329,12 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   enablePasswordHelper: false,
   passwordShowMethod: 0,
   passwordWaitTime: 300,
+  enableSiteAppearance: false,
+  siteAppearanceListCards: true,
+  siteAppearanceDetailAndRelated: true,
+  siteAppearanceMagnetList: true,
+  siteAppearancePreviewImages: true,
+  siteAppearanceAutoExpandReplaceTip: false,
 
   enableListEnhancement: true,
   veEnableCoverImage: true,
@@ -445,6 +457,7 @@ export function mapSettingsToEnhancementForm(
   const ao = s.anchorOptimization || {};
   const ph = s.passwordHelper || {};
   const cf = s.contentFilter || {};
+  const siteAppearance = s.siteAppearance || {};
 
   return {
     enableContentFilter: !!(ux.enableContentFilter ?? cf.enabled),
@@ -609,6 +622,12 @@ export function mapSettingsToEnhancementForm(
       ph.waitTime,
       DEFAULT_ENHANCEMENT_SETTINGS_FORM.passwordWaitTime,
     ),
+    enableSiteAppearance: siteAppearance.enabled === true,
+    siteAppearanceListCards: siteAppearance.listCards !== false,
+    siteAppearanceDetailAndRelated: siteAppearance.detailAndRelated !== false,
+    siteAppearanceMagnetList: siteAppearance.magnetList !== false,
+    siteAppearancePreviewImages: siteAppearance.previewImages !== false,
+    siteAppearanceAutoExpandReplaceTip: siteAppearance.autoExpandReplaceTip === true,
 
     enableListEnhancement:
       ux.enableListEnhancement !== undefined
@@ -726,6 +745,14 @@ export function applyEnhancementFormToSettings(
       ...((current as any).passwordHelper || {}),
       showMethod: form.passwordShowMethod,
       waitTime: form.passwordWaitTime,
+    },
+    siteAppearance: {
+      enabled: form.enableSiteAppearance,
+      listCards: form.siteAppearanceListCards,
+      detailAndRelated: form.siteAppearanceDetailAndRelated,
+      magnetList: form.siteAppearanceMagnetList,
+      previewImages: form.siteAppearancePreviewImages,
+      autoExpandReplaceTip: form.siteAppearanceAutoExpandReplaceTip,
     },
     anchorOptimization: {
       ...((current as any).anchorOptimization || {}),

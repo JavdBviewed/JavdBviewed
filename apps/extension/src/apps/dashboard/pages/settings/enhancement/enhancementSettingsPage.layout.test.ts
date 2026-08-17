@@ -33,4 +33,14 @@ describe('EnhancementSettingsPage layout', () => {
     expect(pageSource).not.toContain('导出诊断包');
     expect(pageSource).not.toContain('增强任务调度方式');
   });
+
+  it('keeps the site appearance package in other enhancements with independent fallbacks', () => {
+    expect(pageSource).toContain('JavDB 页面外观包');
+    expect(pageSource).toContain('enableSiteAppearance');
+    expect(pageSource).toContain('siteAppearanceListCards');
+    expect(pageSource).toContain('siteAppearanceDetailAndRelated');
+    expect(pageSource).toContain('siteAppearanceMagnetList');
+    expect(pageSource).toContain('siteAppearancePreviewImages');
+    expect(pageSource).toContain('siteAppearanceAutoExpandReplaceTip');
+  });
 });

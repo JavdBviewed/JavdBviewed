@@ -60,6 +60,7 @@ import { getEffectiveEmbyMatchUrls, matchesEmbyUrlPattern } from '../../features
 import { shouldInstallStandaloneListObserver } from './listObserverPolicy';
 import { loadCurrentPageRecordState } from '../../features/contentState/recordCache';
 import { extractVideoIdFromPage } from '../../platform/browser';
+import { isJavdbAppearanceSupportedHost, siteAppearanceManager } from '../../features/siteAppearance';
 import {
     ContentScreenshotBlurController,
     getContentPageKind,
@@ -89,6 +90,7 @@ installContentLifecycleHandlers([
     disposeContentConsoleSettingsBridge,
     disposeContentScreenshotStorageListener,
     () => contentScreenshotBlurController.destroy(),
+    () => siteAppearanceManager?.destroy(),
 ]);
 
 function getActorRemarksTaskTimeoutMs(settings: any): number {
@@ -263,6 +265,9 @@ async function initialize(): Promise<void> {
 
     const settings = await settingsPromise;
     STATE.settings = settings;
+    if (isJavdbAppearanceSupportedHost(window.location.hostname)) {
+        siteAppearanceManager?.apply(settings.siteAppearance);
+    }
 
     if (getContentPageKind(window.location)) {
         initOrchestrator.add('critical', () => {

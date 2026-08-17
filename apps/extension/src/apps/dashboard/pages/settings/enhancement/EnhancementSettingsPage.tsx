@@ -1174,6 +1174,54 @@ function ActorTab({ form, setToggle, patchForm }: TabProps) {
 function OtherTab({ form, setToggle, patchForm }: TabProps) {
   return (
     <div className="flex flex-col gap-4">
+      <SettingSection
+        title="JavDB 页面外观包"
+        description="仅调整页面阅读层次，不改变列表列数、卡片尺寸或现有交互。"
+      >
+        <SettingToggleRow
+          id="enableSiteAppearance"
+          label="启用页面外观包"
+          description="默认关闭；启用后可按页面区域单独关闭样式。"
+          checked={form.enableSiteAppearance}
+          onChange={(v) => setToggle('enableSiteAppearance', v)}
+        />
+        {form.enableSiteAppearance ? (
+          <div id="siteAppearanceSections" className="grid gap-1 sm:grid-cols-2">
+            <SettingToggleRow
+              id="siteAppearanceListCards"
+              label="列表卡片"
+              checked={form.siteAppearanceListCards}
+              onChange={(v) => setToggle('siteAppearanceListCards', v)}
+            />
+            <SettingToggleRow
+              id="siteAppearanceDetailAndRelated"
+              label="详情与相关作品"
+              checked={form.siteAppearanceDetailAndRelated}
+              onChange={(v) => setToggle('siteAppearanceDetailAndRelated', v)}
+            />
+            <SettingToggleRow
+              id="siteAppearanceMagnetList"
+              label="磁力列表"
+              checked={form.siteAppearanceMagnetList}
+              onChange={(v) => setToggle('siteAppearanceMagnetList', v)}
+            />
+            <SettingToggleRow
+              id="siteAppearancePreviewImages"
+              label="预览图"
+              checked={form.siteAppearancePreviewImages}
+              onChange={(v) => setToggle('siteAppearancePreviewImages', v)}
+            />
+          </div>
+        ) : null}
+        <SettingToggleRow
+          id="siteAppearanceAutoExpandReplaceTip"
+          label="自动展开替换提示"
+          description="独立生效；仅处理页面新增的替换提示，不改写正文。"
+          checked={form.siteAppearanceAutoExpandReplaceTip}
+          onChange={(v) => setToggle('siteAppearanceAutoExpandReplaceTip', v)}
+        />
+      </SettingSection>
+
       <SettingSection title="列表排序与人气">
         <SettingToggleRow
           id="enableListSorting"

@@ -237,6 +237,14 @@ export const STATUS_PRIORITY = {
 
 export const DEFAULT_SETTINGS: ExtensionSettings = {
     libraryMatchStatus: { enabled: false, sources: { drive115: true, emby: true } },
+    siteAppearance: {
+        enabled: false,
+        listCards: true,
+        detailAndRelated: true,
+        magnetList: true,
+        previewImages: true,
+        autoExpandReplaceTip: false,
+    },
     // 主题设置
     theme: 'light',
     autoUpdateCheck: true,

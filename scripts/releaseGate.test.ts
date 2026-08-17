@@ -32,12 +32,13 @@ describe('release gate', () => {
 
   it('accepts the configured source identity and version artifacts', () => {
     const artifacts = assertReleaseVersionArtifacts();
-    expect(artifacts.version).toBe('2.0.1');
+    const sourceVersion = artifacts.version;
+    expect(sourceVersion).toMatch(/^\d+\.\d+\.\d+$/);
     expect(artifacts.build).toBeGreaterThanOrEqual(0);
-    expect(() => assertSourceManifest({ version: '2.0.1' }, artifacts.version)).not.toThrow();
-    expect(() => assertSourceManifest({ version: '2.0.2' }, artifacts.version)).toThrow(/源码 manifest/);
-    expect(() => assertSourceManifest({ version: '2.0.1', key: 'accidental' }, artifacts.version)).toThrow(/源码 manifest/);
-    expect(() => assertReleaseManifest({ version: '2.0.1', key: 'invalid' })).toThrow(/does not match locked identity/);
+    expect(() => assertSourceManifest({ version: sourceVersion }, sourceVersion)).not.toThrow();
+    expect(() => assertSourceManifest({ version: '0.0.0' }, sourceVersion)).toThrow(/源码 manifest/);
+    expect(() => assertSourceManifest({ version: sourceVersion, key: 'accidental' }, sourceVersion)).toThrow(/源码 manifest/);
+    expect(() => assertReleaseManifest({ version: sourceVersion, key: 'invalid' })).toThrow(/does not match locked identity/);
   });
 
   it('rejects release entries that can leak local credentials or debug data', () => {

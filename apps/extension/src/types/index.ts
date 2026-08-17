@@ -206,6 +206,16 @@ export interface OldVideoRecord extends Partial<VideoRecord> {
 // 扩展设置相关类型
 // ============================================================
 
+/** JavDB 页面外观包设置。 */
+export interface SiteAppearanceSettings {
+  enabled: boolean;
+  listCards: boolean;
+  detailAndRelated: boolean;
+  magnetList: boolean;
+  previewImages: boolean;
+  autoExpandReplaceTip: boolean;
+}
+
 /** 扩展设置（占位类型，实际定义在各个模块中） */
 export interface ExtensionSettings {
   [key: string]: any;

@@ -51,6 +51,44 @@ describe('enhancementSettingsModel', () => {
     expect(form.translationProvider).toBe('traditional');
   });
 
+  it('defaults the optional site appearance package to disabled with all visual sections ready', () => {
+    const form = mapSettingsToEnhancementForm(undefined);
+
+    expect(form.enableSiteAppearance).toBe(false);
+    expect(form.siteAppearanceListCards).toBe(true);
+    expect(form.siteAppearanceDetailAndRelated).toBe(true);
+    expect(form.siteAppearanceMagnetList).toBe(true);
+    expect(form.siteAppearancePreviewImages).toBe(true);
+    expect(form.siteAppearanceAutoExpandReplaceTip).toBe(false);
+  });
+
+  it('round-trips site appearance sections independently from its master switch', () => {
+    const form = {
+      ...DEFAULT_ENHANCEMENT_SETTINGS_FORM,
+      enableSiteAppearance: false,
+      siteAppearanceListCards: false,
+      siteAppearanceDetailAndRelated: true,
+      siteAppearanceMagnetList: false,
+      siteAppearancePreviewImages: true,
+      siteAppearanceAutoExpandReplaceTip: true,
+    };
+
+    const next = applyEnhancementFormToSettings({} as any, form);
+    expect(next.siteAppearance).toEqual({
+      enabled: false,
+      listCards: false,
+      detailAndRelated: true,
+      magnetList: false,
+      previewImages: true,
+      autoExpandReplaceTip: true,
+    });
+    expect(mapSettingsToEnhancementForm(next)).toMatchObject({
+      enableSiteAppearance: false,
+      siteAppearanceListCards: false,
+      siteAppearanceAutoExpandReplaceTip: true,
+    });
+  });
+
   it('maps nested listEnhancement / videoEnhancement / magnetSearch', () => {
     const form = mapSettingsToEnhancementForm({
       userExperience: {

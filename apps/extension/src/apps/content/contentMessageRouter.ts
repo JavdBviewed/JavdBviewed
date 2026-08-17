@@ -18,6 +18,7 @@ import { embyEnhancementManager } from '../../features/embyEnhancement/content';
 import { renderDetailLibraryStatus } from '../../features/embyLibrary/content/statusBadges';
 import type { EmbyLibraryState } from '../../features/embyLibrary/types';
 import { destroySuperRankingNav, initializeSuperRankingNav, isSuperRankingSupportedHost } from '../../features/rankings';
+import { isJavdbAppearanceSupportedHost, siteAppearanceManager } from '../../features/siteAppearance';
 
 export function installContentMessageRouter(): void {
     try {
@@ -49,6 +50,11 @@ export function installContentMessageRouter(): void {
                     ? { ...loadedSettings, ...incomingSettings, emby: { ...loadedSettings.emby, ...(incomingSettings as any).emby } }
                     : loadedSettings;
                 STATE.settings = settings;
+                if (isJavdbAppearanceSupportedHost(window.location.hostname)) {
+                    siteAppearanceManager?.apply(settings.siteAppearance);
+                } else {
+                    siteAppearanceManager?.destroy();
+                }
                 try {
                     if (isSuperRankingSupportedHost() && (settings.userExperience as any)?.enableSuperRanking !== false) {
                         initializeSuperRankingNav();

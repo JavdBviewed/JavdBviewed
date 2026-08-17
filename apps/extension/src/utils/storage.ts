@@ -165,6 +165,10 @@ export async function getSettings(): Promise<ExtensionSettings> {
       ...DEFAULT_SETTINGS.dataEnhancement,
       ...(storedSettings.dataEnhancement || {}),
     },
+    siteAppearance: {
+      ...(DEFAULT_SETTINGS.siteAppearance || {}),
+      ...((storedSettings as any).siteAppearance || {}),
+    },
     translation: {
       ...DEFAULT_SETTINGS.translation,
       ...(storedSettings.translation || {}),
