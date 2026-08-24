@@ -33,6 +33,7 @@ describe('Modal primitive', () => {
     expect(html).toContain('role="dialog"');
     expect(html).toContain('确认操作');
     expect(html).toContain('说明文字');
+    expect(html).toContain('fa-times');
     expect(html).not.toContain('关闭遮罩');
     expect(html).not.toContain('color-overlay');
   });

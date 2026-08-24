@@ -9,6 +9,8 @@ import { cn } from '../../lib/cn';
 export type SettingSectionProps = HTMLAttributes<HTMLElement> & {
   /** 区块标题 */
   title: ReactNode;
+  /** 与旧版区块标题一致的 Font Awesome 图标或自定义节点 */
+  icon?: ReactNode;
   /** 可选说明 */
   description?: ReactNode;
   children: ReactNode;
@@ -24,6 +26,7 @@ export type SettingSectionProps = HTMLAttributes<HTMLElement> & {
  */
 export function SettingSection({
   title,
+  icon,
   description,
   children,
   contentClassName,
@@ -44,8 +47,13 @@ export function SettingSection({
       {...rest}
     >
       <header className="border-b border-[var(--color-border)] px-4 py-3">
-        <h3 className="m-0 text-sm font-bold tracking-tight text-[var(--color-fg)]">
-          {title}
+        <h3 className="m-0 flex items-center gap-2 text-sm font-bold tracking-tight text-[var(--color-fg)]">
+          {icon ? (
+            <span className="setting-section__icon inline-flex w-4 shrink-0 justify-center text-[var(--color-primary)]" aria-hidden="true">
+              {icon}
+            </span>
+          ) : null}
+          <span>{title}</span>
         </h3>
         {description ? (
           <p className="mt-1 mb-0 text-[12.5px] leading-relaxed text-[var(--color-fg-muted)]">

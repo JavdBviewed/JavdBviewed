@@ -36,6 +36,9 @@ export async function revealStoredSettingsSearchTarget(options: RevealSettingsSe
 
   revealEnhancementContext(element);
   const highlightTarget = findHighlightContainer(element);
+  await waitForEnhancementCardToRender(highlightTarget, waitMs);
+  highlightTarget.dataset.enhancementReveal = '1';
+  highlightTarget.dispatchEvent(new CustomEvent('jdb:enhancement:reveal-card', { bubbles: true }));
   scrollElementIntoView(highlightTarget);
   highlightTarget.classList.add(HIGHLIGHT_CLASS);
 
@@ -48,6 +51,7 @@ export async function revealStoredSettingsSearchTarget(options: RevealSettingsSe
 
 function findHighlightContainer(element: Element): HTMLElement {
   const structuredContainer = element.closest([
+    '[data-enhancement-feature]',
     '.search-engine-item',
     '.online-availability-site-item',
     '.magnet-concurrency-config .form-group-inline',
@@ -72,6 +76,14 @@ function revealEnhancementContext(element: Element): void {
 }
 
 function revealEnhancementSubtab(enhancementRoot: HTMLElement, element: Element): void {
+  const reactSubtab = element.closest<HTMLElement>('[data-enhancement-subtab]')?.dataset.enhancementSubtab;
+  if (reactSubtab) {
+    window.dispatchEvent(new CustomEvent('jdb:enhancement:activate-subtab', {
+      detail: { subtab: reactSubtab },
+    }));
+    return;
+  }
+
   const subtabGroup = element.closest('#enhancement-settings .form-group[data-subtab]') as HTMLElement | null;
   const subtab = subtabGroup?.getAttribute('data-subtab');
   if (!subtab) return;
@@ -89,6 +101,21 @@ function revealEnhancementSubtab(enhancementRoot: HTMLElement, element: Element)
   } catch {
     // Ignore storage failures in restricted contexts.
   }
+}
+
+function waitForEnhancementCardToRender(element: HTMLElement, waitMs: number): Promise<void> {
+  if (!element.matches('[data-enhancement-feature]')) return Promise.resolve();
+  const deadline = Date.now() + waitMs;
+  return new Promise(resolve => {
+    const check = () => {
+      if (element.getClientRects().length > 0 || Date.now() >= deadline) {
+        resolve();
+        return;
+      }
+      window.requestAnimationFrame(check);
+    };
+    check();
+  });
 }
 
 function revealAncestorSubSettings(enhancementRoot: HTMLElement, element: Element): void {

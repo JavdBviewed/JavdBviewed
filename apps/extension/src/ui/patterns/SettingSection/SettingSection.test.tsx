@@ -40,4 +40,20 @@ describe('SettingSection pattern', () => {
     );
     expect(html).toContain('sm:grid-cols-2');
   });
+
+  it('renders an optional section icon without changing the title contract', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SettingSection,
+        {
+          title: '基础配置',
+          icon: createElement('i', { className: 'fas fa-cog' }),
+        },
+        createElement('span', null, 'row'),
+      ),
+    );
+    expect(html).toContain('setting-section__icon');
+    expect(html).toContain('fas fa-cog');
+    expect(html).toContain('基础配置');
+  });
 });
