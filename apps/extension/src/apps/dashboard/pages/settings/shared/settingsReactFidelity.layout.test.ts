@@ -22,20 +22,25 @@ describe('React settings shared fidelity', () => {
   });
 
   it('keeps page-specific legacy title icon mappings in the shared shell', () => {
-    // Legacy CSS only defines a title marker for these pages; the remaining
-    // React pages reuse the shared shell marker set for a consistent cue.
+    // React full pages are mounted without the legacy <div class="settings-page"
+    // id="..."> wrapper, so the shared shell keys the per-page cues on the stable
+    // React mount marker (data-<page>-react) instead of the legacy element id.
     for (const marker of [
-      '#display-settings',
-      '#search-engine-settings',
-      '#ai-settings',
-      '#privacy-settings',
-      '#webdav-settings',
-      '#sync-settings',
-      '#advanced-settings',
-      '#network-test-settings',
-      '#update-settings',
-      '#emby-settings',
-      '#enhancement-settings',
+      '[data-display-settings-react=\'1\']',
+      '[data-search-engine-settings-react=\'1\']',
+      '[data-ai-settings-react=\'1\']',
+      '[data-privacy-settings-react=\'1\']',
+      '[data-webdav-settings-react=\'1\']',
+      '[data-sync-settings-react=\'1\']',
+      '[data-advanced-settings-react=\'1\']',
+      '[data-network-test-settings-react=\'1\']',
+      '[data-insights-settings-react=\'1\']',
+      '[data-log-settings-react=\'1\']',
+      '[data-global-actions-react=\'1\']',
+      '[data-update-settings-react=\'1\']',
+      '[data-cloud-settings-react=\'1\']',
+      '[data-emby-settings-react=\'1\']',
+      '[data-enhancement-settings-react=\'1\']',
     ]) {
       expect(styleSource).toContain(`:has(${marker}) [data-ui-pattern='page-header'] h2::before`);
     }

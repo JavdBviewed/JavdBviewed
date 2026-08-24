@@ -115,32 +115,33 @@
   }
 }
 
-/* The legacy settings pages use a small page-specific colour wash and an
- * emoji marker in the title. Keep those recognition cues when the content is
- * mounted inside the React shell. */
+/* Legacy pages expressed per-page cues (title emoji marker, colour wash) through
+ * id-scoped rules on <div class="settings-page" id="...">. React full pages are
+ * mounted without that wrapper, so the same cues are keyed on the stable React
+ * mount marker instead, keeping every page's recognition cue intact. */
 .ssp-page[data-settings-stack='react-full'] :is(
-  #display-settings,
-  #search-engine-settings,
-  #ai-settings,
-  #privacy-settings,
-  #webdav-settings,
-  #sync-settings,
-  #advanced-settings,
-  #network-test-settings
+  [data-display-settings-react='1'],
+  [data-search-engine-settings-react='1'],
+  [data-ai-settings-react='1'],
+  [data-privacy-settings-react='1'],
+  [data-webdav-settings-react='1'],
+  [data-sync-settings-react='1'],
+  [data-advanced-settings-react='1'],
+  [data-network-test-settings-react='1']
 ) {
   position: relative;
   isolation: isolate;
   overflow: hidden;
 }
 
-.ssp-page[data-settings-stack='react-full'] #display-settings::before,
-.ssp-page[data-settings-stack='react-full'] #search-engine-settings::before,
-.ssp-page[data-settings-stack='react-full'] #ai-settings::before,
-.ssp-page[data-settings-stack='react-full'] #privacy-settings::before,
-.ssp-page[data-settings-stack='react-full'] #webdav-settings::before,
-.ssp-page[data-settings-stack='react-full'] #sync-settings::before,
-.ssp-page[data-settings-stack='react-full'] #advanced-settings::before,
-.ssp-page[data-settings-stack='react-full'] #network-test-settings::before {
+.ssp-page[data-settings-stack='react-full'] [data-display-settings-react='1']::before,
+.ssp-page[data-settings-stack='react-full'] [data-search-engine-settings-react='1']::before,
+.ssp-page[data-settings-stack='react-full'] [data-ai-settings-react='1']::before,
+.ssp-page[data-settings-stack='react-full'] [data-privacy-settings-react='1']::before,
+.ssp-page[data-settings-stack='react-full'] [data-webdav-settings-react='1']::before,
+.ssp-page[data-settings-stack='react-full'] [data-sync-settings-react='1']::before,
+.ssp-page[data-settings-stack='react-full'] [data-advanced-settings-react='1']::before,
+.ssp-page[data-settings-stack='react-full'] [data-network-test-settings-react='1']::before {
   position: absolute;
   z-index: -1;
   top: 0;
@@ -151,140 +152,140 @@
   content: '';
 }
 
-.ssp-page[data-settings-stack='react-full'] #display-settings::before {
+.ssp-page[data-settings-stack='react-full'] [data-display-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), rgba(167, 139, 250, 0.05) 50%, rgba(196, 181, 253, 0.05));
 }
 
-.ssp-page[data-settings-stack='react-full'] #search-engine-settings::before {
+.ssp-page[data-settings-stack='react-full'] [data-search-engine-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.05), rgba(251, 191, 36, 0.05) 50%, rgba(254, 215, 170, 0.05));
 }
 
-.ssp-page[data-settings-stack='react-full'] #ai-settings::before {
+.ssp-page[data-settings-stack='react-full'] [data-ai-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), rgba(167, 139, 250, 0.05) 50%, rgba(196, 181, 253, 0.05));
 }
 
-.ssp-page[data-settings-stack='react-full'] #privacy-settings::before {
+.ssp-page[data-settings-stack='react-full'] [data-privacy-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.05), rgba(248, 113, 113, 0.05) 50%, rgba(252, 165, 165, 0.05));
 }
 
-.ssp-page[data-settings-stack='react-full'] #webdav-settings::before {
+.ssp-page[data-settings-stack='react-full'] [data-webdav-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(139, 90, 43, 0.05), rgba(160, 132, 92, 0.05) 50%, rgba(214, 199, 168, 0.05));
 }
 
-.ssp-page[data-settings-stack='react-full'] #sync-settings::before {
+.ssp-page[data-settings-stack='react-full'] [data-sync-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(52, 211, 153, 0.05) 50%, rgba(110, 231, 183, 0.05));
 }
 
-.ssp-page[data-settings-stack='react-full'] #advanced-settings::before {
+.ssp-page[data-settings-stack='react-full'] [data-advanced-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(139, 92, 246, 0.05) 50%, rgba(16, 185, 129, 0.05));
 }
 
-.ssp-page[data-settings-stack='react-full'] #network-test-settings::before {
+.ssp-page[data-settings-stack='react-full'] [data-network-test-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(96, 165, 250, 0.05) 50%, rgba(147, 197, 253, 0.05));
 }
 
-[data-theme='dark'] .ssp-page[data-settings-stack='react-full'] #ai-settings::before {
+[data-theme='dark'] .ssp-page[data-settings-stack='react-full'] [data-ai-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(167, 139, 250, 0.08), rgba(196, 181, 253, 0.08) 50%, rgba(221, 214, 254, 0.08));
 }
 
-[data-theme='dark'] .ssp-page[data-settings-stack='react-full'] #privacy-settings::before {
+[data-theme='dark'] .ssp-page[data-settings-stack='react-full'] [data-privacy-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(248, 113, 113, 0.08), rgba(252, 165, 165, 0.08) 50%, rgba(254, 202, 202, 0.08));
 }
 
-[data-theme='dark'] .ssp-page[data-settings-stack='react-full'] #webdav-settings::before {
+[data-theme='dark'] .ssp-page[data-settings-stack='react-full'] [data-webdav-settings-react='1']::before {
   background: linear-gradient(135deg, rgba(212, 165, 116, 0.08), rgba(184, 149, 109, 0.08) 50%, rgba(160, 132, 92, 0.08));
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#display-settings) [data-ui-pattern='page-header'] h2 {
+.ssp-page[data-settings-stack='react-full']:has([data-display-settings-react='1']) [data-ui-pattern='page-header'] h2 {
   color: var(--display-primary, #8b5cf6);
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#search-engine-settings) [data-ui-pattern='page-header'] h2 {
+.ssp-page[data-settings-stack='react-full']:has([data-search-engine-settings-react='1']) [data-ui-pattern='page-header'] h2 {
   color: var(--search-primary, #f59e0b);
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#ai-settings) [data-ui-pattern='page-header'] h2 {
+.ssp-page[data-settings-stack='react-full']:has([data-ai-settings-react='1']) [data-ui-pattern='page-header'] h2 {
   color: var(--ai-primary, #8b5cf6);
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#privacy-settings) [data-ui-pattern='page-header'] h2 {
+.ssp-page[data-settings-stack='react-full']:has([data-privacy-settings-react='1']) [data-ui-pattern='page-header'] h2 {
   color: var(--privacy-primary, #ef4444);
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#webdav-settings) [data-ui-pattern='page-header'] h2 {
+.ssp-page[data-settings-stack='react-full']:has([data-webdav-settings-react='1']) [data-ui-pattern='page-header'] h2 {
   color: var(--webdav-primary, #8b5a2b);
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#sync-settings) [data-ui-pattern='page-header'] h2 {
+.ssp-page[data-settings-stack='react-full']:has([data-sync-settings-react='1']) [data-ui-pattern='page-header'] h2 {
   color: var(--sync-primary, #10b981);
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#advanced-settings) [data-ui-pattern='page-header'] h2 {
+.ssp-page[data-settings-stack='react-full']:has([data-advanced-settings-react='1']) [data-ui-pattern='page-header'] h2 {
   color: var(--advanced-primary, #6366f1);
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#network-test-settings) [data-ui-pattern='page-header'] h2 {
+.ssp-page[data-settings-stack='react-full']:has([data-network-test-settings-react='1']) [data-ui-pattern='page-header'] h2 {
   color: var(--primary, var(--color-primary));
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#display-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-display-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '🎨';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#search-engine-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-search-engine-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '🔍';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#ai-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-ai-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '🤖';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#privacy-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-privacy-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '🔒';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#webdav-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-webdav-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '📁';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#sync-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-sync-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '🔄';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#advanced-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-advanced-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '⚙️';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#network-test-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-network-test-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '🌐';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#insights-settings) [data-ui-pattern='page-header'] h2::before {
+/* Remaining React pages reuse the same marker pattern with their own cues; the
+ * legacy partials had no id-scoped rules for these, so only the marker is restored. */
+.ssp-page[data-settings-stack='react-full']:has([data-insights-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '📊';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#log-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-log-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '📘';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#global-actions) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-global-actions-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '⚡';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#update-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-update-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '🔄';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#cloud-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-cloud-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '☁';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#emby-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-emby-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '📺';
 }
 
-.ssp-page[data-settings-stack='react-full']:has(#enhancement-settings) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-enhancement-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '🚀';
 }
-
-

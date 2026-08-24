@@ -33,6 +33,27 @@ async function setChunkSafeSettings(page: import('@playwright/test').Page, setti
   }, settings);
 }
 
+/**
+ * 扩展页在本地环境偶尔出现 React 首帧挂载失败（页面停留在骨架）。
+ * 通过等待 React 根出现；若超时则重新加载页面重试，规避环境抖动。
+ */
+async function gotoExtensionPage(
+  page: import('@playwright/test').Page,
+  url: string,
+  locator: import('@playwright/test').Locator,
+): Promise<void> {
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await expect(locator).toBeVisible({ timeout: 5000 });
+      return;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await page.reload({ waitUntil: 'domcontentloaded' });
+    }
+  }
+}
+
 test.describe('settings React pages in Chromium', () => {
   test('renders each page through its React mount without losing navigation or scroll', async ({}, testInfo) => {
     const harnessOptions = resolveExtensionHarnessOptions({
@@ -132,33 +153,120 @@ test.describe('settings React pages in Chromium', () => {
       const extensionId = await readExtensionId(context);
       await suppressReleaseAnnouncementForTest(context);
       const page = await context.newPage();
-      const cues = [
+      // 8 legacy pages keep the per-page colour wash; the remaining React pages
+      // (insights/log/global-actions/update/cloud/emby/enhancement) reuse the
+      // shared shell without a wash, so the wash assertion only applies here.
+      const washCues = [
+        ['display-settings', '🎨', 'data-display-settings-react', '[id="display-settings"]'],
+        ['search-engine-settings', '🔍', 'data-search-engine-settings-react', '[id="search-engine-settings"]'],
+        ['ai-settings', '🤖', 'data-ai-settings-react', '[id="ai-settings"]'],
+        ['privacy-settings', '🔒', 'data-privacy-settings-react', '[id="privacy-settings"]'],
+        ['webdav-settings', '📁', 'data-webdav-settings-react', '[id="webdav-settings"]'],
+        ['sync-settings', '🔄', 'data-sync-settings-react', '[id="sync-settings"]'],
+        ['advanced-settings', '⚙️', 'data-advanced-settings-react', '[id="advanced-settings"]'],
+        ['network-test-settings', '🌐', 'data-network-test-settings-react', '[id="network-test-settings"]'],
+      ] as const;
+
+      for (const [pageId, emoji, marker, contentRootSelector] of washCues) {
+        const root = page.locator(`[${marker}="1"]`).last();
+        await gotoExtensionPage(
+          page,
+          extensionPageUrl(extensionId, `dashboard/dashboard.html#tab-settings/${pageId}`),
+          root,
+        );
+        const cue = await root.evaluate((element, contentRootSelector) => {
+          const title = element.querySelector('[data-ui-pattern="page-header"] h2');
+          const contentRoot = element.querySelector(contentRootSelector);
+          return {
+            marker: getComputedStyle(title as Element, '::before').content,
+            wash: contentRoot ? getComputedStyle(contentRoot, '::before').backgroundImage : 'none',
+          };
+        }, contentRootSelector);
+        expect(cue.marker).toContain(emoji);
+        expect(cue.wash).toContain('gradient');
+      }
+
+      // Every React full page keeps its page-specific emoji marker on the title,
+      // whether or not it also carries a colour wash.
+      const markerCues = [
         ['display-settings', '🎨', 'data-display-settings-react'],
         ['search-engine-settings', '🔍', 'data-search-engine-settings-react'],
         ['ai-settings', '🤖', 'data-ai-settings-react'],
         ['privacy-settings', '🔒', 'data-privacy-settings-react'],
         ['webdav-settings', '📁', 'data-webdav-settings-react'],
         ['sync-settings', '🔄', 'data-sync-settings-react'],
+        ['insights-settings', '📊', 'data-insights-settings-react'],
+        ['log-settings', '📘', 'data-log-settings-react'],
         ['advanced-settings', '⚙️', 'data-advanced-settings-react'],
         ['network-test-settings', '🌐', 'data-network-test-settings-react'],
+        ['global-actions', '⚡', 'data-global-actions-react'],
+        ['update-settings', '🔄', 'data-update-settings-react'],
+        ['cloud-settings', '☁', 'data-cloud-settings-react'],
+        ['emby-settings', '📺', 'data-emby-settings-react'],
+        ['enhancement-settings', '🚀', 'data-enhancement-settings-react'],
       ] as const;
 
-      for (const [pageId, emoji, marker] of cues) {
-        await page.goto(extensionPageUrl(extensionId, `dashboard/dashboard.html#tab-settings/${pageId}`), {
-          waitUntil: 'domcontentloaded',
-        });
+      for (const [pageId, emoji, marker] of markerCues) {
         const root = page.locator(`[${marker}="1"]`).last();
-        await expect(root).toBeVisible();
-        const cue = await root.evaluate((element) => {
+        await gotoExtensionPage(
+          page,
+          extensionPageUrl(extensionId, `dashboard/dashboard.html#tab-settings/${pageId}`),
+          root,
+        );
+        const cue = await root.evaluate(() => {
           const title = element.querySelector('[data-ui-pattern="page-header"] h2');
-          const contentRoot = element.querySelector('[id$="-settings"], #global-actions');
-          return {
-            marker: getComputedStyle(title as Element, '::before').content,
-            wash: contentRoot ? getComputedStyle(contentRoot, '::before').backgroundImage : 'none',
-          };
+          return getComputedStyle(title as Element, '::before').content;
         });
-        expect(cue.marker).toContain(emoji);
-        expect(cue.wash).toContain('gradient');
+        expect(cue).toContain(emoji);
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('shows the section quick-nav on every multi-section React settings page', async ({}, testInfo) => {
+    const harnessOptions = resolveExtensionHarnessOptions({
+      ...process.env,
+      JAVDB_EXTENSION_USE_CHROME_DATA: '0',
+      JAVDB_EXTENSION_PROFILE: testInfo.outputPath('section-nav-profile'),
+    }, process.cwd());
+    const context = await launchExtensionContext(harnessOptions, {
+      headless: process.env.JAVDB_EXTENSION_HEADLESS !== '0',
+      channel: process.env.JAVDB_EXTENSION_CHANNEL ?? 'chromium',
+    });
+
+    try {
+      const extensionId = await readExtensionId(context);
+      await suppressReleaseAnnouncementForTest(context);
+      const page = await context.newPage();
+      // Emby/Drive115/Cloud/Update declare an explicit nav; the remaining pages
+      // collect one automatically from their rendered groups.
+      const navPages = [
+        'display-settings',
+        'search-engine-settings',
+        'ai-settings',
+        'privacy-settings',
+        'webdav-settings',
+        'sync-settings',
+        'insights-settings',
+        'log-settings',
+        'advanced-settings',
+        'network-test-settings',
+        'global-actions',
+        'enhancement-settings',
+      ] as const;
+
+      for (const pageId of navPages) {
+        const root = page.locator(`[data-${pageId}-react="1"]`).last();
+        await gotoExtensionPage(
+          page,
+          extensionPageUrl(extensionId, `dashboard/dashboard.html#tab-settings/${pageId}`),
+          root,
+        );
+        const nav = page.locator('.settings-section-nav').last();
+        await expect(nav).toBeVisible();
+        const itemLabels = await nav.locator('.settings-section-nav__item-label').allTextContents();
+        expect(itemLabels.length).toBeGreaterThanOrEqual(3);
       }
     } finally {
       await context.close();
