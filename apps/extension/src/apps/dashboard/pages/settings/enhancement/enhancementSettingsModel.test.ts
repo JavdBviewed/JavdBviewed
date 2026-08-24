@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyEnhancementFormToSettings,
+  AUTO_MARK_STARS_OPTIONS,
   createSimpleFilterRule,
   DEFAULT_ENHANCEMENT_SETTINGS_FORM,
   mapSettingsToEnhancementForm,
@@ -26,7 +27,7 @@ describe('enhancementSettingsModel', () => {
     expect(d.preferredPreviewSource).toBe('auto');
     expect(d.listColumnCount).toBe(4);
     expect(d.showStatusBadge).toBe(true);
-    expect((d as any).enableResourceTags).toBe(false);
+    expect(d.enableLibraryMatchStatus).toBe(false);
     expect(d.enableTranslation).toBe(false);
     expect(d.enableVideoEnhancement).toBe(false);
     expect(d.veEnableWantSync).toBe(true);
@@ -38,6 +39,11 @@ describe('enhancementSettingsModel', () => {
     expect(d.enableSuperRanking).toBe(true);
     expect(d.enablePasswordHelper).toBe(false);
     expect(Object.keys(d.onlineAvailabilitySites).length).toBeGreaterThan(0);
+  });
+
+  it('keeps all legacy auto-mark star choices, including no rating', () => {
+    expect(AUTO_MARK_STARS_OPTIONS.map((option) => option.value)).toEqual(['0', '1', '2', '3', '4', '5']);
+    expect(mapSettingsToEnhancementForm({ videoEnhancement: { autoMarkWatchedStars: 0 } } as any).veAutoMarkWatchedStars).toBe(0);
   });
 
   it('maps empty settings to defaults', () => {
@@ -195,7 +201,7 @@ describe('enhancementSettingsModel', () => {
     expect(form.enableClickEnhancement).toBe(false);
     expect(form.enableVideoPreview).toBe(false);
     expect(form.enableScrollPaging).toBe(true);
-    expect((form as any).enableResourceTags).toBe(false);
+    expect(form.enableLibraryMatchStatus).toBe(false);
     expect(form.previewDelay).toBe(500);
     expect(form.previewVolume).toBe(0.5);
     expect(form.preferredPreviewSource).toBe('javdb');
@@ -250,7 +256,7 @@ describe('enhancementSettingsModel', () => {
       enableVideoEnhancement: true,
       enableMagnetSearch: true,
       enableScrollPaging: true,
-      enableResourceTags: true,
+      enableLibraryMatchStatus: true,
       previewDelay: 800,
       listColumnCount: 5,
       enableListSorting: true,
@@ -272,7 +278,10 @@ describe('enhancementSettingsModel', () => {
     expect(next.videoEnhancement.enabled).toBe(true);
     expect(next.videoEnhancement.enableReviewEnhancement).toBe(true);
     expect(next.listEnhancement.enableScrollPaging).toBe(true);
-    expect(next.listEnhancement.resourceTags).toBe(true);
+    expect(next.libraryMatchStatus).toEqual({
+      enabled: true,
+      sources: { drive115: true, emby: true },
+    });
     expect(next.listEnhancement.previewDelay).toBe(800);
     expect(next.listEnhancement.listDisplayControl.columnCount).toBe(5);
     expect(next.listEnhancement.sorting.enabled).toBe(true);
@@ -289,7 +298,7 @@ describe('enhancementSettingsModel', () => {
     expect(remapped.enableTranslation).toBe(true);
     expect(remapped.previewDelay).toBe(800);
     expect(remapped.listColumnCount).toBe(5);
-    expect((remapped as any).enableResourceTags).toBe(true);
+    expect(remapped.enableLibraryMatchStatus).toBe(true);
     expect(remapped.magnetSortMode).toBe('seeders');
     expect(remapped.actorDefaultTags).toEqual(['s', 'd']);
   });

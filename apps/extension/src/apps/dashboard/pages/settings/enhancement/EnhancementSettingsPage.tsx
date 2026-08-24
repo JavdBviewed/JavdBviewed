@@ -3,11 +3,10 @@
  * @description 功能增强设置 React 全页（列表/影片/演员/其他）
  * @module apps/dashboard/pages/settings/enhancement
  */
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
 import { Tabs } from '../../../../../ui/primitives/Tabs/Tabs';
-import { SettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
 import { SettingField } from '../../../../../ui/patterns/SettingField/SettingField';
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
@@ -16,10 +15,18 @@ import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import { SettingsHighlightNotice } from '../shared/SettingsHighlightNotice';
 import { useDebouncedSettingsSave } from '../shared/settingsPersist';
 import {
+  EnhancementFeatureCard,
+  type EnhancementFeatureMeta,
+} from './EnhancementFeatureCard';
+import './enhancementSettingsPage.css';
+import {
   loadEnhancementSettingsForm,
+  loadLastAppliedActorTags,
   navigateToAISettings,
+  openEnhancementOrchestrator,
   persistEnhancementForm,
   readAiSelectedModelLabel,
+  clearLastAppliedActorTags,
   toast,
 } from './enhancementSettingsActions';
 import {
@@ -27,7 +34,6 @@ import {
   ACTOR_REMARKS_MODE_OPTIONS,
   ANCHOR_POSITION_OPTIONS,
   AUTO_MARK_STARS_OPTIONS,
-  createSimpleFilterRule,
   DEFAULT_ENHANCEMENT_SETTINGS_FORM,
   ENHANCEMENT_SUBTABS,
   getFilterActionLabel,
@@ -60,6 +66,74 @@ function parseIntNum(raw: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
+  '内容过滤': { icon: '🎯', status: '可用', tone: 'available', effect: '在列表页过滤关键字，可隐藏、高亮或标记匹配内容。', usage: '配置规则后自动应用到列表页。' },
+  '点击增强': { icon: '🖱️', status: '可用', tone: 'available', effect: '统一卡片和标题的点击行为，减少不必要的页面跳转。', usage: '适用于列表页和影片页相关作品区域。' },
+  '视频预览': { icon: '🎬', status: '可用', tone: 'available', effect: '悬停列表封面时播放预览片段。', usage: '需要所选预览源支持。' },
+  '高清封面': { icon: '🖼️', status: '已弃用', tone: 'neutral', effect: 'JavDB 已默认使用高质量封面，保留该项仅为兼容旧设置。' },
+  '演员水印': { icon: '🖍️', status: '可用', tone: 'available', effect: '在影片封面角落显示演员订阅或黑名单状态。' },
+  '列表显示控制': { icon: '📐', status: '可用', tone: 'available', effect: '调整列表列数和容器宽度以优化浏览体验。' },
+  '状态标签显示': { icon: '🏷️', status: '可用', tone: 'available', effect: '在列表页卡片上显示已看、想看和已浏览状态，方便快速识别。' },
+  '状态快捷标识': { icon: '⚡', status: '可用', tone: 'available', effect: '在列表卡片右下角显示状态快捷标识，可直接更新本地状态。' },
+  '收藏快捷按钮': { icon: '⭐', status: '可用', tone: 'available', effect: '在列表卡片右上角显示收藏按钮，可直接添加或取消本地收藏。' },
+  '本地媒体库匹配': {
+    icon: '🗂️',
+    status: '可选',
+    tone: 'available',
+    effect: '统一展示 115、Emby/Jellyfin 等本地媒体库来源的精确匹配结果，并保留来源名称。',
+    usageHelp: [
+      '先在 115 设置中配置媒体库根目录并完成一次索引。',
+      '列表卡片只在本地索引精确匹配番号时显示“115 已有”。',
+      '目录名或模糊文件名不作为存在依据；未命中不会显示“不存在”。',
+      '当前版本不在列表页实时搜索 115，避免连续浏览触发调用限流。',
+    ],
+    riskNotice: '115 接口和目录结构可能导致匹配不完整；当前只读取本地索引，连续实时查询可能触发调用限流。',
+  },
+  '相关清单解锁': { icon: '🔓', status: '可用', tone: 'available', effect: '解锁影片页的相关清单并展示本地信息。' },
+  '源站存入清单集成 Jav助手清单': { icon: '📋', status: '可用', tone: 'available', effect: '在源站片源弹窗中显示并操作 Jav助手本地清单。' },
+  '演员名称标识': { icon: '🎭', status: '可用', tone: 'available', effect: '在影片页演员名称旁显示收藏、订阅和黑名单状态。' },
+  '演员标记增强': { icon: '🎭', status: '可用', tone: 'available', effect: '在影片页为演员名称提供收藏、订阅和黑名单状态标识。' },
+  '智能标题翻译': { icon: '🈳', status: '可用', tone: 'available', effect: '自动将日文标题翻译为中文。' },
+  '状态标记增强': { icon: '✅', status: '可用', tone: 'available', effect: '同步想看状态，并在推送 115 后自动标记已看。' },
+  '影片页收藏与评分': { icon: '⭐', status: '可用', tone: 'available', effect: '在影片页提供本地收藏与评分能力。' },
+  '外部入口面板': { icon: '🔗', status: '可用', tone: 'available', effect: '统一管理影片详情页的在线可看、外部搜索和字幕搜索入口。', usage: '外部搜索和字幕搜索入口来源于搜索引擎设置中的分类。' },
+  '相关列表与片源弹窗': { icon: '📚', status: '可用', tone: 'available', effect: '增强相关作品列表和片源弹窗的本地信息展示。' },
+  '演员备注': { icon: '📝', status: '可用', tone: 'available', effect: '显示演员基础备注（年龄、身高、罩杯、引退）与 Wiki 外链。', usage: '数据源为 Wikipedia 和 xslist；开启后会增加页面增强阶段的请求与处理耗时。' },
+  '评论区增强': { icon: '💬', status: '可用', tone: 'available', effect: '为评论区补充链接识别、破解和推送操作。', usage: '可分别开启评论突破、磁链点击和评论磁链推送 115。' },
+  '破解FC2拦截': { icon: '🔓', status: '可用', tone: 'available', effect: '辅助打开被 FC2 拦截的影片信息。' },
+  '锚点优化': { icon: '⚓', status: '可用', tone: 'available', effect: '在详情页提供稳定的预览和内容定位入口。', usage: '按钮顺序为：预览图、磁链下载、TOP。' },
+  '磁力资源搜索': { icon: '🧲', status: '可用', tone: 'available', effect: '聚合多个磁力来源并支持排序和并发控制。', usage: '支持 Sukebei、BTdig、BTSOW、Torrentz2 和 JAVBUS；并发与限流参数会影响请求压力。' },
+  '演员操作按钮': { icon: '👤', status: '可用', tone: 'available', effect: '为演员名称提供收藏、拉黑和订阅等快捷操作。' },
+  '影片类别过滤': { icon: '🏷️', status: '可用', tone: 'available', effect: '按演员页标签过滤作品，并可自动复用条件。' },
+  '影片分段显示': { icon: '🗓️', status: '可用', tone: 'available', effect: '按时间阈值在演员作品列表中插入分隔线。' },
+  'JavDB 页面外观包': { icon: '🎨', status: '测试中', tone: 'beta', effect: '仅增强页面阅读层次，不改变原有业务交互。' },
+  '排序增强': { icon: '↕️', status: '可用', tone: 'available', effect: '提供列表排序控制和追加结果时的排序策略。' },
+  '影片热度特效': { icon: '📈', status: '可用', tone: 'available', effect: '按评分和评价数突出列表中的热门影片。' },
+  '启用滚动翻页': { icon: '📜', status: '可用', tone: 'available', effect: '滚动到页面底部时自动加载下一页列表。', riskNotice: '连续加载会增加站点请求次数，遇到限速时请暂停或关闭。' },
+  '超级排行榜': { icon: '🏆', status: '可用', tone: 'available', effect: '将 JavDB 排行榜入口替换为增强排行榜。' },
+  '显示加载指示器': { icon: '⌛', status: '可用', tone: 'available', effect: '在增强任务执行期间显示加载和处理中状态。' },
+  '密码显示助手': { icon: '🔐', status: '可用', tone: 'available', effect: '按设置的手势或悬停方式显示密码明文。' },
+};
+
+function EnhancementFeatureSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: ReactNode;
+  children: ReactNode;
+}) {
+  const meta = ENHANCEMENT_FEATURE_META[title] ?? {
+    icon: '✨',
+    status: '可用',
+    tone: 'available' as const,
+  };
+  return <EnhancementFeatureCard title={title} description={description} meta={meta}>{children}</EnhancementFeatureCard>;
+}
+
+const SettingSection = EnhancementFeatureSection;
+
 /**
  * 功能增强完整页面
  */
@@ -76,8 +150,11 @@ export function EnhancementSettingsPage() {
   });
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const formRef = useRef(form);
+  formRef.current = form;
   const [aiModel, setAiModel] = useState('');
-  const [newRuleKeyword, setNewRuleKeyword] = useState('');
+  const [lastAppliedActorTags, setLastAppliedActorTags] = useState<string[]>([]);
+  const [filterRuleEditor, setFilterRuleEditor] = useState<FilterRuleEditorState | null>(null);
 
   const persist = useCallback(async (nextForm: EnhancementSettingsFormState) => {
     const result = await persistEnhancementForm(nextForm);
@@ -99,9 +176,14 @@ export function EnhancementSettingsPage() {
       try {
         const next = await loadEnhancementSettingsForm();
         if (cancelled) return;
+        formRef.current = next;
         setForm(next);
-        const model = await readAiSelectedModelLabel();
+        const [model, lastTags] = await Promise.all([
+          readAiSelectedModelLabel(),
+          loadLastAppliedActorTags(),
+        ]);
         if (!cancelled) setAiModel(model);
+        if (!cancelled) setLastAppliedActorTags(lastTags);
       } catch (err) {
         console.error('[EnhancementSettingsPage] load failed', err);
       } finally {
@@ -113,13 +195,28 @@ export function EnhancementSettingsPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const activateSubtab = (event: Event) => {
+      const detail = (event as CustomEvent<{ subtab?: string }>).detail;
+      const next = detail?.subtab;
+      if (next !== 'list' && next !== 'video' && next !== 'actor' && next !== 'other') return;
+      setSubtab(next);
+      try {
+        localStorage.setItem('enhancementSubtab', next);
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('jdb:enhancement:activate-subtab', activateSubtab);
+    return () => window.removeEventListener('jdb:enhancement:activate-subtab', activateSubtab);
+  }, []);
+
   const patchForm = useCallback(
     (patch: Partial<EnhancementSettingsFormState>) => {
-      setForm((prev) => {
-        const next = { ...prev, ...patch };
-        scheduleSave(next);
-        return next;
-      });
+      const next = { ...formRef.current, ...patch };
+      formRef.current = next;
+      setForm(next);
+      scheduleSave(next);
     },
     [scheduleSave],
   );
@@ -141,15 +238,32 @@ export function EnhancementSettingsPage() {
     }
   };
 
-  const onAddFilterRule = () => {
-    const rule = createSimpleFilterRule(newRuleKeyword);
-    if (!rule.keyword) {
-      void toast('请输入关键词', 'warning');
-      return;
+  const onClearLastAppliedActorTags = useCallback(async () => {
+    try {
+      await clearLastAppliedActorTags();
+      setLastAppliedActorTags([]);
+      await toast('已清除上次应用的过滤条件', 'success');
+    } catch (error) {
+      await toast(error instanceof Error ? error.message : '清除记录失败', 'error');
     }
-    const nextRules = [...form.filterRules, rule];
+  }, []);
+
+  const onOpenFilterRuleEditor = (index?: number) => {
+    const source = typeof index === 'number' ? form.filterRules[index] : undefined;
+    setFilterRuleEditor({
+      index,
+      draft: source
+        ? { ...source, fields: [...source.fields], releaseDateRange: source.releaseDateRange ? { ...source.releaseDateRange } : undefined }
+        : createFilterRuleDraft(),
+    });
+  };
+
+  const onSaveFilterRule = (rule: KeywordFilterRule, index?: number) => {
+    const nextRules = typeof index === 'number'
+      ? form.filterRules.map((current, currentIndex) => currentIndex === index ? rule : current)
+      : [...form.filterRules, rule];
     patchForm({ filterRules: nextRules, enableContentFilter: true });
-    setNewRuleKeyword('');
+    setFilterRuleEditor(null);
   };
 
   const onToggleRule = (index: number, enabled: boolean) => {
@@ -180,7 +294,9 @@ export function EnhancementSettingsPage() {
       className="enhancement-settings-react"
     >
       <div id="enhancement-settings" className="flex flex-col gap-4" data-settings-page="enhancement">
-        <SettingsHighlightNotice title="功能增强仍在测试中">
+        <div className="enhancement-notice" role="note">
+          <i className="fas fa-info-circle" aria-hidden="true" />
+          <span>
           列表、影片、演员页增强覆盖的站点和页面结构较多，部分能力可能受源站改版影响。遇到异常可以到{' '}
           <a
             href="https://github.com/JavdBviewed/JavdBviewed/issues"
@@ -190,9 +306,13 @@ export function EnhancementSettingsPage() {
             GitHub Issues
           </a>{' '}
           反馈现象、截图和日志。
+          </span>
+        </div>
+        <SettingsHighlightNotice title="功能增强仍在测试中" badge="Beta" tone="warning">
+          个别能力会随源站页面结构调整；开启前请阅读卡片内的效果说明和调用限制提示。
         </SettingsHighlightNotice>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div id="enhancementSubTabs" className="flex flex-wrap items-center justify-between gap-2">
           <Tabs
             items={ENHANCEMENT_SUBTABS}
             value={subtab}
@@ -211,7 +331,7 @@ export function EnhancementSettingsPage() {
                 className={`pointer-events-none absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-[calc(var(--radius-2)-2px)] bg-[var(--color-primary)] shadow-[var(--shadow-1)] transition-transform duration-200 ${form.videoEnhancementSchedulingMode === 'immediate' ? 'translate-x-full' : 'translate-x-0'}`}
               />
               <button
-                id="videoEnhancementSchedulingMode-smart"
+                id="videoEnhancementSchedulingModeSmart"
                 type="button"
                 role="radio"
                 aria-checked={form.videoEnhancementSchedulingMode === 'smart'}
@@ -221,7 +341,7 @@ export function EnhancementSettingsPage() {
                 智能调度
               </button>
               <button
-                id="videoEnhancementSchedulingMode-immediate"
+                id="videoEnhancementSchedulingModeImmediate"
                 type="button"
                 role="radio"
                 aria-checked={form.videoEnhancementSchedulingMode === 'immediate'}
@@ -231,6 +351,21 @@ export function EnhancementSettingsPage() {
                 立即增强
               </button>
             </div>
+            <Button
+              id="showOrchestratorBtn"
+              type="button"
+              variant="secondary"
+              size="sm"
+              title="查看当前页面功能编排"
+              onClick={() => {
+                void openEnhancementOrchestrator().catch((error) => {
+                  void toast(error instanceof Error ? error.message : '打开调度中心失败', 'error');
+                });
+              }}
+            >
+              <i className="fas fa-project-diagram" aria-hidden="true" />{' '}
+              调度中心
+            </Button>
           </div>
         </div>
 
@@ -239,10 +374,24 @@ export function EnhancementSettingsPage() {
             {saveError}
           </p>
         ) : null}
-        {subtab === 'list' ? <ListTab form={form} setToggle={setToggle} patchForm={patchForm} newRuleKeyword={newRuleKeyword} setNewRuleKeyword={setNewRuleKeyword} onAddFilterRule={onAddFilterRule} onToggleRule={onToggleRule} onDeleteRule={onDeleteRule} /> : null}
-        {subtab === 'video' ? <VideoTab form={form} setToggle={setToggle} patchForm={patchForm} aiModel={aiModel} /> : null}
-        {subtab === 'actor' ? <ActorTab form={form} setToggle={setToggle} patchForm={patchForm} /> : null}
-        {subtab === 'other' ? <OtherTab form={form} setToggle={setToggle} patchForm={patchForm} /> : null}
+        <div data-enhancement-subtab="list" hidden={subtab !== 'list'}>
+          <ListTab form={form} setToggle={setToggle} patchForm={patchForm} onOpenFilterRuleEditor={onOpenFilterRuleEditor} onToggleRule={onToggleRule} onDeleteRule={onDeleteRule} />
+        </div>
+        <div data-enhancement-subtab="video" hidden={subtab !== 'video'}>
+          <VideoTab form={form} setToggle={setToggle} patchForm={patchForm} aiModel={aiModel} />
+        </div>
+        <div data-enhancement-subtab="actor" hidden={subtab !== 'actor'}>
+          <ActorTab
+            form={form}
+            setToggle={setToggle}
+            patchForm={patchForm}
+            lastAppliedActorTags={lastAppliedActorTags}
+            onClearLastAppliedActorTags={onClearLastAppliedActorTags}
+          />
+        </div>
+        <div data-enhancement-subtab="other" hidden={subtab !== 'other'}>
+          <OtherTab form={form} setToggle={setToggle} patchForm={patchForm} />
+        </div>
 
         <div className="flex justify-end pt-2">
           <Button
@@ -253,11 +402,178 @@ export function EnhancementSettingsPage() {
               void flush(form).then(() => toast('已保存', 'success'));
             }}
           >
+            <i className="fas fa-save" aria-hidden="true" />{' '}
             立即保存
           </Button>
         </div>
       </div>
+      {filterRuleEditor ? (
+        <FilterRuleEditor
+          editor={filterRuleEditor}
+          onCancel={() => setFilterRuleEditor(null)}
+          onSave={onSaveFilterRule}
+        />
+      ) : null}
     </SettingsPageFrame>
+  );
+}
+
+type FilterRuleEditorState = {
+  index?: number;
+  draft: KeywordFilterRule;
+};
+
+const FILTER_RULE_FIELDS: { value: KeywordFilterRule['fields'][number]; label: string }[] = [
+  { value: 'title', label: '标题' },
+  { value: 'actor', label: '演员' },
+  { value: 'studio', label: '厂牌/片商' },
+  { value: 'genre', label: '类型' },
+  { value: 'tag', label: '标签' },
+  { value: 'video-id', label: '番号' },
+  { value: 'release-date', label: '发行日期' },
+];
+
+function createFilterRuleDraft(): KeywordFilterRule {
+  return {
+    id: String(Date.now()),
+    name: '',
+    keyword: '',
+    isRegex: false,
+    caseSensitive: false,
+    action: 'hide',
+    enabled: true,
+    fields: ['title'],
+  };
+}
+
+function FilterRuleEditor({
+  editor,
+  onCancel,
+  onSave,
+}: {
+  editor: FilterRuleEditorState;
+  onCancel: () => void;
+  onSave: (rule: KeywordFilterRule, index?: number) => void;
+}) {
+  const [draft, setDraft] = useState(editor.draft);
+  const hasReleaseDate = draft.fields.includes('release-date');
+  const hasKeywordField = draft.fields.some((field) => field !== 'release-date');
+  const comparison = draft.releaseDateRange?.comparison ?? 'between';
+
+  const update = (patch: Partial<KeywordFilterRule>) => {
+    setDraft((current) => ({ ...current, ...patch }));
+  };
+
+  const updateReleaseDate = (patch: NonNullable<KeywordFilterRule['releaseDateRange']>) => {
+    update({ releaseDateRange: patch });
+  };
+
+  const save = () => {
+    if (!draft.name.trim()) {
+      void toast('请输入规则名称', 'warning');
+      return;
+    }
+    if (draft.fields.length === 0) {
+      void toast('请至少选择一个过滤字段', 'warning');
+      return;
+    }
+    if (hasKeywordField && !draft.keyword.trim()) {
+      void toast('请输入关键词', 'warning');
+      return;
+    }
+    onSave({ ...draft, name: draft.name.trim(), keyword: draft.keyword.trim() }, editor.index);
+  };
+
+  return (
+    <div className="enhancement-filter-rule-modal" data-enhancement-filter-rule-modal="1" role="dialog" aria-modal="true" aria-labelledby="filterRuleModalTitle">
+      <div className="enhancement-filter-rule-modal__dialog">
+        <div className="enhancement-filter-rule-modal__header">
+          <h3 id="filterRuleModalTitle">{typeof editor.index === 'number' ? '编辑过滤规则' : '添加过滤规则'}</h3>
+          <div className="enhancement-filter-rule-modal__header-actions">
+            <SettingToggleRow
+              id="modalInlineRuleEnabled"
+              label="启用"
+              checked={draft.enabled}
+              onChange={(enabled) => update({ enabled })}
+              className="!p-0"
+            />
+            <button id="filterRuleModalClose" type="button" className="enhancement-filter-rule-modal__close" aria-label="关闭" onClick={onCancel}><i className="fas fa-times" aria-hidden="true" /></button>
+          </div>
+        </div>
+        <div className="enhancement-filter-rule-modal__body">
+          <section className="enhancement-filter-rule-modal__section">
+            <label htmlFor="modalInlineRuleName">规则名称</label>
+            <input id="modalInlineRuleName" value={draft.name} onChange={(event) => update({ name: event.target.value })} placeholder="给规则起个名字，便于识别" autoFocus />
+            <p>例如：隐藏含广告词条</p>
+          </section>
+
+          <section className="enhancement-filter-rule-modal__section enhancement-filter-rule-modal__grid">
+            <div>
+              <label htmlFor="modalInlineRuleAction">动作</label>
+              <select id="modalInlineRuleAction" value={draft.action} onChange={(event) => update({ action: event.target.value as KeywordFilterRule['action'] })}>
+                <option value="hide">隐藏</option>
+                <option value="highlight">高亮</option>
+                <option value="blur">模糊</option>
+                <option value="mark">标记</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="modalInlineRuleFields">作用字段</label>
+              <select
+                id="modalInlineRuleFields"
+                multiple
+                value={draft.fields}
+                onChange={(event) => update({ fields: Array.from(event.currentTarget.selectedOptions, (option) => option.value as KeywordFilterRule['fields'][number]) })}
+              >
+                {FILTER_RULE_FIELDS.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}
+              </select>
+              <p>按住 Ctrl/Shift 可多选</p>
+            </div>
+            <div className="enhancement-filter-rule-modal__field-box">
+              {hasKeywordField ? (
+                <>
+                  <label htmlFor="modalInlineRuleKeyword">关键词 / 正则</label>
+                  <input id="modalInlineRuleKeyword" value={draft.keyword} onChange={(event) => update({ keyword: event.target.value })} placeholder="支持普通文本或正则表达式" />
+                  <div className="enhancement-filter-rule-modal__checks">
+                    <label><input id="modalInlineRuleIsRegex" type="checkbox" checked={draft.isRegex} onChange={(event) => update({ isRegex: event.target.checked })} />正则表达式</label>
+                    <label><input id="modalInlineRuleCaseSensitive" type="checkbox" checked={draft.caseSensitive} onChange={(event) => update({ caseSensitive: event.target.checked })} />区分大小写</label>
+                  </div>
+                </>
+              ) : null}
+              {hasReleaseDate ? (
+                <div className={hasKeywordField ? 'enhancement-filter-rule-modal__date-settings' : undefined}>
+                  <label htmlFor="modalInlineRuleDateComparison">发行日期对比方式</label>
+                  <select
+                    id="modalInlineRuleDateComparison"
+                    value={comparison}
+                    onChange={(event) => updateReleaseDate({ ...(draft.releaseDateRange ?? { enabled: true }), enabled: true, comparison: event.target.value as NonNullable<KeywordFilterRule['releaseDateRange']>['comparison'] })}
+                  >
+                    <option value="between">在范围内</option><option value="before">早于</option><option value="after">晚于</option><option value="exact">精确匹配</option>
+                  </select>
+                  {comparison === 'between' ? (
+                    <div className="enhancement-filter-rule-modal__date-inputs">
+                      <label>开始日期<input id="modalInlineRuleStartDate" type="date" value={draft.releaseDateRange?.startDate ?? ''} onChange={(event) => updateReleaseDate({ ...(draft.releaseDateRange ?? { enabled: true }), enabled: true, comparison, startDate: event.target.value })} /></label>
+                      <label>结束日期<input id="modalInlineRuleEndDate" type="date" value={draft.releaseDateRange?.endDate ?? ''} onChange={(event) => updateReleaseDate({ ...(draft.releaseDateRange ?? { enabled: true }), enabled: true, comparison, endDate: event.target.value })} /></label>
+                    </div>
+                  ) : (
+                    <label>指定日期<input id="modalInlineRuleSingleDate" type="date" value={draft.releaseDateRange?.exactDate ?? ''} onChange={(event) => updateReleaseDate({ ...(draft.releaseDateRange ?? { enabled: true }), enabled: true, comparison, exactDate: event.target.value })} /></label>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="enhancement-filter-rule-modal__section">
+            <label htmlFor="modalInlineRuleMessage">提示信息（可选）</label>
+            <textarea id="modalInlineRuleMessage" rows={3} value={draft.message ?? ''} onChange={(event) => update({ message: event.target.value })} placeholder="为匹配项添加备注或提示文本" />
+          </section>
+        </div>
+        <div className="enhancement-filter-rule-modal__footer">
+          <Button id="cancelFilterRuleBtn" type="button" variant="secondary" onClick={onCancel}><i className="fas fa-times" aria-hidden="true" /> 取消</Button>
+          <Button id="saveFilterRuleBtn" type="button" onClick={save}><i className="fas fa-save" aria-hidden="true" /> 保存</Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -274,15 +590,11 @@ function ListTab({
   form,
   setToggle,
   patchForm,
-  newRuleKeyword,
-  setNewRuleKeyword,
-  onAddFilterRule,
+  onOpenFilterRuleEditor,
   onToggleRule,
   onDeleteRule,
 }: TabProps & {
-  newRuleKeyword: string;
-  setNewRuleKeyword: (v: string) => void;
-  onAddFilterRule: () => void;
+  onOpenFilterRuleEditor: (index?: number) => void;
   onToggleRule: (i: number, enabled: boolean) => void;
   onDeleteRule: (i: number) => void;
 }) {
@@ -298,31 +610,22 @@ function ListTab({
         />
         {form.enableContentFilter ? (
           <div id="contentFilterConfig" className="mt-2 flex flex-col gap-2 px-2">
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="min-w-[12rem] flex-1">
-                <SettingField id="newFilterKeyword" label="新增关键词规则">
-                  <Input
-                    id="newFilterKeyword"
-                    value={newRuleKeyword}
-                    onChange={(e) => setNewRuleKeyword(e.target.value)}
-                    placeholder="输入关键词后添加"
-                  />
-                </SettingField>
-              </div>
-              <Button id="addFilterRule" type="button" variant="secondary" size="sm" onClick={onAddFilterRule}>
-                添加规则
+            <div className="filter-rules-header">
+              <span>过滤规则列表</span>
+              <Button id="addFilterRule" type="button" variant="secondary" size="sm" onClick={() => onOpenFilterRuleEditor()}>
+                <i className="fas fa-plus" aria-hidden="true" /> 添加规则
               </Button>
             </div>
             <div id="filterRulesList" className="flex flex-col gap-2">
               {form.filterRules.length === 0 ? (
                 <p className="m-0 px-1 text-xs text-[var(--color-fg-muted)]">
-                  暂无过滤规则。点击「添加规则」创建（完整编辑弹窗仍可在后续迭代）。
+                  暂无过滤规则，点击「添加规则」开始配置。
                 </p>
               ) : (
                 form.filterRules.map((rule: KeywordFilterRule, index: number) => (
                   <div
                     key={rule.id || index}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-2)] border border-[var(--color-border)] px-3 py-2"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-2)] hover:shadow-[var(--shadow-1)]"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-semibold">{rule.name}</div>
@@ -338,8 +641,11 @@ function ListTab({
                         onChange={(v) => onToggleRule(index, v)}
                         className="!py-1"
                       />
+                      <Button type="button" variant="ghost" size="sm" onClick={() => onOpenFilterRuleEditor(index)}>
+                        <i className="fas fa-edit" aria-hidden="true" /> 编辑
+                      </Button>
                       <Button type="button" variant="ghost" size="sm" onClick={() => onDeleteRule(index)}>
-                        删除
+                        <i className="fas fa-trash" aria-hidden="true" /> 删除
                       </Button>
                     </div>
                   </div>
@@ -410,23 +716,32 @@ function ListTab({
                 }
               />
             </SettingField>
-            <SettingField
-              id="previewVolume"
-              label={`预览音量（${Math.round(form.previewVolume * 100)}%）`}
-            >
-              <input
-                id="previewVolume"
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={form.previewVolume}
-                className="w-full accent-[var(--color-primary)]"
-                onChange={(e) =>
-                  patchForm({ previewVolume: parseNum(e.target.value, form.previewVolume) })
-                }
-              />
-            </SettingField>
+            <div className="form-group volume-control-group">
+              <div className="volume-header">
+                <label htmlFor="previewVolume">🔊 预览音量</label>
+                <span className="volume-percentage">{Math.round(form.previewVolume * 100)}%</span>
+              </div>
+              <div className="volume-slider-wrapper">
+                <input
+                  id="previewVolume"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={form.previewVolume}
+                  className="modern-range"
+                  onChange={(e) =>
+                    patchForm({ previewVolume: parseNum(e.target.value, form.previewVolume) })
+                  }
+                />
+                <div
+                  className="range-track-fill"
+                  style={{ width: `${Math.round(form.previewVolume * 100)}%` }}
+                  aria-hidden="true"
+                />
+              </div>
+              <p className="input-description">预览视频的音量大小，建议保持较低音量。</p>
+            </div>
             <SettingField id="previewSourceGroup" label="预览源偏好">
               <SettingSelect
                 id="preferredPreviewSource"
@@ -473,25 +788,34 @@ function ListTab({
                 }
               />
             </SettingField>
-            <SettingField
-              id="actorWatermarkOpacity"
-              label={`不透明度（${Math.round(form.actorWatermarkOpacity * 100)}%）`}
-            >
-              <input
-                id="actorWatermarkOpacity"
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={form.actorWatermarkOpacity}
-                className="w-full accent-[var(--color-primary)]"
-                onChange={(e) =>
-                  patchForm({
-                    actorWatermarkOpacity: parseNum(e.target.value, form.actorWatermarkOpacity),
-                  })
-                }
-              />
-            </SettingField>
+            <div className="form-group volume-control-group">
+              <div className="volume-header">
+                <label htmlFor="actorWatermarkOpacity">透明度</label>
+                <span className="volume-percentage">{Math.round(form.actorWatermarkOpacity * 100)}%</span>
+              </div>
+              <div className="volume-slider-wrapper">
+                <input
+                  id="actorWatermarkOpacity"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={form.actorWatermarkOpacity}
+                  className="modern-range"
+                  onChange={(e) =>
+                    patchForm({
+                      actorWatermarkOpacity: parseNum(e.target.value, form.actorWatermarkOpacity),
+                    })
+                  }
+                />
+                <div
+                  className="range-track-fill"
+                  style={{ width: `${Math.round(form.actorWatermarkOpacity * 100)}%` }}
+                  aria-hidden="true"
+                />
+              </div>
+              <p className="input-description">自定义水印透明度，以减少视觉干扰。</p>
+            </div>
           </div>
         ) : null}
       </SettingSection>
@@ -506,7 +830,11 @@ function ListTab({
           onChange={() => undefined}
         />
         <div id="listDisplayControlConfig" className="flex flex-col gap-2">
-          <SettingField id="listColumnCount" label={`列数（${form.listColumnCount} 列）`}>
+          <SettingField
+            id="listColumnCount"
+            label={`列数（${form.listColumnCount} 列）`}
+            description="设置列表页每行显示的影片数量（1-8列）。"
+          >
             <input
               id="listColumnCount"
               type="range"
@@ -514,13 +842,17 @@ function ListTab({
               max={8}
               step={1}
               value={form.listColumnCount}
-              className="w-full accent-[var(--color-primary)]"
+              className="modern-range"
               onChange={(e) =>
                 patchForm({ listColumnCount: parseIntNum(e.target.value, form.listColumnCount) })
               }
             />
           </SettingField>
-          <SettingField id="listContainerWidth" label={`容器宽度（${form.listContainerWidth}%）`}>
+          <SettingField
+            id="listContainerWidth"
+            label={`容器宽度（${form.listContainerWidth}%）`}
+            description="设置列表容器的宽度百分比（50%-150%），超过100%时会居中显示。"
+          >
             <input
               id="listContainerWidth"
               type="range"
@@ -528,7 +860,7 @@ function ListTab({
               max={150}
               step={5}
               value={form.listContainerWidth}
-              className="w-full accent-[var(--color-primary)]"
+              className="modern-range"
               onChange={(e) =>
                 patchForm({
                   listContainerWidth: parseIntNum(e.target.value, form.listContainerWidth),
@@ -545,39 +877,36 @@ function ListTab({
         </div>
       </SettingSection>
 
-      <SettingSection title="状态与快捷操作">
+      <SettingSection title="状态标签显示">
         <SettingToggleRow
           id="showStatusBadge"
-          label="显示状态标签"
+          label="启用状态标签显示"
           description="在列表卡片显示已看/想看等状态"
           checked={form.showStatusBadge}
           onChange={(v) => setToggle('showStatusBadge', v)}
         />
+      </SettingSection>
+
+      <SettingSection title="状态快捷标识">
         <SettingToggleRow
           id="enableStatusQuickAction"
-          label="状态快捷操作"
+          label="启用状态快捷标识"
           description="在列表上快速切换看过/想看"
           checked={form.enableStatusQuickAction}
           onChange={(v) => setToggle('enableStatusQuickAction', v)}
         />
+      </SettingSection>
+
+      <SettingSection title="收藏快捷按钮">
         <SettingToggleRow
           id="enableListFavoriteQuickAction"
-          label="收藏快捷操作"
+          label="启用收藏快捷按钮"
           description="在列表上快速收藏/取消收藏"
           checked={form.enableListFavoriteQuickAction}
           onChange={(v) => setToggle('enableListFavoriteQuickAction', v)}
         />
       </SettingSection>
 
-      <SettingSection title="资源标签">
-        <SettingToggleRow
-          id="enableResourceTags"
-          label="卡片资源标签"
-          description="显示中字和已验证的破解标识；不会为列表卡片新增详情、115 或外部搜索请求"
-          checked={form.enableResourceTags}
-          onChange={(v) => setToggle('enableResourceTags', v)}
-        />
-      </SettingSection>
     </div>
   );
 }
@@ -609,6 +938,12 @@ function VideoTab({
         />
         {form.enableTranslation ? (
           <div id="translationConfig" className="flex flex-col gap-2">
+            <p className="enhancement-current-service">
+              当前使用：
+              <strong id="currentTranslationService">
+                {form.translationProvider === 'ai' ? 'AI 翻译' : 'Google 翻译'}
+              </strong>
+            </p>
             <SettingField id="translationProvider" label="翻译服务类型">
               <SettingSelect
                 id="translationProvider"
@@ -642,26 +977,10 @@ function VideoTab({
                   className="mt-2"
                   onClick={() => navigateToAISettings()}
                 >
-                  前往 AI 设置
+                  <i className="fas fa-robot" aria-hidden="true" /> 前往 AI 设置
                 </Button>
               </div>
-            ) : (
-              <div id="traditionalTranslationConfig">
-                <SettingField
-                  id="traditionalApiKey"
-                  label="API 密钥（可选）"
-                  description="Google 翻译通常无需密钥"
-                >
-                  <Input
-                    id="traditionalApiKey"
-                    type="password"
-                    value={form.traditionalApiKey}
-                    onChange={(e) => patchForm({ traditionalApiKey: e.target.value })}
-                    placeholder="输入 API 密钥"
-                  />
-                </SettingField>
-              </div>
-            )}
+            ) : null}
             <SettingToggleRow
               id="translateCurrentTitle"
               label="翻译影片页标题（current-title）"
@@ -744,6 +1063,7 @@ function VideoTab({
             <SettingToggleRow
               id="veEnableOnlineAvailability"
               label="在线可用性检测"
+              description="检测 FANZA、Jable、MISSAV、Supjav、JavBus、123AV、NETFLAV 等站点是否有在线资源。"
               checked={form.veEnableOnlineAvailability}
               onChange={(v) => setToggle('veEnableOnlineAvailability', v)}
             />
@@ -752,40 +1072,48 @@ function VideoTab({
                 <SettingToggleRow
                   id="veShowOnlineAvailabilityFailures"
                   label="显示检测失败站点"
+                  description="检测失败或未命中的站点会以红色标签显示；默认只显示命中的可看站点。"
                   checked={form.veShowOnlineAvailabilityFailures}
                   onChange={(v) => setToggle('veShowOnlineAvailabilityFailures', v)}
                 />
                 <div id="onlineAvailabilitySiteList" className="grid gap-1 sm:grid-cols-2">
                   {ONLINE_AVAILABILITY_SITE_OPTIONS.map((site) => (
-                    <SettingToggleRow
+                    <div
                       key={site.key}
-                      id={`online-availability-site-${site.key}`}
-                      label={site.name}
-                      checked={form.onlineAvailabilitySites[site.key] !== false}
-                      onChange={(v) =>
-                        patchForm({
-                          onlineAvailabilitySites: toggleOnlineAvailabilitySite(
-                            form.onlineAvailabilitySites,
-                            site.key,
-                            v,
-                          ),
-                        })
-                      }
-                      className="!py-1"
-                    />
+                      data-settings-search-target={`online-availability-site:${site.key}`}
+                    >
+                      <SettingToggleRow
+                        id={`online-availability-site-${site.key}`}
+                        label={site.name}
+                        checked={form.onlineAvailabilitySites[site.key] !== false}
+                        onChange={(v) =>
+                          patchForm({
+                            onlineAvailabilitySites: toggleOnlineAvailabilitySite(
+                              form.onlineAvailabilitySites,
+                              site.key,
+                              v,
+                            ),
+                          })
+                        }
+                        className="!py-1"
+                      />
+                    </div>
                   ))}
                 </div>
+                <p className="m-0 text-xs text-[var(--color-fg-muted)]">站点列表：选择在线可看检测使用的站点。</p>
               </div>
             ) : null}
             <SettingToggleRow
               id="veEnableExternalSearch"
               label="外部搜索"
+              description="在影片详情页显示搜索引擎设置中分类为资源/搜索的入口。"
               checked={form.veEnableExternalSearch}
               onChange={(v) => setToggle('veEnableExternalSearch', v)}
             />
             <SettingToggleRow
               id="veEnableSubtitleSearch"
               label="字幕搜索"
+              description="在影片详情页显示 SubTitleCat、迅雷字幕等字幕入口。"
               checked={form.veEnableSubtitleSearch}
               onChange={(v) => setToggle('veEnableSubtitleSearch', v)}
             />
@@ -793,19 +1121,25 @@ function VideoTab({
         ) : null}
       </SettingSection>
 
-      <SettingSection title="相关列表与片源弹窗">
+      <SettingSection title="相关清单解锁">
         <SettingToggleRow
           id="veEnableRelatedLists"
-          label="相关列表增强"
+          label="启用相关清单解锁"
           checked={form.veEnableRelatedLists}
           onChange={(v) => setToggle('veEnableRelatedLists', v)}
         />
+      </SettingSection>
+
+      <SettingSection title="源站存入清单集成 Jav助手清单">
         <SettingToggleRow
           id="veEnableLocalListInSourceModal"
-          label="片源弹窗中显示本地列表"
+          label="在片源弹窗中显示本地清单"
           checked={form.veEnableLocalListInSourceModal}
           onChange={(v) => setToggle('veEnableLocalListInSourceModal', v)}
         />
+      </SettingSection>
+
+      <SettingSection title="演员标记增强">
         <SettingToggleRow
           id="enableActorQuickActions"
           label="演员标记增强"
@@ -884,18 +1218,21 @@ function VideoTab({
             <SettingToggleRow
               id="veEnableReviewBreaker"
               label="评论区突破显示限制"
+              description="使用 JAV-JHS API 解锁影片评论区，显示完整评论内容并支持分页浏览。"
               checked={form.veEnableReviewBreaker}
               onChange={(v) => setToggle('veEnableReviewBreaker', v)}
             />
             <SettingToggleRow
               id="veEnableReviewMagnetLinkify"
               label="评论磁链可点击"
+              description="自动把评论中的番号转成搜索链接，把纯文本磁链转成可点击磁链。"
               checked={form.veEnableReviewMagnetLinkify}
               onChange={(v) => setToggle('veEnableReviewMagnetLinkify', v)}
             />
             <SettingToggleRow
               id="veEnableReviewPush115"
               label="评论磁链推送 115"
+              description="在评论区磁链后显示推送 115 按钮，支持翻页后重新注入。"
               checked={form.veEnableReviewPush115}
               onChange={(v) => setToggle('veEnableReviewPush115', v)}
             />
@@ -903,7 +1240,7 @@ function VideoTab({
         ) : null}
       </SettingSection>
 
-      <SettingSection title="FC2 与锚点">
+      <SettingSection title="破解FC2拦截">
         <SettingToggleRow
           id="veEnableFC2Breaker"
           label="破解 FC2 拦截"
@@ -911,6 +1248,9 @@ function VideoTab({
           checked={form.veEnableFC2Breaker}
           onChange={(v) => setToggle('veEnableFC2Breaker', v)}
         />
+      </SettingSection>
+
+      <SettingSection title="锚点优化">
         <SettingToggleRow
           id="enableAnchorOptimization"
           label="锚点优化"
@@ -935,9 +1275,18 @@ function VideoTab({
             <SettingToggleRow
               id="showPreviewButton"
               label="显示预览图按钮"
+              description="在快捷按钮中显示“预览图”按钮，点击可快速跳转到预览图区域。"
               checked={form.showPreviewButton}
               onChange={(v) => setToggle('showPreviewButton', v)}
             />
+            <div className="info-box">
+              <p><strong>按钮顺序（从上到下）：</strong></p>
+              <ol>
+                <li>🖼️ 预览图：跳转到预览图区域</li>
+                <li>🧲 磁链下载：跳转到磁链下载区域</li>
+                <li>⬆️ TOP：返回页面顶部</li>
+              </ol>
+            </div>
           </div>
         ) : null}
       </SettingSection>
@@ -1008,13 +1357,28 @@ function VideoTab({
                 }
               />
             </SettingField>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <SettingField id="magnetPageMaxConcurrentRequests" label="页内并发请求">
+            <div className="info-box">
+              <p><strong>搜索源说明：</strong></p>
+              <ul>
+                <li><strong>Sukebei</strong>：专业的成人内容磁力搜索引擎</li>
+                <li><strong>BTdig</strong>：通用磁力搜索引擎</li>
+                <li><strong>BTSOW</strong>：高质量磁力资源搜索</li>
+                <li><strong>Torrentz2</strong>：综合磁力搜索聚合器</li>
+              </ul>
+            </div>
+            <div id="magnetConcurrencyConfig" className="magnet-concurrency-config">
+              <div className="sub-settings-header">
+                <h5>⚙️ 并发与限流</h5>
+                <p className="sub-description">控制磁力搜索的并发与后台限流策略，避免同时打开多个页面时产生突发流量。</p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+              <SettingField id="magnetPageMaxConcurrentRequests" label="页面内并发">
                 <Input
                   id="magnetPageMaxConcurrentRequests"
                   type="number"
                   min={1}
-                  max={10}
+                  max={8}
+                  data-settings-search-target="magnet-concurrency:magnetPageMaxConcurrentRequests"
                   value={String(form.magnetPageMaxConcurrentRequests)}
                   onChange={(e) =>
                     patchForm({
@@ -1031,7 +1395,8 @@ function VideoTab({
                   id="magnetBgGlobalMaxConcurrent"
                   type="number"
                   min={1}
-                  max={20}
+                  max={16}
+                  data-settings-search-target="magnet-concurrency:magnetBgGlobalMaxConcurrent"
                   value={String(form.magnetBgGlobalMaxConcurrent)}
                   onChange={(e) =>
                     patchForm({
@@ -1048,7 +1413,8 @@ function VideoTab({
                   id="magnetBgPerHostMaxConcurrent"
                   type="number"
                   min={1}
-                  max={5}
+                  max={4}
+                  data-settings-search-target="magnet-concurrency:magnetBgPerHostMaxConcurrent"
                   value={String(form.magnetBgPerHostMaxConcurrent)}
                   onChange={(e) =>
                     patchForm({
@@ -1065,7 +1431,8 @@ function VideoTab({
                   id="magnetBgPerHostRateLimitPerMin"
                   type="number"
                   min={1}
-                  max={60}
+                  max={120}
+                  data-settings-search-target="magnet-concurrency:magnetBgPerHostRateLimitPerMin"
                   value={String(form.magnetBgPerHostRateLimitPerMin)}
                   onChange={(e) =>
                     patchForm({
@@ -1077,6 +1444,7 @@ function VideoTab({
                   }
                 />
               </SettingField>
+              </div>
             </div>
           </div>
         ) : null}
@@ -1085,7 +1453,16 @@ function VideoTab({
   );
 }
 
-function ActorTab({ form, setToggle, patchForm }: TabProps) {
+function ActorTab({
+  form,
+  setToggle,
+  patchForm,
+  lastAppliedActorTags,
+  onClearLastAppliedActorTags,
+}: TabProps & {
+  lastAppliedActorTags: string[];
+  onClearLastAppliedActorTags: () => void;
+}) {
   return (
     <div className="flex flex-col gap-4">
       <SettingSection title="演员操作按钮">
@@ -1114,6 +1491,33 @@ function ActorTab({ form, setToggle, patchForm }: TabProps) {
               checked={form.enableAutoApplyTags}
               onChange={(v) => setToggle('enableAutoApplyTags', v)}
             />
+            <div id="lastAppliedTagsDisplay" className="enhancement-last-applied-tags">
+              <div className="enhancement-last-applied-tags__header">
+                <span>上次应用的过滤条件</span>
+                <Button
+                  id="clearLastAppliedTags"
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  title="清除记录"
+                  onClick={onClearLastAppliedActorTags}
+                  disabled={lastAppliedActorTags.length === 0}
+                >
+                  <i className="fas fa-eraser" aria-hidden="true" /> 清除
+                </Button>
+              </div>
+              <div id="appliedTagsContainer" className="enhancement-applied-tags-container">
+                {lastAppliedActorTags.length === 0 ? (
+                  <span className="enhancement-no-tags-message">暂无记录</span>
+                ) : (
+                  lastAppliedActorTags.map((tag) => (
+                    <span key={tag} className="enhancement-applied-tag">
+                      {ACTOR_DEFAULT_TAG_OPTIONS.find((option) => option.value === tag)?.label ?? tag}
+                    </span>
+                  ))
+                )}
+              </div>
+            </div>
             <div id="actorDefaultTagsGroup" className="grid gap-1 sm:grid-cols-2">
               <p className="m-0 sm:col-span-2 text-xs font-semibold text-[var(--color-fg-muted)]">
                 默认过滤条件
@@ -1132,6 +1536,15 @@ function ActorTab({ form, setToggle, patchForm }: TabProps) {
                   className="!py-1"
                 />
               ))}
+            </div>
+            <div className="info-box">
+              <p><strong>功能说明：</strong></p>
+              <ul>
+                <li>🔄 <strong>自动同步：</strong>选择类别/标签后自动保存，切换演员时智能应用。</li>
+                <li>🧠 <strong>智能兼容：</strong>只应用当前演员页支持的过滤条件，避免无效过滤。</li>
+                <li>📝 <strong>默认回退：</strong>无保存记录或兼容性检查失败时使用默认过滤条件。</li>
+                <li>💾 <strong>存储限制：</strong>最多保存 10 个演员的过滤器记录，自动清理旧记录。</li>
+              </ul>
             </div>
           </div>
         ) : null}
@@ -1174,6 +1587,16 @@ function ActorTab({ form, setToggle, patchForm }: TabProps) {
 function OtherTab({ form, setToggle, patchForm }: TabProps) {
   return (
     <div className="flex flex-col gap-4">
+      <SettingSection title="本地媒体库匹配">
+        <SettingToggleRow
+          id="enableLibraryMatchStatus"
+          label="启用本地媒体库匹配"
+          description="只读取本地索引，不为列表卡片新增详情、115 或外部搜索请求"
+          checked={form.enableLibraryMatchStatus}
+          onChange={(v) => setToggle('enableLibraryMatchStatus', v)}
+        />
+      </SettingSection>
+
       <SettingSection
         title="JavDB 页面外观包"
         description="仅调整页面阅读层次，不改变列表列数、卡片尺寸或现有交互。"
@@ -1222,7 +1645,7 @@ function OtherTab({ form, setToggle, patchForm }: TabProps) {
         />
       </SettingSection>
 
-      <SettingSection title="列表排序与人气">
+      <SettingSection title="排序增强">
         <SettingToggleRow
           id="enableListSorting"
           label="启用列表排序控件"
@@ -1231,6 +1654,10 @@ function OtherTab({ form, setToggle, patchForm }: TabProps) {
         />
         {form.enableListSorting ? (
           <div id="listSortingConfig" className="flex flex-col gap-2">
+            <p className="list-sorting-warning">
+              <i className="fas fa-info-circle" aria-hidden="true" />
+              这项能力只包含当前页面已显示的影片，不会抓取全部分页。
+            </p>
             <SettingField id="listSortingAppendStrategy" label="追加新结果时">
               <SettingSelect
                 id="listSortingAppendStrategy"
@@ -1259,6 +1686,9 @@ function OtherTab({ form, setToggle, patchForm }: TabProps) {
             </SettingField>
           </div>
         ) : null}
+      </SettingSection>
+
+      <SettingSection title="影片热度特效">
         <SettingToggleRow
           id="enablePopularityEffects"
           label="人气高亮特效"
@@ -1304,7 +1734,7 @@ function OtherTab({ form, setToggle, patchForm }: TabProps) {
         ) : null}
       </SettingSection>
 
-      <SettingSection title="浏览与导航">
+      <SettingSection title="启用滚动翻页">
         <SettingToggleRow
           id="enableScrollPaging"
           label="启用滚动翻页"
@@ -1312,6 +1742,9 @@ function OtherTab({ form, setToggle, patchForm }: TabProps) {
           checked={form.enableScrollPaging}
           onChange={(v) => setToggle('enableScrollPaging', v)}
         />
+      </SettingSection>
+
+      <SettingSection title="超级排行榜">
         <SettingToggleRow
           id="enableSuperRanking"
           label="超级排行榜"
@@ -1319,6 +1752,9 @@ function OtherTab({ form, setToggle, patchForm }: TabProps) {
           checked={form.enableSuperRanking}
           onChange={(v) => setToggle('enableSuperRanking', v)}
         />
+      </SettingSection>
+
+      <SettingSection title="显示加载指示器">
         <SettingToggleRow
           id="veShowLoadingIndicator"
           label="显示加载指示器"

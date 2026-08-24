@@ -16,6 +16,8 @@ import {
   syncDashboardState,
   notifyJavdbTabsSettingsUpdated,
 } from '../shared/settingsPersist';
+import { getValue, setValue } from '../../../../../utils/storage';
+import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 
 export async function toast(
   message: string,
@@ -35,6 +37,24 @@ export async function toast(
 export async function loadEnhancementSettingsForm(): Promise<EnhancementSettingsFormState> {
   const settings = await getSettings();
   return mapSettingsToEnhancementForm(settings);
+}
+
+/**
+ * 读取演员页最近一次实际应用的过滤标签。
+ */
+export async function loadLastAppliedActorTags(): Promise<string[]> {
+  const raw = await getValue('lastAppliedActorTags', '');
+  return String(raw)
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+/**
+ * 清除演员页最近一次应用的过滤标签记录。
+ */
+export async function clearLastAppliedActorTags(): Promise<void> {
+  await setValue('lastAppliedActorTags', '');
 }
 
 /**
@@ -121,6 +141,133 @@ export function navigateToAISettings(): void {
   }
 }
 
+type OrchestratorBridge = {
+  [key: string]: unknown;
+  openOrchestratorModal: () => Promise<void>;
+  closeOrchestratorModal: () => void;
+  refreshOrchestratorState: () => Promise<void>;
+  renderOrchestratorTimeline: (items: unknown[]) => void;
+  startOrchestratorAutoRefresh: () => void;
+  unsubscribeOrchestratorEvents: () => void;
+  stopAllTaskDetails: () => Promise<void>;
+  clearGlobalTaskState: () => Promise<void>;
+  copyPhasesText: () => Promise<void>;
+  copyTimelineText: () => Promise<void>;
+};
+
+function orchestratorElement<T extends HTMLElement>(id: string): T | null {
+  return document.getElementById(id) as T | null;
+}
+
+function bindOrchestratorControl(
+  element: HTMLElement | null,
+  action: () => void,
+): void {
+  if (!element || element.dataset.reactOrchestratorBound === '1') return;
+  element.dataset.reactOrchestratorBound = '1';
+  element.addEventListener('click', action);
+}
+
+/**
+ * React 设置页复用全局调度中心，不初始化遗留设置面板，避免其 DOM 监听覆盖 React 状态。
+ */
+export async function openEnhancementOrchestrator(): Promise<void> {
+  const [{ getEnhancementSettings }, { TaskDetailsController }] = await Promise.all([
+    import('../../../../../dashboard/tabs/settings/enhancement'),
+    import('../../../../../dashboard/tabs/settings/enhancement/taskDetails/taskDetailsController'),
+  ]);
+  const bridge = (await getEnhancementSettings()) as unknown as OrchestratorBridge;
+
+  Object.assign(bridge, {
+    orchestratorModal: orchestratorElement('orchestratorModal'),
+    orchestratorModalClose: orchestratorElement<HTMLButtonElement>('orchestratorModalClose'),
+    orchestratorCloseBtn: orchestratorElement<HTMLButtonElement>('orchestratorCloseBtn'),
+    orchestratorRefreshBtn: orchestratorElement<HTMLButtonElement>('orchestratorRefreshBtn'),
+    orchestratorStopAllBtn: orchestratorElement<HTMLButtonElement>('orchestratorStopAllBtn'),
+    orchestratorClearGlobalBtn: orchestratorElement<HTMLButtonElement>('orchestratorClearGlobalBtn'),
+    orchestratorFullscreenBtn: orchestratorElement<HTMLButtonElement>('orchestratorFullscreenBtn'),
+    orchestratorCopyPhasesBtn: orchestratorElement<HTMLButtonElement>('orchestratorCopyPhasesBtn'),
+    orchestratorCopyTimelineBtn: orchestratorElement<HTMLButtonElement>('orchestratorCopyTimelineBtn'),
+    orchViewModeSel: orchestratorElement<HTMLSelectElement>('orchViewMode'),
+    orchFilterStatusSel: orchestratorElement<HTMLSelectElement>('orchFilterStatus'),
+    orchFilterPhaseSel: orchestratorElement<HTMLSelectElement>('orchFilterPhase'),
+    orchGlobalScopeSel: orchestratorElement<HTMLSelectElement>('orchGlobalScope'),
+    orchGlobalGroupingSel: orchestratorElement<HTMLSelectElement>('orchGlobalGrouping'),
+    orchFilterSearchInput: orchestratorElement<HTMLInputElement>('orchFilterSearch'),
+    orchestratorPhases: orchestratorElement('orchestratorPhases'),
+    orchestratorTimeline: orchestratorElement('orchestratorTimeline'),
+    orchestratorSummary: orchestratorElement('orchestratorSummary'),
+    orchestratorDag: orchestratorElement('orchestratorDag'),
+    orchestratorGrid: orchestratorElement('orchestratorGrid'),
+    orchestratorLegend: orchestratorElement('orchestratorLegend'),
+    orchestratorConnectionStatus: orchestratorElement('orchestratorConnectionStatus'),
+  });
+
+  bridge.taskDetailsController = new TaskDetailsController(bridge);
+  bindOrchestratorControl(
+    bridge.orchestratorModalClose as HTMLButtonElement | null,
+    () => bridge.closeOrchestratorModal(),
+  );
+  bindOrchestratorControl(
+    bridge.orchestratorCloseBtn as HTMLButtonElement | null,
+    () => bridge.closeOrchestratorModal(),
+  );
+  bindOrchestratorControl(
+    bridge.orchestratorRefreshBtn as HTMLButtonElement | null,
+    () => void bridge.refreshOrchestratorState(),
+  );
+  bindOrchestratorControl(
+    bridge.orchestratorStopAllBtn as HTMLButtonElement | null,
+    () => void bridge.stopAllTaskDetails(),
+  );
+  bindOrchestratorControl(
+    bridge.orchestratorClearGlobalBtn as HTMLButtonElement | null,
+    () => void bridge.clearGlobalTaskState(),
+  );
+  bindOrchestratorControl(
+    bridge.orchestratorCopyPhasesBtn as HTMLButtonElement | null,
+    () => void bridge.copyPhasesText(),
+  );
+  bindOrchestratorControl(
+    bridge.orchestratorCopyTimelineBtn as HTMLButtonElement | null,
+    () => void bridge.copyTimelineText(),
+  );
+
+  const timeline = bridge.orchestratorTimeline as HTMLElement | null;
+  const fullscreen = bridge.orchestratorFullscreenBtn as HTMLButtonElement | null;
+  bindOrchestratorControl(fullscreen, () => {
+    const content = orchestratorElement('orchestratorModalContent');
+    if (!content) return;
+    const expanded = content.classList.toggle('fullscreen');
+    if (fullscreen) fullscreen.textContent = expanded ? '退出全屏' : '全屏';
+    timeline?.scrollTo({ top: timeline.scrollHeight });
+  });
+
+  const filterStatus = bridge.orchFilterStatusSel as HTMLSelectElement | null;
+  const filterPhase = bridge.orchFilterPhaseSel as HTMLSelectElement | null;
+  const filterSearch = bridge.orchFilterSearchInput as HTMLInputElement | null;
+  const scope = bridge.orchGlobalScopeSel as HTMLSelectElement | null;
+  const grouping = bridge.orchGlobalGroupingSel as HTMLSelectElement | null;
+  const mode = bridge.orchViewModeSel as HTMLSelectElement | null;
+  const bindChange = (element: HTMLElement | null, event: 'change' | 'input', action: () => void) => {
+    if (!element || element.dataset.reactOrchestratorBound === '1') return;
+    element.dataset.reactOrchestratorBound = '1';
+    element.addEventListener(event, action);
+  };
+  bindChange(filterStatus, 'change', () => bridge.renderOrchestratorTimeline((bridge.orchestratorTimelineData as unknown[]) || []));
+  bindChange(filterPhase, 'change', () => bridge.renderOrchestratorTimeline((bridge.orchestratorTimelineData as unknown[]) || []));
+  bindChange(filterSearch, 'input', () => bridge.renderOrchestratorTimeline((bridge.orchestratorTimelineData as unknown[]) || []));
+  bindChange(scope, 'change', () => void bridge.refreshOrchestratorState());
+  bindChange(grouping, 'change', () => void bridge.refreshOrchestratorState());
+  bindChange(mode, 'change', () => {
+    bridge.unsubscribeOrchestratorEvents();
+    bridge.startOrchestratorAutoRefresh();
+    void bridge.refreshOrchestratorState();
+  });
+
+  await bridge.openOrchestratorModal();
+}
+
 /**
  * 导出编排诊断包（简化：告警诊断 + 版本信息）
  */
@@ -131,7 +278,7 @@ export async function exportOrchestrationDiagnostics(): Promise<{
   try {
     let alarmDiagnostics: Record<string, unknown> | null = null;
     try {
-      const resp = await chrome.runtime.sendMessage({ type: 'GET_ALARM_DIAGNOSTICS' });
+      const resp = await sendRuntimeMessage({ type: 'GET_ALARM_DIAGNOSTICS' });
       if (resp && typeof resp === 'object') {
         alarmDiagnostics = (resp as any).data || (resp as any);
       }
@@ -182,7 +329,7 @@ export async function exportOrchestrationDiagnostics(): Promise<{
  */
 export async function fetchAlarmDiagnosticsSummary(): Promise<string> {
   try {
-    const resp = await chrome.runtime.sendMessage({ type: 'GET_ALARM_DIAGNOSTICS' });
+    const resp = await sendRuntimeMessage({ type: 'GET_ALARM_DIAGNOSTICS' });
     if (!resp) return '未获取到后台定时诊断数据';
     const data = (resp as any).data || resp;
     const alarms = Array.isArray(data?.alarms)

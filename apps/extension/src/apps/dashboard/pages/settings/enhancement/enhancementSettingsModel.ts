@@ -49,7 +49,7 @@ export type EnhancementSettingsFormState = {
   showStatusBadge: boolean;
   enableStatusQuickAction: boolean;
   enableListFavoriteQuickAction: boolean;
-  enableResourceTags: boolean;
+  enableLibraryMatchStatus: boolean;
   enableListSorting: boolean;
   listSortingAppendStrategy: ListSortingAppendStrategy;
   listSortingAutoResortPosition: ListSortingPosition;
@@ -157,18 +157,18 @@ export const WATERMARK_POSITION_OPTIONS: { value: WatermarkPosition; label: stri
 ];
 
 export const LIST_SORTING_APPEND_OPTIONS: { value: ListSortingAppendStrategy; label: string }[] = [
-  { value: 'prompt', label: '询问后重排' },
-  { value: 'auto-resort', label: '自动重排' },
+  { value: 'prompt', label: '提示后手动重新排序' },
+  { value: 'auto-resort', label: '自动重新排序已加载影片' },
 ];
 
 export const LIST_SORTING_POSITION_OPTIONS: { value: ListSortingPosition; label: string }[] = [
   { value: 'preserve', label: '保持当前位置' },
-  { value: 'top', label: '回到顶部' },
+  { value: 'top', label: '回到排序结果顶部' },
 ];
 
 export const ACTOR_REMARKS_MODE_OPTIONS: { value: ActorRemarksMode; label: string }[] = [
-  { value: 'panel', label: '侧栏面板' },
-  { value: 'inline', label: '行内展示' },
+  { value: 'panel', label: '面板' },
+  { value: 'inline', label: '内嵌胶囊' },
 ];
 
 export const TRANSLATION_PROVIDER_OPTIONS: { value: TranslationProvider; label: string }[] = [
@@ -214,9 +214,12 @@ export const PASSWORD_SHOW_METHOD_OPTIONS = [
 ] as const;
 
 export const AUTO_MARK_STARS_OPTIONS = [
-  { value: '3', label: '3 星' },
-  { value: '4', label: '4 星' },
-  { value: '5', label: '5 星' },
+  { value: '0', label: '不评分' },
+  { value: '1', label: '1星' },
+  { value: '2', label: '2星' },
+  { value: '3', label: '3星' },
+  { value: '4', label: '4星' },
+  { value: '5', label: '5星' },
 ] as const;
 
 export const ACTOR_DEFAULT_TAG_OPTIONS = ACTOR_FILTER_TAGS.map((t) => ({
@@ -259,7 +262,7 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   showStatusBadge: true,
   enableStatusQuickAction: false,
   enableListFavoriteQuickAction: false,
-  enableResourceTags: false,
+  enableLibraryMatchStatus: false,
   enableListSorting: false,
   listSortingAppendStrategy: 'prompt',
   listSortingAutoResortPosition: 'preserve',
@@ -458,6 +461,7 @@ export function mapSettingsToEnhancementForm(
   const ph = s.passwordHelper || {};
   const cf = s.contentFilter || {};
   const siteAppearance = s.siteAppearance || {};
+  const libraryMatchStatus = s.libraryMatchStatus ?? le.libraryMatchStatus ?? {};
 
   return {
     enableContentFilter: !!(ux.enableContentFilter ?? cf.enabled),
@@ -499,7 +503,7 @@ export function mapSettingsToEnhancementForm(
     showStatusBadge: le.showStatusBadge !== false,
     enableStatusQuickAction: le.enableStatusQuickAction === true,
     enableListFavoriteQuickAction: le.enableListFavoriteQuickAction === true,
-    enableResourceTags: le.resourceTags === true,
+    enableLibraryMatchStatus: libraryMatchStatus.enabled === true,
     enableListSorting: sorting.enabled === true,
     listSortingAppendStrategy: normalizeAppendStrategy(sorting.appendStrategy),
     listSortingAutoResortPosition: normalizeSortPosition(sorting.autoResortPosition),
@@ -531,7 +535,7 @@ export function mapSettingsToEnhancementForm(
     veAutoMarkWatchedAfter115: ve.autoMarkWatchedAfter115 !== false,
     veAutoMarkWatchedStars: clamp(
       parseIntSafe(ve.autoMarkWatchedStars, DEFAULT_ENHANCEMENT_SETTINGS_FORM.veAutoMarkWatchedStars),
-      1,
+      0,
       5,
     ),
     enableVideoFavoriteRating: ve.enableVideoFavoriteRating === true,
@@ -652,6 +656,15 @@ export function applyEnhancementFormToSettings(
 
   return {
     ...current,
+    libraryMatchStatus: {
+      ...((current as any).libraryMatchStatus || {}),
+      enabled: form.enableLibraryMatchStatus,
+      sources: {
+        drive115: true,
+        emby: true,
+        ...((current as any).libraryMatchStatus?.sources || {}),
+      },
+    },
     magnetSearch: {
       ...existingMs,
       sources: {
@@ -788,7 +801,6 @@ export function applyEnhancementFormToSettings(
       showStatusBadge: form.showStatusBadge,
       enableStatusQuickAction: form.enableStatusQuickAction,
       enableListFavoriteQuickAction: form.enableListFavoriteQuickAction,
-      resourceTags: form.enableResourceTags,
       popularityEffects: {
         ...existingPop,
         enabled: form.enablePopularityEffects,
