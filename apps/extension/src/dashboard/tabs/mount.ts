@@ -67,6 +67,72 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
               console.debug('[mount] 设置子页：React 全页 enhancement-settings');
               return;
             }
+            if (subSection === 'display-settings') {
+              const { mountDisplaySettingsPage } = await import('../../apps/dashboard/pages/settings/display/mountDisplaySettingsPage');
+              mountDisplaySettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 display-settings');
+              return;
+            }
+            if (subSection === 'search-engine-settings') {
+              const { mountSearchEngineSettingsPage } = await import('../../apps/dashboard/pages/settings/searchEngine/mountSearchEngineSettingsPage');
+              mountSearchEngineSettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 search-engine-settings');
+              return;
+            }
+            if (subSection === 'ai-settings') {
+              const { mountAISettingsPage } = await import('../../apps/dashboard/pages/settings/ai/mountAISettingsPage');
+              mountAISettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 ai-settings');
+              return;
+            }
+            if (subSection === 'privacy-settings') {
+              const { mountPrivacySettingsPage } = await import('../../apps/dashboard/pages/settings/privacy/mountPrivacySettingsPage');
+              mountPrivacySettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 privacy-settings');
+              return;
+            }
+            if (subSection === 'webdav-settings') {
+              const { mountWebdavSettingsPage } = await import('../../apps/dashboard/pages/settings/webdav/mountWebdavSettingsPage');
+              mountWebdavSettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 webdav-settings');
+              return;
+            }
+            if (subSection === 'sync-settings') {
+              const { mountSyncSettingsPage } = await import('../../apps/dashboard/pages/settings/sync/mountSyncSettingsPage');
+              mountSyncSettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 sync-settings');
+              return;
+            }
+            if (subSection === 'insights-settings') {
+              const { mountInsightsSettingsPage } = await import('../../apps/dashboard/pages/settings/insights/mountInsightsSettingsPage');
+              mountInsightsSettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 insights-settings');
+              return;
+            }
+            if (subSection === 'log-settings') {
+              const { mountLogSettingsPage } = await import('../../apps/dashboard/pages/settings/log/mountLogSettingsPage');
+              mountLogSettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 log-settings');
+              return;
+            }
+            if (subSection === 'advanced-settings') {
+              const { mountAdvancedSettingsPage } = await import('../../apps/dashboard/pages/settings/advanced/mountAdvancedSettingsPage');
+              mountAdvancedSettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 advanced-settings');
+              return;
+            }
+            if (subSection === 'network-test-settings') {
+              const { mountNetworkTestSettingsPage } = await import('../../apps/dashboard/pages/settings/networkTest/mountNetworkTestSettingsPage');
+              mountNetworkTestSettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 network-test-settings');
+              return;
+            }
+            if (subSection === 'global-actions') {
+              const { mountGlobalActionsPage } = await import('../../apps/dashboard/pages/settings/globalActions/mountGlobalActionsPage');
+              mountGlobalActionsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 global-actions');
+              return;
+            }
           }
         } catch (e) {
           console.warn('[mount] React 全页设置挂载失败，回退 partial（若有）', e);
@@ -154,4 +220,3 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
     console.warn('[Dashboard] mountTabIfNeeded failed for', tabId, e);
   }
 }
-

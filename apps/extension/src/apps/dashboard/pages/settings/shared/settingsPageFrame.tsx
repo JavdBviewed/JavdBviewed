@@ -8,6 +8,7 @@ import { PageHeader } from '../../../../../ui/patterns/PageHeader/PageHeader';
 import { cn } from '../../../../../ui/lib/cn';
 import { SettingsSectionNavLayout, type SettingsSectionNavItem } from './SettingsSectionNav';
 import '../settingsSubpageShell.css';
+import './settingsReactFidelity.css';
 
 export type SettingsPageFrameProps = {
   title: string;
@@ -41,7 +42,7 @@ export function SettingsPageFrame({
     >
       <div className="ssp-back-bar">
         <button type="button" className="ssp-back" data-action="back-to-settings">
-          ← 返回设置
+          <i className="fas fa-arrow-left" aria-hidden="true" /> 返回设置
         </button>
       </div>
       <div className="mx-auto w-full max-w-[1200px] px-1">

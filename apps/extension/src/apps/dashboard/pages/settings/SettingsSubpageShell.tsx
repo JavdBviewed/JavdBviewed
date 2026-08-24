@@ -31,7 +31,7 @@ export function SettingsSubpageShell({
     <div className="ssp-page" data-settings-subpage="react-shell">
       <div className="ssp-back-bar">
         <button type="button" className="ssp-back" data-action="back-to-settings">
-          ← 返回设置
+          <i className="fas fa-arrow-left" aria-hidden="true" /> 返回设置
         </button>
       </div>
       <div className="ssp-body" id={bodyHostId} data-settings-panel-host="1">
