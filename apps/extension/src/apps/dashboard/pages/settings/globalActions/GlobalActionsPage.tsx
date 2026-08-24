@@ -23,6 +23,7 @@ export function GlobalActionsPage() {
       title="全局操作"
       description="执行全局性的数据管理操作。请谨慎使用这些功能。"
       rootDataAttrs={{ 'data-global-actions-react': '1' }}
+      pageId="global-actions"
     >
       <div className="flex flex-col gap-4" id="global-actions">
         <SettingSection title="全局数据操作" description="影响本地数据、缓存和扩展运行状态的危险操作。">

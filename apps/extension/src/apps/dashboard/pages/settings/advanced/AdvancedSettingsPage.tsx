@@ -56,6 +56,7 @@ export function AdvancedSettingsPage() {
       title="高级配置"
       description="高级用户可以在此处查看和编辑原始配置数据。"
       rootDataAttrs={{ 'data-advanced-settings-react': '1' }}
+      pageId="advanced-settings"
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>

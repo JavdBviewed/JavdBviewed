@@ -106,6 +106,7 @@ export function InsightsSettingsPage() {
       title="报告设置"
       description="配置报告生成所用的聚合参数，仅影响本地统计与 AI 提示词输入。"
       rootDataAttrs={{ 'data-insights-settings-react': '1' }}
+      pageId="insights-settings"
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>

@@ -215,6 +215,7 @@ export function LogSettingsPage() {
       title="日志设置"
       description="配置扩展程序的日志记录行为。"
       rootDataAttrs={{ 'data-log-settings-react': '1' }}
+      pageId="log-settings"
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>

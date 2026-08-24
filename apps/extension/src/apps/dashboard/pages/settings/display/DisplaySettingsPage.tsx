@@ -90,6 +90,7 @@ export function DisplaySettingsPage() {
       title="列表显示设置"
       description="控制在JavDB网站上访问时，是否自动隐藏符合条件的影片。"
       rootDataAttrs={{ 'data-display-settings-react': '1' }}
+      pageId="display-settings"
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>

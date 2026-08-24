@@ -129,6 +129,7 @@ export function SyncSettingsPage() {
       title="同步设置"
       description="配置从JavDB同步观看记录、想看列表和演员数据的URL地址和行为参数。"
       rootDataAttrs={{ 'data-sync-settings-react': '1' }}
+      pageId="sync-settings"
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>

@@ -383,6 +383,7 @@ export function AISettingsPage() {
       title="AI设置"
       description="配置AI功能，对接New API兼容的AI服务，支持流式对话和多模型选择。"
       rootDataAttrs={{ 'data-ai-settings-react': '1' }}
+      pageId="ai-settings"
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>

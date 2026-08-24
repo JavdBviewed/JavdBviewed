@@ -174,6 +174,7 @@ export function PrivacySettingsPage() {
       title="隐私保护设置"
       description="配置截图模式和私密模式，保护您的隐私数据不被意外泄露。"
       rootDataAttrs={{ 'data-privacy-settings-react': '1' }}
+      pageId="privacy-settings"
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>

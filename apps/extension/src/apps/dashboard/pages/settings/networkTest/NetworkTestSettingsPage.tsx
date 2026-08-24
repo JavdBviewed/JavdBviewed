@@ -451,6 +451,7 @@ export function NetworkTestSettingsPage() {
       title="网络配置"
       description="配置网络加速和测试拓展涉及的所有外部服务的网络连通性。"
       rootDataAttrs={{ 'data-network-test-settings-react': '1' }}
+      pageId="network-test-settings"
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>

@@ -484,6 +484,7 @@ export function WebdavSettingsPage() {
       title="WebDAV同步"
       description="通过WebDAV协议，将您的观看记录备份到兼容的云存储服务（如：坚果云、Nextcloud等）。"
       rootDataAttrs={{ 'data-webdav-settings-react': '1' }}
+      pageId="webdav-settings"
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>

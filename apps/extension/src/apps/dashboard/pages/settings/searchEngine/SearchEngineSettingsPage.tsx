@@ -195,6 +195,7 @@ export function SearchEngineSettingsPage() {
       title="搜索引擎设置"
       description="自定义点击番号后跳转的搜索网站。使用 {{ID}} 作为番号占位符。"
       rootDataAttrs={{ 'data-search-engine-settings-react': '1' }}
+      pageId="search-engine-settings"
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>

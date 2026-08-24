@@ -280,6 +280,7 @@ export function EnhancementSettingsPage() {
         title="功能增强设置"
         description="加载中…"
         rootDataAttrs={{ 'data-enhancement-settings-react': '1' }}
+        pageId="enhancement-settings"
       >
         <p className="text-sm text-[var(--color-fg-muted)]">正在加载增强设置…</p>
       </SettingsPageFrame>
@@ -291,6 +292,7 @@ export function EnhancementSettingsPage() {
       title="功能增强设置"
       description="解锁列表/影片/演员页增强与其它体验优化；变更自动保存。"
       rootDataAttrs={{ 'data-enhancement-settings-react': '1' }}
+      pageId="enhancement-settings"
       className="enhancement-settings-react"
     >
       <div id="enhancement-settings" className="flex flex-col gap-4" data-settings-page="enhancement">
