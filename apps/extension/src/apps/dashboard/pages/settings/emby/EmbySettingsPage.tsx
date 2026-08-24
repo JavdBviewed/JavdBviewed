@@ -13,6 +13,7 @@ import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingS
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import type { EmbyMediaServer, EmbyServerType } from '../../../../../features/embyLibrary/types';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import { SettingsSectionNavLayout, type SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import { SettingsHighlightNotice } from '../shared/SettingsHighlightNotice';
 import {
   getSettings,
@@ -309,6 +310,14 @@ export function EmbySettingsPage() {
     }
   };
 
+  const sectionNavItems: SettingsSectionNavItem[] = [
+    { id: 'emby-nav-media-server', label: '媒体服务器', shortLabel: '服务器' },
+    { id: 'emby-nav-recognition', label: '番号识别与链接', shortLabel: '识别' },
+    { id: 'emby-nav-link-behavior', label: '链接行为', shortLabel: '链接' },
+    { id: 'emby-nav-quick-actions', label: '快捷按钮', shortLabel: '按钮' },
+    { id: 'emby-nav-library-status', label: '媒体库入库状态', shortLabel: '入库' },
+  ];
+
   return (
     <SettingsPageFrame
       title="Emby/Jellyfin 增强设置"
@@ -331,7 +340,9 @@ export function EmbySettingsPage() {
             反馈现象、截图和日志。
           </SettingsHighlightNotice>
 
+          <SettingsSectionNavLayout items={sectionNavItems}>
           <SettingSection
+            id="emby-nav-media-server"
             title="媒体服务器"
             description="配置 Emby/Jellyfin 服务器地址、API Key，以及用户登录令牌。"
           >
@@ -446,6 +457,7 @@ export function EmbySettingsPage() {
           </SettingSection>
 
           <SettingSection
+            id="emby-nav-recognition"
             title="番号识别与链接"
             description="自动识别页面中的番号并转换为可点击的 JavDB 链接。"
           >
@@ -517,7 +529,7 @@ export function EmbySettingsPage() {
             </SettingSection>
           </SettingSection>
 
-          <SettingSection title="链接行为">
+          <SettingSection id="emby-nav-link-behavior" title="链接行为">
             <SettingField
               id="emby-link-behavior"
               label="点击番号后的行为"
@@ -537,7 +549,7 @@ export function EmbySettingsPage() {
             </SettingField>
           </SettingSection>
 
-          <SettingSection title="快捷按钮">
+          <SettingSection id="emby-nav-quick-actions" title="快捷按钮">
             <SettingToggleRow
               id="emby-show-quick-search-code"
               label='显示"搜番号"按钮'
@@ -556,7 +568,7 @@ export function EmbySettingsPage() {
             />
           </SettingSection>
 
-          <SettingSection title="媒体库入库状态">
+          <SettingSection id="emby-nav-library-status" title="媒体库入库状态">
             <SettingToggleRow
               id="emby-library-status-enabled"
               label="显示 Emby/Jellyfin 入库状态"
@@ -610,6 +622,8 @@ export function EmbySettingsPage() {
               />
             </SettingField>
           </SettingSection>
+
+          </SettingsSectionNavLayout>
 
           <SettingSection title="使用说明">
             <ul className="m-0 list-disc px-6 py-2 text-[13px] leading-relaxed text-[var(--color-fg-muted)]">

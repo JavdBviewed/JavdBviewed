@@ -99,6 +99,20 @@ describe('EmbySettingsPage media server layout', () => {
     expect(pageSource).toContain('setEditingServerIndex(null)');
   });
 
+  it('restores the in-page section quick-nav for the split Emby page', () => {
+    expect(pageSource).toContain('SettingsSectionNavLayout');
+    expect(pageSource).toContain('sectionNavItems');
+    for (const id of [
+      'emby-nav-media-server',
+      'emby-nav-recognition',
+      'emby-nav-link-behavior',
+      'emby-nav-quick-actions',
+      'emby-nav-library-status',
+    ]) {
+      expect(pageSource).toContain(id);
+    }
+  });
+
   it('keeps source management available when the global enhancement is disabled', () => {
     expect(pageSource).toContain('<MediaServerSummaryRow');
     expect(pageSource).not.toMatch(/<MediaServerSummaryRow[\s\S]{0,240}disabled=\{!enabled\}/);

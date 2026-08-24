@@ -690,6 +690,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
       });
       const summary = page.locator('.emby-media-server-summary').filter({ hasText: '主服务器' });
       await expect(summary).toBeVisible();
+      await expect(page.locator('.settings-section-nav')).toBeVisible();
       await summary.getByRole('button', { name: '编辑' }).click();
 
       const dialog = page.locator('#embyEditModal [role="dialog"]');
