@@ -5,6 +5,7 @@
  */
 import type { EmbyLibraryIndexEntry } from '../../../../../features/embyLibrary/types';
 import { buildMediaItemUrl } from '../../../../../features/embyLibrary/domain/libraryIndex';
+import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 import {
   getSettings,
   saveSettings,
@@ -106,25 +107,6 @@ export function notifyTabsSettingsUpdated(settings: unknown): void {
   } catch {
     /* ignore */
   }
-}
-
-/**
- * chrome.runtime.sendMessage Promise 包装
- */
-export function sendRuntimeMessage<TResponse = unknown>(message: unknown): Promise<TResponse> {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.runtime.sendMessage(message, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        resolve(response as TResponse);
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
 }
 
 export type EmbyUserLoginResult =

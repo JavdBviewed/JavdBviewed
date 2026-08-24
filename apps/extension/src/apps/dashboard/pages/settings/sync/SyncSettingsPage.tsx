@@ -3,7 +3,7 @@
  * @description 同步设置 React 全页
  * @module apps/dashboard/pages/settings/sync
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
 import { SettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
@@ -46,6 +46,8 @@ export function SyncSettingsPage() {
   const [testResult, setTestResult] = useState<SyncTestResult | null>(null);
   const [testingConn, setTestingConn] = useState(false);
   const [testingParse, setTestingParse] = useState(false);
+  const formRef = useRef(form);
+  formRef.current = form;
 
   const persist = useCallback(async (nextForm: SyncSettingsFormState) => {
     const v = validateSyncForm(nextForm);
@@ -76,7 +78,9 @@ export function SyncSettingsPage() {
       try {
         const settings = await getSettings();
         if (cancelled) return;
-        setForm(mapSettingsToSyncForm(settings));
+        const next = mapSettingsToSyncForm(settings);
+        formRef.current = next;
+        setForm(next);
       } catch (err) {
         console.error('[SyncSettingsPage] load failed', err);
       } finally {
@@ -90,11 +94,10 @@ export function SyncSettingsPage() {
 
   const update = useCallback(
     <K extends keyof SyncSettingsFormState>(key: K, value: SyncSettingsFormState[K]) => {
-      setForm((prev) => {
-        const next = { ...prev, [key]: value };
-        scheduleSave(next);
-        return next;
-      });
+      const next = { ...formRef.current, [key]: value };
+      formRef.current = next;
+      setForm(next);
+      scheduleSave(next);
     },
     [scheduleSave],
   );
@@ -133,6 +136,7 @@ export function SyncSettingsPage() {
         <div className="flex flex-col gap-4" id="sync-settings">
           <SettingSection
             title="视频数据同步配置"
+            icon={<i className="fas fa-video" />}
             description="配置观看记录和想看列表的同步URL地址，页码参数将由程序自动添加。"
           >
             <SettingField
@@ -163,6 +167,7 @@ export function SyncSettingsPage() {
 
           <SettingSection
             title="演员数据同步配置"
+            icon={<i className="fas fa-users" />}
             description="配置演员数据同步的行为和URL地址。"
           >
             <SettingToggleRow
@@ -227,6 +232,7 @@ export function SyncSettingsPage() {
 
           <SettingSection
             title="通用同步行为配置"
+            icon={<i className="fas fa-cog" />}
             description="配置所有数据同步时的请求间隔和批量处理设置。"
           >
             <div className="grid gap-1 sm:grid-cols-2">
@@ -335,7 +341,7 @@ export function SyncSettingsPage() {
             </div>
           </SettingSection>
 
-          <SettingSection title="测试功能" description="测试同步配置是否正确。">
+          <SettingSection title="测试功能" icon={<i className="fas fa-vial" />} description="测试同步配置是否正确。">
             <div className="flex flex-wrap gap-2 px-2 py-2">
               <Button
                 id="testActorSyncConnection"
@@ -343,6 +349,7 @@ export function SyncSettingsPage() {
                 disabled={actorDisabled || testingConn}
                 onClick={() => void onTestConnection()}
               >
+                <i className="fas fa-plug" aria-hidden="true" />{' '}
                 {testingConn ? '测试中…' : '测试演员同步连接'}
               </Button>
               <Button
@@ -351,6 +358,7 @@ export function SyncSettingsPage() {
                 disabled={actorDisabled || testingParse}
                 onClick={() => void onTestParsing()}
               >
+                <i className="fas fa-vial" aria-hidden="true" />{' '}
                 {testingParse ? '测试中…' : '测试演员数据解析'}
               </Button>
             </div>

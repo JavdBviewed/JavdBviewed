@@ -22,8 +22,10 @@ describe('EmbySettingsPage media server layout', () => {
   it('routes emby settings to the React full page so summary rows are actually used', () => {
     expect(reactFullSource).toContain("'emby-settings'");
     expect(mountSource).toContain('mountEmbySettingsPage');
-    expect(legacySettingsSource).toContain("'emby-settings'");
-    expect(legacySettingsSource).toContain("['cloud-settings', 'drive115-settings', 'emby-settings']");
+    expect(legacySettingsSource).toContain('isReactFullSettingsPage');
+    for (const pageId of ['cloud-settings', 'drive115-settings', 'emby-settings']) {
+      expect(reactFullSource).toContain(`'${pageId}'`);
+    }
   });
 
   it('renders media servers as compact summary rows', () => {

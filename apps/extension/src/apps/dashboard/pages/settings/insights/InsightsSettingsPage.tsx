@@ -3,7 +3,7 @@
  * @description 报告设置 React 全页
  * @module apps/dashboard/pages/settings/insights
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Input } from '../../../../../ui/primitives/Input/Input';
 import { SettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
 import { SettingField } from '../../../../../ui/patterns/SettingField/SettingField';
@@ -43,6 +43,8 @@ export function InsightsSettingsPage() {
   const [form, setForm] = useState<InsightsSettingsFormState>(DEFAULT_INSIGHTS_SETTINGS_FORM);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const formRef = useRef(form);
+  formRef.current = form;
 
   const persist = useCallback(async (nextForm: InsightsSettingsFormState) => {
     const v = validateInsightsForm(nextForm);
@@ -73,7 +75,9 @@ export function InsightsSettingsPage() {
       try {
         const settings = await getSettings();
         if (cancelled) return;
-        setForm(mapSettingsToInsightsForm(settings));
+        const next = mapSettingsToInsightsForm(settings);
+        formRef.current = next;
+        setForm(next);
       } catch (err) {
         console.error('[InsightsSettingsPage] load failed', err);
       } finally {
@@ -87,11 +91,10 @@ export function InsightsSettingsPage() {
 
   const update = useCallback(
     <K extends keyof InsightsSettingsFormState>(key: K, value: InsightsSettingsFormState[K]) => {
-      setForm((prev) => {
-        const next = { ...prev, [key]: value };
-        scheduleSave(next);
-        return next;
-      });
+      const next = { ...formRef.current, [key]: value };
+      formRef.current = next;
+      setForm(next);
+      scheduleSave(next);
     },
     [scheduleSave],
   );
@@ -137,7 +140,11 @@ export function InsightsSettingsPage() {
 
           <SettingSection title="聚合参数" description="配置报告数据的聚合方式和统计维度。">
             <div className="grid gap-1 sm:grid-cols-2">
-              <SettingField id="insightsTopN" label="Top N 排行数量" description="1-50">
+              <SettingField
+                id="insightsTopN"
+                label={<InsightsLabel text="Top N 排行数量" help="排行榜显示的条目数量（1-50）" />}
+                description="1-50"
+              >
                 <Input
                   id="insightsTopN"
                   type="number"
@@ -147,7 +154,11 @@ export function InsightsSettingsPage() {
                   onChange={(e) => update('topN', parseNum(e.currentTarget.value, form.topN))}
                 />
               </SettingField>
-              <SettingField id="insightsMinTagCount" label="最小标签计数" description="0-999">
+              <SettingField
+                id="insightsMinTagCount"
+                label={<InsightsLabel text="最小标签计数" help="标签至少出现的次数才会被统计（0-999）" />}
+                description="0-999"
+              >
                 <Input
                   id="insightsMinTagCount"
                   type="number"
@@ -161,7 +172,7 @@ export function InsightsSettingsPage() {
               </SettingField>
               <SettingField
                 id="insightsChangeThresholdRatio"
-                label="显著变化阈值"
+                label={<InsightsLabel text="显著变化阈值" help="判断趋势显著变化的阈值比例（0-1）" />}
                 description="0-1"
               >
                 <Input
@@ -179,7 +190,11 @@ export function InsightsSettingsPage() {
                   }
                 />
               </SettingField>
-              <SettingField id="insightsRisingLimit" label="上升标签展示数" description="0-50">
+              <SettingField
+                id="insightsRisingLimit"
+                label={<InsightsLabel text="上升标签展示数" help="显示上升趋势标签的数量（0-50）" />}
+                description="0-50"
+              >
                 <Input
                   id="insightsRisingLimit"
                   type="number"
@@ -191,7 +206,11 @@ export function InsightsSettingsPage() {
                   }
                 />
               </SettingField>
-              <SettingField id="insightsFallingLimit" label="下降标签展示数" description="0-50">
+              <SettingField
+                id="insightsFallingLimit"
+                label={<InsightsLabel text="下降标签展示数" help="显示下降趋势标签的数量（0-50）" />}
+                description="0-50"
+              >
                 <Input
                   id="insightsFallingLimit"
                   type="number"
@@ -205,7 +224,7 @@ export function InsightsSettingsPage() {
               </SettingField>
               <SettingField
                 id="insightsMinMonthlySamples"
-                label="最小月度样本量"
+                label={<InsightsLabel text="最小月度样本量" help="月报生成所需的最小样本数量（0-999）" />}
                 description="0-999"
               >
                 <Input
@@ -280,5 +299,21 @@ export function InsightsSettingsPage() {
         </div>
       )}
     </SettingsPageFrame>
+  );
+}
+
+function InsightsLabel({ text, help }: { text: string; help: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span>{text}</span>
+      <button
+        type="button"
+        className="help-btn inline-flex h-4 w-4 items-center justify-center rounded-full"
+        title={help}
+        aria-label={help}
+      >
+        <i className="fas fa-question-circle" aria-hidden="true" />
+      </button>
+    </span>
   );
 }

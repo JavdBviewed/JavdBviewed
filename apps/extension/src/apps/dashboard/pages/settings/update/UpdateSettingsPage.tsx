@@ -189,6 +189,7 @@ export function UpdateSettingsPage() {
           <SettingSection
             id={UPDATE_SECTION_IDS.version}
             title="版本检查"
+            icon={<i className="fas fa-sync-alt" />}
             description="进入此页面会实时检查 GitHub 最新发布，自动检查间隔只用于顶部徽标和后台提醒。"
           >
             <div className="flex flex-col gap-3 px-2 py-2">
@@ -199,6 +200,7 @@ export function UpdateSettingsPage() {
                   disabled={checking}
                   onClick={() => void checkUpdates(form, false)}
                 >
+                  <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
                   {checking ? '检查中…' : '立即检查'}
                 </Button>
                 {hasUpdate ? (
@@ -207,13 +209,13 @@ export function UpdateSettingsPage() {
                     variant="secondary"
                     onClick={() => openDownload(downloadUrl)}
                   >
-                    下载更新
+                    <i className="fas fa-download" aria-hidden="true" /> 下载更新
                   </Button>
                 ) : (
                   <button id="downloadUpdate" type="button" className="hidden" aria-hidden />
                 )}
                 <Button id="viewChangelog" variant="ghost" onClick={() => openChangelog()}>
-                  查看更新日志
+                  <i className="fas fa-file-alt" aria-hidden="true" /> 查看更新日志
                 </Button>
               </div>
 
@@ -266,6 +268,7 @@ export function UpdateSettingsPage() {
           <SettingSection
             id={UPDATE_SECTION_IDS.automatic}
             title="自动检查设置"
+            icon={<i className="fas fa-cog" />}
             description="用于 dashboard 顶部徽标和自动提醒，不影响本页面实时检查"
           >
             <SettingToggleRow
@@ -304,6 +307,7 @@ export function UpdateSettingsPage() {
           <SettingSection
             id={UPDATE_SECTION_IDS.products}
             title="JavdBviewed 系列产品"
+            icon={<i className="fas fa-info-circle" />}
             description="围绕媒体收藏、跨端观看与自建同步服务持续建设。"
           >
             <div className="grid gap-2 px-2 py-2 sm:grid-cols-2">
@@ -375,6 +379,7 @@ export function UpdateSettingsPage() {
           <SettingSection
             id={UPDATE_SECTION_IDS.community}
             title="社区与文档"
+            icon={<i className="fas fa-life-ring" />}
             description="获取使用帮助、加入社区或反馈问题。"
           >
             <div className="grid gap-2 px-2 py-2 sm:grid-cols-3">
@@ -405,7 +410,7 @@ export function UpdateSettingsPage() {
             </div>
           </SettingSection>
 
-          <SettingSection id={UPDATE_SECTION_IDS.details} title="版本详情">
+          <SettingSection id={UPDATE_SECTION_IDS.details} title="版本详情" icon={<i className="fas fa-code-branch" />}>
             <div ref={versionInfoRef} className="dashboard-version-info px-2 py-2" />
           </SettingSection>
         </div>

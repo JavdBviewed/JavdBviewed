@@ -168,7 +168,7 @@ function Drive115IndexReportModal({
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--color-border)] px-4 py-3">
           <h2 className="text-base font-bold tracking-tight">{title}</h2>
           <Button variant="ghost" size="sm" onClick={onClose} aria-label="关闭">
-            ✕
+            <i className="fas fa-times" aria-hidden="true" />
           </Button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-4 py-3 text-sm text-[var(--color-fg-muted)]">
@@ -728,6 +728,7 @@ export function Drive115SettingsPage() {
         const settings = await getSettings();
         if (cancelled) return;
         const next = mapSettingsToDrive115Form(settings);
+        formRef.current = next;
         setForm(next);
         if (next.v2UserInfo) {
           setUserInfoStatus({
@@ -769,24 +770,25 @@ export function Drive115SettingsPage() {
       if (areaName !== 'local' || !changes.settings) return;
       const newVal = changes.settings.newValue || {};
       const mapped = mapSettingsToDrive115Form(newVal);
-      setForm((prev) => {
-        // 若用户正在编辑且内容相同则跳过
-        if (
-          prev.v2AccessToken === mapped.v2AccessToken &&
-          prev.v2RefreshToken === mapped.v2RefreshToken &&
-          prev.v2TokenExpiresAt === mapped.v2TokenExpiresAt &&
-          prev.enabled === mapped.enabled &&
-          prev.v2AuthMode === mapped.v2AuthMode &&
-          prev.v2ClientId === mapped.v2ClientId &&
-          prev.downloadDir === mapped.downloadDir &&
-          prev.downloadDirName === mapped.downloadDirName &&
-          prev.downloadDirPath === mapped.downloadDirPath &&
-          prev.skipManualPushDirectoryPicker === mapped.skipManualPushDirectoryPicker
-        ) {
-          return prev;
-        }
-        return { ...prev, ...mapped };
-      });
+      const prev = formRef.current;
+      // 若用户正在编辑且内容相同则跳过
+      if (
+        prev.v2AccessToken === mapped.v2AccessToken &&
+        prev.v2RefreshToken === mapped.v2RefreshToken &&
+        prev.v2TokenExpiresAt === mapped.v2TokenExpiresAt &&
+        prev.enabled === mapped.enabled &&
+        prev.v2AuthMode === mapped.v2AuthMode &&
+        prev.v2ClientId === mapped.v2ClientId &&
+        prev.downloadDir === mapped.downloadDir &&
+        prev.downloadDirName === mapped.downloadDirName &&
+        prev.downloadDirPath === mapped.downloadDirPath &&
+        prev.skipManualPushDirectoryPicker === mapped.skipManualPushDirectoryPicker
+      ) {
+        return;
+      }
+      const next = { ...prev, ...mapped };
+      formRef.current = next;
+      setForm(next);
     };
     chrome.storage.onChanged.addListener(handler);
     return () => {
@@ -807,29 +809,27 @@ export function Drive115SettingsPage() {
       value: Drive115SettingsFormState[K],
       options?: { immediate?: boolean },
     ) => {
-      setForm((prev) => {
-        const next = { ...prev, [key]: value };
-        if (options?.immediate) {
-          void flush(next);
-        } else {
-          scheduleSave(next);
-        }
-        return next;
-      });
+      const next = { ...formRef.current, [key]: value };
+      formRef.current = next;
+      setForm(next);
+      if (options?.immediate) {
+        void flush(next);
+      } else {
+        scheduleSave(next);
+      }
     },
     [flush, scheduleSave],
   );
 
   const patchForm = useCallback(
     (patch: Partial<Drive115SettingsFormState>, options?: { save?: boolean; immediate?: boolean }) => {
-      setForm((prev) => {
-        const next = { ...prev, ...patch };
-        if (options?.save !== false) {
-          if (options?.immediate) void flush(next);
-          else scheduleSave(next);
-        }
-        return next;
-      });
+      const next = { ...formRef.current, ...patch };
+      formRef.current = next;
+      setForm(next);
+      if (options?.save !== false) {
+        if (options?.immediate) void flush(next);
+        else scheduleSave(next);
+      }
     },
     [flush, scheduleSave],
   );
@@ -865,7 +865,9 @@ export function Drive115SettingsPage() {
       setAuthStatus({ message: result.message, kind: result.kind });
 
       if (result.formPatch) {
-        setForm((prev) => ({ ...prev, ...result.formPatch }));
+        const next = { ...formRef.current, ...result.formPatch };
+        formRef.current = next;
+        setForm(next);
       }
       if (result.userInfo) {
         setUserInfoStatus({ message: '账号信息已更新', kind: 'ok' });
@@ -924,7 +926,9 @@ export function Drive115SettingsPage() {
       const result = await validateDrive115Token(formRef.current);
       if (result.success) {
         if (result.formPatch) {
-          setForm((prev) => ({ ...prev, ...result.formPatch }));
+          const next = { ...formRef.current, ...result.formPatch };
+          formRef.current = next;
+          setForm(next);
         }
         setUserInfoStatus({ message: result.message, kind: 'ok' });
       } else {
@@ -943,7 +947,9 @@ export function Drive115SettingsPage() {
       const result = await manualRefreshAccessToken(formRef.current);
       if (result.success) {
         if (result.formPatch) {
-          setForm((prev) => ({ ...prev, ...result.formPatch }));
+          const next = { ...formRef.current, ...result.formPatch };
+          formRef.current = next;
+          setForm(next);
         }
         setUserInfoStatus({ message: result.message, kind: 'ok' });
       } else {
@@ -1032,7 +1038,9 @@ export function Drive115SettingsPage() {
       // 刷新表单中的 lastIndex 元数据
       try {
         const settings = await getSettings();
-        setForm(mapSettingsToDrive115Form(settings));
+        const next = mapSettingsToDrive115Form(settings);
+        formRef.current = next;
+        setForm(next);
       } catch {
         /* ignore */
       }
@@ -1165,7 +1173,7 @@ export function Drive115SettingsPage() {
     >
       <div className="ssp-back-bar">
         <button type="button" className="ssp-back settings-back-btn" data-action="back-to-settings">
-          ← 返回设置
+          <i className="fas fa-arrow-left" aria-hidden="true" /> 返回设置
         </button>
       </div>
       <div className="settings-page-header">
@@ -1975,7 +1983,7 @@ export function Drive115SettingsPage() {
                         size="sm"
                         onClick={() => setIndexDialogMode('latest')}
                       >
-                        上次记录
+                        <i className="fas fa-file-alt" aria-hidden="true" /> 上次记录
                       </Button>
                     ) : null}
                     <Button
@@ -1985,7 +1993,7 @@ export function Drive115SettingsPage() {
                       size="sm"
                       onClick={() => setIndexDialogMode('history')}
                     >
-                      索引历史{indexHistory.length ? '（' + indexHistory.length + '）' : ''}
+                      <i className="fas fa-history" aria-hidden="true" /> 索引历史{indexHistory.length ? '（' + indexHistory.length + '）' : ''}
                     </Button>
                   </div>
                 ) : null}

@@ -15,6 +15,7 @@ import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingS
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import { SettingsHighlightNotice } from '../shared/SettingsHighlightNotice';
+import { showConfirm } from '../../../../../dashboard/components/confirmModal';
 import type { SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import {
   createExtensionCloudFacade,
@@ -432,7 +433,7 @@ export function CloudSettingsPage() {
       }
     });
 
-  const onRevokeDevice = (device: DeviceInfo) => {
+  const onRevokeDevice = async (device: DeviceInfo): Promise<void> => {
     if (!settings) return;
     if (device.id === settings.deviceId) {
       setStatus('不能移除本机设备', 'warn');
@@ -440,7 +441,13 @@ export function CloudSettingsPage() {
       return;
     }
     const label = device.label || device.id.slice(0, 8);
-    if (!window.confirm(`确定踢出设备「${label}」？\n该设备需重新登录后才能同步。`)) {
+    const confirmed = await showConfirm({
+      title: '移除设备',
+      message: `确定踢出设备「${label}」？\n该设备需重新登录后才能同步。`,
+      type: 'danger',
+      confirmText: '移除设备',
+    });
+    if (!confirmed) {
       return;
     }
     void withBusy(`revoke:${device.id}`, async () => {
@@ -729,6 +736,7 @@ export function CloudSettingsPage() {
             disabled={busy || !loggedIn}
             onClick={() => onRefreshDevices()}
           >
+            <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
             {busyAction === 'devices' ? '刷新中…' : '刷新列表'}
           </Button>
         </div>
@@ -775,6 +783,7 @@ export function CloudSettingsPage() {
                         disabled={busy}
                         onClick={() => onRevokeDevice(d)}
                       >
+                        <i className="fas fa-user-slash" aria-hidden="true" />{' '}
                         {revoking ? '踢出中…' : '踢出'}
                       </Button>
                     ) : null}
@@ -880,6 +889,7 @@ function CloudConnectionSummary(props: {
                 : props.hasSavedCredentials ? props.onReconnect : props.onEdit
             }
           >
+            <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
             {props.autoConnectionState === 'connecting'
               ? '正在自动连接…'
               : props.syncBusy
@@ -889,7 +899,7 @@ function CloudConnectionSummary(props: {
                   : props.hasSavedCredentials ? '重新连接' : '配置账号'}
           </Button>
           <Button variant="secondary" size="sm" disabled={props.disabled} onClick={props.onEdit}>
-            编辑连接
+            <i className="fas fa-edit" aria-hidden="true" /> 编辑连接
           </Button>
         </div>
       </div>
@@ -931,13 +941,14 @@ function CloudConnectionEditDialog(props: {
       footer={
         <>
           <Button variant="secondary" disabled={connectionBusy} onClick={props.onClose}>
-            取消
+            <i className="fas fa-times" aria-hidden="true" /> 取消
           </Button>
           <Button
             variant="primary"
             disabled={connectionBusy || !props.connectionReady}
             onClick={props.onSave}
           >
+            <i className="fas fa-save" aria-hidden="true" />{' '}
             {props.busyAction === 'save' ? '保存中…' : '保存连接'}
           </Button>
         </>
@@ -1067,6 +1078,7 @@ function CloudConnectionEditDialog(props: {
             disabled={connectionBusy || !props.connectionReady || !props.identifier.trim() || !props.password}
             onClick={props.onTestConnection}
           >
+            <i className="fas fa-plug" aria-hidden="true" />{' '}
             {props.busyAction === 'test' ? '测试中…' : '测试连接'}
           </Button>
         </div>
@@ -1111,14 +1123,14 @@ function CloudSyncProgressDialog(props: {
       className="cloud-sync-progress-modal !max-w-xl"
       footer={
         working ? (
-          <Button variant="secondary" onClick={props.onCancel}>取消同步</Button>
+          <Button variant="secondary" onClick={props.onCancel}><i className="fas fa-times" aria-hidden="true" /> 取消同步</Button>
         ) : props.state.stage === 'error' ? (
           <>
-            <Button variant="secondary" onClick={props.onClose}>关闭</Button>
-            <Button variant="primary" onClick={props.onRetry}>重试同步</Button>
+            <Button variant="secondary" onClick={props.onClose}><i className="fas fa-times" aria-hidden="true" /> 关闭</Button>
+            <Button variant="primary" onClick={props.onRetry}><i className="fas fa-redo" aria-hidden="true" /> 重试同步</Button>
           </>
         ) : (
-          <Button variant="primary" onClick={props.onClose}>完成</Button>
+          <Button variant="primary" onClick={props.onClose}><i className="fas fa-check" aria-hidden="true" /> 完成</Button>
         )
       }
     >

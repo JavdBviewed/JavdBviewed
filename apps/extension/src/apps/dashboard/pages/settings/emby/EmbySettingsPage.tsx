@@ -94,7 +94,9 @@ export function EmbySettingsPage() {
       try {
         const settings = await getSettings();
         if (cancelled) return;
-        setForm(mapSettingsToEmbyForm(settings));
+        const next = mapSettingsToEmbyForm(settings);
+        formRef.current = next;
+        setForm(next);
       } catch (err) {
         console.error('[EmbySettingsPage] load failed', err);
       } finally {
@@ -108,24 +110,22 @@ export function EmbySettingsPage() {
 
   const updateForm = useCallback(
     (patch: Partial<EmbySettingsFormState>, immediate = false) => {
-      setForm((prev) => {
-        const next = { ...prev, ...patch };
-        if (immediate) void flush(next);
-        else scheduleSave(next);
-        return next;
-      });
+      const next = { ...formRef.current, ...patch };
+      formRef.current = next;
+      setForm(next);
+      if (immediate) void flush(next);
+      else scheduleSave(next);
     },
     [flush, scheduleSave],
   );
 
   const setFormAndSchedule = useCallback(
     (updater: (prev: EmbySettingsFormState) => EmbySettingsFormState, immediate = false) => {
-      setForm((prev) => {
-        const next = updater(prev);
-        if (immediate) void flush(next);
-        else scheduleSave(next);
-        return next;
-      });
+      const next = updater(formRef.current);
+      formRef.current = next;
+      setForm(next);
+      if (immediate) void flush(next);
+      else scheduleSave(next);
     },
     [flush, scheduleSave],
   );
@@ -396,7 +396,7 @@ export function EmbySettingsPage() {
                 variant="secondary"
                 onClick={onAddServer}
               >
-                添加服务器
+                <i className="fas fa-plus" aria-hidden="true" /> 添加服务器
               </Button>
               <Button
                 id="sync-emby-library"
@@ -404,6 +404,7 @@ export function EmbySettingsPage() {
                 disabled={!enabled || syncing}
                 onClick={() => void onManualSync()}
               >
+                <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
                 {syncing ? '同步中…' : '立即同步媒体库'}
               </Button>
             </div>
@@ -437,6 +438,7 @@ export function EmbySettingsPage() {
                     disabled={!enabled || checking}
                     onClick={() => void onTestLibraryCheck()}
                   >
+                    <i className="fas fa-search" aria-hidden="true" />{' '}
                     {checking ? '检测中…' : '测试入库检测'}
                   </Button>
                 </div>
@@ -486,7 +488,7 @@ export function EmbySettingsPage() {
                         onRemoveMatchUrl(realIndex);
                       }}
                     >
-                      删除
+                      <i className="fas fa-trash" aria-hidden="true" /> 删除
                     </Button>
                   </div>
                 );
@@ -499,7 +501,7 @@ export function EmbySettingsPage() {
                 disabled={!enabled}
                 onClick={onAddMatchUrl}
               >
-                添加额外匹配地址
+                <i className="fas fa-plus" aria-hidden="true" /> 添加额外匹配地址
               </Button>
             </div>
           </SettingSection>
@@ -729,10 +731,10 @@ function MediaServerSummaryRow({
       </div>
       <div className="flex shrink-0 gap-2">
         <Button variant="secondary" size="sm" onClick={onEdit}>
-          编辑
+          <i className="fas fa-edit" aria-hidden="true" /> 编辑
         </Button>
         <Button variant="ghost" size="sm" onClick={onRemove}>
-          删除
+          <i className="fas fa-trash" aria-hidden="true" /> 删除
         </Button>
       </div>
     </div>
@@ -752,16 +754,18 @@ function MediaServerDeleteConfirmDialog({
 
   return (
     <Modal
+      dialogId="embyDeleteModal"
       open={Boolean(target)}
       title="确认删除媒体服务器"
       onClose={deleting ? () => undefined : onCancel}
       className="emby-server-delete-modal"
       footer={
         <>
-          <Button variant="secondary" disabled={deleting} onClick={onCancel}>
-            取消
+        <Button variant="secondary" disabled={deleting} onClick={onCancel}>
+          <i className="fas fa-times" aria-hidden="true" /> 取消
           </Button>
           <Button variant="danger" disabled={deleting} onClick={onConfirm}>
+            <i className="fas fa-trash" aria-hidden="true" />{' '}
             {deleting ? '删除中…' : '确认删除'}
           </Button>
         </>
@@ -828,6 +832,7 @@ function MediaServerEditDialog({
 
   return (
     <Modal
+      dialogId="embyEditModal"
       open={Boolean(server) && index != null}
       title={title}
       onClose={onClose}
@@ -846,7 +851,7 @@ function MediaServerEditDialog({
       ) : null}
       <div className="mt-3 flex justify-end">
         <Button variant="primary" onClick={onClose}>
-          完成
+          <i className="fas fa-check" aria-hidden="true" /> 完成
         </Button>
       </div>
     </Modal>
@@ -1018,7 +1023,7 @@ function MediaServerRow({
           title="删除服务器"
           onClick={onRemove}
         >
-          删除
+          <i className="fas fa-trash" aria-hidden="true" /> 删除
         </Button>
       </div>
 
@@ -1070,6 +1075,7 @@ function MediaServerRow({
             disabled={disabled || loggingIn}
             onClick={() => void onLogin()}
           >
+            <i className="fas fa-sign-in-alt" aria-hidden="true" />{' '}
             {loggingIn ? '登录中…' : '登录并保存令牌'}
           </Button>
           <Button
@@ -1078,7 +1084,7 @@ function MediaServerRow({
             disabled={disabled || !userLoggedIn || loggingIn}
             onClick={onLogout}
           >
-            退出登录
+            <i className="fas fa-sign-out-alt" aria-hidden="true" /> 退出登录
           </Button>
         </div>
         <p className="m-0 mt-2 text-[12px] leading-5 text-[var(--color-fg-muted)]">
@@ -1180,7 +1186,7 @@ function MediaServerCreateRow({
             title="确认"
             onClick={onConfirm}
           >
-            确认
+            <i className="fas fa-check" aria-hidden="true" /> 确认
           </Button>
           <Button
             variant="secondary"
@@ -1189,7 +1195,7 @@ function MediaServerCreateRow({
             title="取消"
             onClick={onCancel}
           >
-            取消
+            <i className="fas fa-times" aria-hidden="true" /> 取消
           </Button>
         </div>
       </div>
