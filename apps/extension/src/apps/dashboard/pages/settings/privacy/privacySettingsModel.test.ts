@@ -32,6 +32,7 @@ describe('privacySettingsModel', () => {
       privacy: {
         screenshotMode: {
           enabled: true,
+          contentPages: { enabled: true, sites: { javdb: true, javbus: true } },
           blurIntensity: 8,
           autoBlurTrigger: 'tab-leave',
           blurAreas: ['navigation'],
@@ -47,6 +48,7 @@ describe('privacySettingsModel', () => {
       },
     } as any);
     expect(form.screenshotEnabled).toBe(true);
+    expect(form.contentPagesScreenshotEnabled).toBe(true);
     expect(form.blurIntensity).toBe(8);
     expect(form.autoBlurTrigger).toBe('tab-leave');
     expect(form.blurAreas).toEqual(['navigation']);

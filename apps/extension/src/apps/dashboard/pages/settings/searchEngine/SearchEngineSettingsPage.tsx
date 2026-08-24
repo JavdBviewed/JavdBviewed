@@ -3,7 +3,7 @@
  * @description 搜索引擎设置 React 全页（列表 CRUD）
  * @module apps/dashboard/pages/settings/searchEngine
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
 import { Modal } from '../../../../../ui/primitives/Modal/Modal';
@@ -72,6 +72,8 @@ export function SearchEngineSettingsPage() {
   const [form, setForm] = useState<SearchEngineFormState>(DEFAULT_SEARCH_ENGINE_FORM);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const formRef = useRef(form);
+  formRef.current = form;
   const [modalOpen, setModalOpen] = useState(false);
   const [addForm, setAddForm] = useState<AddForm>(EMPTY_ADD);
 
@@ -92,6 +94,7 @@ export function SearchEngineSettingsPage() {
           .map((item) => `${item.duplicateName} → ${item.keptName}`)
           .join('，');
         await toast(`已移除重复搜索引擎：${names}`, 'warning');
+        formRef.current = toSave;
         setForm(toSave);
       }
       const current = await getSettings();
@@ -116,7 +119,9 @@ export function SearchEngineSettingsPage() {
       try {
         const settings = await getSettings();
         if (cancelled) return;
-        setForm(mapSettingsToSearchEngineForm(settings));
+        const next = mapSettingsToSearchEngineForm(settings);
+        formRef.current = next;
+        setForm(next);
       } catch (err) {
         console.error('[SearchEngineSettingsPage] load failed', err);
       } finally {
@@ -132,18 +137,19 @@ export function SearchEngineSettingsPage() {
 
   const patchEngines = useCallback(
     (engines: SearchEngineRow[], immediate = false) => {
-      setForm((prev) => {
-        const next = { ...prev, engines };
-        if (immediate) void flush(next);
-        else scheduleSave(next);
-        return next;
-      });
+      const next = { ...formRef.current, engines };
+      formRef.current = next;
+      setForm(next);
+      if (immediate) void flush(next);
+      else scheduleSave(next);
     },
     [flush, scheduleSave],
   );
 
   const onCategoryFilter = (value: string) => {
-    setForm((prev) => ({ ...prev, categoryFilter: value }));
+    const next = { ...formRef.current, categoryFilter: value };
+    formRef.current = next;
+    setForm(next);
   };
 
   const onFieldChange = (
@@ -205,8 +211,29 @@ export function SearchEngineSettingsPage() {
                 />
               </SettingField>
               <Button id="add-search-engine" variant="primary" onClick={openAddModal}>
-                添加新的搜索引擎
+                <i className="fas fa-plus" aria-hidden="true" /> 添加新的搜索引擎
               </Button>
+            </div>
+
+            <div
+              className="grid grid-cols-[40px_56px_minmax(0,1fr)] items-center gap-2 rounded-[var(--radius-2)] bg-[var(--color-surface-2)] px-3 py-2 text-[12px] font-semibold text-[var(--color-fg-muted)] md:grid-cols-[40px_56px_minmax(150px,1fr)_120px_minmax(220px,1.4fr)_minmax(160px,1fr)_auto]"
+              role="row"
+              aria-label="搜索引擎列表列标题"
+            >
+              <div role="columnheader">图标</div>
+              <div
+                id="search-engine-enabled-column"
+                data-settings-search-target
+                data-settings-search-keywords="搜索引擎是否启用 是否启用 启用开关 显示开关"
+                role="columnheader"
+              >
+                是否启用
+              </div>
+              <div role="columnheader">搜索引擎名称</div>
+              <div className="hidden md:block" role="columnheader">分类</div>
+              <div className="hidden md:block" role="columnheader">URL 模板</div>
+              <div className="hidden md:block" role="columnheader">图标地址</div>
+              <div className="hidden md:block" role="columnheader">操作</div>
             </div>
 
             <div
@@ -225,7 +252,7 @@ export function SearchEngineSettingsPage() {
                   return (
                     <div
                       key={`${engine.id}-${index}`}
-                      className="grid gap-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 md:grid-cols-[40px_auto_1fr_120px_1.4fr_1fr_auto] md:items-center"
+                      className="grid gap-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface)] hover:shadow-[var(--shadow-1)] md:grid-cols-[40px_auto_1fr_120px_1.4fr_1fr_auto] md:items-center"
                       data-engine-id={engine.id}
                       data-index={String(index)}
                       data-settings-search-target={
@@ -304,7 +331,7 @@ export function SearchEngineSettingsPage() {
                         title={bundled ? '内置搜索引擎暂不支持删除' : '删除'}
                         onClick={() => onDelete(index)}
                       >
-                        删除
+                        <i className="fas fa-trash" aria-hidden="true" /> 删除
                       </Button>
                     </div>
                   );
@@ -328,10 +355,10 @@ export function SearchEngineSettingsPage() {
         footer={
           <>
             <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              取消
+              <i className="fas fa-times" aria-hidden="true" /> 取消
             </Button>
             <Button variant="primary" onClick={() => void confirmAdd()}>
-              确认新增
+              <i className="fas fa-plus" aria-hidden="true" /> 确认新增
             </Button>
           </>
         }
@@ -345,7 +372,10 @@ export function SearchEngineSettingsPage() {
               id="search-engine-modal-name"
               value={addForm.name}
               placeholder="例如：字幕站"
-              onChange={(e) => setAddForm((f) => ({ ...f, name: e.currentTarget.value }))}
+              onChange={(e) => {
+                const value = e.currentTarget.value;
+                setAddForm((f) => ({ ...f, name: value }));
+              }}
             />
           </SettingField>
           <SettingField id="search-engine-modal-category" label="分类">
@@ -361,7 +391,10 @@ export function SearchEngineSettingsPage() {
               id="search-engine-modal-url"
               value={addForm.urlTemplate}
               placeholder="https://example.com/search?q={{ID}}"
-              onChange={(e) => setAddForm((f) => ({ ...f, urlTemplate: e.currentTarget.value }))}
+              onChange={(e) => {
+                const value = e.currentTarget.value;
+                setAddForm((f) => ({ ...f, urlTemplate: value }));
+              }}
             />
           </SettingField>
           <SettingField id="search-engine-modal-icon" label="图标地址">
@@ -369,7 +402,10 @@ export function SearchEngineSettingsPage() {
               id="search-engine-modal-icon"
               value={addForm.icon}
               placeholder="assets/alternate-search.png"
-              onChange={(e) => setAddForm((f) => ({ ...f, icon: e.currentTarget.value }))}
+              onChange={(e) => {
+                const value = e.currentTarget.value;
+                setAddForm((f) => ({ ...f, icon: value }));
+              }}
             />
           </SettingField>
         </div>

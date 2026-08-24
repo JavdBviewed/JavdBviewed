@@ -14,6 +14,14 @@ body {
   min-width: 800px;
 }
 
+/* Dashboard remains desktop-dense by default, but must be allowed to shrink
+   when the extension page is opened in a narrow/mobile viewport. */
+@media (max-width: 799px) {
+  body {
+    min-width: 0;
+  }
+}
+
 /* 自定义滚动条 */
 ::-webkit-scrollbar {
   width: 8px;

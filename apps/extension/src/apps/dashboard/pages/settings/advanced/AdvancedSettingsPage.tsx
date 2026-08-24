@@ -67,13 +67,13 @@ export function AdvancedSettingsPage() {
           >
             <div className="flex flex-wrap gap-2 px-2 py-2">
               <Button id="viewJsonBtn" variant="secondary" onClick={() => void viewSettingsJson()}>
-                查看设置
+                <i className="fas fa-eye" aria-hidden="true" /> 查看设置
               </Button>
               <Button id="editJsonBtn" variant="secondary" onClick={() => void editSettingsJson()}>
-                编辑设置
+                <i className="fas fa-edit" aria-hidden="true" /> 编辑设置
               </Button>
               <Button id="exportJsonBtn" variant="primary" onClick={() => void exportCompleteBackup()}>
-                导出完整备份
+                <i className="fas fa-download" aria-hidden="true" /> 导出完整备份
               </Button>
             </div>
             <div className="mx-2 mb-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[12.5px] text-[var(--color-fg)]">
@@ -88,10 +88,10 @@ export function AdvancedSettingsPage() {
             >
               <div className="flex flex-wrap gap-2 px-2 py-2">
                 <Button id="viewRawLogsBtn" variant="secondary" onClick={() => void viewRawLogs()}>
-                  查看日志
+                  <i className="fas fa-file-alt" aria-hidden="true" /> 查看日志
                 </Button>
                 <Button id="testLogBtn" variant="secondary" onClick={() => void sendTestLog()}>
-                  测试日志
+                  <i className="fas fa-vial" aria-hidden="true" /> 测试日志
                 </Button>
               </div>
               <p className="m-0 px-2 pb-2 text-[12px] text-[var(--color-fg-muted)]">

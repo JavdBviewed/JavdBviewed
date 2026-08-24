@@ -3,6 +3,7 @@
  * @description 全局操作动作（从遗留 GlobalActionsSettings 移植）
  * @module apps/dashboard/pages/settings/globalActions
  */
+import { showConfirm } from '../../../../../dashboard/components/confirmModal';
 
 async function showToast(message: string, type: 'success' | 'error' | 'info' = 'info'): Promise<void> {
   try {
@@ -39,11 +40,14 @@ export async function clearAllLocalData(): Promise<void> {
   await requireAuthIfRestricted(
     'advanced-settings',
     async () => {
-      if (
-        !confirm(
+      const confirmed = await showConfirm({
+        title: '清除所有扩展数据',
+        message:
           '确定要清除所有扩展数据吗？此操作不可撤销！\n\n这将清除：\n- 所有已观看影片\n- 所有想看影片\n- 所有收藏演员\n- 所有设置配置',
-        )
-      ) {
+        type: 'danger',
+        confirmText: '清除全部数据',
+      });
+      if (!confirmed) {
         return;
       }
       try {
@@ -68,7 +72,12 @@ export async function clearAllLocalData(): Promise<void> {
  * 清空缓存键
  */
 export async function clearCacheData(): Promise<void> {
-  if (!confirm('确定要清空缓存吗？这将清除所有缓存的图片、头像等临时文件。')) {
+  if (!(await showConfirm({
+    title: '清空缓存',
+    message: '确定要清空缓存吗？这将清除所有缓存的图片、头像等临时文件。',
+    type: 'warning',
+    confirmText: '清空缓存',
+  }))) {
     return;
   }
   try {
@@ -90,7 +99,12 @@ export async function clearCacheData(): Promise<void> {
  * 清空临时数据
  */
 export async function clearTempData(): Promise<void> {
-  if (!confirm('确定要清空临时数据吗？这将清除搜索历史、临时设置等非关键数据。')) {
+  if (!(await showConfirm({
+    title: '清空临时数据',
+    message: '确定要清空临时数据吗？这将清除搜索历史、临时设置等非关键数据。',
+    type: 'warning',
+    confirmText: '清空临时数据',
+  }))) {
     return;
   }
   try {
@@ -113,7 +127,12 @@ export async function clearTempData(): Promise<void> {
  * 重置所有设置为默认
  */
 export async function resetAllSettings(): Promise<void> {
-  if (!confirm('确定要重置所有设置吗？这将恢复所有设置为默认值，但保留数据记录。')) {
+  if (!(await showConfirm({
+    title: '重置所有设置',
+    message: '确定要重置所有设置吗？这将恢复所有设置为默认值，但保留数据记录。',
+    type: 'danger',
+    confirmText: '重置设置',
+  }))) {
     return;
   }
   try {
@@ -121,7 +140,13 @@ export async function resetAllSettings(): Promise<void> {
     await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
     await showToast('所有设置已重置为默认值', 'success');
     await logInfo('用户重置了所有设置');
-    if (confirm('设置已重置，是否刷新页面以应用更改？')) {
+    if (await showConfirm({
+      title: '设置已重置',
+      message: '是否刷新页面以应用更改？',
+      type: 'info',
+      confirmText: '刷新页面',
+      cancelText: '稍后刷新',
+    })) {
       window.location.reload();
     }
   } catch (error) {
@@ -134,7 +159,12 @@ export async function resetAllSettings(): Promise<void> {
  * 重新加载扩展
  */
 export async function reloadExtension(): Promise<void> {
-  if (!confirm('确定要重新加载扩展吗？这将关闭所有扩展页面。')) {
+  if (!(await showConfirm({
+    title: '重新加载扩展',
+    message: '确定要重新加载扩展吗？这将关闭所有扩展页面。',
+    type: 'warning',
+    confirmText: '重新加载',
+  }))) {
     return;
   }
   try {

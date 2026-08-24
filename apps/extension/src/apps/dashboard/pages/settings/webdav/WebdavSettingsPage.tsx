@@ -3,7 +3,7 @@
  * @description WebDAV 同步 React 全页（配置列表 / 设备 / 同步与备份范围）
  * @module apps/dashboard/pages/settings/webdav
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WebDAVClientProfile, WebDAVKnownDeviceView } from '../../../../../types';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
@@ -13,6 +13,7 @@ import { SettingField } from '../../../../../ui/patterns/SettingField/SettingFie
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import { showConfirm } from '../../../../../dashboard/components/confirmModal';
 import {
   getSettings,
   useDebouncedSettingsSave,
@@ -78,7 +79,7 @@ function DeviceCard({ profile, isCurrent, busy, onSaveLabel }: DeviceCardProps) 
 
   return (
     <div
-      className={`rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 ${
+      className={`rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-2)] hover:shadow-[var(--shadow-1)] ${
         isCurrent ? 'border-[var(--color-primary)]' : ''
       }`}
     >
@@ -150,7 +151,7 @@ function DeviceCard({ profile, isCurrent, busy, onSaveLabel }: DeviceCardProps) 
           disabled={busy}
           onClick={() => onSaveLabel(profile.clientId, label, isCurrent)}
         >
-          保存名称
+          <i className="fas fa-save" aria-hidden="true" /> 保存名称
         </Button>
       </div>
     </div>
@@ -182,10 +183,13 @@ export function WebdavSettingsPage() {
   const [draft, setDraft] = useState<WebdavConfigModalDraft>(EMPTY_CONFIG_MODAL_DRAFT);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [modalTesting, setModalTesting] = useState(false);
+  const formRef = useRef(form);
+  formRef.current = form;
 
   const reloadFromStorage = useCallback(async () => {
     const settings = await getSettings();
     const nextForm = mapSettingsToWebdavForm(settings);
+    formRef.current = nextForm;
     setForm(nextForm);
     return nextForm;
   }, []);
@@ -256,12 +260,11 @@ export function WebdavSettingsPage() {
 
   const updateForm = useCallback(
     (updater: (prev: WebdavSettingsFormState) => WebdavSettingsFormState, immediate = false) => {
-      setForm((prev) => {
-        const next = updater(prev);
-        if (immediate) void flush(next);
-        else scheduleSave(next);
-        return next;
-      });
+      const next = updater(formRef.current);
+      formRef.current = next;
+      setForm(next);
+      if (immediate) void flush(next);
+      else scheduleSave(next);
     },
     [flush, scheduleSave],
   );
@@ -312,6 +315,14 @@ export function WebdavSettingsPage() {
     });
   };
 
+  const onCopyModalUrl = () => {
+    void copyText(
+      combineUrl(draft.url.trim(), draft.folder.trim()),
+      '地址为空，无法复制',
+      '✓ 已复制完整地址',
+    );
+  };
+
   const onSaveModal = async () => {
     const v = validateConfigModalDraft(draft, true);
     if (!v.ok || !v.fullUrl) {
@@ -340,6 +351,7 @@ export function WebdavSettingsPage() {
     };
     const nextForm = switchActiveConfig(nextFormBase, nextActiveConfigId || savedConfigId);
 
+    formRef.current = nextForm;
     setForm(nextForm);
     const result = await persistWebdavForm(nextForm, { skipValidation: true });
     if (!result.success) {
@@ -378,7 +390,13 @@ export function WebdavSettingsPage() {
       await toast('配置不存在', 'error');
       return;
     }
-    if (!window.confirm(`确定要删除配置"${config.name}"吗？`)) return;
+    const confirmed = await showConfirm({
+      title: '删除 WebDAV 配置',
+      message: `确定要删除配置"${config.name}"吗？`,
+      type: 'danger',
+      confirmText: '删除',
+    });
+    if (!confirmed) return;
     updateForm((prev) => deleteConfig(prev, configId), true);
     await toast('✓ 配置已删除', 'success');
   };
@@ -437,7 +455,9 @@ export function WebdavSettingsPage() {
       });
       if (result.success) {
         if (isCurrent) {
-          setForm((prev) => ({ ...prev, deviceLabel: label.trim() }));
+          const next = { ...formRef.current, deviceLabel: label.trim() };
+          formRef.current = next;
+          setForm(next);
         }
         await refreshClients(form.clientId);
       }
@@ -469,7 +489,7 @@ export function WebdavSettingsPage() {
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>
       ) : (
         <div className="flex flex-col gap-4" id="webdav-settings">
-          <SettingSection title="主开关">
+          <SettingSection title="主开关" icon={<i className="fas fa-server" />}>
             <SettingToggleRow
               id="webdavEnabled"
               label="启用 WebDAV 同步"
@@ -489,12 +509,14 @@ export function WebdavSettingsPage() {
             aria-disabled={!sectionsEnabled}
           >
             <SettingSection
+              id="webdavConfigSection"
               title="配置管理"
+              icon={<i className="fas fa-laptop-house" />}
               description="可添加多个备份端；默认备份端用于测试连接、自动同步与恢复入口。"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-2">
                 <Button id="addWebdavConfig" variant="primary" size="sm" onClick={openAddModal}>
-                  添加配置
+                  <i className="fas fa-plus" aria-hidden="true" /> 添加配置
                 </Button>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -504,6 +526,7 @@ export function WebdavSettingsPage() {
                     disabled={backingUpAll || form.configs.length === 0}
                     onClick={() => void onBackupAll()}
                   >
+                    <i className="fas fa-database" aria-hidden="true" />{' '}
                     {backingUpAll ? '正在备份…' : '备份到全部备份端'}
                   </Button>
                   <Button
@@ -513,6 +536,7 @@ export function WebdavSettingsPage() {
                     disabled={testing}
                     onClick={() => void onTest()}
                   >
+                    <i className="fas fa-plug" aria-hidden="true" />{' '}
                     {testing ? '测试中…' : '测试连接'}
                   </Button>
                   <Button
@@ -522,6 +546,7 @@ export function WebdavSettingsPage() {
                     disabled={diagnosing}
                     onClick={() => void onDiagnose()}
                   >
+                    <i className="fas fa-stethoscope" aria-hidden="true" />{' '}
                     {diagnosing ? '诊断中…' : '诊断连接'}
                   </Button>
                 </div>
@@ -538,7 +563,7 @@ export function WebdavSettingsPage() {
                     return (
                       <div
                         key={config.id}
-                        className={`flex flex-wrap items-center gap-3 rounded-[var(--radius-2)] border px-3 py-2 ${
+                        className={`flex flex-wrap items-center gap-3 rounded-[var(--radius-2)] border px-3 py-2 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[var(--color-primary)] hover:shadow-[var(--shadow-1)] ${
                           isActive
                             ? 'border-[var(--color-primary)] bg-[var(--color-surface-2)]'
                             : 'border-[var(--color-border)] bg-[var(--color-surface)]'
@@ -574,7 +599,7 @@ export function WebdavSettingsPage() {
                               size="sm"
                               onClick={() => onSwitchConfig(config.id)}
                             >
-                              设为默认
+                              <i className="fas fa-star" aria-hidden="true" /> 设为默认
                             </Button>
                           ) : null}
                           <Button
@@ -584,6 +609,7 @@ export function WebdavSettingsPage() {
                             onClick={() => void onBackupOne(config.id)}
                             title="立即备份到此端"
                           >
+                            <i className="fas fa-cloud-upload-alt" aria-hidden="true" />{' '}
                             {backingUpId === config.id ? '备份中…' : '立即备份'}
                           </Button>
                           <Button
@@ -591,14 +617,14 @@ export function WebdavSettingsPage() {
                             size="sm"
                             onClick={() => openEditModal(config.id)}
                           >
-                            编辑
+                            <i className="fas fa-edit" aria-hidden="true" /> 编辑
                           </Button>
                           <Button
                             variant="danger"
                             size="sm"
                             onClick={() => void onDeleteConfig(config.id)}
                           >
-                            删除
+                            <i className="fas fa-trash" aria-hidden="true" /> 删除
                           </Button>
                         </div>
                       </div>
@@ -609,7 +635,9 @@ export function WebdavSettingsPage() {
             </SettingSection>
 
             <SettingSection
+              id="webdavClientsSection"
               title="客户端与设备"
+              icon={<i className="fas fa-users" />}
               description="设备清单会在不同备份端之间补齐；可恢复内容仍以当前备份端里的备份文件为准。"
             >
               <div className="flex flex-wrap items-center gap-2 px-2 py-2">
@@ -620,6 +648,7 @@ export function WebdavSettingsPage() {
                   disabled={clientsLoading}
                   onClick={() => void refreshClients(form.clientId)}
                 >
+                  <i className="fas fa-rotate-right" aria-hidden="true" />{' '}
                   {clientsLoading ? '刷新中…' : '刷新设备列表'}
                 </Button>
               </div>
@@ -681,7 +710,7 @@ export function WebdavSettingsPage() {
               </div>
             </SettingSection>
 
-            <SettingSection title="同步设置">
+            <SettingSection id="webdavSyncSection" title="同步设置" icon={<i className="fas fa-cog" />}>
               <SettingToggleRow
                 id="webdavAutoSync"
                 label="自动上传"
@@ -694,7 +723,9 @@ export function WebdavSettingsPage() {
                 <SettingField
                   id="webdav-sync-interval"
                   label="同步间隔（分钟）"
-                  description={nextSyncLabel || undefined}
+                  description={
+                    nextSyncLabel ? <span id="webdav-next-sync-time">{nextSyncLabel}</span> : undefined
+                  }
                 >
                   <Input
                     id="webdav-sync-interval"
@@ -741,7 +772,9 @@ export function WebdavSettingsPage() {
             </SettingSection>
 
             <SettingSection
+              id="webdavBackupSection"
               title="备份数据范围"
+              icon={<i className="fas fa-database" />}
               description="选择要备份到云端的数据类型"
             >
               <div className="flex flex-col gap-1 px-2 py-2">
@@ -779,114 +812,150 @@ export function WebdavSettingsPage() {
             open={modalOpen}
             title={editingId ? '编辑配置' : '添加配置'}
             onClose={closeModal}
-            className="max-w-xl"
+            className="webdav-config-modal-react"
+            dialogId="webdavConfigModal"
+            titleId="webdavConfigModalTitle"
+            closeButtonId="closeWebdavConfigModal"
+            keepMounted
             footer={
               <>
-                <Button variant="secondary" onClick={closeModal}>
+                <Button
+                  id="cancelWebdavConfigModal"
+                  variant="secondary"
+                  className="webdav-modal-cancel-button"
+                  onClick={closeModal}
+                >
                   取消
                 </Button>
                 <Button
+                  id="testWebdavConfigModal"
                   variant="secondary"
+                  className="webdav-modal-test-button"
                   disabled={modalTesting}
                   onClick={() => void onTestModal()}
                 >
+                  <i className="fas fa-plug" aria-hidden="true" />{' '}
                   {modalTesting ? '测试中…' : '测试连接'}
                 </Button>
-                <Button variant="primary" onClick={() => void onSaveModal()}>
+                <Button
+                  id="saveWebdavConfigModal"
+                  variant="primary"
+                  className="webdav-modal-save-button"
+                  onClick={() => void onSaveModal()}
+                >
                   保存
                 </Button>
               </>
             }
           >
-            <div className="flex flex-col gap-3 text-[var(--color-fg)]">
-              <SettingField id="modalConfigName" label="配置名称">
+            <div className="webdav-modal-fields text-[var(--color-fg)]">
+              <SettingField id="modalConfigName" label="配置名称" className="webdav-modal-field">
                 <Input
                   id="modalConfigName"
                   value={draft.name}
                   placeholder="例如: 坚果云配置"
-                  onChange={(e) =>
-                    setDraft((prev) => ({ ...prev, name: e.currentTarget.value }))
-                  }
+                  onChange={(e) => {
+                    const value = e.currentTarget.value;
+                    setDraft((prev) => ({ ...prev, name: value }));
+                  }}
                 />
               </SettingField>
 
               <SettingField
                 id="modalWebdavUrl"
-                label="WebDAV 地址"
-                description="选择厂商后会自动填充服务器地址，文件夹为远端存储路径（可选，留空则使用根目录）"
+                className="webdav-modal-field webdav-modal-url-field"
+                label={
+                  <span className="webdav-modal-label-content">
+                    <span>WebDAV 地址</span>
+                    <Button
+                      id="modalCopyWebdavFullUrl"
+                      variant="ghost"
+                      size="sm"
+                      className="webdav-modal-label-action"
+                      title="复制完整地址"
+                      aria-label="复制完整地址"
+                      onClick={onCopyModalUrl}
+                    >
+                      <i className="fas fa-copy" aria-hidden="true" />
+                    </Button>
+                  </span>
+                }
               >
-                <div className="flex flex-wrap gap-2">
+                <div className="webdav-modal-url-row flex flex-wrap items-start gap-2">
                   <Input
                     id="modalWebdavUrl"
-                    className="min-w-[180px] flex-1"
+                    className="webdav-modal-url-input min-w-[200px] flex-1"
                     value={draft.url}
                     placeholder="例如: https://dav.jianguoyun.com/dav/"
-                    onChange={(e) =>
-                      setDraft((prev) => ({ ...prev, url: e.currentTarget.value }))
-                    }
+                    onChange={(e) => {
+                      const value = e.currentTarget.value;
+                      setDraft((prev) => ({ ...prev, url: value }));
+                    }}
                   />
                   <SettingSelect
                     id="modalWebdavProvider"
                     value={draft.provider}
                     options={[...WEBDAV_PROVIDER_OPTIONS]}
+                    className="webdav-modal-provider-select w-[120px]"
                     onChange={onProviderChange}
                   />
                   <Input
                     id="modalWebdavFolder"
-                    className="w-[140px]"
+                    className="webdav-modal-folder-input w-[150px]"
                     value={draft.folder}
                     placeholder="文件夹 (可选)"
-                    onChange={(e) =>
-                      setDraft((prev) => ({ ...prev, folder: e.currentTarget.value }))
-                    }
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    title="复制完整地址"
-                    onClick={() => {
-                      void copyText(
-                        combineUrl(draft.url.trim(), draft.folder.trim()),
-                        '地址为空，无法复制',
-                        '✓ 已复制完整地址',
-                      );
+                    onChange={(e) => {
+                      const value = e.currentTarget.value;
+                      setDraft((prev) => ({ ...prev, folder: value }));
                     }}
-                  >
-                    复制地址
-                  </Button>
+                  />
+                </div>
+                <p className="webdav-modal-field-description">
+                  选择厂商后会自动填充服务器地址，文件夹为远端存储路径（可选，留空则使用根目录）
+                </p>
+                <div
+                  id="modalWebdavAlistHint"
+                  hidden={!alistHint}
+                  className="webdav-alist-hint"
+                >
+                  {alistHint ? (
+                    <>
+                      <div className="webdav-alist-hint-main">
+                        <i className="fas fa-info-circle" aria-hidden="true" />
+                        <span>{alistHint.message}</span>
+                      </div>
+                      <div className="webdav-alist-hint-action">
+                        <code>{alistHint.suggestedUrl}</code>
+                        <Button variant="secondary" size="sm" onClick={applyAlistHint}>
+                          <i className="fas fa-magic" aria-hidden="true" /> 应用建议
+                        </Button>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
               </SettingField>
 
-              {alistHint ? (
-                <div className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[12.5px]">
-                  <div className="mb-1 text-[var(--color-fg)]">{alistHint.message}</div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <code className="break-all text-[11.5px] text-[var(--color-fg-muted)]">
-                      {alistHint.suggestedUrl}
-                    </code>
-                    <Button variant="secondary" size="sm" onClick={applyAlistHint}>
-                      应用建议
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              <SettingField id="modalWebdavUser" label="用户名">
-                <div className="flex gap-2">
+              <SettingField id="modalWebdavUser" label="用户名" className="webdav-modal-field">
+                <div className="webdav-modal-input-wrap">
                   <Input
                     id="modalWebdavUser"
-                    className="flex-1"
+                    className="webdav-modal-input pr-11"
                     value={draft.username}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const value = e.currentTarget.value;
                       setDraft((prev) => ({
                         ...prev,
-                        username: e.currentTarget.value,
-                      }))
-                    }
+                        username: value,
+                      }));
+                    }}
                   />
                   <Button
+                    id="modalCopyWebdavUser"
                     variant="ghost"
                     size="sm"
+                    className="webdav-modal-input-action webdav-modal-copy-action"
+                    title="复制用户名"
+                    aria-label="复制用户名"
                     onClick={() =>
                       void copyText(
                         draft.username.trim(),
@@ -895,40 +964,52 @@ export function WebdavSettingsPage() {
                       )
                     }
                   >
-                    复制
+                    <i className="fas fa-copy" aria-hidden="true" />
                   </Button>
                 </div>
               </SettingField>
 
-              <SettingField id="modalWebdavPass" label="密码/应用密钥">
-                <div className="flex gap-2">
+              <SettingField id="modalWebdavPass" label="密码/应用密钥" className="webdav-modal-field">
+                <div className="webdav-modal-input-wrap">
                   <Input
                     id="modalWebdavPass"
-                    className="flex-1"
+                    className="webdav-modal-input webdav-modal-password-input pr-20"
                     type={passwordVisible ? 'text' : 'password'}
                     value={draft.password}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const value = e.currentTarget.value;
                       setDraft((prev) => ({
                         ...prev,
-                        password: e.currentTarget.value,
-                      }))
-                    }
+                        password: value,
+                      }));
+                    }}
                   />
                   <Button
+                    id="modalToggleWebdavPasswordVisibility"
                     variant="ghost"
                     size="sm"
+                    className="webdav-modal-input-action webdav-modal-toggle-action"
+                    title="显示/隐藏密码"
+                    aria-label="显示/隐藏密码"
                     onClick={() => setPasswordVisible((v) => !v)}
                   >
-                    {passwordVisible ? '隐藏' : '显示'}
+                    <i
+                      className={`fas ${passwordVisible ? 'fa-eye-slash' : 'fa-eye'}`}
+                      aria-hidden="true"
+                    />
                   </Button>
                   <Button
+                    id="modalCopyWebdavPass"
                     variant="ghost"
                     size="sm"
+                    className="webdav-modal-input-action webdav-modal-copy-action"
+                    title="复制密码"
+                    aria-label="复制密码"
                     onClick={() =>
                       void copyText(draft.password, '密码为空，无法复制', '✓ 已复制密码')
                     }
                   >
-                    复制
+                    <i className="fas fa-copy" aria-hidden="true" />
                   </Button>
                 </div>
               </SettingField>

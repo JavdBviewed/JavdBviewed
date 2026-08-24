@@ -3,7 +3,7 @@
  * @description 隐私保护 React 全页
  * @module apps/dashboard/pages/settings/privacy
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
 import { SettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
@@ -19,6 +19,7 @@ import {
   loadRecoveryStatus,
   removePassword,
   setPassword,
+  setContentPagesScreenshotEnabled,
   setRequirePassword,
   setScreenshotModeEnabled,
   setupSecurityQuestions,
@@ -48,6 +49,8 @@ export function PrivacySettingsPage() {
     hasBackupCode: false,
   });
   const [loading, setLoading] = useState(true);
+  const formRef = useRef(form);
+  formRef.current = form;
 
   const reload = useCallback(async () => {
     const settings = await getSettings();
@@ -84,17 +87,24 @@ export function PrivacySettingsPage() {
     await updateBlurIntensity(value);
   };
 
+  const onContentPagesScreenshotToggle = async (checked: boolean) => {
+    const previous = form.contentPagesScreenshotEnabled;
+    setForm((current) => ({ ...current, contentPagesScreenshotEnabled: checked }));
+    const ok = await setContentPagesScreenshotEnabled(checked);
+    if (!ok) setForm((current) => ({ ...current, contentPagesScreenshotEnabled: previous }));
+  };
+
   const onAutoBlurTrigger = async (value: string) => {
     setForm((f) => ({ ...f, autoBlurTrigger: value }));
     await updateAutoBlurTrigger(value);
   };
 
   const onBlurArea = async (area: BlurArea, enabled: boolean) => {
-    setForm((prev) => {
-      const blurAreas = toggleBlurArea(prev.blurAreas, area, enabled);
-      void updateBlurAreas(blurAreas);
-      return { ...prev, blurAreas };
-    });
+    const blurAreas = toggleBlurArea(formRef.current.blurAreas, area, enabled);
+    const next = { ...formRef.current, blurAreas };
+    formRef.current = next;
+    setForm(next);
+    await updateBlurAreas(blurAreas);
   };
 
   const onPrivateModeToggle = async (checked: boolean) => {
@@ -115,14 +125,13 @@ export function PrivacySettingsPage() {
   const persistPrivateOptions = async (
     patch: Partial<Pick<PrivacySettingsFormState, 'sessionTimeout' | 'lockOnTabLeave' | 'lockOnExtensionClose'>>,
   ) => {
-    setForm((prev) => {
-      const next = { ...prev, ...patch };
-      void updatePrivateModeOptions({
-        sessionTimeout: next.sessionTimeout,
-        lockOnTabLeave: next.lockOnTabLeave,
-        lockOnExtensionClose: next.lockOnExtensionClose,
-      });
-      return next;
+    const next = { ...formRef.current, ...patch };
+    formRef.current = next;
+    setForm(next);
+    await updatePrivateModeOptions({
+      sessionTimeout: next.sessionTimeout,
+      lockOnTabLeave: next.lockOnTabLeave,
+      lockOnExtensionClose: next.lockOnExtensionClose,
     });
   };
 
@@ -172,6 +181,7 @@ export function PrivacySettingsPage() {
         <div className="flex flex-col gap-4" id="privacy-settings">
           <SettingSection
             title="截图模式"
+            icon={<i className="fas fa-camera" />}
             description="对敏感内容应用模糊效果，防止截图时泄露隐私。"
           >
             <SettingToggleRow
@@ -179,6 +189,14 @@ export function PrivacySettingsPage() {
               label="启用截图模式"
               checked={form.screenshotEnabled}
               onChange={(v) => void onScreenshotToggle(v)}
+            />
+
+            <SettingToggleRow
+              id="contentPagesScreenshotEnabled"
+              label="普通内容页截图模糊（JavDB / JavBus）"
+              description="仅模糊影片、搜索和演员内容，不启用锁屏或密码保护。"
+              checked={form.contentPagesScreenshotEnabled}
+              onChange={(v) => void onContentPagesScreenshotToggle(v)}
             />
 
             <SettingField
@@ -236,6 +254,7 @@ export function PrivacySettingsPage() {
 
           <SettingSection
             title="私密模式"
+            icon={<i className="fas fa-lock" />}
             description="在截图模式基础上增加密码验证，适用于公共电脑环境。"
           >
             <SettingToggleRow
@@ -268,20 +287,20 @@ export function PrivacySettingsPage() {
                       variant="secondary"
                       onClick={() => void onChangePassword()}
                     >
-                      更改密码
+                      <i className="fas fa-edit" aria-hidden="true" /> 更改密码
                     </Button>
                     <Button
                       id="removePasswordBtn"
                       variant="danger"
                       onClick={() => void onRemovePassword()}
                     >
-                      取消密码
+                      <i className="fas fa-trash" aria-hidden="true" /> 取消密码
                     </Button>
                   </>
                 ) : (
                   <>
                     <Button id="setPasswordBtn" variant="primary" onClick={() => void onSetPassword()}>
-                      设置密码
+                      <i className="fas fa-lock" aria-hidden="true" /> 设置密码
                     </Button>
                     <button id="changePasswordBtn" type="button" className="hidden" aria-hidden />
                     <button id="removePasswordBtn" type="button" className="hidden" aria-hidden />
@@ -332,7 +351,7 @@ export function PrivacySettingsPage() {
             />
           </SettingSection>
 
-          <SettingSection title="密码恢复" description="设置密码恢复选项，以防忘记密码。">
+          <SettingSection title="密码恢复" icon={<i className="fas fa-life-ring" />} description="设置密码恢复选项，以防忘记密码。">
             <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-2">
               <div>
                 <div className="text-[13.5px] font-semibold text-[var(--color-fg)]">安全问题</div>
@@ -352,6 +371,7 @@ export function PrivacySettingsPage() {
                 variant="secondary"
                 onClick={() => void onSetupSecurityQuestions()}
               >
+                <i className="fas fa-cog" aria-hidden="true" />{' '}
                 {recovery.hasSecurityQuestions ? '修改安全问题' : '设置安全问题'}
               </Button>
             </div>
@@ -375,6 +395,7 @@ export function PrivacySettingsPage() {
                 variant="secondary"
                 onClick={() => void onGenerateBackupCode()}
               >
+                <i className="fas fa-key" aria-hidden="true" />{' '}
                 {recovery.hasBackupCode ? '重置备份恢复码' : '生成备份恢复码'}
               </Button>
             </div>

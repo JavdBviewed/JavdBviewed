@@ -1,0 +1,290 @@
+/**
+ * @file settingsReactFidelity.css
+ * @description React 设置全页公共壳的 legacy 视觉基线。
+ *
+ * 单页可以在自己的 CSS 中覆盖这些规则；这里只校准旧版公共设置壳的
+ * 标题、卡片留白和区块层级，不修改业务控件或旧 partial。
+ */
+
+.ssp-page[data-settings-stack='react-full'] {
+  --settings-react-card-radius: 12px;
+  --settings-react-card-padding: 24px;
+}
+
+.ssp-page[data-settings-stack='react-full'] [data-ui-pattern='page-header'] {
+  margin-bottom: 30px !important;
+  padding-bottom: 20px;
+  border-bottom: 2px solid var(--border-primary, var(--color-border));
+}
+
+.ssp-page[data-settings-stack='react-full'] [data-ui-pattern='page-header'] h2 {
+  font-size: 28px !important;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+/* Legacy partials rendered a real emoji marker in the title header. Keep the
+ * same recognition cue in the React shell without adding it to JSX text; each
+ * page below supplies its own emoji content. */
+.ssp-page[data-settings-stack='react-full'] [data-ui-pattern='page-header'] h2::before {
+  display: inline-block;
+  margin-right: 10px;
+  font-size: 1.3em;
+  font-weight: 400;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#display-settings) [data-ui-pattern='page-header'] h2 {
+  color: #8b5cf6;
+}
+
+.ssp-page[data-settings-stack='react-full'] [data-ui-pattern='page-header'] p {
+  margin-top: 0.75rem;
+  max-width: 600px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.ssp-page[data-settings-stack='react-full'] #display-settings,
+.ssp-page[data-settings-stack='react-full'] #search-engine-settings,
+.ssp-page[data-settings-stack='react-full'] #ai-settings,
+.ssp-page[data-settings-stack='react-full'] #privacy-settings,
+.ssp-page[data-settings-stack='react-full'] #webdav-settings,
+.ssp-page[data-settings-stack='react-full'] #sync-settings,
+.ssp-page[data-settings-stack='react-full'] #insights-settings,
+.ssp-page[data-settings-stack='react-full'] #log-settings,
+.ssp-page[data-settings-stack='react-full'] #advanced-settings,
+.ssp-page[data-settings-stack='react-full'] #network-test-settings,
+.ssp-page[data-settings-stack='react-full'] #global-actions,
+.ssp-page[data-settings-stack='react-full'] #update-settings,
+.ssp-page[data-settings-stack='react-full'] #cloud-settings,
+.ssp-page[data-settings-stack='react-full'] #emby-settings,
+.ssp-page[data-settings-stack='react-full'] #enhancement-settings {
+  gap: 24px;
+}
+
+.ssp-page[data-settings-stack='react-full'] [data-ui-pattern='setting-section'] {
+  border-radius: var(--settings-react-card-radius);
+}
+
+.ssp-page[data-settings-stack='react-full'] [data-ui-pattern='setting-section'] > header {
+  padding: 20px var(--settings-react-card-padding) 8px;
+  border-bottom: 0;
+}
+
+.ssp-page[data-settings-stack='react-full'] [data-ui-pattern='setting-section'] > header h3 {
+  gap: 10px;
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.ssp-page[data-settings-stack='react-full'] [data-ui-pattern='setting-section'] > header p {
+  margin-top: 4px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ssp-page[data-settings-stack='react-full'] [data-ui-pattern='setting-section'] > header + div {
+  gap: 0;
+  padding: 8px var(--settings-react-card-padding) var(--settings-react-card-padding);
+}
+
+.ssp-page[data-settings-stack='react-full'] [data-ui-pattern='setting-field'] {
+  padding: 8px 0;
+}
+
+@media (max-width: 768px) {
+  .ssp-page[data-settings-stack='react-full'] [data-ui-pattern='page-header'] h2 {
+    font-size: 22px !important;
+  }
+
+  .ssp-page[data-settings-stack='react-full'] [data-ui-pattern='page-header'] {
+    margin-bottom: 24px !important;
+    padding-bottom: 16px;
+  }
+
+  .ssp-page[data-settings-stack='react-full'] [data-ui-pattern='setting-section'] > header {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .ssp-page[data-settings-stack='react-full'] [data-ui-pattern='setting-section'] > header + div {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+}
+
+/* The legacy settings pages use a small page-specific colour wash and an
+ * emoji marker in the title. Keep those recognition cues when the content is
+ * mounted inside the React shell. */
+.ssp-page[data-settings-stack='react-full'] :is(
+  #display-settings,
+  #search-engine-settings,
+  #ai-settings,
+  #privacy-settings,
+  #webdav-settings,
+  #sync-settings,
+  #advanced-settings,
+  #network-test-settings
+) {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.ssp-page[data-settings-stack='react-full'] #display-settings::before,
+.ssp-page[data-settings-stack='react-full'] #search-engine-settings::before,
+.ssp-page[data-settings-stack='react-full'] #ai-settings::before,
+.ssp-page[data-settings-stack='react-full'] #privacy-settings::before,
+.ssp-page[data-settings-stack='react-full'] #webdav-settings::before,
+.ssp-page[data-settings-stack='react-full'] #sync-settings::before,
+.ssp-page[data-settings-stack='react-full'] #advanced-settings::before,
+.ssp-page[data-settings-stack='react-full'] #network-test-settings::before {
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 200px;
+  border-radius: 20px;
+  content: '';
+}
+
+.ssp-page[data-settings-stack='react-full'] #display-settings::before {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), rgba(167, 139, 250, 0.05) 50%, rgba(196, 181, 253, 0.05));
+}
+
+.ssp-page[data-settings-stack='react-full'] #search-engine-settings::before {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.05), rgba(251, 191, 36, 0.05) 50%, rgba(254, 215, 170, 0.05));
+}
+
+.ssp-page[data-settings-stack='react-full'] #ai-settings::before {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.05), rgba(167, 139, 250, 0.05) 50%, rgba(196, 181, 253, 0.05));
+}
+
+.ssp-page[data-settings-stack='react-full'] #privacy-settings::before {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.05), rgba(248, 113, 113, 0.05) 50%, rgba(252, 165, 165, 0.05));
+}
+
+.ssp-page[data-settings-stack='react-full'] #webdav-settings::before {
+  background: linear-gradient(135deg, rgba(139, 90, 43, 0.05), rgba(160, 132, 92, 0.05) 50%, rgba(214, 199, 168, 0.05));
+}
+
+.ssp-page[data-settings-stack='react-full'] #sync-settings::before {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(52, 211, 153, 0.05) 50%, rgba(110, 231, 183, 0.05));
+}
+
+.ssp-page[data-settings-stack='react-full'] #advanced-settings::before {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05), rgba(139, 92, 246, 0.05) 50%, rgba(16, 185, 129, 0.05));
+}
+
+.ssp-page[data-settings-stack='react-full'] #network-test-settings::before {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.05), rgba(96, 165, 250, 0.05) 50%, rgba(147, 197, 253, 0.05));
+}
+
+[data-theme='dark'] .ssp-page[data-settings-stack='react-full'] #ai-settings::before {
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.08), rgba(196, 181, 253, 0.08) 50%, rgba(221, 214, 254, 0.08));
+}
+
+[data-theme='dark'] .ssp-page[data-settings-stack='react-full'] #privacy-settings::before {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.08), rgba(252, 165, 165, 0.08) 50%, rgba(254, 202, 202, 0.08));
+}
+
+[data-theme='dark'] .ssp-page[data-settings-stack='react-full'] #webdav-settings::before {
+  background: linear-gradient(135deg, rgba(212, 165, 116, 0.08), rgba(184, 149, 109, 0.08) 50%, rgba(160, 132, 92, 0.08));
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#display-settings) [data-ui-pattern='page-header'] h2 {
+  color: var(--display-primary, #8b5cf6);
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#search-engine-settings) [data-ui-pattern='page-header'] h2 {
+  color: var(--search-primary, #f59e0b);
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#ai-settings) [data-ui-pattern='page-header'] h2 {
+  color: var(--ai-primary, #8b5cf6);
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#privacy-settings) [data-ui-pattern='page-header'] h2 {
+  color: var(--privacy-primary, #ef4444);
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#webdav-settings) [data-ui-pattern='page-header'] h2 {
+  color: var(--webdav-primary, #8b5a2b);
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#sync-settings) [data-ui-pattern='page-header'] h2 {
+  color: var(--sync-primary, #10b981);
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#advanced-settings) [data-ui-pattern='page-header'] h2 {
+  color: var(--advanced-primary, #6366f1);
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#network-test-settings) [data-ui-pattern='page-header'] h2 {
+  color: var(--primary, var(--color-primary));
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#display-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '🎨';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#search-engine-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '🔍';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#ai-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '🤖';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#privacy-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '🔒';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#webdav-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '📁';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#sync-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '🔄';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#advanced-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '⚙️';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#network-test-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '🌐';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#insights-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '📊';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#log-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '📘';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#global-actions) [data-ui-pattern='page-header'] h2::before {
+  content: '⚡';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#update-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '🔄';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#cloud-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '☁';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#emby-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '📺';
+}
+
+.ssp-page[data-settings-stack='react-full']:has(#enhancement-settings) [data-ui-pattern='page-header'] h2::before {
+  content: '🚀';
+}
+
+

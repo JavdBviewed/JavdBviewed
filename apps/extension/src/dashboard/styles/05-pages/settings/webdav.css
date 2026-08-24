@@ -1861,3 +1861,187 @@
 [data-theme="dark"] .webdav-config-modal-content {
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
+
+/* React WebDAV 配置弹窗：保留 legacy 编辑器的尺寸、节奏和操作位置。 */
+.webdav-config-modal-react.webdav-config-modal-react {
+    width: 100%;
+    max-width: 600px;
+    max-height: 90vh;
+    border-radius: 12px;
+    background: var(--surface-primary);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.webdav-config-modal-react .ui-modal__header {
+    padding: 20px 24px;
+}
+
+.webdav-config-modal-react .ui-modal__header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: normal;
+}
+
+.webdav-config-modal-react .ui-modal__close {
+    width: 32px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0;
+    border-radius: 6px;
+    color: var(--text-secondary);
+}
+
+.webdav-config-modal-react .ui-modal__body {
+    padding: 24px;
+}
+
+.webdav-config-modal-react .webdav-modal-field {
+    gap: 0;
+    margin: 0 0 20px;
+    padding: 0;
+}
+
+.webdav-config-modal-react .webdav-modal-field:last-child {
+    margin-bottom: 0;
+}
+
+.webdav-config-modal-react .webdav-modal-field > label {
+    display: block;
+    margin: 0 0 8px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.webdav-config-modal-react .webdav-modal-label-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.webdav-config-modal-react .webdav-modal-label-action {
+    width: 24px;
+    height: 24px;
+    min-height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    color: var(--text-secondary);
+}
+
+.webdav-config-modal-react .webdav-modal-label-action:hover,
+.webdav-config-modal-react .webdav-modal-input-action:hover {
+    background: var(--bg-hover);
+    color: var(--webdav-primary);
+}
+
+.webdav-config-modal-react .webdav-modal-url-row {
+    gap: 8px;
+}
+
+.webdav-config-modal-react .webdav-modal-url-row input,
+.webdav-config-modal-react .webdav-modal-url-row select,
+.webdav-config-modal-react .webdav-modal-input {
+    height: 38px;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 14px;
+}
+
+.webdav-config-modal-react .webdav-modal-url-row input:focus,
+.webdav-config-modal-react .webdav-modal-url-row select:focus,
+.webdav-config-modal-react .webdav-modal-input:focus {
+    outline: none;
+    border-color: var(--webdav-primary);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.webdav-config-modal-react .webdav-modal-provider-select {
+    flex: 0 0 120px;
+}
+
+.webdav-config-modal-react .webdav-modal-folder-input {
+    flex: 0 0 150px;
+}
+
+.webdav-config-modal-react .webdav-modal-field-description {
+    margin: 4px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.webdav-config-modal-react .webdav-modal-input-wrap {
+    position: relative;
+    display: block;
+    width: 100%;
+}
+
+.webdav-config-modal-react .webdav-modal-input {
+    width: 100%;
+    max-width: none;
+}
+
+.webdav-config-modal-react .webdav-modal-input-action {
+    position: absolute;
+    top: 50%;
+    z-index: 1;
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
+    min-height: 24px;
+    padding: 6px;
+    transform: translateY(-50%);
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-secondary);
+}
+
+.webdav-config-modal-react .webdav-modal-copy-action {
+    right: 8px;
+}
+
+.webdav-config-modal-react .webdav-modal-toggle-action {
+    right: 40px;
+}
+
+.webdav-config-modal-react .ui-modal__footer {
+    gap: 12px;
+    padding: 16px 24px;
+}
+
+.webdav-config-modal-react .ui-modal__footer button {
+    min-height: 38px;
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.webdav-config-modal-react .webdav-modal-test-button {
+    border-color: var(--success);
+    background: var(--success);
+    color: #fff;
+}
+
+.webdav-config-modal-react .webdav-modal-test-button:hover {
+    border-color: var(--success-hover);
+    background: var(--success-hover);
+}
+
+.webdav-config-modal-react .webdav-modal-test-button:active,
+.webdav-config-modal-react .webdav-modal-save-button:active {
+    transform: scale(0.98);
+}
+
+@media (max-width: 768px) {
+    .webdav-config-modal-react.webdav-config-modal-react {
+        max-width: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+}

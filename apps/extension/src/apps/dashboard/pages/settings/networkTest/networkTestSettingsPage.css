@@ -1,0 +1,530 @@
+/**
+ * @file networkTestSettingsPage.css
+ * @description 网络测试 React 页的 legacy 视觉覆盖，只作用于本页。
+ */
+
+.network-test-settings-react {
+  --network-test-border: var(--color-border, #d0d7de);
+  --network-test-surface: var(--color-surface, #fff);
+  --network-test-surface-2: var(--color-surface-2, #f6f8fa);
+  --network-test-muted: var(--color-fg-muted, #667085);
+  --network-test-primary: var(--color-primary, #2563eb);
+  --network-test-success: var(--color-success, #28a745);
+  --network-test-danger: var(--color-danger, #dc3545);
+}
+
+/* legacy settings-page-header 的层级：28px 标题、底部边界和更宽松的留白。 */
+.network-test-settings-react [data-ui-pattern='page-header'] {
+  margin-bottom: 30px !important;
+  padding: 0 0 20px;
+  border-bottom: 2px solid var(--network-test-border);
+}
+
+.network-test-settings-react [data-ui-pattern='page-header'] > div {
+  width: 100%;
+}
+
+.network-test-settings-react [data-ui-pattern='page-header'] h2 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--network-test-primary);
+  font-size: 28px !important;
+  font-weight: 700;
+  line-height: 1.25;
+  text-shadow: 0 2px 4px rgb(0 0 0 / 10%);
+}
+
+.network-test-settings-react [data-ui-pattern='page-header'] h2::before {
+  content: '\f0ac';
+  font-family: 'Font Awesome 5 Free';
+  font-size: 0.9em;
+  font-weight: 900;
+}
+
+.network-test-settings-react [data-ui-pattern='page-header'] h2 .fas {
+  font-size: 0.9em;
+}
+
+.network-test-settings-react [data-ui-pattern='page-header'] p {
+  max-width: 600px !important;
+  margin: 12px auto 0 !important;
+  color: var(--network-test-muted);
+  font-size: 15px !important;
+  line-height: 1.6;
+}
+
+.network-test-settings-react #network-test-settings {
+  position: relative;
+  gap: 24px !important;
+}
+
+.network-test-settings-react #network-test-settings::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 auto;
+  height: 200px;
+  border-radius: 20px;
+  background: linear-gradient(
+    135deg,
+    rgb(59 130 246 / 5%) 0%,
+    rgb(96 165 250 / 5%) 50%,
+    rgb(147 197 253 / 5%) 100%
+  );
+  content: '';
+  pointer-events: none;
+}
+
+/* SettingSection remains compact everywhere else; network-test cards use the old spacing. */
+.network-test-settings-react #network-test-settings > [data-ui-pattern='setting-section'] {
+  margin: 0;
+  border-radius: 8px;
+  background: var(--network-test-surface);
+}
+
+.network-test-settings-react #network-test-settings > [data-ui-pattern='setting-section'] > header {
+  padding: 18px 20px 8px;
+  border-bottom: 0;
+}
+
+.network-test-settings-react #network-test-settings > [data-ui-pattern='setting-section'] > header h3 {
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.network-test-settings-react #network-test-settings > [data-ui-pattern='setting-section'] > header h3 .setting-section__icon {
+  width: 18px;
+  color: var(--network-test-primary);
+  font-size: 18px;
+}
+
+.network-test-settings-react #network-test-settings > [data-ui-pattern='setting-section'] > header p {
+  margin-top: 4px;
+  color: var(--network-test-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.network-test-settings-react #network-test-settings > [data-ui-pattern='setting-section'] > header + div {
+  gap: 0;
+  padding: 4px 14px 16px;
+}
+
+.network-test-settings-react #network-test-settings [data-ui-pattern='setting-field'] {
+  gap: 8px;
+  padding: 10px 6px;
+}
+
+.network-test-settings-react #network-test-settings [data-ui-pattern='setting-field'] > label {
+  color: var(--color-fg);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.network-test-settings-react #network-test-settings [data-ui-pattern='setting-toggle-row'] label .fab,
+.network-test-settings-react #network-test-settings .network-test-route-warning > .fas {
+  color: var(--network-test-primary);
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-warning > .fas {
+  margin-top: 2px;
+  flex: none;
+}
+
+.network-test-settings-react #network-test-settings [data-ui-pattern='setting-field'] > p {
+  margin-top: 0;
+  color: var(--network-test-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.network-test-settings-react #network-test-settings input:not([type='checkbox']):not([type='radio']):not([type='range']),
+.network-test-settings-react #network-test-settings select {
+  box-sizing: border-box;
+  height: 42px;
+  padding: 10px 12px;
+  border-width: 2px;
+  border-radius: 8px;
+  background: var(--network-test-surface);
+  color: var(--color-fg);
+  font-size: 14px;
+}
+
+.network-test-settings-react #network-test-settings select {
+  width: 100%;
+  max-width: 400px;
+  cursor: pointer;
+}
+
+.network-test-settings-react #network-test-settings input:not([type='checkbox']):not([type='radio']):not([type='range']) {
+  max-width: 500px;
+}
+
+.network-test-settings-react #network-test-settings input:not([type='checkbox']):not([type='radio']):not([type='range']):hover,
+.network-test-settings-react #network-test-settings select:hover {
+  border-color: var(--network-test-primary);
+  background: var(--network-test-surface-2);
+}
+
+.network-test-settings-react #network-test-settings input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
+.network-test-settings-react #network-test-settings select:focus {
+  border-color: var(--network-test-primary);
+  background: var(--network-test-surface);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 10%);
+  caret-color: currentColor;
+}
+
+.network-test-settings-react #network-test-settings .network-test-form-group {
+  margin-bottom: 8px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.network-test-settings-react #network-test-settings .network-test-input-with-icon > .fas {
+  position: absolute;
+  z-index: 1;
+  left: 13px;
+  color: var(--network-test-muted);
+  pointer-events: none;
+}
+
+.network-test-settings-react #network-test-settings .network-test-input-with-icon input {
+  padding-left: 35px !important;
+}
+
+.network-test-settings-react #network-test-settings .network-test-button-group {
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.network-test-settings-react #network-test-settings button {
+  min-height: 40px;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+}
+
+.network-test-settings-react #network-test-settings .network-test-button-group button:hover:not(:disabled),
+.network-test-settings-react #network-test-settings .network-test-route-actions button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgb(59 130 246 / 18%);
+}
+
+.network-test-settings-react #network-test-settings button:disabled {
+  transform: none;
+}
+
+.network-test-settings-react #network-test-settings .network-test-results-box,
+.network-test-settings-react #network-test-settings .network-test-domain-config,
+.network-test-settings-react #network-test-settings .network-test-batch-results {
+  border-radius: 8px;
+  background: var(--network-test-surface-2);
+}
+
+.network-test-settings-react #network-test-settings .network-test-results-box {
+  margin-top: 15px;
+  padding: 15px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-warning {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  border-left-width: 4px;
+  line-height: 1.5;
+}
+
+.network-test-settings-react #network-test-settings .network-test-routes-list {
+  margin-bottom: 10px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 60px;
+  padding: 12px;
+  border-radius: 6px;
+  transition: transform 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-item:hover {
+  transform: translateY(-1px);
+  border-color: var(--network-test-primary);
+  background: var(--color-bg-hover, var(--network-test-surface-2));
+  box-shadow: 0 2px 8px rgb(37 99 235 / 12%);
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-item.ring-1 {
+  border: 2px solid var(--network-test-success);
+  border-left-width: 5px;
+  background: linear-gradient(135deg, rgb(76 175 80 / 15%), rgb(76 175 80 / 8%));
+  box-shadow: 0 2px 12px rgb(76 175 80 / 20%);
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-info {
+  min-width: 0;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-url {
+  gap: 8px;
+  font-size: 14px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-preferred-badge,
+.network-test-settings-react #network-test-settings .network-test-route-disabled-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-preferred-badge {
+  padding: 3px 10px;
+  background: linear-gradient(135deg, #4caf50, #66bb6a);
+  color: #fff;
+  box-shadow: 0 2px 8px rgb(76 175 80 / 30%);
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-disabled-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-latency-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  margin-left: 4px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-latency-badge.latency-excellent {
+  background: linear-gradient(135deg, #4caf50, #66bb6a);
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-latency-badge.latency-good {
+  background: linear-gradient(135deg, #8bc34a, #9ccc65);
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-latency-badge.latency-medium {
+  background: linear-gradient(135deg, #ff9800, #ffa726);
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-latency-badge.latency-poor {
+  background: linear-gradient(135deg, #f44336, #ef5350);
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-latency-badge.latency-error {
+  background: linear-gradient(135deg, #9e9e9e, #bdbdbd);
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-description {
+  font-size: 12px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-actions button {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-add-row {
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-add-row [data-ui-pattern='setting-field'] {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-url-input {
+  min-width: 250px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-route-desc-input {
+  width: 180px;
+  min-width: 150px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-inline-form {
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-inline-form .network-test-input-with-icon {
+  min-width: 0;
+}
+
+.network-test-settings-react #network-test-settings .network-test-ping-results {
+  margin-top: 20px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-ping-results h4 {
+  margin-bottom: 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.network-test-settings-react #network-test-settings .network-test-domain-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-bottom: 15px;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--network-test-surface-2);
+}
+
+.network-test-settings-react #network-test-settings .network-test-stat-item {
+  display: flex;
+  flex: 1 1 180px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  background: var(--network-test-surface);
+}
+
+.network-test-settings-react #network-test-settings .network-test-stat-item > div:first-child {
+  color: var(--network-test-muted);
+  font-weight: 500;
+}
+
+.network-test-settings-react #network-test-settings .network-test-stat-item [id$='-domains'],
+.network-test-settings-react #network-test-settings #last-test-time {
+  min-width: 30px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--color-bg, var(--network-test-surface-2));
+  color: var(--color-fg);
+  font-weight: 600;
+  text-align: center;
+}
+
+.network-test-settings-react #network-test-settings .network-test-domain-config {
+  margin-top: 15px;
+  padding: 15px;
+  overflow: hidden;
+}
+
+.network-test-settings-react #network-test-settings .network-test-config-header {
+  padding: 0 5px 10px;
+  border-bottom: 1px solid var(--network-test-border);
+  font-size: 14px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-domain-config-content {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 15px 5px 5px;
+}
+
+.network-test-settings-react #network-test-settings .domain-category-group {
+  margin-bottom: 14px;
+}
+
+.network-test-settings-react #network-test-settings .network-test-domain-config-item {
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.network-test-settings-react #network-test-settings .network-test-domain-config-item:hover {
+  border-color: var(--network-test-primary);
+  background: var(--network-test-surface-2);
+}
+
+.network-test-settings-react #network-test-settings .network-test-config-actions {
+  justify-content: flex-end;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid var(--network-test-border);
+}
+
+.network-test-settings-react #network-test-settings .network-test-batch-results {
+  min-height: 200px;
+  max-height: 500px;
+  overflow-y: auto;
+  margin-top: 20px;
+  padding: 15px;
+}
+
+@media (max-width: 768px) {
+  .network-test-settings-react [data-ui-pattern='page-header'] h2 {
+    font-size: 24px !important;
+  }
+
+  .network-test-settings-react #network-test-settings .network-test-domain-stats {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .network-test-settings-react #network-test-settings .network-test-route-item {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .network-test-settings-react #network-test-settings .network-test-route-actions {
+    justify-content: flex-end;
+  }
+
+  .network-test-settings-react #network-test-settings .network-test-route-actions button {
+    flex: 1 1 auto;
+  }
+
+  .network-test-settings-react #network-test-settings .network-test-route-add-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .network-test-settings-react #network-test-settings .network-test-route-url-input,
+  .network-test-settings-react #network-test-settings .network-test-route-desc-input {
+    width: 100%;
+    min-width: 100%;
+  }
+
+  .network-test-settings-react #network-test-settings .network-test-inline-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .network-test-settings-react #network-test-settings .network-test-inline-form button {
+    width: 100%;
+  }
+
+  .network-test-settings-react #network-test-settings .network-test-config-actions {
+    flex-direction: column;
+  }
+
+  .network-test-settings-react #network-test-settings .network-test-config-actions button {
+    width: 100%;
+  }
+}

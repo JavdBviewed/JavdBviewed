@@ -99,7 +99,7 @@ export async function persistWebdavForm(
     await syncDashboardState(next);
     if (options?.setupAlarms !== false) {
       try {
-        chrome.runtime.sendMessage({ type: 'setup-alarms' });
+        void sendRuntimeMessage({ type: 'setup-alarms' }).catch(() => undefined);
       } catch {
         /* ignore */
       }

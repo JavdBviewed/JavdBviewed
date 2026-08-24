@@ -4,6 +4,7 @@
  * @module apps/dashboard/pages/settings/privacy
  */
 import type { BlurArea } from '../../../../../types/privacy';
+import { showConfirm } from '../../../../../dashboard/components/confirmModal';
 import { getSettings, saveSettings } from '../shared/settingsPersist';
 
 async function toast(
@@ -57,6 +58,31 @@ export async function setScreenshotModeEnabled(enabled: boolean): Promise<boolea
   } catch (err) {
     console.error('[PrivacySettings] toggle screenshot failed', err);
     await toast('切换截图模式失败', 'error');
+    return false;
+  }
+}
+
+/**
+ * 普通 JavDB/JavBus 内容页的截图模糊范围独立保存，不触发锁屏或密码流程。
+ */
+export async function setContentPagesScreenshotEnabled(enabled: boolean): Promise<boolean> {
+  try {
+    const settings = await getSettings();
+    const current = settings.privacy?.screenshotMode?.contentPages;
+    settings.privacy.screenshotMode.contentPages = {
+      ...current,
+      enabled,
+      sites: {
+        javdb: current?.sites?.javdb !== false,
+        javbus: current?.sites?.javbus !== false,
+      },
+    };
+    await saveSettings(settings);
+    await toast(enabled ? '普通内容页截图模糊已启用' : '普通内容页截图模糊已禁用', 'success');
+    return true;
+  } catch (err) {
+    console.error('[PrivacySettings] toggle content-page screenshot failed', err);
+    await toast('切换普通内容页截图模糊失败', 'error');
     return false;
   }
 }
@@ -249,14 +275,18 @@ export async function changePassword(): Promise<boolean> {
  */
 export async function removePassword(): Promise<boolean> {
   try {
-    const confirmed = window.confirm(
-      '确定要取消密码吗？\n\n' +
+    const confirmed = await showConfirm({
+      title: '取消密码',
+      message:
+        '确定要取消密码吗？\n\n' +
         '取消密码后：\n' +
         '• 私密模式将自动关闭\n' +
         '• 所有密码保护功能将失效\n' +
         '• 恢复方式（安全问题、备份码）将被保留\n\n' +
         '此操作不可撤销，确定继续吗？',
-    );
+      type: 'danger',
+      confirmText: '取消密码',
+    });
     if (!confirmed) return false;
 
     const settings = await getSettings();

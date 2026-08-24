@@ -3,7 +3,7 @@
  * @description 日志设置 React 全页
  * @module apps/dashboard/pages/settings/log
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
 import { SettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
@@ -11,6 +11,7 @@ import { SettingField } from '../../../../../ui/patterns/SettingField/SettingFie
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 import {
   getSettings,
   saveSettings,
@@ -55,7 +56,11 @@ function formatDiagnosticTime(value?: number): string {
 }
 
 async function fetchBackgroundTaskDiagnostics(): Promise<AlarmDiagnostics> {
-  const response = await chrome.runtime.sendMessage({ type: 'ALARM_DIAGNOSTICS_GET' });
+  const response = await sendRuntimeMessage<{
+    success?: boolean;
+    error?: string;
+    diagnostics?: unknown;
+  }>({ type: 'ALARM_DIAGNOSTICS_GET' });
   if (!response?.success) {
     throw new Error(response?.error || '未获取到后台任务诊断数据');
   }
@@ -106,6 +111,8 @@ export function LogSettingsPage() {
   const [diagnostics, setDiagnostics] = useState<AlarmDiagnostics | null>(null);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
+  const formRef = useRef(form);
+  formRef.current = form;
 
   const persist = useCallback(async (nextForm: LogSettingsFormState) => {
     const v = validateLogForm(nextForm);
@@ -151,37 +158,34 @@ export function LogSettingsPage() {
 
   const update = useCallback(
     <K extends keyof LogSettingsFormState>(key: K, value: LogSettingsFormState[K]) => {
-      setForm((prev) => {
-        const next = { ...prev, [key]: value };
-        scheduleSave(next);
-        return next;
-      });
+      const next = { ...formRef.current, [key]: value };
+      formRef.current = next;
+      setForm(next);
+      scheduleSave(next);
     },
     [scheduleSave],
   );
 
   const updateModule = useCallback(
     (key: keyof LogModulesState, value: boolean) => {
-      setForm((prev) => {
-        const next = {
-          ...prev,
-          modules: { ...prev.modules, [key]: value },
-        };
-        scheduleSave(next);
-        return next;
-      });
+      const next = {
+        ...formRef.current,
+        modules: { ...formRef.current.modules, [key]: value },
+      };
+      formRef.current = next;
+      setForm(next);
+      scheduleSave(next);
     },
     [scheduleSave],
   );
 
   const applyShortcut = useCallback(
     (mapper: (f: LogSettingsFormState) => LogSettingsFormState, message: string, type: 'success' | 'info' = 'info') => {
-      setForm((prev) => {
-        const next = mapper(prev);
-        void flush(next);
-        void toast(message, type);
-        return next;
-      });
+      const next = mapper(formRef.current);
+      formRef.current = next;
+      setForm(next);
+      void flush(next);
+      void toast(message, type);
     },
     [flush],
   );
@@ -216,14 +220,14 @@ export function LogSettingsPage() {
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>
       ) : (
         <div className="flex flex-col gap-4" id="log-settings">
-          <SettingSection title="全局控制" description="控制所有日志的全局行为和存储设置。">
+          <SettingSection title="全局控制" icon={<i className="fas fa-sliders-h" />} description="控制所有日志的全局行为和存储设置。">
             <div className="flex flex-wrap gap-2 px-2 py-2">
               <Button
                 id="consoleMuteAll"
                 variant="secondary"
                 onClick={() => applyShortcut(applyMuteAll, '所有日志已静默', 'info')}
               >
-                全部静默
+                <i className="fas fa-volume-mute" aria-hidden="true" /> 全部静默
               </Button>
               <Button
                 id="consoleEnableAll"
@@ -232,7 +236,7 @@ export function LogSettingsPage() {
                   applyShortcut(applyEnableAll, '所有日志已启用（DEBUG级别）', 'success')
                 }
               >
-                全部启用
+                <i className="fas fa-volume-up" aria-hidden="true" /> 全部启用
               </Button>
               <Button
                 id="consoleResetDefault"
@@ -241,7 +245,7 @@ export function LogSettingsPage() {
                   applyShortcut(applyResetDefault, '已恢复默认日志配置（INFO级别）', 'success')
                 }
               >
-                恢复默认
+                <i className="fas fa-undo" aria-hidden="true" /> 恢复默认
               </Button>
             </div>
 
@@ -330,7 +334,7 @@ export function LogSettingsPage() {
             </div>
           </SettingSection>
 
-          <SettingSection title="显示格式" description="自定义控制台日志的显示样式。">
+          <SettingSection title="显示格式" icon={<i className="fas fa-paint-brush" />} description="自定义控制台日志的显示样式。">
             <div className="grid gap-0.5 sm:grid-cols-2">
               <SettingToggleRow
                 id="consoleShowTimestamp"
@@ -373,6 +377,7 @@ export function LogSettingsPage() {
 
           <SettingSection
             title="功能模块日志"
+            icon={<i className="fas fa-th-large" />}
             description="按功能模块精细控制日志输出。需同时满足上方日志级别阈值才会显示。"
           >
             <SettingToggleRow
@@ -401,7 +406,7 @@ export function LogSettingsPage() {
             </div>
           </SettingSection>
 
-          <SettingSection title="运行诊断" description="用于查看后台定时任务的最近执行记录，不会启动或修改任何任务。">
+          <SettingSection title="运行诊断" icon={<i className="fas fa-cogs" />} description="用于查看后台定时任务的最近执行记录，不会启动或修改任何任务。">
             <details className="mx-2 text-[12px] text-[var(--color-fg-muted)]">
               <summary className="cursor-pointer select-none font-semibold text-[var(--color-fg)]">
                 后台任务诊断
@@ -418,6 +423,7 @@ export function LogSettingsPage() {
                   disabled={diagnosticsBusy}
                   onClick={() => void refreshDiagnostics()}
                 >
+                  <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
                   {diagnosticsBusy ? '读取中…' : '刷新状态'}
                 </Button>
                 <Button
@@ -428,7 +434,7 @@ export function LogSettingsPage() {
                   disabled={diagnosticsBusy}
                   onClick={() => void exportDiagnostics()}
                 >
-                  导出诊断包
+                  <i className="fas fa-download" aria-hidden="true" /> 导出诊断包
                 </Button>
               </div>
               {diagnosticsError ? (
@@ -440,7 +446,7 @@ export function LogSettingsPage() {
                 Object.keys(diagnostics).length > 0 ? (
                   <div className="mt-2 divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
                     {Object.entries(diagnostics).sort(([a], [b]) => a.localeCompare(b)).map(([name, entry]) => (
-                      <div key={name} className="py-2">
+                      <div className="rounded-[var(--radius-2)] px-2 py-2 transition-colors duration-200 hover:bg-[var(--color-surface-2)]" key={name}>
                         <strong className="text-[var(--color-fg)]">{name}</strong>
                         <div className="mt-0.5">结果：{entry.lastResult || '暂无记录'} · 上次：{formatDiagnosticTime(entry.lastFiredAt)} · 下次：{formatDiagnosticTime(entry.nextScheduledAt)}</div>
                         {entry.lastSummary ? <div>摘要：{entry.lastSummary}</div> : null}

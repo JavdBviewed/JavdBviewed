@@ -32,7 +32,7 @@ export function GlobalActionsPage() {
             </p>
             <div>
               <Button id="clearAllBtn" variant="danger" onClick={() => void clearAllLocalData()}>
-                清空所有本地记录
+                <i className="fas fa-trash" aria-hidden="true" /> 清空所有本地记录
               </Button>
             </div>
             <div className="rounded-[var(--radius-2)] border border-[var(--color-danger,#c0392b)]/30 bg-[var(--color-surface-2)] px-3 py-2 text-[12.5px] text-[var(--color-fg)]">
@@ -45,10 +45,10 @@ export function GlobalActionsPage() {
           <SettingSection title="缓存管理" description="清理缓存和临时数据，保留核心记录。">
             <div className="flex flex-wrap gap-2 px-2 py-2">
               <Button id="clearCacheBtn" variant="secondary" onClick={() => void clearCacheData()}>
-                清空缓存
+                <i className="fas fa-broom" aria-hidden="true" /> 清空缓存
               </Button>
               <Button id="clearTempDataBtn" variant="secondary" onClick={() => void clearTempData()}>
-                清空临时数据
+                <i className="fas fa-eraser" aria-hidden="true" /> 清空临时数据
               </Button>
             </div>
             <p className="m-0 px-2 pb-2 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
@@ -62,10 +62,10 @@ export function GlobalActionsPage() {
           <SettingSection title="系统操作" description="恢复默认配置或重新加载扩展运行环境。">
             <div className="flex flex-wrap gap-2 px-2 py-2">
               <Button id="resetSettingsBtn" variant="secondary" onClick={() => void resetAllSettings()}>
-                重置所有设置
+                <i className="fas fa-undo" aria-hidden="true" /> 重置所有设置
               </Button>
               <Button id="reloadExtensionBtn" variant="primary" onClick={() => void reloadExtension()}>
-                重新加载扩展
+                <i className="fas fa-sync-alt" aria-hidden="true" /> 重新加载扩展
               </Button>
             </div>
             <p className="m-0 px-2 pb-2 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">

@@ -12,6 +12,7 @@ import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingS
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import type { AIModel } from '../../../../../types/ai';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import { showConfirm } from '../../../../../dashboard/components/confirmModal';
 import { useDebouncedSettingsSave } from '../shared/settingsPersist';
 import {
   exportAiSettingsFile,
@@ -94,6 +95,7 @@ export function AISettingsPage() {
       try {
         const next = await loadAiSettingsFromService();
         if (cancelled) return;
+        formRef.current = next;
         setForm(next);
 
         if (next.selectedModel) {
@@ -134,7 +136,9 @@ export function AISettingsPage() {
   const disabled = !form.enabled;
 
   const patchForm = useCallback((patch: Partial<AiSettingsFormState>) => {
-    setForm((prev) => ({ ...prev, ...patch }));
+    const next = { ...formRef.current, ...patch };
+    formRef.current = next;
+    setForm(next);
   }, []);
 
   const onEnabledChange = async (checked: boolean) => {
@@ -166,7 +170,8 @@ export function AISettingsPage() {
   const onModelChange = async (value: string) => {
     const previous = form.selectedModel;
     patchForm({ selectedModel: value });
-    if (!value || value === previous) return;
+    // 旧版允许通过首个空白项清除当前模型，空值也必须持久化。
+    if (value === previous) return;
     try {
       await persistSelectedModel(value);
       await toast('模型选择已保存', 'success');
@@ -185,34 +190,31 @@ export function AISettingsPage() {
     const n =
       key === 'temperature' ? parseFloat(raw) : parseInt(raw, 10);
     if (!Number.isFinite(n)) return;
-    setForm((prev) => {
-      const next = { ...prev, [key]: n };
-      if (immediate) {
-        void flushConversationSave(next);
-      } else {
-        scheduleConversationSave(next);
-      }
-      return next;
-    });
+    const next = { ...formRef.current, [key]: n };
+    formRef.current = next;
+    setForm(next);
+    if (immediate) {
+      void flushConversationSave(next);
+    } else {
+      scheduleConversationSave(next);
+    }
   };
 
   const onConversationToggle = (
     key: 'streamEnabled' | 'autoRetryEmpty' | 'errorRetryEnabled',
     value: boolean,
   ) => {
-    setForm((prev) => {
-      const next = { ...prev, [key]: value };
-      scheduleConversationSave(next);
-      return next;
-    });
+    const next = { ...formRef.current, [key]: value };
+    formRef.current = next;
+    setForm(next);
+    scheduleConversationSave(next);
   };
 
   const onSystemPromptChange = (value: string) => {
-    setForm((prev) => {
-      const next = { ...prev, systemPrompt: value };
-      scheduleConversationSave(next);
-      return next;
-    });
+    const next = { ...formRef.current, systemPrompt: value };
+    formRef.current = next;
+    setForm(next);
+    scheduleConversationSave(next);
   };
 
   const onTestConnection = async () => {
@@ -355,7 +357,13 @@ export function AISettingsPage() {
   };
 
   const onReset = async () => {
-    if (!window.confirm('确定要重置所有AI设置吗？此操作不可撤销！')) return;
+    const confirmed = await showConfirm({
+      title: '重置 AI 设置',
+      message: '确定要重置所有AI设置吗？此操作不可撤销！',
+      type: 'danger',
+      confirmText: '重置',
+    });
+    if (!confirmed) return;
     try {
       await resetAiSettings();
       const next = await loadAiSettingsFromService();
@@ -380,7 +388,7 @@ export function AISettingsPage() {
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>
       ) : (
         <div className="flex flex-col gap-4" id="ai-settings">
-          <SettingSection title="基础配置">
+          <SettingSection title="基础配置" icon={<i className="fas fa-cog" />}>
             <SettingToggleRow
               id="aiEnabled"
               label="启用AI功能"
@@ -428,6 +436,7 @@ export function AISettingsPage() {
                   aria-label={apiKeyVisible ? '隐藏密钥' : '显示密钥'}
                   onClick={() => setApiKeyVisible((v) => !v)}
                 >
+                  <i className={apiKeyVisible ? 'fas fa-eye-slash' : 'fas fa-eye'} aria-hidden="true" />{' '}
                   {apiKeyVisible ? '隐藏' : '显示'}
                 </Button>
                 <Button
@@ -436,6 +445,7 @@ export function AISettingsPage() {
                   disabled={disabled || testingConn}
                   onClick={() => void onTestConnection()}
                 >
+                  <i className="fas fa-plug" aria-hidden="true" />{' '}
                   {testingConn ? '测试中…' : '测试连接'}
                 </Button>
               </div>
@@ -462,7 +472,7 @@ export function AISettingsPage() {
             </div>
           </SettingSection>
 
-          <SettingSection title="模型选择">
+          <SettingSection title="模型选择" icon={<i className="fas fa-brain" />}>
             <SettingField
               id="aiSelectedModel"
               label="当前模型"
@@ -484,6 +494,7 @@ export function AISettingsPage() {
                   disabled={disabled || refreshingModels}
                   onClick={() => void onRefreshModels()}
                 >
+                  <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
                   {refreshingModels ? '加载中…' : '刷新'}
                 </Button>
               </div>
@@ -492,7 +503,7 @@ export function AISettingsPage() {
             <div id="modelStats" className="hidden" aria-hidden />
           </SettingSection>
 
-          <SettingSection title="测试功能">
+          <SettingSection title="测试功能" icon={<i className="fas fa-vial" />}>
             <SettingField
               id="aiTestInput"
               label="测试对话"
@@ -519,6 +530,7 @@ export function AISettingsPage() {
                   disabled={disabled || sendingTest}
                   onClick={() => void runTestMessage(testInput)}
                 >
+                  <i className="fas fa-paper-plane" aria-hidden="true" />{' '}
                   {sendingTest ? '发送中…' : '发送'}
                 </Button>
               </div>
@@ -587,7 +599,7 @@ export function AISettingsPage() {
             </div>
           </SettingSection>
 
-          <SettingSection title="对话参数" description="参数变更后约 0.4 秒自动保存。">
+          <SettingSection title="对话参数" icon={<i className="fas fa-cog" />} description="参数变更后约 0.4 秒自动保存。">
             <div className="grid gap-2 sm:grid-cols-2">
               <SettingField
                 id="aiTemperature"
@@ -732,19 +744,19 @@ export function AISettingsPage() {
             />
           </SettingSection>
 
-          <SettingSection title="高级功能">
+          <SettingSection title="高级功能" icon={<i className="fas fa-tools" />}>
             <div className="flex flex-wrap gap-2 px-2 py-2">
               <Button id="exportAiSettings" variant="secondary" onClick={() => void onExport()}>
-                导出设置
+                <i className="fas fa-download" aria-hidden="true" /> 导出设置
               </Button>
               <Button id="importAiSettings" variant="secondary" onClick={() => void onImport()}>
-                导入设置
+                <i className="fas fa-upload" aria-hidden="true" /> 导入设置
               </Button>
               <Button id="clearTestResults" variant="secondary" onClick={() => void onClearTest()}>
-                清除测试结果
+                <i className="fas fa-eraser" aria-hidden="true" /> 清除测试结果
               </Button>
               <Button id="resetAiSettings" variant="danger" onClick={() => void onReset()}>
-                重置为默认
+                <i className="fas fa-undo" aria-hidden="true" /> 重置为默认
               </Button>
             </div>
             <p className="m-0 px-2 pb-2 text-[12px] text-[var(--color-fg-muted)]">

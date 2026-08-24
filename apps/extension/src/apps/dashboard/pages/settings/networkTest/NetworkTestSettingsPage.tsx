@@ -3,7 +3,7 @@
  * @description 网络配置 React 全页：加速代理、线路管理、手动/批量连通性测试
  * @module apps/dashboard/pages/settings/networkTest
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
 import { SettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
@@ -11,6 +11,7 @@ import { SettingField } from '../../../../../ui/patterns/SettingField/SettingFie
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import { showConfirm } from '../../../../../dashboard/components/confirmModal';
 import {
   getSettings,
   saveSettings,
@@ -59,6 +60,7 @@ import {
   type NetworkTestSettingsFormState,
   type RoutesConfig,
 } from './networkTestSettingsModel';
+import './networkTestSettingsPage.css';
 
 const AUTO_SAVE_MS = 500;
 
@@ -171,31 +173,32 @@ export function NetworkTestSettingsPage() {
     };
   }, [hydrateLatencies]);
 
+  const formRef = useRef(form);
+  formRef.current = form;
+
   const updateGithub = useCallback(
     <K extends 'githubEnabled' | 'proxyService' | 'customProxyUrl'>(
       key: K,
       value: NetworkTestSettingsFormState[K],
     ) => {
-      setForm((prev) => {
-        const next = { ...prev, [key]: value };
-        scheduleSave(next);
-        return next;
-      });
+      const next = { ...formRef.current, [key]: value };
+      formRef.current = next;
+      setForm(next);
+      scheduleSave(next);
     },
     [scheduleSave],
   );
 
   const commitRoutes = useCallback(
     async (routes: RoutesConfig, options?: { immediate?: boolean }) => {
-      setForm((prev) => {
-        const next = { ...prev, routes };
-        if (options?.immediate) {
-          void flush(next);
-        } else {
-          scheduleSave(next);
-        }
-        return next;
-      });
+      const next = { ...formRef.current, routes };
+      formRef.current = next;
+      setForm(next);
+      if (options?.immediate) {
+        void flush(next);
+      } else {
+        scheduleSave(next);
+      }
       hydrateLatencies(routes);
     },
     [flush, hydrateLatencies, scheduleSave],
@@ -262,7 +265,13 @@ export function NetworkTestSettingsPage() {
   };
 
   const onDeleteRoute = async (url: string) => {
-    if (!window.confirm('确定要删除这条线路吗？')) return;
+    const confirmed = await showConfirm({
+      title: '删除访问线路',
+      message: '确定要删除这条线路吗？',
+      type: 'danger',
+      confirmText: '删除',
+    });
+    if (!confirmed) return;
     const next = deleteJavdbRoute(form.routes, url);
     if (!next) return;
     await commitRoutes(next, { immediate: true });
@@ -329,7 +338,13 @@ export function NetworkTestSettingsPage() {
   };
 
   const onResetRoutes = async () => {
-    if (!window.confirm('确定要恢复默认线路配置吗？这将清除所有自定义线路。')) return;
+    const confirmed = await showConfirm({
+      title: '恢复默认线路',
+      message: '确定要恢复默认线路配置吗？这将清除所有自定义线路。',
+      type: 'warning',
+      confirmText: '恢复默认',
+    });
+    if (!confirmed) return;
     const routes = resetDefaultRoutes();
     await commitRoutes(routes, { immediate: true });
     await toast('已恢复默认线路配置', 'success');
@@ -432,6 +447,7 @@ export function NetworkTestSettingsPage() {
 
   return (
     <SettingsPageFrame
+      className="network-test-settings-react"
       title="网络配置"
       description="配置网络加速和测试拓展涉及的所有外部服务的网络连通性。"
       rootDataAttrs={{ 'data-network-test-settings-react': '1' }}
@@ -442,57 +458,75 @@ export function NetworkTestSettingsPage() {
         <div className="flex flex-col gap-4" id="network-test-settings">
           {/* 网络加速 */}
           <SettingSection
+            className="network-test-section"
             title="网络加速配置"
+            icon={<i className="fas fa-rocket" />}
             description="配置 GitHub 等服务的加速代理，提升文件下载速度"
           >
             <SettingToggleRow
               id="enable-github-proxy"
-              label="启用 GitHub 文件下载加速"
+              label={
+                <>
+                  <i className="fab fa-github" aria-hidden="true" /> 启用 GitHub 文件下载加速
+                </>
+              }
               description="启用后，从 GitHub 仓库下载文件时将自动使用加速代理"
               checked={form.githubEnabled}
               onChange={(c) => updateGithub('githubEnabled', c)}
             />
-            <SettingField id="github-proxy-service" label="选择加速服务">
-              <SettingSelect
-                id="github-proxy-service"
-                value={form.proxyService}
-                disabled={!form.githubEnabled}
-                options={GITHUB_PROXY_OPTIONS}
-                onChange={(v) => updateGithub('proxyService', v as GithubProxyService)}
-              />
-            </SettingField>
-            {form.proxyService === 'custom' ? (
+            <div id="github-proxy-config" className="network-test-form-group">
+              <SettingField id="github-proxy-service" label="选择加速服务">
+                <SettingSelect
+                  id="github-proxy-service"
+                  value={form.proxyService}
+                  disabled={!form.githubEnabled}
+                  options={GITHUB_PROXY_OPTIONS}
+                  onChange={(v) => updateGithub('proxyService', v as GithubProxyService)}
+                />
+              </SettingField>
+            </div>
+            <div
+              id="custom-proxy-url-group"
+              className="network-test-form-group network-test-custom-proxy"
+              hidden={form.proxyService !== 'custom'}
+            >
               <SettingField
                 id="custom-proxy-url"
                 label="自定义代理地址"
                 description="代理地址格式：https://proxy.com/ （需要以 / 结尾）"
               >
-                <Input
-                  id="custom-proxy-url"
-                  type="text"
-                  disabled={!form.githubEnabled}
-                  placeholder="例如: https://your-proxy.com/"
-                  value={form.customProxyUrl}
-                  onChange={(e) => updateGithub('customProxyUrl', e.currentTarget.value)}
-                />
+                <div className="network-test-input-with-icon">
+                  <i className="fas fa-link" aria-hidden="true" />
+                  <Input
+                    id="custom-proxy-url"
+                    type="text"
+                    disabled={!form.githubEnabled}
+                    placeholder="例如: https://your-proxy.com/"
+                    value={form.customProxyUrl}
+                    onChange={(e) => updateGithub('customProxyUrl', e.currentTarget.value)}
+                  />
+                </div>
               </SettingField>
-            ) : null}
-            <div className="flex flex-wrap gap-2 px-2 py-2">
+            </div>
+            <div className="network-test-button-group flex flex-wrap gap-2 px-2 py-2">
               <Button
                 id="test-github-proxy"
                 variant="secondary"
                 disabled={!form.githubEnabled || testingProxy}
                 onClick={() => void onTestProxy()}
               >
+                <i className="fas fa-vial" aria-hidden="true" />{' '}
                 {testingProxy ? '测试中…' : '测试加速效果'}
               </Button>
             </div>
-            {proxyResult ? (
-              <div
-                id="proxy-test-results"
-                className="mx-2 mb-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3 text-[13px]"
-                role="status"
-              >
+            <div
+              id="proxy-test-results"
+              hidden={!proxyResult}
+              className="network-test-results-box mx-2 mb-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3 text-[13px]"
+              role="status"
+            >
+              {proxyResult ? (
+                <>
                 <p className="m-0 mb-2 font-medium text-[var(--color-fg)]">测试结果</p>
                 <p
                   className={
@@ -527,22 +561,28 @@ export function NetworkTestSettingsPage() {
                     {proxyResult.summary}
                   </p>
                 ) : null}
-              </div>
-            ) : null}
+                </>
+              ) : (
+                <span className="sr-only">点击测试按钮查看代理测试结果</span>
+              )}
+            </div>
           </SettingSection>
 
           {/* 线路管理 */}
           <SettingSection
+            className="network-test-section"
             title="线路管理"
+            icon={<i className="fas fa-route" />}
             description="管理 JavDB 的访问线路，支持添加自定义域名并设置首选线路"
           >
-            <div className="mx-2 mb-3 rounded-[var(--radius-2)] border border-[var(--color-warning,#d97706)]/40 bg-[var(--color-warning,#d97706)]/10 px-3 py-2 text-[12.5px] text-[var(--color-fg)]">
+            <div className="network-test-route-warning mx-2 mb-3 rounded-[var(--radius-2)] border border-[var(--color-warning,#d97706)]/40 bg-[var(--color-warning,#d97706)]/10 px-3 py-2 text-[12.5px] text-[var(--color-fg)]">
+              <i className="fas fa-exclamation-triangle" aria-hidden="true" />
               <strong>重要提示：</strong>
               备用域名通常为国内访问的域名。不使用 VPN 可能无法体验完整的扩展增强功能（如磁力、翻译等）。建议使用主域名
               javdb.com 以获得最佳体验。
             </div>
 
-            <div className="flex flex-col gap-2 px-2" id="javdb-routes-list">
+            <div className="network-test-routes-list flex flex-col gap-2 px-2" id="javdb-routes-list">
               {routeItems.length === 0 ? (
                 <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">暂无线路</p>
               ) : (
@@ -554,46 +594,46 @@ export function NetworkTestSettingsPage() {
                     <div
                       key={route.url}
                       className={
-                        'flex flex-col gap-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 sm:flex-row sm:items-center sm:justify-between' +
+                        'network-test-route-item flex flex-col gap-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 sm:flex-row sm:items-center sm:justify-between' +
                         (isPreferred ? ' ring-1 ring-[var(--color-primary)]/40' : '') +
                         (dimmed ? ' opacity-50' : '')
                       }
                     >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-[var(--color-fg)]">
+                      <div className="network-test-route-info min-w-0">
+                        <div className="network-test-route-url flex flex-wrap items-center gap-2 text-[13px] font-medium text-[var(--color-fg)]">
                           <span className="break-all">{route.url}</span>
                           {isPreferred ? (
-                            <span className="rounded bg-[var(--color-primary)]/15 px-1.5 py-0.5 text-[11px] text-[var(--color-primary)]">
+                            <span className="network-test-route-preferred-badge rounded bg-[var(--color-primary)]/15 px-1.5 py-0.5 text-[11px] text-[var(--color-primary)]">
                               首选
                             </span>
                           ) : null}
                           {!route.enabled && !route.isPrimary ? (
-                            <span className="rounded bg-[var(--color-fg-muted)]/15 px-1.5 py-0.5 text-[11px] text-[var(--color-fg-muted)]">
+                            <span className="network-test-route-disabled-badge rounded bg-[var(--color-fg-muted)]/15 px-1.5 py-0.5 text-[11px] text-[var(--color-fg-muted)]">
                               已禁用
                             </span>
                           ) : null}
                           {typeof latency === 'number' ? (
                             <span
-                              className={`text-[11px] ${latencyBadgeClass(getLatencyLevel(latency))}`}
+                              className={`network-test-route-latency-badge latency-${getLatencyLevel(latency)} text-[11px] ${latencyBadgeClass(getLatencyLevel(latency))}`}
                             >
                               {formatLatencyLabel(latency)}
                             </span>
                           ) : null}
                         </div>
                         {route.description ? (
-                          <div className="mt-0.5 text-[12px] text-[var(--color-fg-muted)]">
+                          <div className="network-test-route-description mt-0.5 text-[12px] text-[var(--color-fg-muted)]">
                             {route.description}
                           </div>
                         ) : null}
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="network-test-route-actions flex flex-wrap gap-1.5">
                         {!isPreferred ? (
                           <Button
                             size="sm"
                             variant="secondary"
                             onClick={() => void onSetPreferred(route.url)}
                           >
-                            设为首选
+                            <i className="fas fa-star" aria-hidden="true" /> 设为首选
                           </Button>
                         ) : null}
                         <Button
@@ -602,6 +642,7 @@ export function NetworkTestSettingsPage() {
                           disabled={testingRouteUrl === route.url}
                           onClick={() => void onTestRoute(route.url)}
                         >
+                          <i className="fas fa-vial" aria-hidden="true" />{' '}
                           {testingRouteUrl === route.url ? '测试中…' : '测试'}
                         </Button>
                         {!route.isPrimary ? (
@@ -610,6 +651,7 @@ export function NetworkTestSettingsPage() {
                             variant="secondary"
                             onClick={() => void onToggleRoute(route.url, !route.enabled)}
                           >
+                            <i className={route.enabled ? 'fas fa-toggle-off' : 'fas fa-toggle-on'} aria-hidden="true" />{' '}
                             {route.enabled ? '禁用' : '启用'}
                           </Button>
                         ) : null}
@@ -619,7 +661,7 @@ export function NetworkTestSettingsPage() {
                             variant="danger"
                             onClick={() => void onDeleteRoute(route.url)}
                           >
-                            删除
+                            <i className="fas fa-trash" aria-hidden="true" /> 删除
                           </Button>
                         ) : null}
                       </div>
@@ -629,9 +671,10 @@ export function NetworkTestSettingsPage() {
               )}
             </div>
 
-            <div className="mt-3 flex flex-col gap-2 px-2 sm:flex-row sm:items-end">
+            <div className="network-test-route-add-row mt-3 flex flex-col gap-2 px-2 sm:flex-row sm:items-end">
               <SettingField id="javdb-new-route-url" label="新线路 URL" className="flex-1">
                 <Input
+                  className="network-test-route-url-input"
                   id="javdb-new-route-url"
                   type="text"
                   placeholder="输入新的线路 URL，如 https://javdb570.com"
@@ -641,6 +684,7 @@ export function NetworkTestSettingsPage() {
               </SettingField>
               <SettingField id="javdb-new-route-desc" label="描述（可选）" className="flex-1">
                 <Input
+                  className="network-test-route-desc-input"
                   id="javdb-new-route-desc"
                   type="text"
                   placeholder="描述（可选）"
@@ -650,18 +694,19 @@ export function NetworkTestSettingsPage() {
               </SettingField>
               <div className="pb-1">
                 <Button id="add-javdb-route" variant="secondary" onClick={() => void onAddRoute()}>
-                  添加
+                  <i className="fas fa-plus" aria-hidden="true" /> 添加
                 </Button>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 px-2 py-2">
+            <div className="network-test-route-actions network-test-button-group flex flex-wrap gap-2 px-2 py-2">
               <Button
                 id="test-all-routes"
                 variant="secondary"
                 disabled={testingAllRoutes}
                 onClick={() => void onTestAllRoutes()}
               >
+                <i className="fas fa-vial" aria-hidden="true" />{' '}
                 {testingAllRoutes ? '测试中…' : '测试所有线路'}
               </Button>
               <Button
@@ -670,6 +715,7 @@ export function NetworkTestSettingsPage() {
                 disabled={updatingRoutes}
                 onClick={() => void onUpdateRoutesFromGithub()}
               >
+                <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
                 {updatingRoutes ? '正在更新…' : '从 GitHub 更新线路'}
               </Button>
               <Button
@@ -677,33 +723,36 @@ export function NetworkTestSettingsPage() {
                 variant="secondary"
                 onClick={() => void onResetRoutes()}
               >
-                恢复默认
+                <i className="fas fa-undo" aria-hidden="true" /> 恢复默认
               </Button>
             </div>
           </SettingSection>
 
           {/* 手动测试 */}
-          <SettingSection title="手动测试" description="输入任意URL进行网络延迟测试">
-            <div className="flex flex-col gap-2 px-2 sm:flex-row sm:items-center">
-              <Input
-                id="ping-url"
-                type="text"
-                className="flex-1"
-                placeholder="例如: https://javdb.com"
-                value={pingUrl}
-                onChange={(e) => setPingUrl(e.currentTarget.value)}
-              />
+          <SettingSection className="network-test-section" title="手动测试" icon={<i className="fas fa-edit" />} description="输入任意URL进行网络延迟测试">
+            <div className="network-test-inline-form flex flex-col gap-2 px-2 sm:flex-row sm:items-center">
+              <div className="network-test-input-with-icon flex-1">
+                <i className="fas fa-link" aria-hidden="true" />
+                <Input
+                  id="ping-url"
+                  type="text"
+                  className="flex-1"
+                  placeholder="例如: https://javdb.com"
+                  value={pingUrl}
+                  onChange={(e) => setPingUrl(e.currentTarget.value)}
+                />
+              </div>
               <Button
                 id="start-ping-test"
                 variant="primary"
                 disabled={pinging}
                 onClick={() => void onPing()}
               >
+                <i className="fas fa-play" aria-hidden="true" />{' '}
                 {pinging ? '测试中…' : '开始测试'}
               </Button>
             </div>
-            {showPingResults ? (
-              <div id="ping-results-container" className="mx-2 mt-3">
+            <div id="ping-results-container" hidden={!showPingResults} className="network-test-ping-results mx-2 mt-3">
                 <h4 className="m-0 mb-2 text-[13px] font-medium text-[var(--color-fg)]">
                   测试结果:
                 </h4>
@@ -763,29 +812,30 @@ export function NetworkTestSettingsPage() {
                     })
                   )}
                 </div>
-              </div>
-            ) : null}
+            </div>
           </SettingSection>
 
           {/* 一键测试 */}
           <SettingSection
+            className="network-test-section"
             title="一键测试"
+            icon={<i className="fas fa-rocket" />}
             description="快速检测拓展涉及的所有外部服务的连通性"
           >
-            <div className="mb-3 grid grid-cols-3 gap-2 px-2 text-[12.5px]">
-              <div className="rounded-[var(--radius-2)] border border-[var(--color-border)] px-2 py-2">
+            <div className="network-test-domain-stats mb-3 grid grid-cols-3 gap-2 px-2 text-[12.5px]">
+              <div className="network-test-stat-item rounded-[var(--radius-2)] border border-[var(--color-border)] px-2 py-2">
                 <div className="text-[var(--color-fg-muted)]">总域名数</div>
                 <div id="total-domains" className="font-medium text-[var(--color-fg)]">
                   {domainStats.total}
                 </div>
               </div>
-              <div className="rounded-[var(--radius-2)] border border-[var(--color-border)] px-2 py-2">
+              <div className="network-test-stat-item rounded-[var(--radius-2)] border border-[var(--color-border)] px-2 py-2">
                 <div className="text-[var(--color-fg-muted)]">已启用</div>
                 <div id="enabled-domains" className="font-medium text-[var(--color-fg)]">
                   {domainStats.enabled}
                 </div>
               </div>
-              <div className="rounded-[var(--radius-2)] border border-[var(--color-border)] px-2 py-2">
+              <div className="network-test-stat-item rounded-[var(--radius-2)] border border-[var(--color-border)] px-2 py-2">
                 <div className="text-[var(--color-fg-muted)]">上次测试</div>
                 <div id="last-test-time" className="font-medium text-[var(--color-fg)]">
                   {lastTestLabel}
@@ -793,13 +843,14 @@ export function NetworkTestSettingsPage() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 px-2 py-2">
+            <div className="network-test-button-group flex flex-wrap gap-2 px-2 py-2">
               <Button
                 id="test-all-domains"
                 variant="primary"
                 disabled={batchTesting}
                 onClick={() => void runDomainBatch('all')}
               >
+                <i className="fas fa-vial" aria-hidden="true" />{' '}
                 {batchTesting ? '测试中…' : '测试所有域名'}
               </Button>
               <Button
@@ -808,13 +859,14 @@ export function NetworkTestSettingsPage() {
                 disabled={batchTesting}
                 onClick={() => void runDomainBatch('core')}
               >
-                仅测试核心服务
+                <i className="fas fa-bullseye" aria-hidden="true" /> 仅测试核心服务
               </Button>
               <Button
                 id="toggle-domain-config"
                 variant="secondary"
                 onClick={() => setShowDomainConfig((v) => !v)}
               >
+                <i className="fas fa-cog" aria-hidden="true" />{' '}
                 {showDomainConfig ? '隐藏配置' : '配置域名'}
               </Button>
               <Button
@@ -822,22 +874,22 @@ export function NetworkTestSettingsPage() {
                 variant="secondary"
                 onClick={() => void onClearBatch()}
               >
-                清空结果
+                <i className="fas fa-eraser" aria-hidden="true" /> 清空结果
               </Button>
             </div>
 
-            {showDomainConfig ? (
-              <div
-                id="domain-config-panel"
-                className="mx-2 mb-3 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3"
-              >
-                <p className="m-0 mb-1 text-[13px] font-medium text-[var(--color-fg)]">
+            <div
+              id="domain-config-panel"
+              hidden={!showDomainConfig}
+              className="network-test-domain-config mx-2 mb-3 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3"
+            >
+                <p className="network-test-config-header m-0 mb-1 text-[13px] font-medium text-[var(--color-fg)]">
                   域名测试配置
                 </p>
                 <p className="m-0 mb-3 text-[12px] text-[var(--color-fg-muted)]">
                   选择要测试的服务域名，只有启用的域名会被测试
                 </p>
-                <div id="domain-config-content" className="flex flex-col gap-3">
+                <div id="domain-config-content" className="network-test-domain-config-content flex flex-col gap-3">
                   {domainCategories.map((cat) => (
                     <div key={cat.key} className="domain-category-group">
                       <p className="m-0 mb-1 text-[13px] font-medium">
@@ -850,7 +902,7 @@ export function NetworkTestSettingsPage() {
                         {cat.domains.map((domain, index) => (
                           <label
                             key={`${cat.key}-${domain.domain}`}
-                            className="flex cursor-pointer items-start gap-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-2 text-[12.5px]"
+                            className="network-test-domain-config-item flex cursor-pointer items-start gap-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-2 text-[12.5px]"
                           >
                             <input
                               type="checkbox"
@@ -880,14 +932,14 @@ export function NetworkTestSettingsPage() {
                     </div>
                   ))}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="network-test-config-actions mt-3 flex flex-wrap gap-2">
                   <Button
                     id="select-all-domains"
                     size="sm"
                     variant="secondary"
                     onClick={() => void onSelectAllDomains(true)}
                   >
-                    全选
+                    <i className="fas fa-check-square" aria-hidden="true" /> 全选
                   </Button>
                   <Button
                     id="deselect-all-domains"
@@ -895,7 +947,7 @@ export function NetworkTestSettingsPage() {
                     variant="secondary"
                     onClick={() => void onSelectAllDomains(false)}
                   >
-                    全不选
+                    <i className="fas fa-square" aria-hidden="true" /> 全不选
                   </Button>
                   <Button
                     id="reset-default-domains"
@@ -903,17 +955,16 @@ export function NetworkTestSettingsPage() {
                     variant="secondary"
                     onClick={() => void onResetDomains()}
                   >
-                    恢复默认
+                    <i className="fas fa-undo" aria-hidden="true" /> 恢复默认
                   </Button>
                 </div>
-              </div>
-            ) : null}
+            </div>
 
-            {batchVisible ? (
-              <div
-                id="batch-test-results"
-                className="mx-2 rounded-[var(--radius-2)] border border-[var(--color-border)] px-3 py-3"
-              >
+            <div
+              id="batch-test-results"
+              hidden={!batchVisible}
+              className="network-test-batch-results mx-2 rounded-[var(--radius-2)] border border-[var(--color-border)] px-3 py-3"
+            >
                 {batchTesting || batchResults.length > 0 ? (
                   <>
                     <div className="mb-2">
@@ -1001,8 +1052,7 @@ export function NetworkTestSettingsPage() {
                     点击上方按钮开始批量测试
                   </div>
                 )}
-              </div>
-            ) : null}
+            </div>
           </SettingSection>
 
           {saveError ? (

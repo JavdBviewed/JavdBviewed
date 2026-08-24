@@ -14,6 +14,7 @@ export type PrivacyBlurAreaOption = {
 
 export type PrivacySettingsFormState = {
   screenshotEnabled: boolean;
+  contentPagesScreenshotEnabled: boolean;
   blurIntensity: number;
   autoBlurTrigger: BlurTrigger | string;
   blurAreas: BlurArea[];
@@ -27,6 +28,7 @@ export type PrivacySettingsFormState = {
 
 export const DEFAULT_PRIVACY_SETTINGS_FORM: PrivacySettingsFormState = {
   screenshotEnabled: false,
+  contentPagesScreenshotEnabled: false,
   blurIntensity: 5,
   autoBlurTrigger: 'manual',
   blurAreas: [
@@ -90,6 +92,7 @@ export function mapSettingsToPrivacyForm(
 
   return {
     screenshotEnabled: !!screenshot.enabled,
+    contentPagesScreenshotEnabled: screenshot.contentPages?.enabled === true,
     blurIntensity: parseIntSafe(screenshot.blurIntensity, DEFAULT_PRIVACY_SETTINGS_FORM.blurIntensity),
     autoBlurTrigger,
     blurAreas: [...blurAreas],
