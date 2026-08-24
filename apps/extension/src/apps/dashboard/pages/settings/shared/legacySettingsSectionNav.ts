@@ -10,8 +10,8 @@ export type PreparedLegacySettingsSectionNav = {
   items: SettingsSectionNavItem[];
 };
 
-const MIN_LEGACY_SECTION_NAV_ITEMS = 3;
-const SECTION_SELECTOR = [
+export const MIN_LEGACY_SECTION_NAV_ITEMS = 3;
+export const LEGACY_SECTION_SELECTOR: string = [
   '.settings-card',
   '.settings-section',
   '.settings-group',
@@ -39,14 +39,14 @@ function normalizeLabel(text: string | null | undefined): string {
   return (text || '').replace(/\s+/g, ' ').trim();
 }
 
-function isHiddenSection(element: Element): boolean {
+export function isHiddenSection(element: Element): boolean {
   if (element.hasAttribute('hidden')) return true;
   if (element.getAttribute('aria-hidden') === 'true') return true;
   if (element.classList.contains('hidden')) return true;
   return element.closest('[hidden], [aria-hidden="true"], .hidden') !== null;
 }
 
-function isInsideDialogLikeContainer(element: Element): boolean {
+export function isInsideDialogLikeContainer(element: Element): boolean {
   return element.closest(
     '.modal, .settings-modal, .webdav-modal, .ui-modal, [role="dialog"], dialog',
   ) !== null;
@@ -65,7 +65,7 @@ function getPreviousCommentTitle(element: Element): string | null {
   return null;
 }
 
-function getDirectSectionTitle(element: Element): string | null {
+export function getDirectSectionTitle(element: Element): string | null {
   const titleElement = element.querySelector(TITLE_SELECTOR);
   const label = normalizeLabel(titleElement?.textContent);
   if (label) return label;
@@ -94,6 +94,26 @@ function injectSectionAnchor(element: Element, id: string): void {
   element.insertBefore(anchor, element.firstChild);
 }
 
+export type LegacySettingsSection = {
+  element: Element;
+  label: string;
+};
+
+/**
+ * 在给定正文根下收集可用作快速导航的遗留分组（含标题，可见，非弹窗内）。
+ * 供 React 全页外框直接对 live DOM 使用，避免解析 innerHTML。
+ */
+export function collectLegacySettingsSections(
+  body: Element,
+): LegacySettingsSection[] {
+  if (typeof document === 'undefined') return [];
+  return Array.from(body.querySelectorAll(LEGACY_SECTION_SELECTOR))
+    .filter((element) => !isHiddenSection(element))
+    .filter((element) => !isInsideDialogLikeContainer(element))
+    .map((element) => ({ element, label: getDirectSectionTitle(element) }))
+    .filter((entry): entry is LegacySettingsSection => Boolean(entry.label));
+}
+
 export function prepareLegacySettingsSectionNav(
   panelHtml: string,
   pageId: string,
@@ -108,11 +128,7 @@ export function prepareLegacySettingsSectionNav(
   const body = panelRoot?.querySelector('.settings-page-body') ?? panelRoot;
   if (!body) return { panelHtml, items: [] };
 
-  const titledCandidates = Array.from(body.querySelectorAll(SECTION_SELECTOR))
-    .filter((element) => !isHiddenSection(element))
-    .filter((element) => !isInsideDialogLikeContainer(element))
-    .map((element) => ({ element, label: getDirectSectionTitle(element) }))
-    .filter((entry): entry is { element: Element; label: string } => Boolean(entry.label));
+  const titledCandidates = collectLegacySettingsSections(body);
 
   if (titledCandidates.length < MIN_LEGACY_SECTION_NAV_ITEMS) {
     return { panelHtml, items: [] };

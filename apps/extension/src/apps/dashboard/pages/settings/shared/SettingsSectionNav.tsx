@@ -32,6 +32,10 @@ type SettingsSectionNavLayoutProps = {
   asideClassName?: string;
   contentClassName?: string;
   navClassName?: string;
+  /** 锚点元素解析器；默认 document.getElementById */
+  getSectionElement?: (id: string) => HTMLElement | null;
+  /** 自定义跳转行为；未提供时使用 getSectionElement + scrollIntoView */
+  onNavigate?: (id: string) => void;
 };
 
 export function getVisibleSectionNavItems(
@@ -56,7 +60,9 @@ function defaultGetSectionElement(id: string): HTMLElement | null {
 }
 
 function scrollToSection(element: HTMLElement): void {
-  element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const reducedMotion =
+    typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  element.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
 }
 
 function getFloatingTopAnchor(navElement: HTMLDivElement): Element | null {
@@ -100,13 +106,21 @@ export function SettingsSectionNavLayout({
   asideClassName,
   contentClassName,
   navClassName,
+  getSectionElement,
+  onNavigate,
 }: SettingsSectionNavLayoutProps) {
   if (getVisibleSectionNavItems(items).length === 0) return <>{children}</>;
 
   return (
     <div className={joinClassNames('settings-section-nav-layout', className)}>
       <aside className={joinClassNames('settings-section-nav-aside', asideClassName)}>
-        <SettingsSectionNav items={items} title={title} className={navClassName} />
+        <SettingsSectionNav
+          items={items}
+          title={title}
+          className={navClassName}
+          getSectionElement={getSectionElement}
+          onNavigate={onNavigate}
+        />
       </aside>
       <div className={joinClassNames('settings-section-nav-content', contentClassName)}>
         {children}

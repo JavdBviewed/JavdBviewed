@@ -3,10 +3,14 @@
  * @description 设置子页共用外框：返回钮固定左上，标题/正文居中限宽
  * @module apps/dashboard/pages/settings/shared
  */
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { PageHeader } from '../../../../../ui/patterns/PageHeader/PageHeader';
 import { cn } from '../../../../../ui/lib/cn';
 import { SettingsSectionNavLayout, type SettingsSectionNavItem } from './SettingsSectionNav';
+import {
+  collectLegacySettingsSections,
+  MIN_LEGACY_SECTION_NAV_ITEMS,
+} from './legacySettingsSectionNav';
 import '../settingsSubpageShell.css';
 import './settingsReactFidelity.css';
 
@@ -17,8 +21,10 @@ export type SettingsPageFrameProps = {
   className?: string;
   /** 根节点额外 data 属性（如 data-display-settings-react） */
   rootDataAttrs?: Record<string, string>;
-  /** 页面内分组快捷导航；为空时不渲染导航布局 */
+  /** 页面内分组快捷导航；显式提供时优先使用 */
   sectionNavItems?: SettingsSectionNavItem[];
+  /** 自动生成导航的锚点 id 前缀；未提供 sectionNavItems 时从正文收集分组 */
+  pageId?: string;
 };
 
 /**
@@ -33,7 +39,56 @@ export function SettingsPageFrame({
   className,
   rootDataAttrs,
   sectionNavItems,
+  pageId,
 }: SettingsPageFrameProps) {
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [autoNavItems, setAutoNavItems] = useState<SettingsSectionNavItem[]>([]);
+
+  // 仅当未显式提供 sectionNavItems 时，才在正文挂载后自动收集分组生成快速导航。
+  // 复用遗留 partial 的分组收集规则（含“至少 3 个分组”门槛）；
+  // 对显式声明导航的页面（emby/drive115/cloud/update）零影响。
+  //
+  // 注意：这里不能改写 container.innerHTML——正文是 React 渲染的，
+  // 直接替换 DOM 会绕过 React 虚拟 DOM，后续 state 更新可能丢失或冲突。
+  // 因此不给分组注入 anchor span，而是把稳定锚点 id 直接挂在 React 渲染的
+  // 分组元素上；React 重渲染会清掉该 id，所以在每次 commit 后重新补挂，
+  // 导航按钮按 id 现查当前 DOM 元素即可。
+  const applyAutoNavAnchors = () => {
+    const container = contentRef.current;
+    if (!container || typeof document === 'undefined') return;
+    if (sectionNavItems) {
+      setAutoNavItems([]);
+      return;
+    }
+    const body = container.querySelector('.settings-page-body') ?? container;
+    const sections = collectLegacySettingsSections(body);
+    if (sections.length < MIN_LEGACY_SECTION_NAV_ITEMS) {
+      setAutoNavItems([]);
+      return;
+    }
+    const items: SettingsSectionNavItem[] = sections.map((section, index) => {
+      const id = `${(pageId ?? 'settings').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'settings'}-section-${index}`;
+      section.element.setAttribute('id', id);
+      return { id, label: section.label };
+    });
+    setAutoNavItems(items);
+  };
+
+  // 首次挂载（或显式导航开关变化）时收集一次；每次 commit 后补挂锚点 id
+  //（React 重渲染会清掉），保证滚动目标持续可用。
+  useLayoutEffect(applyAutoNavAnchors);
+
+  const effectiveNavItems = sectionNavItems ?? autoNavItems;
+
+  // 锚点 id 直接挂在分组元素上（React 重渲染会清掉，上面每个 commit 会补回），
+  // 因此导航按钮按 id 在内容容器内现查元素，不依赖 document 全局查找，
+  // 也避免锚点残留时被重复匹配。
+  const handleAutoNavNavigate = (id: string) => {
+    const container = contentRef.current;
+    const element = container?.querySelector<HTMLElement>(`[id="${id}"]`) ?? null;
+    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
     <div
       className={cn('ssp-page w-full min-w-0 pb-8', className)}
@@ -45,10 +100,18 @@ export function SettingsPageFrame({
           <i className="fas fa-arrow-left" aria-hidden="true" /> 返回设置
         </button>
       </div>
-      <div className="mx-auto w-full max-w-[1200px] px-1">
+      <div ref={contentRef} className="mx-auto w-full max-w-[1200px] px-1">
         <PageHeader className="mb-5" align="center" title={title} description={description} />
-        {sectionNavItems ? (
-          <SettingsSectionNavLayout items={sectionNavItems}>{children}</SettingsSectionNavLayout>
+        {effectiveNavItems ? (
+          <SettingsSectionNavLayout
+            items={effectiveNavItems}
+            getSectionElement={
+              sectionNavItems ? undefined : (id) => contentRef.current?.querySelector<HTMLElement>(`[id="${id}"]`) ?? null
+            }
+            onNavigate={sectionNavItems ? undefined : handleAutoNavNavigate}
+          >
+            {children}
+          </SettingsSectionNavLayout>
         ) : (
           children
         )}
