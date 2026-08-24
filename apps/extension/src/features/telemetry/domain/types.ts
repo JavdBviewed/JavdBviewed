@@ -117,6 +117,7 @@ export interface TelemetryPayload {
     listFavoriteQuickActionEnabled: boolean;
     actorEnhancementEnabled: boolean;
     embyEnabled: boolean;
+    embyRecognitionEnabled: boolean;
     embyLibraryStatusEnabled: boolean;
     embyRealtimeCheckEnabled: boolean;
     privacyScreenshotModeEnabled: boolean;

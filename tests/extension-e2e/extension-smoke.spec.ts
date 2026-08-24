@@ -208,6 +208,9 @@ test.describe('JavdBviewed extension browser smoke', () => {
           settings: {
             emby: {
               enabled: true,
+              recognitionEnabled: true,
+              libraryEnabled: true,
+              libraryStatus: { enabled: true, showOnList: true, showOnDetail: true },
               mediaServers: [{
                 id: 'e2e-cleanup-emby',
                 type: 'emby',
@@ -595,6 +598,9 @@ test.describe('JavdBviewed extension browser smoke', () => {
           settings: {
             emby: {
               enabled: true,
+              recognitionEnabled: true,
+              libraryEnabled: true,
+              libraryStatus: { enabled: true, showOnList: true, showOnDetail: true },
               mediaServers: [
                 {
                   id: 'e2e-emby',

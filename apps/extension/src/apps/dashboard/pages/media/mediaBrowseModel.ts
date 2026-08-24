@@ -6,6 +6,7 @@
 import type { EmbyWatchUserData } from '../../../../features/embyLibrary/types';
 import type { MediaWatchState } from '../../../../features/embyLibrary/domain/watchState';
 import type { ParsedNfoSummary as Drive115ParsedNfoSummary } from '../../../../features/drive115/mediaLibrary/parseEntryMeta';
+import { isEmbyLibraryEnabled } from '../../../../utils/config';
 
 export type MediaItemSource = 'emby' | 'jellyfin' | '115';
 export type MediaBrowseSource = 'all' | MediaItemSource | `server:${string}`;
@@ -477,7 +478,7 @@ export function buildMediaSourceChannels(settings: unknown): MediaSourceChannel[
   const channels: MediaSourceChannel[] = [];
   const emby = isRecord(input.emby) ? input.emby : undefined;
 
-  if (emby?.enabled === true && Array.isArray(emby.mediaServers)) {
+  if (emby && isEmbyLibraryEnabled(emby) && Array.isArray(emby.mediaServers)) {
     for (const value of emby.mediaServers) {
       if (!isRecord(value) || value.enabled === false) continue;
       const serverUrl = normalizeMediaServerUrl(value.url);

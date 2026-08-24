@@ -274,6 +274,39 @@ export async function getSettings(): Promise<ExtensionSettings> {
       },
     },
   };
+
+  // Emby 主开关拆分迁移（幂等）：
+  // 旧数据只有 emby.enabled（总闸）+ emby.libraryStatus.enabled（入库）。
+  // 新模型拆成 recognitionEnabled / libraryEnabled 两个独立能力开关，
+  // enabled 保留为 OR 派生字段以兼容旧读点/遥测/备份。
+  {
+    const embyAny = mergedSettings.emby as any;
+    const storedEmby = (storedSettings as any).emby || {};
+    const hasNewFields =
+      'recognitionEnabled' in storedEmby || 'libraryEnabled' in storedEmby;
+    if (!hasNewFields) {
+      // 旧数据（无新字段）：从 enabled 总闸 + libraryStatus.enabled 回填
+      const legacyEnabled = storedEmby.enabled === true;
+      const legacyLibrary = storedEmby.libraryStatus?.enabled === true;
+      embyAny.recognitionEnabled = legacyEnabled;
+      embyAny.libraryEnabled = legacyEnabled && legacyLibrary;
+    }
+    // 无论是否迁移，统一让 enabled 成为 OR 派生，保证旧读点一致。
+    embyAny.enabled = !!(embyAny.recognitionEnabled || embyAny.libraryEnabled);
+    // 一致性保证：libraryStatus.enabled 是“入库展示”的主闸，与 libraryEnabled 同源。
+    // 若存储的 libraryStatus.enabled 为 true 但 libraryEnabled 为 false（旧数据迁移后
+    // 页面 re-save 可能把 libraryEnabled 重置），以 libraryStatus.enabled 为准回填，
+    // 避免 re-save 把用户已启用的入库功能悄悄关掉。
+    if (
+      embyAny.enabled === true &&
+      storedEmby.libraryStatus?.enabled === true &&
+      embyAny.libraryEnabled !== true
+    ) {
+      embyAny.libraryEnabled = true;
+      embyAny.enabled = !!(embyAny.recognitionEnabled || embyAny.libraryEnabled);
+    }
+  }
+
   mergedSettings.searchEngines = mergeSearchEngineTemplates((storedSettings as any).searchEngines);
 
   log.storage('Merged settings privacy config', mergedSettings.privacy);

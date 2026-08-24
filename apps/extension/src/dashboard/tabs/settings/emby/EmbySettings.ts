@@ -1135,6 +1135,8 @@ export class EmbySettings extends BaseSettingsPanel {
         if (!STATE.settings.emby) {
             STATE.settings.emby = {
                 enabled: false,
+                recognitionEnabled: false,
+                libraryEnabled: false,
                 matchUrls: [],
                 videoCodePatterns: [
                     '[A-Z]{2,6}-\\d{2,6}',
@@ -1182,6 +1184,11 @@ export class EmbySettings extends BaseSettingsPanel {
             showOnList: this.libraryShowListToggle.checked,
             showOnDetail: this.libraryShowDetailToggle.checked,
         };
+        // 主开关拆分兼容：旧页用总闸(enabled) + libraryStatus.enabled 推导新能力字段，
+        // 避免 WebDAV 备份/云同步回写时丢失 recognitionEnabled / libraryEnabled。
+        (STATE.settings.emby as any).recognitionEnabled = this.enabledToggle.checked;
+        (STATE.settings.emby as any).libraryEnabled =
+            this.enabledToggle.checked && this.libraryStatusEnabledToggle.checked;
         STATE.settings.emby.realtimeCheck = {
             ...(STATE.settings.emby.realtimeCheck || {}),
             enabled: this.realtimeCheckEnabledToggle.checked,

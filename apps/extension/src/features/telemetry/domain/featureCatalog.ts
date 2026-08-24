@@ -251,14 +251,35 @@ export const TELEMETRY_FEATURE_CATALOG = [
     label: 'Emby/Jellyfin 增强',
     category: 'media',
     order: 270,
-    select: (settings) => settings?.emby?.enabled === true,
+    // 兼容/迁移载体：任一能力开关为真即视为增强开启（OR 派生）。
+    select: (settings) =>
+      settings?.emby?.enabled === true
+      || settings?.emby?.recognitionEnabled === true
+      || settings?.emby?.libraryEnabled === true,
+  },
+  {
+    key: 'embyRecognitionEnabled',
+    label: 'Emby/Jellyfin 番号识别',
+    category: 'media',
+    order: 275,
+    select: (settings) => {
+      const emby = settings?.emby;
+      if (!emby) return false;
+      if ('recognitionEnabled' in emby) return emby.recognitionEnabled === true;
+      return emby.enabled === true;
+    },
   },
   {
     key: 'embyLibraryStatusEnabled',
     label: 'Emby/Jellyfin 入库状态',
     category: 'media',
     order: 280,
-    select: (settings) => settings?.emby?.libraryStatus?.enabled === true,
+    select: (settings) => {
+      const emby = settings?.emby;
+      if (!emby) return false;
+      if ('libraryEnabled' in emby) return emby.libraryEnabled === true;
+      return emby.enabled === true && emby.libraryStatus?.enabled === true;
+    },
   },
   {
     key: 'embyRealtimeCheckEnabled',

@@ -16,13 +16,19 @@ export type EmbyLinkBehavior = 'javdb-search' | 'javdb-direct';
 
 /** Emby 设置表单状态 */
 export type EmbySettingsFormState = {
+  /** 兼容/迁移载体：由 recognitionEnabled 或 libraryEnabled 任一为真派生（OR）。页面不再渲染为主开关。 */
   enabled: boolean;
+  /** 番号识别 / 转 JavDB 链接能力（不依赖媒体服务器 API Key） */
+  recognitionEnabled: boolean;
+  /** 媒体库同步 / 入库状态能力（依赖至少一台已启用服务器） */
+  libraryEnabled: boolean;
   matchUrls: string[];
   linkBehavior: EmbyLinkBehavior;
   showQuickSearchCode: boolean;
   showQuickSearchActor: boolean;
   mediaServers: EmbyMediaServer[];
   syncIntervalMinutes: number;
+  /** 入库展示子项：写入 emby.libraryStatus.enabled（与 libraryEnabled 同源）。 */
   libraryStatusEnabled: boolean;
   libraryShowOnList: boolean;
   libraryShowOnDetail: boolean;
@@ -58,6 +64,8 @@ export const DEFAULT_HIGHLIGHT_STYLE = {
 
 export const DEFAULT_EMBY_SETTINGS_FORM: EmbySettingsFormState = {
   enabled: false,
+  recognitionEnabled: false,
+  libraryEnabled: false,
   matchUrls: [],
   linkBehavior: 'javdb-search',
   showQuickSearchCode: true,
@@ -216,8 +224,23 @@ export function mapSettingsToEmbyForm(
     ? (emby.matchUrls as string[]).map((u) => String(u))
     : [];
 
+  // 主开关拆分：优先读新字段；旧数据（无 recognitionEnabled/libraryEnabled）
+  // 回退到 enabled 总闸 + libraryStatus.enabled，与 storage.ts 迁移规则一致。
+  const hasNewFields =
+    'recognitionEnabled' in emby || 'libraryEnabled' in emby;
+  // 旧数据 enabled: true 表示"启用"，undefined/false 表示未启用
+  const legacyEnabled = emby.enabled === true;
+  const recognitionEnabled = hasNewFields
+    ? emby.recognitionEnabled === true
+    : legacyEnabled;
+  const libraryEnabled = hasNewFields
+    ? emby.libraryEnabled === true
+    : legacyEnabled && libraryStatus.enabled === true;
+
   return {
-    enabled: !!emby.enabled,
+    enabled: recognitionEnabled || libraryEnabled,
+    recognitionEnabled,
+    libraryEnabled,
     matchUrls,
     linkBehavior,
     showQuickSearchCode: emby.showQuickSearchCode !== false,
@@ -262,8 +285,15 @@ export function mapSettingsToEmbyForm(
  * 表单 → emby 设置子对象
  */
 export function formToEmbySettings(form: EmbySettingsFormState): Record<string, unknown> {
+  // 主开关拆分：enabled 由两个能力开关 OR 派生；
+  // libraryStatus.enabled 与 libraryEnabled 同源，保留供展示子项与旧读点使用。
+  const recognitionEnabled = form.recognitionEnabled;
+  const libraryEnabled = form.libraryEnabled;
+
   return {
-    enabled: form.enabled,
+    enabled: recognitionEnabled || libraryEnabled,
+    recognitionEnabled,
+    libraryEnabled,
     matchUrls: form.matchUrls.map((u) => u.trim()).filter(Boolean),
     videoCodePatterns:
       form.videoCodePatterns.length > 0
@@ -277,7 +307,7 @@ export function formToEmbySettings(form: EmbySettingsFormState): Record<string, 
     mediaServers: normalizeMediaServers(form.mediaServers),
     syncIntervalMinutes: Math.max(5, Number(form.syncIntervalMinutes || 60)),
     libraryStatus: {
-      enabled: form.libraryStatusEnabled,
+      enabled: form.libraryEnabled,
       showOnList: form.libraryShowOnList,
       showOnDetail: form.libraryShowOnDetail,
     },

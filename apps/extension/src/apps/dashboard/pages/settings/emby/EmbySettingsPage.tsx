@@ -131,7 +131,8 @@ export function EmbySettingsPage() {
   );
 
   const enabled = form.enabled;
-  const libraryEnabled = form.libraryStatusEnabled;
+  const recognitionEnabled = form.recognitionEnabled;
+  const libraryEnabled = form.libraryEnabled;
   const editingServer = editingServerIndex == null ? null : form.mediaServers[editingServerIndex] ?? null;
 
   const focusCreateUrl = () => {
@@ -311,7 +312,7 @@ export function EmbySettingsPage() {
   return (
     <SettingsPageFrame
       title="Emby/Jellyfin 增强设置"
-      description="配置 Emby/Jellyfin 等媒体服务器的番号识别和跳转功能，自动将页面中的番号转换为可点击的链接。"
+      description="两个独立能力：番号识别/转 JavDB 链接（无需 API Key），以及媒体库同步/入库状态（需已启用服务器）。"
       rootDataAttrs={{ 'data-emby-settings-react': '1' }}
     >
       {loading ? (
@@ -330,20 +331,17 @@ export function EmbySettingsPage() {
             反馈现象、截图和日志。
           </SettingsHighlightNotice>
 
-          <SettingSection title="基本设置">
-            <SettingToggleRow
-              id="emby-enabled"
-              label="启用 Emby/Jellyfin 增强功能"
-              description="启用后，扩展将在匹配的网站上自动识别番号并转换为可点击的链接。"
-              checked={form.enabled}
-              onChange={(v) => updateForm({ enabled: v })}
-            />
-          </SettingSection>
-
           <SettingSection
             title="媒体服务器"
             description="配置 Emby/Jellyfin 服务器地址、API Key，以及用户登录令牌。"
           >
+            <SettingToggleRow
+              id="emby-library-enabled"
+              label="启用媒体库同步与入库状态"
+              description="启用后，后台会按间隔同步已启用服务器的媒体库，并在 JavDB 列表/详情页显示入库状态。"
+              checked={form.libraryEnabled}
+              onChange={(v) => updateForm({ libraryEnabled: v, libraryStatusEnabled: v })}
+            />
             <div
               id="emby-media-server-list"
               className="flex flex-col gap-2 px-2 py-2"
@@ -401,7 +399,7 @@ export function EmbySettingsPage() {
               <Button
                 id="sync-emby-library"
                 variant="primary"
-                disabled={!enabled || syncing}
+                disabled={!libraryEnabled || syncing}
                 onClick={() => void onManualSync()}
               >
                 <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
@@ -421,7 +419,7 @@ export function EmbySettingsPage() {
                   <Input
                     id="emby-library-check-code"
                     className="min-w-0 flex-1"
-                    disabled={!enabled || checking}
+                    disabled={!libraryEnabled || checking}
                     placeholder="ABC-123 / FC2-PPV-123456"
                     value={checkCode}
                     onChange={(e) => setCheckCode(e.currentTarget.value)}
@@ -435,7 +433,7 @@ export function EmbySettingsPage() {
                   <Button
                     id="test-emby-library-check"
                     variant="secondary"
-                    disabled={!enabled || checking}
+                    disabled={!libraryEnabled || checking}
                     onClick={() => void onTestLibraryCheck()}
                   >
                     <i className="fas fa-search" aria-hidden="true" />{' '}
@@ -448,14 +446,26 @@ export function EmbySettingsPage() {
           </SettingSection>
 
           <SettingSection
-            title="额外匹配地址（高级）"
-            description="已启用媒体服务器的地址会自动匹配。仅在反向代理、备用域名或网页登录地址不同于服务器地址时，在这里补充匹配模式；支持通配符 *。"
+            title="番号识别与链接"
+            description="自动识别页面中的番号并转换为可点击的 JavDB 链接。"
           >
-            <div
-              id="emby-match-urls-list"
-              className="flex flex-col gap-2 px-2 py-2"
-              style={{ opacity: enabled ? 1 : 0.5 }}
+            <SettingToggleRow
+              id="emby-recognition-enabled"
+              label="启用番号识别 / 转 JavDB 链接"
+              description="在匹配的媒体服务器页面自动识别番号并转换为 JavDB 链接，无需 API Key。"
+              checked={form.recognitionEnabled}
+              onChange={(v) => updateForm({ recognitionEnabled: v })}
+            />
+            <SettingSection
+              title="额外匹配地址（高级）"
+              description="已启用媒体服务器的地址会自动匹配。仅在反向代理、备用域名或网页登录地址不同于服务器地址时，在这里补充匹配模式；支持通配符 *。"
             >
+              <div
+                id="emby-match-urls-list"
+                className="flex flex-col gap-2 px-2 py-2"
+                data-settings-search-keywords="额外匹配地址 反向代理 备用域名 媒体服务器"
+                style={{ opacity: recognitionEnabled ? 1 : 0.5 }}
+              >
               {(form.matchUrls.length === 0 ? [''] : form.matchUrls).map((url, index) => {
                 const realIndex = form.matchUrls.length === 0 ? -1 : index;
                 const displayValue = form.matchUrls.length === 0 ? '' : url;
@@ -463,7 +473,7 @@ export function EmbySettingsPage() {
                   <div key={`url-${index}`} className="flex flex-wrap items-center gap-2">
                     <Input
                       className="min-w-0 flex-1"
-                      disabled={!enabled}
+                      disabled={!recognitionEnabled}
                       placeholder="备用域名或反代地址，如 https://media.example.com/*"
                       value={displayValue}
                       onChange={(e) => {
@@ -480,7 +490,7 @@ export function EmbySettingsPage() {
                     />
                     <Button
                       variant="secondary"
-                      disabled={!enabled}
+                      disabled={!recognitionEnabled}
                       title="删除"
                       aria-label="删除匹配地址"
                       onClick={() => {
@@ -494,16 +504,17 @@ export function EmbySettingsPage() {
                 );
               })}
             </div>
-            <div className="px-2 pb-2">
-              <Button
-                id="add-emby-url"
-                variant="secondary"
-                disabled={!enabled}
-                onClick={onAddMatchUrl}
-              >
-                <i className="fas fa-plus" aria-hidden="true" /> 添加额外匹配地址
-              </Button>
-            </div>
+              <div className="px-2 pb-2">
+                <Button
+                  id="add-emby-url"
+                  variant="secondary"
+                  disabled={!recognitionEnabled}
+                  onClick={onAddMatchUrl}
+                >
+                  <i className="fas fa-plus" aria-hidden="true" /> 添加额外匹配地址
+                </Button>
+              </div>
+            </SettingSection>
           </SettingSection>
 
           <SettingSection title="链接行为">
@@ -514,7 +525,7 @@ export function EmbySettingsPage() {
             >
               <SettingSelect
                 id="emby-link-behavior"
-                disabled={!enabled}
+                disabled={!recognitionEnabled}
                 value={form.linkBehavior}
                 options={[...LINK_BEHAVIOR_OPTIONS]}
                 onChange={(v) =>
@@ -532,7 +543,7 @@ export function EmbySettingsPage() {
               label='显示"搜番号"按钮'
               description="在右侧显示悬浮按钮，快速按页面内容或选中文本进行番号搜索/直达。"
               checked={form.showQuickSearchCode}
-              disabled={!enabled}
+              disabled={!recognitionEnabled}
               onChange={(v) => updateForm({ showQuickSearchCode: v })}
             />
             <SettingToggleRow
@@ -540,7 +551,7 @@ export function EmbySettingsPage() {
               label='显示"搜演员"按钮'
               description="在右侧显示悬浮按钮，快速按页面内容或选中文本进行演员搜索。"
               checked={form.showQuickSearchActor}
-              disabled={!enabled}
+              disabled={!recognitionEnabled}
               onChange={(v) => updateForm({ showQuickSearchActor: v })}
             />
           </SettingSection>
@@ -549,9 +560,9 @@ export function EmbySettingsPage() {
             <SettingToggleRow
               id="emby-library-status-enabled"
               label="显示 Emby/Jellyfin 入库状态"
-              description="在 JavDB 列表页和详情页显示本地媒体服务器是否已入库。"
-              checked={form.libraryStatusEnabled}
-              onChange={(v) => updateForm({ libraryStatusEnabled: v })}
+              description="在 JavDB 列表页和详情页显示本地媒体服务器是否已入库（依赖上方“媒体库同步与入库状态”总开关）。"
+              checked={form.libraryEnabled}
+              onChange={(v) => updateForm({ libraryEnabled: v, libraryStatusEnabled: v })}
             />
             <div
               className="flex flex-col gap-1"

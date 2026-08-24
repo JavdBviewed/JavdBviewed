@@ -23,6 +23,7 @@ import {
   validateEmbyForm,
   validateMediaServerInput,
 } from './embySettingsModel';
+import { isEmbyRecognitionEnabled, isEmbyLibraryEnabled } from '../../../../../utils/config';
 
 describe('embySettingsModel', () => {
   it('defaults match legacy DEFAULT_SETTINGS.emby', () => {
@@ -99,6 +100,8 @@ describe('embySettingsModel', () => {
     const form = {
       ...DEFAULT_EMBY_SETTINGS_FORM,
       enabled: true,
+      recognitionEnabled: true,
+      libraryEnabled: true,
       matchUrls: ['https://a.com/*', '  '],
       mediaServers: [
         {
@@ -257,3 +260,95 @@ describe('embySettingsModel', () => {
     ).toBe(true);
   });
 });
+
+describe('embySettingsModel: capability split (recognition/library)', () => {
+  it('reads new capability fields directly when present', () => {
+    const form = mapSettingsToEmbyForm({
+      emby: {
+        enabled: true,
+        recognitionEnabled: true,
+        libraryEnabled: false,
+        libraryStatus: { enabled: false, showOnList: true, showOnDetail: true },
+      } as any,
+    });
+    expect(form.recognitionEnabled).toBe(true);
+    expect(form.libraryEnabled).toBe(false);
+    expect(form.enabled).toBe(true);
+  });
+
+  it('backfills legacy data (only emby.enabled) to recognition-only', () => {
+    const form = mapSettingsToEmbyForm({
+      emby: {
+        enabled: true,
+        libraryStatus: { enabled: false, showOnList: true, showOnDetail: true },
+      } as any,
+    });
+    expect(form.recognitionEnabled).toBe(true);
+    expect(form.libraryEnabled).toBe(false);
+    expect(form.enabled).toBe(true);
+  });
+
+  it('backfills legacy data (enabled + libraryStatus.enabled) to both', () => {
+    const form = mapSettingsToEmbyForm({
+      emby: {
+        enabled: true,
+        libraryStatus: { enabled: true, showOnList: false, showOnDetail: true },
+      } as any,
+    });
+    expect(form.recognitionEnabled).toBe(true);
+    expect(form.libraryEnabled).toBe(true);
+    expect(form.enabled).toBe(true);
+  });
+
+  it('backfills legacy disabled data to both false', () => {
+    const form = mapSettingsToEmbyForm({
+      emby: {
+        enabled: false,
+        libraryStatus: { enabled: true, showOnList: true, showOnDetail: true },
+      } as any,
+    });
+    expect(form.recognitionEnabled).toBe(false);
+    expect(form.libraryEnabled).toBe(false);
+    expect(form.enabled).toBe(false);
+  });
+
+  it('formToEmbySettings derives enabled (OR) and libraryStatus.enabled from capability fields', () => {
+    const form = {
+      ...DEFAULT_EMBY_SETTINGS_FORM,
+      recognitionEnabled: true,
+      libraryEnabled: true,
+    };
+    const emby = formToEmbySettings(form);
+    expect(emby.recognitionEnabled).toBe(true);
+    expect(emby.libraryEnabled).toBe(true);
+    expect(emby.enabled).toBe(true);
+    expect((emby.libraryStatus as any).enabled).toBe(true);
+
+    const recognitionOnly = { ...form, recognitionEnabled: true, libraryEnabled: false };
+    const emby2 = formToEmbySettings(recognitionOnly);
+    expect(emby2.enabled).toBe(true);
+    expect(emby2.libraryEnabled).toBe(false);
+    expect((emby2.libraryStatus as any).enabled).toBe(false);
+
+    const allOff = { ...form, recognitionEnabled: false, libraryEnabled: false };
+    const emby3 = formToEmbySettings(allOff);
+    expect(emby3.enabled).toBe(false);
+  });
+
+  it('shared capability helpers handle legacy + new data', () => {
+    // new data
+    expect(isEmbyRecognitionEnabled({ recognitionEnabled: true, enabled: false })).toBe(true);
+    expect(isEmbyRecognitionEnabled({ recognitionEnabled: false, enabled: true })).toBe(false);
+    expect(isEmbyLibraryEnabled({ libraryEnabled: true, enabled: false })).toBe(true);
+    // legacy data (no recognition/library fields)
+    expect(isEmbyRecognitionEnabled({ enabled: true })).toBe(true);
+    expect(isEmbyRecognitionEnabled({ enabled: false })).toBe(false);
+    expect(isEmbyLibraryEnabled({ enabled: true, libraryStatus: { enabled: true } })).toBe(true);
+    expect(isEmbyLibraryEnabled({ enabled: true, libraryStatus: { enabled: false } })).toBe(false);
+    expect(isEmbyLibraryEnabled({ enabled: false, libraryStatus: { enabled: true } })).toBe(false);
+    // null/undefined
+    expect(isEmbyRecognitionEnabled(null)).toBe(false);
+    expect(isEmbyLibraryEnabled(undefined)).toBe(false);
+  });
+});
+

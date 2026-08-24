@@ -13,6 +13,7 @@ function setEmbySettings(videoCodePatterns: string[] = []): void {
   settings.emby = {
     ...settings.emby,
     enabled: true,
+    recognitionEnabled: true,
     matchUrls: ['*'],
     mediaServers: [],
     videoCodePatterns,

@@ -17,7 +17,7 @@ import { setMediaPlaybackActive } from '../../../../dashboard/tabs/mediaLifecycl
 import { scheduleHomeChartRender } from '../../../../dashboard/home/homeRenderScheduler';
 import type { EmbyLibraryState } from '../../../../features/embyLibrary/types';
 import { STORAGE_KEYS } from '../../../../utils/config';
-import { getValue } from '../../../../utils/storage';
+import { getSettings, getValue } from '../../../../utils/storage';
 import { sendRuntimeMessage } from '../../../../platform/browser/runtimeMessages';
 import { normalizeVideoCodeCandidate } from '../../../../shared/utils/videoCodeExtractor';
 import {
@@ -429,7 +429,9 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
 
   const reloadSyncTargetsFromSettings = useCallback(async () => {
     try {
-      const settings = await getValue<unknown>(STORAGE_KEYS.SETTINGS, {});
+      // 使用 getSettings（合并 DEFAULT + 主开关拆分迁移），而非裸 getValue，
+      // 保证旧数据（仅 emby.enabled=true）也能正确推导 libraryEnabled/recognitionEnabled。
+      const settings = await getSettings() as unknown;
       const channels = buildMediaSourceChannels(settings);
       sourceChannelsRef.current = channels;
       setSourceChannels(channels);

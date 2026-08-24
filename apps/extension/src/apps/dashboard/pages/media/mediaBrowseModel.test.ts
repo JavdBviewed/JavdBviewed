@@ -83,6 +83,7 @@ describe('mediaBrowseModel', () => {
     const channels = buildMediaSourceChannels({
       emby: {
         enabled: true,
+        libraryEnabled: true,
         mediaServers: [
           { id: 'main', type: 'emby', name: '主服务器', url: 'http://emby.local:8096/', enabled: true },
           { id: 'jf', type: 'jellyfin', name: '家庭影音', url: 'http://jellyfin.local:8096', enabled: true },
@@ -113,6 +114,7 @@ describe('mediaBrowseModel', () => {
     const channels = buildMediaSourceChannels({
       emby: {
         enabled: true,
+        libraryEnabled: true,
         mediaServers: [
           { id: 'first', type: 'emby', name: '一号', url: 'http://one.local:8096/', enabled: true },
           { id: 'second', type: 'emby', name: '二号', url: 'http://two.local:8096', enabled: true },
@@ -281,6 +283,7 @@ describe('mediaBrowseModel', () => {
     const channels = buildMediaSourceChannels({
       emby: {
         enabled: true,
+        libraryEnabled: true,
         mediaServers: [
           { type: 'emby', name: '主服务器', url: 'http://emby.local:8096', enabled: true },
         ],

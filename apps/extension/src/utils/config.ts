@@ -604,7 +604,13 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
 
     // 新增：Emby/Jellyfin 增强默认配置
     emby: {
-        enabled: false, // 默认关闭，需要用户手动配置
+        // 兼容/迁移载体：由 recognitionEnabled 或 libraryEnabled 任一为真派生（OR）。
+        // 保留以便旧读点、遥测与备份/恢复在迁移期不读到 undefined。
+        enabled: false,
+        // 番号识别/转 JavDB 链接能力（不依赖媒体服务器 API Key）
+        recognitionEnabled: false,
+        // 媒体库同步/入库状态能力（依赖至少一台已启用服务器）
+        libraryEnabled: false,
         matchUrls: [], // 额外匹配地址；媒体服务器 URL 会自动参与匹配
         videoCodePatterns: [
             '[A-Z]{2,6}-\\d{2,6}', // 标准格式: ABC-123, ABCD-123
@@ -688,6 +694,37 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
     // Dashboard 番号库：视图模式（列表/卡片）
     recordsViewMode: 'list' as 'list' | 'card'
 };
+
+/**
+ * Emby 能力判定助手（主开关拆分后，统一读点用）。
+ *
+ * 新模型：`emby.recognitionEnabled`（番号识别/转 JavDB 链接）与
+ * `emby.libraryEnabled`（媒体库同步/入库状态）是独立能力开关；
+ * `emby.enabled` 为 OR 派生字段，仅作旧数据兜底。
+ *
+ * 迁移前旧数据没有 recognitionEnabled/libraryEnabled 字段，
+ * 此时回退到 `enabled`（总闸），避免旧数据被误判为“未启用”。
+ */
+type EmbyConfigLike = {
+    enabled?: unknown;
+    recognitionEnabled?: unknown;
+    libraryEnabled?: unknown;
+};
+
+/** 番号识别 / 转 JavDB 链接是否启用 */
+export function isEmbyRecognitionEnabled(emby: EmbyConfigLike | null | undefined): boolean {
+    if (!emby || typeof emby !== 'object') return false;
+    if ('recognitionEnabled' in emby) return emby.recognitionEnabled === true;
+    return emby.enabled === true;
+}
+
+/** 媒体库同步 / 入库状态是否启用 */
+export function isEmbyLibraryEnabled(emby: EmbyConfigLike | null | undefined): boolean {
+    if (!emby || typeof emby !== 'object') return false;
+    if ('libraryEnabled' in emby) return emby.libraryEnabled === true;
+    // 旧数据（未经过 mergeSettings 迁移的裸读点）：enabled 总闸 + libraryStatus.enabled 入库主闸
+    return emby.enabled === true && (emby as any).libraryStatus?.enabled === true;
+}
 
 // WebDAV恢复配置
 export const RESTORE_CONFIG = {
