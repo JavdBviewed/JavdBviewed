@@ -7,7 +7,17 @@ import { registerDynamicContentScripts } from './dynamicContentScripts';
 
 export async function autoUpdateRoutes(): Promise<void> {
   try {
-    if (typeof document !== 'undefined') {
+    // 用 WorkerGlobalScope/ServiceWorkerGlobalScope 判断真实 SW 上下文，
+    // 避免被 swGlobalsGuard 安装的惰性 document 垫片误导。
+    const g = globalThis as unknown as {
+      WorkerGlobalScope?: new (...args: unknown[]) => unknown;
+      ServiceWorkerGlobalScope?: new (...args: unknown[]) => unknown;
+    };
+    const selfRef = self as unknown;
+    const isRealSw =
+      (typeof g.WorkerGlobalScope !== 'undefined' && selfRef instanceof g.WorkerGlobalScope) ||
+      (typeof g.ServiceWorkerGlobalScope !== 'undefined' && selfRef instanceof g.ServiceWorkerGlobalScope);
+    if (!isRealSw && typeof document !== 'undefined') {
       console.info('[Background] 检测到 document，上下文可能不是 Service Worker');
     }
     const { RouteManager } = await import('../../features/routeManagement');

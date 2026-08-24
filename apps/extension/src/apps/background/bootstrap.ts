@@ -5,6 +5,10 @@
  */
 // 背景入口：装配与注册各模块
 
+// 必须在最前：Service Worker 缺少 window/document，先安装惰性垫片，
+// 避免 Vite 动态 import 的 preload 辅助函数在后台抛出 ReferenceError。
+import './swGlobalsGuard';
+
 if (typeof self === 'undefined' || !(self as any).registration) {
   console.warn('[Background] Service Worker context not ready, waiting...');
 }
