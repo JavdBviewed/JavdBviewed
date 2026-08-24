@@ -6,7 +6,7 @@
 // src/apps/content/bootstrap.ts
 
 import { getSettings, getValue } from '../../utils/storage';
-import { STORAGE_KEYS } from '../../utils/config';
+import { STORAGE_KEYS, isEmbyRecognitionEnabled } from '../../utils/config';
 import type { EmbyLibraryState } from '../../features/embyLibrary/types';
 import type { GlobalTaskVisibilityPolicy } from '../../shared/taskCenterTypes';
 import { STATE, SELECTORS, log, currentFaviconState, currentTitleStatus } from '../../features/contentState';
@@ -101,7 +101,7 @@ function getActorRemarksTaskTimeoutMs(settings: any): number {
 
 function isCurrentPageMatchedByEmby(settings: any): boolean {
     const matchUrls = getEffectiveEmbyMatchUrls(settings?.emby);
-    if (!settings?.emby?.enabled || matchUrls.length === 0) {
+    if (!isEmbyRecognitionEnabled(settings?.emby) || matchUrls.length === 0) {
         return false;
     }
     const currentUrl = window.location.href;

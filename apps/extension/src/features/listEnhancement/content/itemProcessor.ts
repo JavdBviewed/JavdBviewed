@@ -5,7 +5,7 @@
  */
 // src/features/listEnhancement/content/itemProcessor.ts
 
-import { VIDEO_STATUS } from '../../../utils/config';
+import { VIDEO_STATUS, isEmbyLibraryEnabled } from '../../../utils/config';
 import { STATE, SELECTORS, getContentRecord, log } from '../../contentState';
 import { loadContentRecordSummaries } from '../../contentState/recordCache';
 import { ensureListTagContainer, renderLibraryStatusBadges } from '../../embyLibrary/content/statusBadges';
@@ -308,7 +308,7 @@ function processItem(item: HTMLElement): string | null {
     const aggregateDrive115Enabled = aggregateLibraryMatchStatus?.enabled === true
         && aggregateLibraryMatchStatus.sources?.drive115 !== false;
 
-    if ((STATE.settings as any)?.emby?.libraryStatus?.enabled === true || aggregateEmbyEnabled) {
+    if (isEmbyLibraryEnabled((STATE.settings as any)?.emby) || aggregateEmbyEnabled) {
         const tagContainer = ensureListTagContainer(item);
         if (tagContainer) {
             renderLibraryStatusBadges(tagContainer, videoId, 'list');

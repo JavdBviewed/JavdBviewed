@@ -4,6 +4,7 @@
  * @module apps/background
  */
 import { getEffectiveEmbyMatchUrls, matchesEmbyUrlPattern } from '../../features/embyEnhancement/domain/matchUrls';
+import { isEmbyRecognitionEnabled } from '../../utils/config';
 
 export async function registerEmbyDynamicScripts(embyConfig: any): Promise<void> {
   setupEmbyTabListener(embyConfig);
@@ -17,7 +18,7 @@ function setupEmbyTabListener(embyConfig: any): void {
     embyTabListener = null;
   }
 
-  if (!embyConfig?.enabled) {
+  if (!isEmbyRecognitionEnabled(embyConfig)) {
     console.info('[Background] Emby 未启用或无 URL，移除 tab 监听器');
     return;
   }

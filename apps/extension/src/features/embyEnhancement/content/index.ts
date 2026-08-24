@@ -8,6 +8,7 @@ import { extractVideoId } from '../../../platform/browser';
 import { showToast } from '../../../platform/browser/toast';
 import { getEffectiveEmbyMatchUrls, matchesEmbyUrlPattern } from '../domain/matchUrls';
 import { extractVideoCodesFromText } from '../../../shared/utils/videoCodeExtractor';
+import { isEmbyRecognitionEnabled } from '../../../utils/config';
 
 interface EmbyConfig {
     enabled: boolean;
@@ -79,7 +80,7 @@ class EmbyEnhancementManager {
         try {
             await this.loadConfig();
 
-            if (!this.config?.enabled) {
+            if (!isEmbyRecognitionEnabled(this.config)) {
                 log('Emby enhancement is disabled');
                 return;
             }
@@ -422,7 +423,7 @@ class EmbyEnhancementManager {
 
         await this.loadConfig();
 
-        if (!this.config?.enabled || !this.isCurrentPageMatched()) {
+        if (!isEmbyRecognitionEnabled(this.config) || !this.isCurrentPageMatched()) {
             this.destroy();
             return;
         }
@@ -439,14 +440,14 @@ class EmbyEnhancementManager {
     getStatus(): { initialized: boolean; enabled: boolean; matched: boolean } {
         return {
             initialized: this.isInitialized,
-            enabled: this.config?.enabled || false,
+            enabled: isEmbyRecognitionEnabled(this.config),
             matched: this.isCurrentPageMatched()
         };
     }
 
     /** 渲染右侧悬浮快捷框（搜番号 / 搜演员） */
     private renderQuickActions(): void {
-        if (!this.config?.enabled || !this.isCurrentPageMatched()) return;
+        if (!this.config || !isEmbyRecognitionEnabled(this.config) || !this.isCurrentPageMatched()) return;
 
         // 视频播放界面（videoosd）隐藏快捷按钮
         if (window.location.href.includes('videoosd')) {

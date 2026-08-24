@@ -3,7 +3,7 @@
  * @description scheduler
  * @module features/embyLibrary
  */
-import { STORAGE_KEYS } from '../../../utils/config';
+import { STORAGE_KEYS, isEmbyLibraryEnabled } from '../../../utils/config';
 import { getSettings } from '../../../utils/storage';
 import { handleEmbyLibrarySync } from './handlers';
 
@@ -39,7 +39,7 @@ function getSyncIntervalMinutes(settings: any): number {
 }
 
 function shouldScheduleLibrarySync(settings: any): boolean {
-  return settings?.emby?.libraryStatus?.enabled === true && hasEnabledMediaServer(settings);
+  return isEmbyLibraryEnabled(settings?.emby) && hasEnabledMediaServer(settings);
 }
 
 export function syncEmbyLibrarySyncAlarmFromSettings(settings: any): void {

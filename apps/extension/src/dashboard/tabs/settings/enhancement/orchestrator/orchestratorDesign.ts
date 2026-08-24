@@ -2,6 +2,7 @@ import { STATE } from '../../../../state';
 import type { ExtensionSettings } from '../../../../../types';
 import { getVideoDetailTaskBlueprints } from '../../../../../features/videoDetail';
 import { getEffectiveEmbyMatchUrls } from '../../../../../features/embyEnhancement/domain/matchUrls';
+import { isEmbyRecognitionEnabled } from '../../../../../utils/config';
 
 export type OrchestratorDesignTask = {
   phase: 'critical' | 'high' | 'deferred' | 'idle';
@@ -144,6 +145,6 @@ export function computeDagLayers(tasks: OrchestratorDesignTask[]): Map<string, n
 /** 设计视图 emby:badge 条件：与 content 注入一致（enabled + mediaServers/matchUrls） */
 export function isDesignEmbyEnabled(settings: ExtensionSettings & Record<string, any>): boolean {
   const emby = (settings as any)?.emby;
-  if (!emby || emby.enabled !== true) return false;
+  if (!isEmbyRecognitionEnabled(emby)) return false;
   return getEffectiveEmbyMatchUrls(emby).length > 0;
 }

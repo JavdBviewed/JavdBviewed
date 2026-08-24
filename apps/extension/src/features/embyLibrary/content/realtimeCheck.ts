@@ -5,6 +5,7 @@
  */
 import { STATE, log } from '../../contentState';
 import { normalizeVideoCode } from '../domain/libraryIndex';
+import { isEmbyLibraryEnabled } from '../../../utils/config';
 import type { EmbyLibraryState } from '../types';
 
 export interface RealtimeCheckConfig {
@@ -130,7 +131,7 @@ export const embyLibraryRealtimeCheckQueue = new EmbyLibraryRealtimeCheckQueue({
 export function buildRealtimeCheckConfig(settings: any): RealtimeCheckConfig {
   const raw = settings?.emby?.realtimeCheck || {};
   return {
-    enabled: settings?.emby?.libraryStatus?.enabled === true && raw.enabled === true,
+    enabled: isEmbyLibraryEnabled(settings?.emby) && raw.enabled === true,
     batchSize: Math.max(1, Math.min(20, Number(raw.batchSize ?? 20) || 20)),
     cacheTtlMs: Math.max(1, Number(raw.cacheTtlMinutes ?? 10) || 10) * 60 * 1000,
     debounceMs: 600,
