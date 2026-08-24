@@ -686,7 +686,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await expect(summary).toBeVisible();
       await summary.getByRole('button', { name: '编辑' }).click();
 
-      const dialog = page.getByRole('dialog', { name: '编辑 主服务器' });
+      const dialog = page.locator('#embyEditModal [role="dialog"]');
       await expect(dialog).toBeVisible();
       const dialogBox = await dialog.boundingBox();
       expect(dialogBox?.width || 0).toBeGreaterThan(1000);
@@ -709,7 +709,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
         } | undefined;
         return settings?.emby?.mediaServers?.find((server) => server.id === 'e2e-emby')?.password;
       })).toBe('e2e-password-updated');
-      await dialog.getByRole('button', { name: '完成', exact: true }).click();
+      await page.getByRole('button', { name: '关闭' }).click();
       await page.reload({ waitUntil: 'domcontentloaded' });
       await summary.getByRole('button', { name: '编辑' }).click();
       await expect(dialog.locator('input[id$="-password"]')).toHaveValue('e2e-password-updated');
@@ -729,7 +729,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
       );
 
       await dialog.getByRole('button', { name: '删除', exact: true }).click();
-      const deleteDialog = page.getByRole('dialog', { name: '确认删除媒体服务器' });
+      const deleteDialog = page.locator('#embyDeleteModal [role="dialog"]');
       await expect(deleteDialog).toBeVisible();
       await expect(deleteDialog).toContainText('主服务器');
       await expect(deleteDialog).toContainText('http://emby.e2e.local:8096');
@@ -737,7 +737,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await deleteDialog.getByRole('button', { name: '取消', exact: true }).click();
       await expect(deleteDialog).toBeHidden();
       await expect(dialog).toBeVisible();
-      await dialog.getByRole('button', { name: '完成', exact: true }).click();
+      await page.getByRole('button', { name: '关闭' }).click();
       await expect(summary).toBeVisible();
 
       const removableSummary = page.locator('.emby-media-server-summary').filter({ hasText: '停用服务器' });
@@ -787,7 +787,11 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await connectionDialog.locator('#cloud-device-label').fill('E2E Cloud 浏览器');
       await connectionDialog.locator('#cloud-identifier').fill('e2e-cloud-account');
       await connectionDialog.locator('#cloud-password').fill('e2e-cloud-password');
-      await connectionDialog.getByRole('button', { name: '保存修改' }).click();
+      await connectionDialog.getByRole('button', { name: '保存连接' }).click();
+      await expect
+        .poll(async () => page.locator('.cloud-banner').getByText('连接配置已保存').count())
+        .toBeGreaterThanOrEqual(1);
+      await connectionDialog.locator('.ui-modal__close').click();
       await expect(connectionDialog).toBeHidden();
       await expect(connectionSummary).toContainText('http://127.0.0.1:18080');
       await expect(connectionSummary).toContainText('E2E Cloud 浏览器');
