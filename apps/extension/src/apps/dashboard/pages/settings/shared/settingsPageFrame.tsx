@@ -43,6 +43,8 @@ export function SettingsPageFrame({
 }: SettingsPageFrameProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [autoNavItems, setAutoNavItems] = useState<SettingsSectionNavItem[]>([]);
+  // 记录最近一次写入的锚点 id 集合，用于在 effect 中避免重复 setState 触发无限重渲染。
+  const lastAutoNavIdsRef = useRef<string>('');
 
   // 仅当未显式提供 sectionNavItems 时，才在正文挂载后自动收集分组生成快速导航。
   // 复用遗留 partial 的分组收集规则（含“至少 3 个分组”门槛）；
@@ -56,22 +58,29 @@ export function SettingsPageFrame({
   const applyAutoNavAnchors = () => {
     const container = contentRef.current;
     if (!container || typeof document === 'undefined') return;
-    if (sectionNavItems) {
-      setAutoNavItems([]);
-      return;
+
+    const nextItems: SettingsSectionNavItem[] = [];
+    if (!sectionNavItems) {
+      const body = container.querySelector('.settings-page-body') ?? container;
+      const sections = collectLegacySettingsSections(body);
+      if (sections.length >= MIN_LEGACY_SECTION_NAV_ITEMS) {
+        for (const [index, section] of sections.entries()) {
+          const id = `${(pageId ?? 'settings').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'settings'}-section-${index}`;
+          // 锚点 id 直接挂在 React 渲染的分组元素上；React 重渲染会清掉，
+          // 因此每次 commit 后在这里补挂。
+          section.element.setAttribute('id', id);
+          nextItems.push({ id, label: section.label });
+        }
+      }
     }
-    const body = container.querySelector('.settings-page-body') ?? container;
-    const sections = collectLegacySettingsSections(body);
-    if (sections.length < MIN_LEGACY_SECTION_NAV_ITEMS) {
-      setAutoNavItems([]);
-      return;
-    }
-    const items: SettingsSectionNavItem[] = sections.map((section, index) => {
-      const id = `${(pageId ?? 'settings').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'settings'}-section-${index}`;
-      section.element.setAttribute('id', id);
-      return { id, label: section.label };
-    });
-    setAutoNavItems(items);
+
+    // 只有当锚点 id 集合真正变化时才 setState，避免在「每次 commit 后都跑」的
+    // layout effect 里无条件 set 相同值，触发 React 无限重渲染（Maximum update
+    // depth exceeded）。首次从空到有 / 从有到空 / 分组增减时才会真正更新。
+    const signature = nextItems.map((item) => item.id).join('\u0000');
+    if (signature === lastAutoNavIdsRef.current) return;
+    lastAutoNavIdsRef.current = signature;
+    setAutoNavItems(nextItems);
   };
 
   // 首次挂载（或显式导航开关变化）时收集一次；每次 commit 后补挂锚点 id

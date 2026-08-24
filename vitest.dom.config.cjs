@@ -9,7 +9,7 @@ module.exports = defineConfig({
     clearMocks: true,
     environment: 'jsdom',
     testTimeout: 20000,
-    include: ['tests/dom/**/*.test.ts'],
+    include: ['tests/dom/**/*.test.ts', 'tests/dom/**/*.test.tsx'],
     setupFiles: ['tests/setup/proxy.ts', 'tests/setup/dom.ts'],
     coverage: {
       provider: 'v8',

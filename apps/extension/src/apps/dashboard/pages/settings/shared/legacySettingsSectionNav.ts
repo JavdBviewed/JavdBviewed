@@ -19,6 +19,7 @@ export const LEGACY_SECTION_SELECTOR: string = [
   '.logging-section',
   '.privacy-card',
   '.action-tile',
+  '[data-ui-pattern="setting-section"]',
 ].join(', ');
 
 const TITLE_SELECTOR = [
@@ -33,6 +34,8 @@ const TITLE_SELECTOR = [
   ':scope > .advanced-tool-header h4',
   ':scope > .advanced-hero-card h4',
   ':scope > .global-actions-card h4',
+  ':scope > header h3',
+  ':scope > [data-ui-pattern="setting-section"] header h3',
 ].join(', ');
 
 function normalizeLabel(text: string | null | undefined): string {

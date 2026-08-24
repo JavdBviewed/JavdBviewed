@@ -43,13 +43,15 @@ async function gotoExtensionPage(
   locator: import('@playwright/test').Locator,
 ): Promise<void> {
   await page.goto(url, { waitUntil: 'domcontentloaded' });
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
-      await expect(locator).toBeVisible({ timeout: 5000 });
+      await expect(locator).toBeVisible({ timeout: 6000 });
       return;
     } catch (error) {
-      if (attempt === 2) throw error;
-      await page.reload({ waitUntil: 'domcontentloaded' });
+      if (attempt === 3) throw error;
+      // Reloads can re-arm to the base route and drop the sub-page hash, so
+      // re-navigate with the full URL to re-assert the target sub-page.
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
     }
   }
 }
@@ -72,10 +74,12 @@ test.describe('settings React pages in Chromium', () => {
       const page = await context.newPage();
 
       for (const entry of SETTINGS_REACT_PAGES) {
-        await page.goto(extensionPageUrl(extensionId, `dashboard/dashboard.html#tab-settings/${entry.id}`), {
-          waitUntil: 'domcontentloaded',
-        });
-        await expect(page.locator(`[${entry.marker}="1"]`).last()).toBeVisible();
+        const root = page.locator(`[${entry.marker}="1"]`).last();
+        await gotoExtensionPage(
+          page,
+          extensionPageUrl(extensionId, `dashboard/dashboard.html#tab-settings/${entry.id}`),
+          root,
+        );
         await expect(page.locator('.ssp-page')).toBeVisible();
         await expect(page.locator('.ssp-page h1, .ssp-page h2')).toHaveCount(1);
         await expect(page.locator('.ssp-back[data-action="back-to-settings"]')).toHaveCount(1);
@@ -118,10 +122,11 @@ test.describe('settings React pages in Chromium', () => {
       await suppressReleaseAnnouncementForTest(context);
       const page = await context.newPage();
       await page.setViewportSize({ width: 390, height: 420 });
-      await page.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/webdav-settings'), {
-        waitUntil: 'domcontentloaded',
-      });
-      await expect(page.locator('[data-webdav-settings-react="1"]').last()).toBeVisible();
+      await gotoExtensionPage(
+        page,
+        extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/webdav-settings'),
+        page.locator('[data-webdav-settings-react="1"]').last(),
+      );
       await expect.poll(async () => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 
       await page.locator('#addWebdavConfig').click();
@@ -239,11 +244,15 @@ test.describe('settings React pages in Chromium', () => {
       const extensionId = await readExtensionId(context);
       await suppressReleaseAnnouncementForTest(context);
       const page = await context.newPage();
-      // Emby/Drive115/Cloud/Update declare an explicit nav; the remaining pages
-      // collect one automatically from their rendered groups.
+      // Emby/Drive115/Cloud/Update declare an explicit nav; the pages below
+      // auto-collect one from their rendered <SettingSection> groups.
+      // - display-settings (2 groups) / search-engine-settings (1 group) stay
+      //   below the 3-group threshold and intentionally show no quick-nav
+      //   (matching the legacy partial behaviour).
+      // - enhancement-settings groups its 33 feature cards in a tabbed layout
+      //   with a divergent card header (.enhancement-feature-name), so it does
+      //   not use the shared auto-nav here.
       const navPages = [
-        'display-settings',
-        'search-engine-settings',
         'ai-settings',
         'privacy-settings',
         'webdav-settings',
@@ -253,7 +262,6 @@ test.describe('settings React pages in Chromium', () => {
         'advanced-settings',
         'network-test-settings',
         'global-actions',
-        'enhancement-settings',
       ] as const;
 
       for (const pageId of navPages) {
@@ -264,9 +272,15 @@ test.describe('settings React pages in Chromium', () => {
           root,
         );
         const nav = page.locator('.settings-section-nav').last();
-        await expect(nav).toBeVisible();
-        const itemLabels = await nav.locator('.settings-section-nav__item-label').allTextContents();
-        expect(itemLabels.length).toBeGreaterThanOrEqual(3);
+        // 导航为 position:fixed 右侧悬浮，跟随 IntersectionObserver/滚动状态更新；
+        // 切换子页后给一点稳定时间再断言，规避导航容器短暂卸载的过渡帧。
+        await page.waitForTimeout(400);
+        await expect(nav).toBeVisible({ timeout: 10_000 });
+        // 桌面断点使用 __item-label，窄屏(≤1100px)切到移动端 chips 用 __chip-label。
+        const labelCount = await nav
+          .locator('.settings-section-nav__item-label, .settings-section-nav__chip-label')
+          .count();
+        expect(labelCount).toBeGreaterThanOrEqual(3);
       }
     } finally {
       await context.close();
