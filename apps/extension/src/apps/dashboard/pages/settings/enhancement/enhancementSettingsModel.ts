@@ -40,6 +40,8 @@ export type EnhancementSettingsFormState = {
   previewDelay: number;
   previewVolume: number;
   preferredPreviewSource: PreviewSource;
+  /** 演员穿透：列表卡片显示女性演员名 */
+  enableActorPenetration: boolean;
   enableActorWatermark: boolean;
   actorWatermarkPosition: WatermarkPosition;
   actorWatermarkOpacity: number;
@@ -253,6 +255,7 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   previewDelay: 1000,
   previewVolume: 0.2,
   preferredPreviewSource: 'auto',
+  enableActorPenetration: false,
   enableActorWatermark: false,
   actorWatermarkPosition: 'top-right',
   actorWatermarkOpacity: 0.8,
@@ -479,6 +482,7 @@ export function mapSettingsToEnhancementForm(
       1,
     ),
     preferredPreviewSource: normalizePreviewSource(le.preferredPreviewSource),
+    enableActorPenetration: le.enableActorPenetration === true,
     enableActorWatermark: le.enableActorWatermark === true,
     actorWatermarkPosition: normalizeWatermarkPosition(le.actorWatermarkPosition),
     actorWatermarkOpacity: clamp(
@@ -788,6 +792,7 @@ export function applyEnhancementFormToSettings(
       previewVolume: form.previewVolume,
       enableRightClickBackground: true,
       preferredPreviewSource: form.preferredPreviewSource,
+      enableActorPenetration: form.enableActorPenetration,
       enableActorWatermark: form.enableActorWatermark,
       actorWatermarkPosition: form.actorWatermarkPosition,
       actorWatermarkOpacity: form.actorWatermarkOpacity,

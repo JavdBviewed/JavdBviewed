@@ -303,6 +303,24 @@ describe('enhancementSettingsModel', () => {
     expect(remapped.actorDefaultTags).toEqual(['s', 'd']);
   });
 
+  it('round-trips enableActorPenetration (default OFF)', () => {
+    // default is off
+    const defaultForm = mapSettingsToEnhancementForm({} as any);
+    expect(defaultForm.enableActorPenetration).toBe(false);
+
+    // persist as off
+    const off = applyEnhancementFormToSettings({} as any, { ...DEFAULT_ENHANCEMENT_SETTINGS_FORM, enableActorPenetration: false });
+    expect(off.listEnhancement.enableActorPenetration).toBe(false);
+
+    // persist as on
+    const on = applyEnhancementFormToSettings({} as any, { ...DEFAULT_ENHANCEMENT_SETTINGS_FORM, enableActorPenetration: true });
+    expect(on.listEnhancement.enableActorPenetration).toBe(true);
+
+    // re-read from settings back into form
+    const remapped = mapSettingsToEnhancementForm(on);
+    expect(remapped.enableActorPenetration).toBe(true);
+  });
+
   it('validates ranges', () => {
     expect(validateEnhancementForm(DEFAULT_ENHANCEMENT_SETTINGS_FORM).isValid).toBe(true);
     const bad = {
