@@ -79,15 +79,15 @@ function DeviceCard({ profile, isCurrent, busy, onSaveLabel }: DeviceCardProps) 
 
   return (
     <div
-      className={`rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-2)] hover:shadow-[var(--shadow-1)] ${
+      className={`rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-[var(--color-primary)] hover:bg-[var(--color-surface-2)] hover:shadow-[var(--shadow-1)] ${
         isCurrent ? 'border-[var(--color-primary)]' : ''
       }`}
     >
-      <div className="mb-2 text-[13.5px] font-semibold text-[var(--color-fg)]">
+      <div className="mb-1 text-[13.5px] font-semibold leading-tight text-[var(--color-fg)]">
         {isCurrent ? '当前设备' : preferredName}
       </div>
       {remote ? (
-        <div className="mb-2 flex flex-wrap gap-2 text-[12px]">
+        <div className="mb-1 flex flex-wrap gap-2 text-[12px]">
           <span
             className={
               remote.hasClientProfile
@@ -108,7 +108,7 @@ function DeviceCard({ profile, isCurrent, busy, onSaveLabel }: DeviceCardProps) 
           </span>
         </div>
       ) : null}
-      <div className="mb-3 grid gap-1 text-[12.5px] text-[var(--color-fg-muted)]">
+      <div className="mb-2 grid gap-0.5 text-[12.5px] leading-tight text-[var(--color-fg-muted)]">
         <div>
           <strong className="text-[var(--color-fg)]">设备名称：</strong>
           {preferredName}
