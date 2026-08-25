@@ -20,6 +20,8 @@ export interface ActorDataCache {
   ensureActorIndex: () => Promise<Map<string, ActorRecord>>;
   ensureSubscriptions: () => Promise<Set<string>>;
   getActorById: (id: string) => Promise<ActorRecord | null>;
+  /** 同步读取已加载的演员索引（未加载返回 null）。 */
+  getActorByIdSync: (id: string) => ActorRecord | null;
   clear: () => void;
 }
 
@@ -129,6 +131,10 @@ export function createActorDataCache(deps: ActorDataCacheDependencies): ActorDat
 
     async getActorById(id: string): Promise<ActorRecord | null> {
       await this.ensureActorIndex();
+      return actorIdIndex?.get(id) ?? null;
+    },
+
+    getActorByIdSync(id: string): ActorRecord | null {
       return actorIdIndex?.get(id) ?? null;
     },
 

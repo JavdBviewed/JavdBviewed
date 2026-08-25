@@ -605,6 +605,7 @@ async function initialize(): Promise<void> {
             hideUnrecognizedActorsInList: (settings.listEnhancement as any)?.hideUnrecognizedActorsInList !== false, // 默认true
             treatSubscribedAsFavorited: (settings.listEnhancement as any)?.treatSubscribedAsFavorited !== false,
             enableActorPenetration: (settings.listEnhancement as any)?.enableActorPenetration === true,
+            enableActorNameMarks: (settings as any)?.videoEnhancement?.enableActorNameMarks !== false,
             // 高质量封面：列表路径已弃用（JavDB 默认高清）；固定 false，配置字段仅兼容存储
             enableHighQualityCover: false,
             // 🆕 列表显示控制

@@ -13,7 +13,7 @@ import {
   type ActorPenetrationCacheValue,
 } from './actorPenetrationCache';
 import { extractFemaleActors, parseDetailActors } from './parseDetailActors';
-import { removeActorRow, renderActorRow } from './renderActorRow';
+import { removeActorRow, renderActorRow, type ActorLinkMark } from './renderActorRow';
 import { bindActorQuickActionsToLink } from '../../actorEnhancement/actorQuickActionsManager';
 import { countContentPerformanceEvent } from '../../../platform/tasks';
 
@@ -21,6 +21,13 @@ export interface ActorPenetrationDeps {
   logger?: (...args: unknown[]) => void;
   /** 快捷操作绑定（默认复用影片页的 actorQuickActionsManager）。 */
   bindQuickActions?: (link: HTMLAnchorElement) => void;
+  /**
+   * 演员名称标识查询（可选；仅当设置“演员名称标识”开启时由 manager 注入）。
+   * 传入演员 id 与名称，同步返回应呈现的标识（着色/悬浮提示）；返回 undefined 表示无标识。
+   * 必须为同步实现：渲染不等待网络/存储，异步预热与重放由 manager 负责。
+   * 实现需自行保证幂等、可缓存，且不抛错。
+   */
+  getActorMark?: (actorId: string, actorName: string) => ActorLinkMark | undefined;
   /** 详情 HTML 请求（默认同源 credentials:include fetch + 超时）。 */
   fetchText?: (url: string) => Promise<string>;
   /** 读取缓存（默认 platform 缓存）。 */
@@ -112,6 +119,13 @@ export class ActorPenetrationRuntime {
       item,
       actors: value.actors,
       bindQuickActions: link => bind(link),
+      getActorMark: (id, name) => {
+        try {
+          return this.deps.getActorMark?.(id, name);
+        } catch {
+          return undefined;
+        }
+      },
     });
   }
 

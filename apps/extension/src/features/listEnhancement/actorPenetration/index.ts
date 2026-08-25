@@ -6,4 +6,5 @@
 export * from './parseDetailActors';
 export * from './actorPenetrationCache';
 export * from './renderActorRow';
+export * from './actorMarks';
 export * from './actorPenetrationRuntime';

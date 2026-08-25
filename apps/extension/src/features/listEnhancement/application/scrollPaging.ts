@@ -47,6 +47,8 @@ export interface ListScrollPagingControllerOptions {
   fetchText: (url: string) => Promise<string>;
   processVisibleItems: () => void;
   clearActorCaches: () => void;
+  /** 演员缓存被清除后回调（供上层重置名称标识预热等派生状态）。 */
+  onActorIndexCleared?: () => void;
   onItemsAppended?: (event: ListScrollPagingAppendEvent) => void;
   pushState?: (url: string) => void;
 }
@@ -216,6 +218,7 @@ export function createListScrollPagingController(options: ListScrollPagingContro
       setScrollLoadingIndicatorVisible(options.document, true);
       logger('Clearing actor caches before loading next page...');
       options.clearActorCaches();
+      options.onActorIndexCleared?.();
 
       const superRankingResult = await options.appendSuperRankingPage(nextPage);
       if (superRankingResult.handled) {

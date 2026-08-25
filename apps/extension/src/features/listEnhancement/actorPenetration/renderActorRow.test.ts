@@ -17,6 +17,11 @@ function makeItem(): HTMLElement {
   strong.textContent = 'ABC-123';
   title.appendChild(strong);
   item.appendChild(title);
+  const date = document.createElement('div');
+  date.className = 'video-date';
+  date.textContent = '2026-08-20';
+  item.appendChild(date);
+  document.body.appendChild(item);
   return item;
 }
 
@@ -40,12 +45,46 @@ describe('renderActorRow', () => {
     expect(more?.title).toBe('演员4、演员5');
   });
 
-  it('演员行插入在标题之后', () => {
+  it('演员行插入在日期右侧（同行）', () => {
     const item = makeItem();
+    renderActorRow({ item, actors: actors(2) });
+    const date = item.querySelector('.video-date')!;
+    const container = item.querySelector('.x-ap-actor-row-container')!;
+    expect(date.nextElementSibling).toBe(container);
+  });
+
+  it('无日期元素时回退到标题之后', () => {
+    const item = makeItem();
+    item.querySelector('.video-date')!.remove();
     renderActorRow({ item, actors: actors(2) });
     const title = item.querySelector('.video-title')!;
     const container = item.querySelector('.x-ap-actor-row-container')!;
     expect(title.nextElementSibling).toBe(container);
+  });
+
+  it('提供 getActorMark 时对演员链接着色并加悬浮提示', () => {
+    const item = makeItem();
+    const getActorMark = vi.fn((id: string) =>
+      id === 'a2' ? { status: 'collected', title: '已收藏' } : undefined,
+    );
+    renderActorRow({ item, actors: actors(3), getActorMark });
+    const links = item.querySelectorAll('a.x-ap-actor');
+    // 默认悬浮名称
+    expect(links[0].title).toBe('演员1');
+    // 被标识的链接：绿色 + 收藏提示
+    expect((links[1] as HTMLElement).style.color).toBe('rgb(46, 125, 50)');
+    expect(links[1].title).toBe('已收藏');
+  });
+
+  it('订阅标识追加 🔔 标记', () => {
+    const item = makeItem();
+    const getActorMark = vi.fn((id: string) =>
+      id === 'a1' ? { status: 'subscribed', title: '已订阅' } : undefined,
+    );
+    renderActorRow({ item, actors: actors(3), getActorMark });
+    const badge = item.querySelector('.x-ap-actor-sub');
+    expect(badge).toBeTruthy();
+    expect(badge?.textContent).toBe('🔔');
   });
 
   it('空演员列表不插入行，并清理已有行', () => {
