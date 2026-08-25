@@ -70,6 +70,7 @@ export function installContentMessageRouter(): void {
 
                 try {
                     listEnhancementManager.updateConfig({
+                        enableActorPenetration: (settings.listEnhancement as any)?.enableActorPenetration === true,
                         hideBlacklistedActorsInList: (settings.listEnhancement as any)?.hideBlacklistedActorsInList === true,
                         hideNonFavoritedActorsInList: (settings.listEnhancement as any)?.hideNonFavoritedActorsInList === true,
                         hideUnrecognizedActorsInList: (settings.listEnhancement as any)?.hideUnrecognizedActorsInList !== false,

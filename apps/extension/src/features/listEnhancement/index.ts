@@ -11,6 +11,7 @@ export * from './application/actorMatching';
 export * from './application/actorHiding';
 export * from './application/actorHidingWorkflow';
 export * from './application/actorWatermark';
+export * from './actorPenetration';
 export * from './application/listSorting';
 export * from './application/popularityEffects';
 export * from './application/scrollPaging';

@@ -75,6 +75,7 @@ import {
   type ListSortingController,
 } from './ui/listSortingControls';
 import { createActorWorkQueue, type ActorWorkQueue } from './application/actorWorkQueue';
+import { createActorPenetrationRuntime } from './actorPenetration';
 import { createActorVisibilityGate } from './application/actorVisibilityGate';
 import { countContentPerformanceEvent } from '../../platform/tasks';
 
@@ -141,6 +142,9 @@ class ListEnhancementManager {
     concurrency: 2,
     logger: error => log('Actor enhancement task failed:', error),
   });
+  private readonly actorPenetration = createActorPenetrationRuntime({
+    logger: (...args) => log(...args),
+  });
   private readonly actorVisibilityGate = createActorVisibilityGate();
   private readonly forceActorHidingItems = new WeakSet<HTMLElement>();
   // 演员水印样式注入标记
@@ -173,6 +177,26 @@ class ListEnhancementManager {
     if (actorFlagsChanged) {
       log('Actor filter config changed, reapplying filters...');
       this.reapplyActorHidingForAll();
+    }
+
+    // 演员穿透开关变化：关闭时移除所有演员行并重置运行时；开启时重新处理当前卡片
+    const penetrationChanged = (
+      (oldConfig.enableActorPenetration === true) !== (this.config.enableActorPenetration === true)
+    );
+    if (penetrationChanged) {
+      this.actorPenetration.reset();
+      if (this.config.enableActorPenetration !== true) {
+        document.querySelectorAll<HTMLElement>('.movie-list .item').forEach(item => {
+          this.actorPenetration.clear(item);
+        });
+      } else if (this.hasInitialized) {
+        document.querySelectorAll<HTMLElement>('.movie-list .item').forEach(item => {
+          const info = extractListItemVideoInfo(item);
+          if (info?.code) {
+            this.enqueueActorPenetration(item, info);
+          }
+        });
+      }
     }
 
     // 🆕 如果列表显示控制配置发生变化，重新应用样式
@@ -484,6 +508,7 @@ class ListEnhancementManager {
     this.applyPopularityEffect(item);
 
     this.enqueueActorEnhancement(item, videoInfo);
+    this.enqueueActorPenetration(item, videoInfo);
   }
 
   private enqueueActorEnhancement(
@@ -525,6 +550,33 @@ class ListEnhancementManager {
         this.forceActorHidingItems.delete(item);
       }
     }, item);
+  }
+
+  /**
+   * 演员穿透：仅在功能开启时执行。
+   * 通过可见性门控 + 演员工作队列，保证详情请求只发生在可见/即将可见卡片上，
+   * 且受并发限制；解析成功后渲染卡片演员行。
+   */
+  private enqueueActorPenetration(
+    item: HTMLElement,
+    videoInfo: { code: string; title: string; url: string },
+  ): void {
+    if (!this.config.enableActorPenetration) return;
+    if (!videoInfo.code) return;
+
+    const run = () => {
+      if (!item.isConnected) return;
+      this.actorPenetration
+        .process({ item, code: videoInfo.code, detailUrl: videoInfo.url })
+        .catch(err => log('actorPenetration process failed:', err));
+    };
+
+    // 复用可见性门控：卡片进入视口附近才触发详情请求
+    if (this.actorVisibilityGate.defer(item, run)) {
+      countContentPerformanceEvent('actorPenetration.deferred');
+      return;
+    }
+    run();
   }
 
   private isActorHidingEnabled(): boolean {

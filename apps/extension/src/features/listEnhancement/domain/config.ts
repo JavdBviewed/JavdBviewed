@@ -52,6 +52,8 @@ export interface ListEnhancementConfig {
   hideBlacklistedActorsInList?: boolean;
   hideNonFavoritedActorsInList?: boolean;
   hideUnrecognizedActorsInList?: boolean;
+  /** 演员穿透：在列表卡片显示女性演员名（默认关闭） */
+  enableActorPenetration?: boolean;
   treatSubscribedAsFavorited?: boolean;
   listDisplayControl?: ListDisplayControlConfig;
   showStatusBadge?: boolean;
@@ -95,6 +97,7 @@ export function createDefaultListEnhancementConfig(): ListEnhancementConfig {
     hideBlacklistedActorsInList: false,
     hideNonFavoritedActorsInList: false,
     hideUnrecognizedActorsInList: true,
+    enableActorPenetration: false,
     treatSubscribedAsFavorited: true,
     listDisplayControl: {
       enabled: true,

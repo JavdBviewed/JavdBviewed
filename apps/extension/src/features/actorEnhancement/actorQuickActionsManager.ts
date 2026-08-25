@@ -578,9 +578,15 @@ class ActorQuickActionsManager {
   /**
    * 为演员链接添加悬浮事件
    */
-  private enhanceActorLink(actorLink: HTMLAnchorElement): void {
+  /**
+   * 为演员链接绑定悬浮快捷操作（幂等）。
+   * 影片页与列表页共用该入口；通过 data 属性保证同一链接只绑定一次。
+   */
+  public enhanceActorLink(actorLink: HTMLAnchorElement): void {
+    if (actorLink.getAttribute('data-x-actor-quick-bound') === 'true') return;
     const actorId = this.parseActorId(actorLink);
     if (!actorId) return;
+    actorLink.setAttribute('data-x-actor-quick-bound', 'true');
 
     const actorName = this.parseActorName(actorLink);
     if (!actorName) return;
@@ -689,6 +695,14 @@ class ActorQuickActionsManager {
 
 // 创建单例实例
 export const actorQuickActionsManager = new ActorQuickActionsManager();
+
+/**
+ * 通用演员链接绑定入口：影片页与列表页共用。
+ * 幂等——同一链接只绑定一次；解析不到演员 id 的链接（如纯文本）直接跳过。
+ */
+export function bindActorQuickActionsToLink(actorLink: HTMLAnchorElement): void {
+  actorQuickActionsManager.enhanceActorLink(actorLink);
+}
 function emitActorStateChanged(): void {
   try {
     window.dispatchEvent(new CustomEvent('actor-state-changed'));
