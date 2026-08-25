@@ -25,6 +25,8 @@ export type SettingsPageFrameProps = {
   sectionNavItems?: SettingsSectionNavItem[];
   /** 自动生成导航的锚点 id 前缀；未提供 sectionNavItems 时从正文收集分组 */
   pageId?: string;
+  /** 根节点 id；供页面级 CSS 主题选择器（如 #drive115-settings）锚定 */
+  rootId?: string;
 };
 
 /**
@@ -40,6 +42,7 @@ export function SettingsPageFrame({
   rootDataAttrs,
   sectionNavItems,
   pageId,
+  rootId,
 }: SettingsPageFrameProps) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [autoNavItems, setAutoNavItems] = useState<SettingsSectionNavItem[]>([]);
@@ -100,6 +103,7 @@ export function SettingsPageFrame({
 
   return (
     <div
+      id={rootId}
       className={cn('ssp-page w-full min-w-0 pb-8', className)}
       data-settings-stack="react-full"
       {...rootDataAttrs}

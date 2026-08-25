@@ -100,8 +100,10 @@ describe('EmbySettingsPage media server layout', () => {
   });
 
   it('restores the in-page section quick-nav for the split Emby page', () => {
-    expect(pageSource).toContain('SettingsSectionNavLayout');
-    expect(pageSource).toContain('sectionNavItems');
+    // 快速导航统一由共享外框 SettingsPageFrame 渲染（单一导航，不再页面内手动嵌套）。
+    expect(pageSource).toContain('SettingsPageFrame');
+    expect(pageSource).toContain('sectionNavItems={sectionNavItems}');
+    expect(pageSource).not.toContain('SettingsSectionNavLayout');
     for (const id of [
       'emby-nav-media-server',
       'emby-nav-recognition',

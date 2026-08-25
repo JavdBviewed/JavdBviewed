@@ -58,10 +58,12 @@ describe('Drive115SettingsPage layout', () => {
     expect(driveCssSource).toContain('max-width: none;');
   });
 
-  it('uses the shared settings section navigation instead of a 115-only nav', () => {
-    expect(pageSource).toContain("from '../shared/SettingsSectionNav'");
-    expect(pageSource).toContain('<SettingsSectionNavLayout items={sectionNavItems}>');
-    expect(pageSource).toContain('type SettingsSectionNavItem');
+  it('uses the shared settings page frame section navigation instead of a 115-only nav', () => {
+    // 快速导航统一由共享外框 SettingsPageFrame 渲染（单一导航，不再页面内手动嵌套）。
+    expect(pageSource).toContain("from '../shared/settingsPageFrame'");
+    expect(pageSource).toContain('sectionNavItems={sectionNavItems}');
+    expect(pageSource).not.toContain('<SettingsSectionNavLayout');
+    expect(pageSource).toContain('SettingsSectionNavItem');
   });
 
   it('declares stable section anchors for settings navigation without replacing field ids', () => {

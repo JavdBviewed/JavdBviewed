@@ -13,7 +13,7 @@ import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingS
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import type { EmbyMediaServer, EmbyServerType } from '../../../../../features/embyLibrary/types';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
-import { SettingsSectionNavLayout, type SettingsSectionNavItem } from '../shared/SettingsSectionNav';
+import type { SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import { SettingsHighlightNotice } from '../shared/SettingsHighlightNotice';
 import {
   getSettings,
@@ -322,6 +322,7 @@ export function EmbySettingsPage() {
     <SettingsPageFrame
       title="Emby/Jellyfin 增强设置"
       description="两个独立能力：番号识别/转 JavDB 链接（无需 API Key），以及媒体库同步/入库状态（需已启用服务器）。"
+      sectionNavItems={sectionNavItems}
       rootDataAttrs={{ 'data-emby-settings-react': '1' }}
     >
       {loading ? (
@@ -340,7 +341,6 @@ export function EmbySettingsPage() {
             反馈现象、截图和日志。
           </SettingsHighlightNotice>
 
-          <SettingsSectionNavLayout items={sectionNavItems}>
           <SettingSection
             id="emby-nav-media-server"
             title="媒体服务器"
@@ -622,8 +622,6 @@ export function EmbySettingsPage() {
               />
             </SettingField>
           </SettingSection>
-
-          </SettingsSectionNavLayout>
 
           <SettingSection title="使用说明">
             <ul className="m-0 list-disc px-6 py-2 text-[13px] leading-relaxed text-[var(--color-fg-muted)]">

@@ -36,4 +36,24 @@ describe('SettingsPageFrame', () => {
     expect(html).toContain('data-section-nav-target="frame-section-basic"');
     expect(html).toContain('????');
   });
+
+  it('renders at most one section nav layout when the page has no section items', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SettingsPageFrame,
+        {
+          title: '????',
+          pageId: 'frame-no-items',
+        },
+        createElement('div', { className: 'settings-page-body' },
+          createElement('section', { className: 'settings-card' }, '????'),
+          createElement('section', { className: 'settings-card' }, '????'),
+          createElement('section', { className: 'settings-card' }, '????'),
+        ),
+      ),
+    );
+
+    // 外框最多渲染一层导航布局；不得再嵌套第二层 .settings-section-nav-layout。
+    expect(html.split('settings-section-nav-layout').length - 1).toBeLessThanOrEqual(1);
+  });
 });

@@ -5,8 +5,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import '../settingsSubpageShell.css';
-import { SettingsSectionNavLayout, type SettingsSectionNavItem } from '../shared/SettingsSectionNav';
+import { SettingsPageFrame } from '../shared/settingsPageFrame';
+import type { SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import '../../../../../dashboard/styles/05-pages/settings/settings.css';
 import '../../../../../dashboard/styles/05-pages/settings/drive115.css';
 import { Badge } from '../../../../../ui/primitives/Badge/Badge';
@@ -1165,24 +1165,13 @@ export function Drive115SettingsPage() {
   ], [showOpenlistManual, showScanPanel]);
 
   return (
-    <div
-      className="settings-page w-full min-w-0"
-      id="drive115-settings"
-      data-drive115-settings-react="1"
-      data-settings-stack="react-full"
+    <SettingsPageFrame
+      title="115 网盘"
+      description="授权、离线下载，以及媒体库片库目录。片库依赖你已整理的封面与 NFO；扩展只做限频索引，不在线深刮。"
+      rootId="drive115-settings"
+      sectionNavItems={sectionNavItems}
+      rootDataAttrs={{ 'data-drive115-settings-react': '1' }}
     >
-      <div className="ssp-back-bar">
-        <button type="button" className="ssp-back settings-back-btn" data-action="back-to-settings">
-          <i className="fas fa-arrow-left" aria-hidden="true" /> 返回设置
-        </button>
-      </div>
-      <div className="settings-page-header">
-        <h2>115 网盘</h2>
-        <p className="settings-description">
-          授权、离线下载，以及媒体库片库目录。片库依赖你已整理的封面与 NFO；扩展只做限频索引，不在线深刮。
-        </p>
-      </div>
-      <div className="settings-page-body">
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>
       ) : (
@@ -1193,8 +1182,7 @@ export function Drive115SettingsPage() {
             </p>
           ) : null}
 
-          <SettingsSectionNavLayout items={sectionNavItems}>
-            <Drive115Group title="模式与接口" navId={DRIVE115_SECTION_IDS.mode}>
+          <Drive115Group title="模式与接口" navId={DRIVE115_SECTION_IDS.mode}>
             <Drive115LegacyToggle
               id="drive115Enabled"
               label="启用 115 网盘"
@@ -2061,11 +2049,8 @@ export function Drive115SettingsPage() {
               )}
             </div>
           </Drive115Group>
-
-          </SettingsSectionNavLayout>
         </div>
       )}
-      </div>
-    </div>
+    </SettingsPageFrame>
   );
 }
