@@ -47,6 +47,11 @@ describe('actor remarks diagnostics', () => {
         retries: 0,
         referrer: 'https://xslist.org/',
       }));
+      // Wikipedia 单次尝试：重试会放大挂起场景下的整体耗时，必须 retries:0
+      expect(getDocument).toHaveBeenNthCalledWith(1, 'https://ja.wikipedia.org/wiki/Alice', expect.objectContaining({
+        retries: 0,
+        timeout: 6500,
+      }));
     } finally {
       vi.doUnmock('../../apps/extension/src/platform/network/httpClient');
       vi.resetModules();

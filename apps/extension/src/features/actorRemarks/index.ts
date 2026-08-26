@@ -115,12 +115,13 @@ function buildFailure(source: ActorRemarksSource, error: any): ActorRemarksFailu
   };
 }
 
-async function fetchWikipedia(name: string): Promise<ActorRemarksFetchResult> {
+async function fetchWikipedia(name: string, opts: { timeoutMs: number } = { timeoutMs: 6500 }): Promise<ActorRemarksFetchResult> {
   const startTime = Date.now();
   try {
     const url = `https://ja.wikipedia.org/wiki/${encodeURIComponent(name)}`;
     console.log(`[actorRemarks] 开始请求 Wikipedia: ${name}`);
-    const doc = await defaultHttpClient.getDocument(url, { responseType: 'document', timeout: 6500 });
+    // retries:0 —— 避免默认 3 次重试+指数退放把任务整体预算吃光（挂起场景下 4 次 6.5s 尝试 ≈ 33s）
+    const doc = await defaultHttpClient.getDocument(url, { responseType: 'document', timeout: Math.max(200, opts.timeoutMs), retries: 0 });
     const info = (doc.querySelector('.infobox') || doc.querySelector('table.infobox')) as HTMLElement | null;
     if (!info) return { data: null };
 
@@ -213,14 +214,14 @@ async function fetchWikipedia(name: string): Promise<ActorRemarksFetchResult> {
   }
 }
 
-async function fetchXslist(name: string): Promise<ActorRemarksFetchResult> {
+async function fetchXslist(name: string, opts: { searchTimeoutMs: number; detailTimeoutMs: number } = { searchTimeoutMs: 5000, detailTimeoutMs: 5000 }): Promise<ActorRemarksFetchResult> {
   const startTime = Date.now();
   try {
     const searchUrl = `https://xslist.org/search?query=${encodeURIComponent(name)}&lg=zh`;
     console.log(`[actorRemarks] 开始请求 xslist 搜索: ${name}`);
     const searchDoc = await defaultHttpClient.getDocument(searchUrl, {
       responseType: 'document',
-      timeout: 5000,
+      timeout: Math.max(200, opts.searchTimeoutMs),
       retries: 0,
       referrer: 'https://xslist.org/',
     });
@@ -260,7 +261,7 @@ async function fetchXslist(name: string): Promise<ActorRemarksFetchResult> {
     console.log(`[actorRemarks] 开始请求 xslist 详情: ${name}`);
     const doc = await defaultHttpClient.getDocument(targetUrl, {
       responseType: 'document',
-      timeout: 5000,
+      timeout: Math.max(200, opts.detailTimeoutMs),
       retries: 0,
       referrer: 'https://xslist.org/',
     });
@@ -315,15 +316,25 @@ class ActorExtraInfoService {
   private requestCooldowns: Map<string, number> = new Map();
   private inFlight: Map<string, Promise<ActorRemarksDiagnostics>> = new Map();
 
-  async getActorRemarks(rawName: string, settings?: ExtensionSettings): Promise<ActorRemarks | null> {
-    const result = await this.getActorRemarksWithDiagnostics(rawName, settings);
+  async getActorRemarks(rawName: string, settings?: ExtensionSettings, deadlineMs?: number): Promise<ActorRemarks | null> {
+    const result = await this.getActorRemarksWithDiagnostics(rawName, settings, deadlineMs);
     return result.data;
   }
 
-  async getActorRemarksWithDiagnostics(rawName: string, settings?: ExtensionSettings): Promise<ActorRemarksDiagnostics> {
+  /**
+   * deadlineMs（可选）：整体获取截止时间（毫秒）。
+   * 每一阶段（wiki / xslist 搜索 / xslist 详情）会按剩余时间收缩单请求超时；
+   * 剩余时间耗尽即停止后续阶段，返回已有结果。
+   */
+  async getActorRemarksWithDiagnostics(rawName: string, settings?: ExtensionSettings, deadlineMs?: number): Promise<ActorRemarksDiagnostics> {
     const startTime = Date.now();
     const name = normalizeName(rawName);
     if (!name) return { data: null, failures: [] };
+    const deadlineAt = typeof deadlineMs === 'number' && Number.isFinite(deadlineMs) && deadlineMs > 0
+      ? Date.now() + deadlineMs
+      : 0;
+    const remainingMs = (): number => (deadlineAt > 0 ? deadlineAt - Date.now() : 0);
+    const clamp = (defaultMs: number): number => (deadlineAt > 0 ? Math.min(defaultMs, Math.max(200, remainingMs())) : defaultMs);
 
     const cooldownUntil = this.requestCooldowns.get(name) || 0;
     if (Date.now() < cooldownUntil && this.memCache.has(name)) {
@@ -356,7 +367,9 @@ class ActorExtraInfoService {
     const task = (async (): Promise<ActorRemarksDiagnostics> => {
       const failures: ActorRemarksFailure[] = [];
       // 数据源顺序：以原脚本为准 Wikipedia -> xslist
-      const wikiResult = await fetchWikipedia(name);
+      const wikiResult = deadlineAt > 0 && remainingMs() <= 0
+        ? { data: null }
+        : await fetchWikipedia(name, { timeoutMs: clamp(6500) });
       if (wikiResult.failure) failures.push(wikiResult.failure);
       const wiki = wikiResult.data;
 
@@ -371,8 +384,10 @@ class ActorExtraInfoService {
         )
       );
 
-      // 若 Wiki 只有外链/空壳，则继续尝试 xslist
-      const xsResult = (!wiki || !wikiHasFields) ? (await fetchXslist(name)) : { data: null };
+      // 若 Wiki 只有外链/空壳，则继续尝试 xslist（截止时间耗尽则跳过）
+      const xsResult = (!wiki || !wikiHasFields) && (deadlineAt <= 0 || remainingMs() > 0)
+        ? await fetchXslist(name, { searchTimeoutMs: clamp(5000), detailTimeoutMs: clamp(5000) })
+        : { data: null };
       if (xsResult.failure) failures.push(xsResult.failure);
       const xs = xsResult.data;
 

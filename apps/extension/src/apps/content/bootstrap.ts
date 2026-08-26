@@ -39,9 +39,9 @@ import {
     startContentPerformanceSpan,
 } from '../../platform/tasks';
 import { actorExtraInfoService } from '../../features/actorRemarks';
+import { buildActorRemarksNode, cleanActorRemarksNodes } from '../../features/actorRemarks/actorPageEnhancer';
 import { waitForElement } from '../../platform/browser/domUtils';
 import { createTaskTimeoutGuard, isTaskTimeoutError } from '../../platform/tasks';
-import { runChunkedWork, yieldToMainThread } from '../../platform/tasks';
 import { PasswordHelper } from '../../features/passwordHelper/content';
 import { showEnhancementLoading } from '../../platform/browser/enhancementLoadingIndicator';
 import {
@@ -108,8 +108,10 @@ function isCurrentPageMatchedByEmby(settings: any): boolean {
     return matchUrls.some((pattern) => matchesEmbyUrlPattern(currentUrl, pattern));
 }
 
-async function runActorRemarksOnActorPage(settings: any, timeoutMs?: number): Promise<void> {
+export async function runActorRemarksOnActorPage(settings: any, timeoutMs?: number): Promise<void> {
     try {
+        // 门控只用自身开关：设置页中「演员备注」是独立 section，
+        // 不应再依赖「状态标记增强」主开关（此前双重门控导致只开子开关时完全无效果）
         const enabled = settings?.videoEnhancement?.enableActorRemarks === true;
         if (!enabled) return;
 
@@ -117,7 +119,6 @@ async function runActorRemarksOnActorPage(settings: any, timeoutMs?: number): Pr
             ? timeoutMs
             : getActorRemarksTaskTimeoutMs(settings);
         const timeoutGuard = createTaskTimeoutGuard(taskTimeoutMs);
-        const renderStartedAt = Date.now();
         const mode = (settings?.videoEnhancement?.actorRemarksMode === 'inline') ? 'inline' : 'panel';
 
         // 演员页标题区有别名/作品数等 meta，必须优先取 .actor-section-name（主名）
@@ -138,112 +139,41 @@ async function runActorRemarksOnActorPage(settings: any, timeoutMs?: number): Pr
             return;
         }
 
-        const buildBadgeText = (data: any): string => {
-            const parts: string[] = [];
-            if (typeof data?.age === 'number') parts.push(String(data.age));
-            if (typeof data?.heightCm === 'number') parts.push(`${data.heightCm}cm`);
-            if (data?.cup) parts.push(String(data.cup).toUpperCase());
-            let txt = parts.length ? parts.join(' / ') : '';
-            if (data?.retired) txt = txt ? `${txt} / 引退` : '引退';
-            return txt;
-        };
+        // 骨架先行：先渲染“加载中”节点，任何后续分支都只做原地更新，
+        // 保证用户始终能看到功能在运行（而不是等 5~10s 后静默成功/静默失败）
+        cleanActorRemarksNodes();
+        const node = buildActorRemarksNode({ mode, name, phase: 'loading' });
+        nameEl.insertAdjacentElement('afterend', node);
 
-        const results: Array<any | null> = [];
-        await runChunkedWork([name], {
-            batchSize: 1,
-            shouldStop: () => timeoutGuard.isTimedOut(),
-            yieldAfterBatch: async () => {
-                await yieldToMainThread(0);
-            },
-            onItem: async (actorName) => {
-                timeoutGuard.throwIfTimedOut();
-                const data = await actorExtraInfoService.getActorRemarks(actorName, settings);
-                timeoutGuard.throwIfTimedOut();
-                results.push(data);
-            },
-        });
-        const data = results[0] || null;
-        if (Date.now() - renderStartedAt > Math.max(3000, Math.min(taskTimeoutMs, 8000))) {
-            log('actorRemarks(actorPage): render budget exceeded');
+        // 抓取截止时间：给渲染预留 1.5s，下限 2s 保证 wiki 至少有一次完整尝试
+        const fetchDeadlineMs = Math.max(2000, taskTimeoutMs - 1500);
+        let data: Awaited<ReturnType<typeof actorExtraInfoService.getActorRemarks>> = null;
+        let failureMessage = '';
+        try {
+            data = await actorExtraInfoService.getActorRemarks(name, settings, fetchDeadlineMs);
+        } catch (e) {
+            failureMessage = e instanceof Error ? e.message : String(e);
+        }
+
+        if (timeoutGuard.isTimedOut()) {
+            node.replaceWith(buildActorRemarksNode({ mode, name, phase: 'failure', failureMessage: 'timeout' }));
+            log('actorRemarks(actorPage): timed out', { taskTimeoutMs });
             return;
         }
-        const badgeText = data ? buildBadgeText(data) : '';
-        const wikiUrl = data?.wikiUrl || `https://ja.wikipedia.org/wiki/${encodeURIComponent(name)}`;
-        const xslistUrl = (data as any)?.xslistUrl || `https://xslist.org/search?query=${encodeURIComponent(name)}&lg=zh`;
 
-        // 先清理旧节点
-        try {
-            const existingInline = document.querySelector('.jdb-actor-remarks-inline.actor-page') as HTMLElement | null;
-            if (existingInline) existingInline.remove();
-            const existingPanel = document.getElementById('enhanced-actor-remarks-actorpage');
-            if (existingPanel) existingPanel.remove();
-        } catch {}
-
-        if (mode === 'inline') {
-            const wrap = document.createElement('span');
-            wrap.className = 'jdb-actor-remarks-inline actor-page';
-            wrap.style.cssText = 'display:inline-flex;align-items:center;gap:6px;margin-left:8px;vertical-align:middle;';
-
-            if (badgeText) {
-                const infoEl = document.createElement('span');
-                infoEl.textContent = badgeText;
-                infoEl.style.cssText = 'background:#ffedd5;color:#7c2d12;padding:1px 6px;border-radius:999px;font-size:12px;line-height:18px;';
-                wrap.appendChild(infoEl);
-            } else {
-                const link1 = document.createElement('a');
-                link1.href = wikiUrl;
-                link1.target = '_blank';
-                link1.textContent = 'Wiki';
-                link1.style.cssText = 'color:#b45309;text-decoration:underline;font-size:12px;';
-                wrap.appendChild(link1);
-
-                const link2 = document.createElement('a');
-                link2.href = xslistUrl;
-                link2.target = '_blank';
-                link2.textContent = 'xslist';
-                link2.style.cssText = 'color:#b45309;text-decoration:underline;font-size:12px;';
-                wrap.appendChild(link2);
-            }
-
-            // 插到演员名旁边，而不是 h2 title 整块后面
-            nameEl.insertAdjacentElement('afterend', wrap);
-        } else {
-            const panel = document.createElement('div');
-            panel.id = 'enhanced-actor-remarks-actorpage';
-            panel.style.cssText = 'margin:10px 0;padding:10px;background:#fff7ed;border:1px solid #fde68a;border-left:4px solid #f59e0b;border-radius:8px;color:#78350f;font-size:13px;';
-            const title = document.createElement('div');
-            title.textContent = '演员备注';
-            title.style.cssText = 'font-weight:bold;margin-bottom:6px;color:#92400e;';
-            panel.appendChild(title);
-
-            const row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
-            if (badgeText) {
-                const infoEl = document.createElement('span');
-                infoEl.textContent = badgeText;
-                infoEl.style.cssText = 'background:#ffedd5;color:#7c2d12;padding:2px 6px;border-radius:12px;font-size:12px;';
-                row.appendChild(infoEl);
-            } else {
-                const link1 = document.createElement('a');
-                link1.href = wikiUrl;
-                link1.target = '_blank';
-                link1.textContent = 'Wiki';
-                link1.style.cssText = 'color:#b45309;text-decoration:underline;';
-                row.appendChild(link1);
-
-                const link2 = document.createElement('a');
-                link2.href = xslistUrl;
-                link2.target = '_blank';
-                link2.textContent = 'xslist';
-                link2.style.cssText = 'color:#b45309;text-decoration:underline;';
-                row.appendChild(link2);
-            }
-            panel.appendChild(row);
-
-            nameEl.insertAdjacentElement('afterend', panel);
-        }
-
-        log('actorRemarks(actorPage): injected', { mode, hasBadge: Boolean(badgeText) });
+        node.replaceWith(buildActorRemarksNode({
+            mode,
+            name,
+            phase: failureMessage ? 'failure' : 'success',
+            data,
+            failureMessage: failureMessage || undefined,
+        }));
+        log('actorRemarks(actorPage): injected', {
+            mode,
+            hasData: Boolean(data),
+            source: data?.source,
+            failure: failureMessage || undefined,
+        });
     } catch (e) {
         if (isTaskTimeoutError(e)) throw e;
         log('actorRemarks(actorPage): failed', e);
@@ -305,7 +235,8 @@ async function initialize(): Promise<void> {
         if ((settings.videoEnhancement as any)?.showLoadingIndicator !== false) {
             preregisterBlueprints.push({ phase: 'critical', label: 'enhancementUI:showLoadingIndicator', priority: 13, visibilityPolicy: 'background_allowed' });
         }
-        const enabledActorRemarks = (settings as any)?.videoEnhancement?.enabled === true && (settings as any)?.videoEnhancement?.enableActorRemarks === true;
+        // 与 runActorRemarksOnActorPage 门控保持一致：只用 enableActorRemarks 自身开关
+        const enabledActorRemarks = (settings as any)?.videoEnhancement?.enableActorRemarks === true;
         if (enabledActorRemarks) {
             preregisterBlueprints.push({ phase: 'idle', label: 'actorRemarks:actorPage', timeout: getActorRemarksTaskTimeoutMs(settings as any) });
         }
@@ -488,7 +419,7 @@ async function initialize(): Promise<void> {
     // 演员页：演员备注（受主开关控制）
     // 优化：缩短延迟到500ms
     try {
-        const enabledActorRemarks = (settings as any)?.videoEnhancement?.enabled === true && (settings as any)?.videoEnhancement?.enableActorRemarks === true;
+        const enabledActorRemarks = (settings as any)?.videoEnhancement?.enableActorRemarks === true;
         if (enabledActorRemarks && isActorPage) {
             const FLAG = '__jdb_actorRemarks_actorPage_scheduled__';
             if (!(window as any)[FLAG]) {

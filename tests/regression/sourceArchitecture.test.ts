@@ -2260,4 +2260,13 @@ describe('source architecture cleanup', () => {
       expect(source, `${relative} should reference features/embyEnhancement/content`).toMatch(/features\/embyEnhancement\/content/);
     }
   });
+
+  it('keeps actor remarks gated only by its own toggle (no master-switch double gate)', () => {
+    const bootstrap = fs.readFileSync(path.resolve(root, 'apps/extension/src/apps/content/bootstrap.ts'), 'utf8');
+    // 回归保护：演员备注曾因「videoEnhancement.enabled && enableActorRemarks」双重门控而静默无效果
+    expect(bootstrap, 'actor remarks must not require videoEnhancement master switch')
+      .not.toMatch(/videoEnhancement\??\.enabled === true && [^\n]*enableActorRemarks/);
+    expect(bootstrap, 'actor remarks must be gated by enableActorRemarks alone')
+      .toMatch(/videoEnhancement\??\.enableActorRemarks === true/);
+  });
 });
