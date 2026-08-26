@@ -141,6 +141,21 @@ export function navigateToAISettings(): void {
   }
 }
 
+/**
+ * 跳转功能增强（可带子页签，如 'list' 精准落在列表页增强）。
+ * hashchange 触发 Dashboard 导航重挂载；enhancement 页初始化时
+ * 读取 hash 第三段确定子页签。
+ */
+export function navigateToEnhancementSettings(subtab?: 'list' | 'video' | 'actor' | 'other'): void {
+  try {
+    window.location.hash = subtab
+      ? `#tab-settings/enhancement-settings/${subtab}`
+      : '#tab-settings/enhancement-settings';
+  } catch {
+    /* ignore */
+  }
+}
+
 type OrchestratorBridge = {
   [key: string]: unknown;
   openOrchestratorModal: () => Promise<void>;

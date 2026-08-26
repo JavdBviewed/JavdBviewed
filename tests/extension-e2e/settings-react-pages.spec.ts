@@ -294,6 +294,51 @@ test.describe('settings React pages in Chromium', () => {
     }
   });
 
+  test('shows the actor-penetration hint on display settings and jumps to the enhancement list tab', async ({}, testInfo) => {
+    const harnessOptions = resolveExtensionHarnessOptions({
+      ...process.env,
+      JAVDB_EXTENSION_USE_CHROME_DATA: '0',
+      JAVDB_EXTENSION_PROFILE: testInfo.outputPath('display-penetration-hint-profile'),
+    }, process.cwd());
+    const context = await launchExtensionContext(harnessOptions, {
+      headless: process.env.JAVDB_EXTENSION_HEADLESS !== '0',
+      channel: process.env.JAVDB_EXTENSION_CHANNEL ?? 'chromium',
+    });
+
+    try {
+      const extensionId = await readExtensionId(context);
+      await suppressReleaseAnnouncementForTest(context);
+      const page = await context.newPage();
+      await page.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/display-settings'), {
+        waitUntil: 'domcontentloaded',
+      });
+
+      // 干净 profile：enableActorPenetration 默认 false → 提示条可见
+      const hint = page.locator('#actorPenetrationHint');
+      await expect(hint).toBeVisible();
+      await expect(hint).toContainText('演员穿透');
+      await expect(page.locator('#goEnhancementActorPenetrationBtn')).toBeVisible();
+
+      // 点击跳转 → hash 带列表 tab，enhancement 落在列表页增强，穿透开关可见
+      await page.locator('#goEnhancementActorPenetrationBtn').click();
+      await expect(page).toHaveURL(/#tab-settings\/enhancement-settings\/list$/);
+      await expect(page.locator('[data-enhancement-subtab="list"]')).toBeVisible();
+      // 穿透开关行可见（checkbox 本身是隐藏控件，断言其可点击 label）
+      const penetrationRow = page.locator('#enableActorPenetration').locator('xpath=ancestor::label[1]');
+      await expect(penetrationRow).toBeVisible();
+
+      // 在 enhancement 页开启穿透后，返回 display 页提示条应消失
+      await penetrationRow.click();
+      await expect(page.locator('#enableActorPenetration')).toBeChecked();
+      await page.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/display-settings'), {
+        waitUntil: 'domcontentloaded',
+      });
+      await expect(page.locator('#actorPenetrationHint')).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
   test('keeps the content-page screenshot blur switch independent from private mode', async ({}, testInfo) => {
     const harnessOptions = resolveExtensionHarnessOptions({
       ...process.env,

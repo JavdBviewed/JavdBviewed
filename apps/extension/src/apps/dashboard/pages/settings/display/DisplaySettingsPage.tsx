@@ -4,8 +4,10 @@
  * @module apps/dashboard/pages/settings/display
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Button } from '../../../../../ui/primitives/Button/Button';
 import { SettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
+import { navigateToEnhancementSettings } from '../enhancement/enhancementSettingsActions';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import {
   getSettings,
@@ -121,6 +123,34 @@ export function DisplaySettingsPage() {
               ))}
             </SettingSection>
           </div>
+
+          {!form.enableActorPenetration ? (
+            <div
+              id="actorPenetrationHint"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-3)] border border-[var(--color-border)] border-l-[3px] border-l-[var(--color-primary)] bg-[var(--color-surface-2)] px-4 py-3"
+              role="note"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="m-0 text-[13px] font-semibold text-[var(--color-fg)]">
+                  演员过滤基于标题识别，可能存在误差
+                </p>
+                <p className="mt-1 mb-0 text-[12.5px] leading-relaxed text-[var(--color-fg-muted)]">
+                  开启「演员穿透」后，列表卡片会展示详情页解析出的真实演员名，演员过滤的数据来源也更准确。
+                  本页面开关保持现有能力不变。
+                </p>
+              </div>
+              <Button
+                id="goEnhancementActorPenetrationBtn"
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="shrink-0"
+                onClick={() => navigateToEnhancementSettings('list')}
+              >
+                <i className="fas fa-magic" aria-hidden="true" /> 前往功能增强 · 列表页增强
+              </Button>
+            </div>
+          ) : null}
 
           <div className="rounded-[var(--radius-3)] border border-dashed border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-3">
             <p className="m-0 text-[12.5px] leading-relaxed text-[var(--color-fg-muted)]">

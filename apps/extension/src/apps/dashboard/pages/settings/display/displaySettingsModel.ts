@@ -21,8 +21,15 @@ export type ActorListFilterState = {
   treatSubscribedAsFavorited: boolean;
 };
 
-/** 显示设置页完整表单状态 */
-export type DisplaySettingsFormState = DisplayFilterState & ActorListFilterState;
+/**
+ * 显示设置页完整表单状态。
+ * enableActorPenetration 为只读提示位：仅用于驱动「演员穿透」提示条的
+ * 条件渲染（未开启时提示用户可前往功能增强开启），不参与保存回写。
+ */
+export type DisplaySettingsFormState = DisplayFilterState & ActorListFilterState & {
+  /** 只读：演员穿透是否已开启（listEnhancement.enableActorPenetration） */
+  enableActorPenetration: boolean;
+};
 
 /**
  * 与遗留 DisplaySettings / DEFAULT_SETTINGS 对齐的默认值
@@ -38,6 +45,7 @@ export const DEFAULT_DISPLAY_SETTINGS_FORM: DisplaySettingsFormState = {
   hideNonFavoritedActorsInList: false,
   hideUnrecognizedActorsInList: true,
   treatSubscribedAsFavorited: true,
+  enableActorPenetration: false,
 };
 
 /**
@@ -59,6 +67,7 @@ export function mapSettingsToDisplayForm(
     // 默认 true（若未配置）
     hideUnrecognizedActorsInList: listEnhancement.hideUnrecognizedActorsInList !== false,
     treatSubscribedAsFavorited: listEnhancement.treatSubscribedAsFavorited !== false,
+    enableActorPenetration: (listEnhancement as Record<string, unknown>).enableActorPenetration === true,
   };
 }
 

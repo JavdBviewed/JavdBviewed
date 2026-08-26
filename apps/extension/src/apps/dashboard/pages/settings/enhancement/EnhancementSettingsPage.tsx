@@ -39,9 +39,32 @@ import { VideoTab } from './VideoTab';
 import { ActorTab } from './ActorTab';
 import { OtherTab } from './OtherTab';
 
+const ENHANCEMENT_SUBTAB_IDS = ['list', 'video', 'actor', 'other'] as const;
+
+/**
+ * 从当前 hash 解析 enhancement 子页签（如 #tab-settings/enhancement-settings/list）。
+ * 供跨页跳转精准定位子页签；无效或缺失时返回 null。
+ */
+function readSubtabFromHash(): EnhancementSubtab | null {
+  try {
+    const parts = window.location.hash.replace(/^#\/?tab-settings\//, '').split('/');
+    if (parts[0] !== 'enhancement-settings') return null;
+    const candidate = parts[1];
+    if (candidate && (ENHANCEMENT_SUBTAB_IDS as readonly string[]).includes(candidate)) {
+      return candidate as EnhancementSubtab;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 export function EnhancementSettingsPage() {
   const [form, setForm] = useState<EnhancementSettingsFormState>(DEFAULT_ENHANCEMENT_SETTINGS_FORM);
   const [subtab, setSubtab] = useState<EnhancementSubtab>(() => {
+    // hash 携带的子页签优先于 localStorage 记忆（跨页跳转场景）
+    const fromHash = readSubtabFromHash();
+    if (fromHash) return fromHash;
     try {
       const last = localStorage.getItem('enhancementSubtab') as EnhancementSubtab | null;
       if (last === 'list' || last === 'video' || last === 'actor' || last === 'other') return last;
@@ -135,6 +158,14 @@ export function EnhancementSettingsPage() {
     setSubtab(next);
     try {
       localStorage.setItem('enhancementSubtab', next);
+    } catch {
+      /* ignore */
+    }
+    // 同步 hash 第三段，保证刷新/分享链接后仍落在该子页签
+    try {
+      const base = window.location.hash.replace(/^#\/?/,'').split('/');
+      const tabPart = base[0] === 'tab-settings' ? '#tab-settings/enhancement-settings' : '#tab-settings';
+      window.history.replaceState(null, '', `${tabPart}/${next}`);
     } catch {
       /* ignore */
     }
