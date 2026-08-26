@@ -545,6 +545,21 @@ export function extensionPageUrl(extensionId: string, pagePath: string): string 
   return `chrome-extension://${extensionId}/${normalizedPath}`;
 }
 
+/**
+ * 通过 service worker（扩展自身运行上下文）写入 chrome.storage.local，
+ * 用于测试前置准备（如预先开启某个功能开关）。
+ * 相比在 dashboard 页内 evaluate，worker 写入与页面读取共享同一
+ * extension storage 分区，干净 profile 下也能稳定生效。
+ */
+export async function seedExtensionStorage(
+  context: BrowserContext,
+  storage: Record<string, unknown>,
+): Promise<void> {
+  const worker = context.serviceWorkers().find((candidate) => isExtensionWorker(candidate))
+    ?? await context.waitForEvent('serviceworker', { timeout: 15_000 });
+  await worker.evaluate((data) => chrome.storage.local.set(data), storage);
+}
+
 async function rebuildChromeSnapshot(input: {
   sourceUserDataDir: string;
   sourceProfile: string;

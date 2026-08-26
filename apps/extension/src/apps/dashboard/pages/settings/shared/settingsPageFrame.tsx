@@ -68,10 +68,15 @@ export function SettingsPageFrame({
       const sections = collectLegacySettingsSections(body);
       if (sections.length >= MIN_LEGACY_SECTION_NAV_ITEMS) {
         for (const [index, section] of sections.entries()) {
-          const id = `${(pageId ?? 'settings').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'settings'}-section-${index}`;
-          // 锚点 id 直接挂在 React 渲染的分组元素上；React 重渲染会清掉，
-          // 因此每次 commit 后在这里补挂。
-          section.element.setAttribute('id', id);
+          // 若 React 已为该分组元素设置了显式 id（如 webdavConfigSection），
+          // 直接复用作为导航锚点，避免覆盖导致 e2e / 兼容性断言找不到元素。
+          const existingId = (section.element as HTMLElement).id;
+          const id = existingId || `${(pageId ?? 'settings').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'settings'}-section-${index}`;
+          // 仅在没有显式 id 时才写入（锚点 id 直接挂在分组元素上；React 重渲染会清掉，
+          // 因此每次 commit 后在这里补挂）。
+          if (!existingId) {
+            section.element.setAttribute('id', id);
+          }
           nextItems.push({ id, label: section.label });
         }
       }
