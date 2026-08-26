@@ -34,9 +34,12 @@ const actors = (n: number): DetailActor[] =>
   }));
 
 describe('renderActorRow', () => {
-  it('最多渲染 3 个演员链接，超出显示省略标识', () => {
+  it('最多渲染 3 个演员链接，超出显示省略标识，行首带"女演员："标签', () => {
     const item = makeItem();
     renderActorRow({ item, actors: actors(5) });
+    const label = item.querySelector('.x-ap-actor-row-label');
+    expect(label).toBeTruthy();
+    expect(label?.textContent).toBe('女演员：');
     const links = item.querySelectorAll('a.x-ap-actor');
     const more = item.querySelector('.x-ap-actor-more');
     expect(links.length).toBe(3);

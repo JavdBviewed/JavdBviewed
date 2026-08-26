@@ -61,6 +61,13 @@ export function renderActorRow(input: ActorRowRenderInput): void {
   row.className = ROW_CLASS;
   row.setAttribute(ROW_DATA_ATTR, 'true');
 
+  // 行首标签，便于识别这一行是演员
+  const label = document.createElement('span');
+  label.className = 'x-ap-actor-row-label';
+  label.textContent = '女演员：';
+  label.title = '演员';
+  row.appendChild(label);
+
   visible.forEach(actor => {
     const name = actor.name;
     if (!name) return;

@@ -8,6 +8,7 @@
 import { log } from '../contentState';
 import { showToast } from '../../platform/browser/toast';
 import { actorManager } from '../actors';
+import { actorQuickActionsManager } from '../actorEnhancement/actorQuickActionsManager';
 import { newWorksManager } from '../newWorks';
 import { processListItems, processVisibleItems } from './content/itemProcessor';
 import {
@@ -422,6 +423,7 @@ class ListEnhancementManager {
       style.textContent = `
         .x-ap-actor-row-container { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 6px; vertical-align: middle; max-width: 100%; }
         .x-ap-actor-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; line-height: 1.4; color: var(--color-fg-muted, #57606a); }
+        .x-ap-actor-row-label { display: inline-block; color: var(--color-fg-subtle, #8c959f); user-select: none; }
         .x-ap-actor { display: inline-block; color: inherit; text-decoration: none; }
         .x-ap-actor:hover { text-decoration: underline; }
         .x-ap-actor-sub { display: inline-block; font-size: 11px; line-height: 1; vertical-align: middle; color: #f59e0b; margin-left: 2px; }
@@ -491,6 +493,7 @@ class ListEnhancementManager {
 
     log('Initializing list enhancement features...');
     this.hasInitialized = true;
+    this.initListPageActorQuickActions();
 
     // 初始化滚动监听（防止滚动时触发预览）
     this.scrollStateController.init();
@@ -644,6 +647,29 @@ class ListEnhancementManager {
    * 通过可见性门控 + 演员工作队列，保证详情请求只发生在可见/即将可见卡片上，
    * 且受并发限制；解析成功后渲染卡片演员行。
    */
+  /**
+   * 列表页初始化演员悬浮快捷面板。
+   * actorQuickActionsManager 默认只在影片详情页 init（MutationObserver 监听动态演员链接）；
+   * 列表页的穿透演员行是 JS 插入的，需要同样的监听才能在悬浮时弹出面板。
+   * 仅在列表页调用一次，不影响影片页行为。
+   */
+  private initListPageActorQuickActions(): void {
+    try {
+      if ((this as any).__listQuickActionsInit === true) return;
+      (this as any).__listQuickActionsInit = true;
+      const isListPage =
+        document.querySelector('.movie-list') !== null ||
+        window.location.pathname.match(/\/(list|new|rank|tag|search)\b/) !== null ||
+        window.location.search.includes('list=1');
+      if (!isListPage) return;
+      // 穿透已开启（initialize 仅在 config.enabled 时调用），
+      // 默认 true 的快捷面板随之初始化；如需独立关闭可在此读 settings 字段
+      void actorQuickActionsManager.init();
+    } catch (e) {
+      log('initListPageActorQuickActions failed:', e);
+    }
+  }
+
   private enqueueActorPenetration(
     item: HTMLElement,
     videoInfo: { code: string; title: string; url: string },
