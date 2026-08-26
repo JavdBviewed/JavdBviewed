@@ -266,11 +266,17 @@ export function ListTab({
           onChange={(v) => setToggle('enableActorPenetration', v)}
         />
         {form.enableActorPenetration ? (
-          <p className="input-description" role="note">
-            ⚠️ 该功能会为可见卡片发起详情页网络请求，并解析 HTML、读写本地缓存，
-            会增加列表处理的网络与 CPU 开销。结果缓存 7 天，失败 10 分钟后重试；
-            解析失败时卡片保持原状。
-          </p>
+          <div className="flex flex-col gap-1.5">
+            <p className="input-description" role="note">
+              ✓ 开启后列表卡片将展示详情页解析出的真实演员，「显示设置 → 演员过滤」
+              （隐藏未收藏 / 黑名单 / 未识别演员）据此判断，过滤准确性显著提升。
+            </p>
+            <p className="input-description" role="note">
+              ⚠️ 该功能会为可见卡片发起详情页网络请求，并解析 HTML、读写本地缓存，
+              会增加列表处理的网络与 CPU 开销。结果缓存 7 天，失败 10 分钟后重试；
+              解析失败时卡片保持原状。
+            </p>
+          </div>
         ) : null}
       </SettingSection>
 
