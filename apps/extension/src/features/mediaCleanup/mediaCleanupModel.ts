@@ -301,6 +301,12 @@ function enqueueTitle(
   const copies = { ...(existing?.copies || {}) };
   for (const copy of title.copies) {
     const current = copies[copy.copyId];
+    // 终态副本（失败/已删除）不参与重新入队，避免扫描或同步把已处理的副本
+    // 重置回 pending（重新出现时通过新的 copyId 入队）。
+    if (current && (current.status === 'deleted' || current.status === 'failed')) {
+      copies[copy.copyId] = { ...current, ...copy, status: current.status, updatedAt: now };
+      continue;
+    }
     copies[copy.copyId] = current
       ? { ...current, ...copy, updatedAt: now }
       : { ...copy, status: 'pending', updatedAt: now };
@@ -366,8 +372,16 @@ export function scanWatchedTitles(
   }
 
   const observed = new Set(input.observedWatchedCopyIds || []);
+  // 已入队且非终态（pending/deleting）的副本也视为“已知”，避免重复入队；
+  // 终态（failed/deleted/skipped）副本的已看副本 id 需重新参与匹配，
+  // 从而把同影片的新来源副本补入队列（原副本本身由 enqueueTitle 保持终态）。
+  const actionableCopyIds = new Set(Object.values(input.items)
+    .flatMap((item) => Object.values(item.copies))
+    .filter((copy) => copy.status === 'pending' || copy.status === 'deleting')
+    .map((copy) => copy.copyId));
+  const knownWatchedCopyIds = new Set([...observed, ...actionableCopyIds]);
   const newlyWatchedTitles = titles.filter((title) => title.copies.some((copy) => (
-    currentWatchedIds.has(copy.copyId) && !observed.has(copy.copyId)
+    currentWatchedIds.has(copy.copyId) && !knownWatchedCopyIds.has(copy.copyId)
   )));
   let state = input;
   let enqueuedCount = 0;

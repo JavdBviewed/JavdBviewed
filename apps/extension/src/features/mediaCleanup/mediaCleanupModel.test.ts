@@ -112,6 +112,48 @@ describe('mediaCleanupModel', () => {
     });
   });
 
+
+  it('does not reset failed copies to pending when the same watched title is re-scanned with new copies', () => {
+    // 模拟历史导入：影片有 115 + Emby 两个已看来源副本
+    const imported = importHistoricalWatched(
+      EMPTY_MEDIA_CLEANUP_STATE,
+      [{
+        titleId: 'AAA-001',
+        code: 'AAA-001',
+        title: 'AAA-001 title',
+        copies: [
+          { copyId: '115:file-1', source: '115', watchedAt: 100, lastFoundAt: 90 },
+          { copyId: 'emby:home:item-1', source: 'emby', itemId: 'item-1', watchedAt: 100, lastFoundAt: 90 },
+        ],
+      }],
+      1000,
+    );
+    // 115 删除失败后，用户点击“查找已看影片”（扫描再次识别到该影片并带一个新副本）
+    const marked = markCleanupCopyResult({
+      cleanup: imported.state,
+      history: EMPTY_MEDIA_DELETION_HISTORY,
+      titleId: 'AAA-001',
+      copyId: '115:file-1',
+      success: false,
+      error: '115 凭证不可用',
+      now: 2000,
+    });
+    const rescanned = scanWatchedTitles(marked.cleanup, [{
+      titleId: 'AAA-001',
+      code: 'AAA-001',
+      title: 'AAA-001 title',
+      copies: [
+        { copyId: '115:file-1', source: '115', watchedAt: 100, lastFoundAt: 2500 },
+        { copyId: 'emby:home:item-1', source: 'emby', itemId: 'item-1', watchedAt: 100, lastFoundAt: 2500 },
+        { copyId: '115:file-2', source: '115', fileId: 'file-2', watchedAt: 100, lastFoundAt: 2500 },
+      ],
+    }], 3000);
+    const copies = rescanned.state.items['AAA-001'].copies;
+    expect(copies['115:file-1']).toMatchObject({ status: 'failed', error: '115 凭证不可用' });
+    expect(copies['emby:home:item-1'].status).toBe('pending');
+    expect(copies['115:file-2'].status).toBe('pending');
+  });
+
   it('keeps per-copy failures retryable and writes successful extension deletion to history', () => {
     const queued = enqueueWatchedTitle(
       EMPTY_MEDIA_CLEANUP_STATE,

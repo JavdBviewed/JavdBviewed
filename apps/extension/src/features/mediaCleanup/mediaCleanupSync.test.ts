@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { markCleanupCopyResult } from './mediaCleanupModel';
 import type { EmbyLibraryState } from '../embyLibrary/types';
 import { EMPTY_MEDIA_CLEANUP_STATE, EMPTY_MEDIA_DELETION_HISTORY } from './mediaCleanupModel';
 import {
@@ -26,6 +27,80 @@ function entry(itemId: string, played: boolean) {
 }
 
 describe('mediaCleanupSync', () => {
+  it('keeps failed copies terminal when an Emby sync re-observes the same watched title', () => {
+    // 首次同步建立基线（影片未入队）
+    const first = processEmbySyncCleanupState({
+      cleanup: EMPTY_MEDIA_CLEANUP_STATE,
+      history: EMPTY_MEDIA_DELETION_HISTORY,
+      previous: { entries: {}, updatedAt: 0 },
+      next: { entries: { 'AAA-001': [entry('item-1', false)] }, updatedAt: 400 },
+      successfulServerKeys: new Set(['emby:http://home.local']),
+      now: 400,
+    });
+    // 第二次同步：影片从“未看”变为“已看” → 自动入队
+    const second = processEmbySyncCleanupState({
+      cleanup: first.cleanup,
+      history: first.history,
+      previous: { entries: { 'AAA-001': [entry('item-1', false)] }, updatedAt: 400 },
+      next: { entries: { 'AAA-001': [entry('item-1', true)] }, updatedAt: 600 },
+      successfulServerKeys: new Set(['emby:http://home.local']),
+      now: 600,
+    });
+    expect(Object.keys(second.cleanup.items['AAA-001'].copies)).toEqual(['emby:http://home.local:item-1']);
+    // 115 来源副本删除失败
+    const marked = markCleanupCopyResult({
+      cleanup: {
+        ...second.cleanup,
+        items: {
+          ...second.cleanup.items,
+          'AAA-001': {
+            ...second.cleanup.items['AAA-001'],
+            copies: {
+              '115:file-1': {
+                copyId: '115:file-1',
+                source: '115',
+                status: 'pending',
+                lastFoundAt: 500,
+              },
+              ...second.cleanup.items['AAA-001'].copies,
+            },
+          },
+        },
+      },
+      history: EMPTY_MEDIA_DELETION_HISTORY,
+      titleId: 'AAA-001',
+      copyId: '115:file-1',
+      success: false,
+      error: '115 凭证不可用',
+      now: 700,
+    });
+    // 第三次同步：影片仍已看（附带新的 115 副本快照）
+    const result = processEmbySyncCleanupState({
+      cleanup: marked.cleanup,
+      history: marked.history,
+      previous: { entries: { 'AAA-001': [entry('item-1', true)] }, updatedAt: 600 },
+      next: { entries: { 'AAA-001': [entry('item-1', true)] }, updatedAt: 1000 },
+      successfulServerKeys: new Set(['emby:http://home.local']),
+      additionalTitles: [{
+        titleId: 'AAA-001',
+        code: 'AAA-001',
+        title: 'AAA-001',
+        copies: [{
+          copyId: '115:file-1',
+          source: '115',
+          watchedAt: 500,
+          lastFoundAt: 900,
+        }],
+      }],
+      now: 1000,
+    });
+    const copies = result.cleanup.items['AAA-001'].copies;
+    expect(copies['115:file-1']).toMatchObject({ status: 'failed', error: '115 凭证不可用' });
+    expect(copies['emby:http://home.local:item-1'].status).toBe('pending');
+    // 影片此前已入队，本次只是刷新已有副本，不应再次计数
+    expect(result.enqueuedCount).toBe(0);
+  });
+
   it('keeps a watched externally deleted copy in history after sync replaces the server index', () => {
     const previous: EmbyLibraryState = {
       entries: { 'AAA-001': [entry('item-1', true)] },
