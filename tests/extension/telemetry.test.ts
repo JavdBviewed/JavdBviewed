@@ -167,6 +167,7 @@ describe('telemetry payload', () => {
       'listFavoriteQuickActionEnabled',
       'actorEnhancementEnabled',
       'embyEnabled',
+      'embyRecognitionEnabled',
       'embyLibraryStatusEnabled',
       'embyRealtimeCheckEnabled',
       'privacyScreenshotModeEnabled',
@@ -289,6 +290,8 @@ describe('telemetry payload', () => {
         emby: {
           ...(DEFAULT_SETTINGS as any).emby,
           enabled: true,
+          recognitionEnabled: true,
+          libraryEnabled: true,
           libraryStatus: {
             enabled: true,
             showOnList: true,
@@ -384,6 +387,7 @@ describe('telemetry payload', () => {
         listFavoriteQuickActionEnabled: true,
         actorEnhancementEnabled: true,
         embyEnabled: true,
+        embyRecognitionEnabled: true,
         embyLibraryStatusEnabled: true,
         embyRealtimeCheckEnabled: true,
         privacyScreenshotModeEnabled: true,

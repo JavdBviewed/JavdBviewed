@@ -13,7 +13,7 @@ describe('Emby library scheduler', () => {
 
     syncEmbyLibrarySyncAlarmFromSettings({
       emby: {
-        libraryStatus: { enabled: true },
+        libraryEnabled: true,
         syncIntervalMinutes: 2,
         mediaServers: [
           {
@@ -39,7 +39,7 @@ describe('Emby library scheduler', () => {
 
     syncEmbyLibrarySyncAlarmFromSettings({
       emby: {
-        libraryStatus: { enabled: false },
+        libraryEnabled: false,
         syncIntervalMinutes: 60,
         mediaServers: [
           {
