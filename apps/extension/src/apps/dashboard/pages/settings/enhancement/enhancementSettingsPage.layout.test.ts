@@ -9,7 +9,14 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const pageSource = readFileSync(join(here, 'EnhancementSettingsPage.tsx'), 'utf8');
+const pageSource = [
+  readFileSync(join(here, 'EnhancementSettingsPage.tsx'), 'utf8'),
+  readFileSync(join(here, 'ListTab.tsx'), 'utf8'),
+  readFileSync(join(here, 'VideoTab.tsx'), 'utf8'),
+  readFileSync(join(here, 'ActorTab.tsx'), 'utf8'),
+  readFileSync(join(here, 'OtherTab.tsx'), 'utf8'),
+  readFileSync(join(here, '_shared.tsx'), 'utf8'),
+].join('\n');
 const cardSource = readFileSync(join(here, 'EnhancementFeatureCard.tsx'), 'utf8');
 const pageStyleSource = readFileSync(join(here, 'enhancementSettingsPage.css'), 'utf8');
 const reactFullPageIdsSource = readFileSync(join(here, '..', 'shared', 'reactFullPageIds.ts'), 'utf8');
@@ -76,6 +83,7 @@ describe('EnhancementSettingsPage layout', () => {
   it('uses the legacy feature-card hierarchy inside the React settings page', () => {
     expect(pageSource).toContain("from './EnhancementFeatureCard'");
     expect(pageSource).toContain('EnhancementFeatureCard');
+
     expect(cardSource).toContain('enhancement-feature-status');
     expect(cardSource).toContain('enhancement-risk-notice');
     expect(pageStyleSource).toContain('.enhancement-feature-card__master');
@@ -113,10 +121,11 @@ describe('EnhancementSettingsPage layout', () => {
     expect(pageSource).toContain('先在 115 设置中配置媒体库根目录并完成一次索引');
   });
 
-  it('keeps each list status capability as an independent feature card', () => {
-    expect(pageSource).toContain('title="状态标签显示"');
-    expect(pageSource).toContain('title="状态快捷标识"');
-    expect(pageSource).toContain('title="收藏快捷按钮"');
+  it('keeps list quick-action capabilities under the merged 快捷操作 card', () => {
+    expect(pageSource).toContain('title="快捷操作"');
+    expect(pageSource).toContain('id="showStatusBadge"');
+    expect(pageSource).toContain('id="enableStatusQuickAction"');
+    expect(pageSource).toContain('id="enableListFavoriteQuickAction"');
   });
 
   it('does not merge independent legacy video and other feature cards', () => {
@@ -144,9 +153,7 @@ describe('EnhancementSettingsPage layout', () => {
       '高清封面',
       '演员水印',
       '列表显示控制',
-      '状态标签显示',
-      '状态快捷标识',
-      '收藏快捷按钮',
+      '快捷操作',
       '本地媒体库匹配',
       '演员名称标识',
       '智能标题翻译',
