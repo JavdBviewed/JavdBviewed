@@ -184,6 +184,17 @@ function CleanupTitleCard({
         <small className="ml-cleanup-card-time">
           {history ? `处理于 ${formatTime(item.updatedAt)}` : `已看于 ${formatTime(Math.max(0, ...allCopies.map((copy) => copy.watchedAt || 0))) || '未记录'}`}
         </small>
+        {!history ? (() => {
+          const failedCopies = allCopies.filter((copy) => copy.status === 'failed' && copy.error);
+          if (failedCopies.length === 0) return null;
+          return (
+            <p className="ml-cleanup-card-error" role="alert">
+              {failedCopies.length === 1
+                ? failedCopies[0].error
+                : `部分来源删除失败：${failedCopies.map((copy) => `${copyLabel(copy)}（${copy.error}）`).join('；')}`}
+            </p>
+          );
+        })() : null}
         <details className="ml-cleanup-card-details">
           <summary>{history ? `查看 ${copies.length} 条操作记录` : `查看 ${allCopies.length} 个来源文件`}</summary>
           <div className="ml-cleanup-copy-list">
@@ -322,7 +333,11 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
     }
     setConfirming(false);
     setSelectedKeys(new Set());
-    setMessage(`已处理 ${selected.length} 个文件，失败 ${failed} 个`);
+    setMessage(
+      failed === 0
+        ? `已处理 ${selected.length} 个文件，全部成功`
+        : `已处理 ${selected.length} 个文件，失败 ${failed} 个；失败原因见「处理失败」列表`,
+    );
     setBusy(false);
     await reload();
     if (failed > 0) setTab('failed');

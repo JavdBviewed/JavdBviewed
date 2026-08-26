@@ -2192,6 +2192,12 @@ button.ml-resume-card {
   font-size: 11px;
 }
 
+.ml-cleanup-card-error {
+  color: var(--color-danger, #dc2626);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .ml-cleanup-card-details {
   min-width: 0;
 }
