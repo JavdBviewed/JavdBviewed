@@ -166,117 +166,130 @@ class ListEnhancementManager {
   private actorRowStylesInjected = false;
   private popularityStylesInjected = false;
 
+  /**
+   * 配置变化时的副作用注册表。
+   * 每个 concern 自注册一条 effect：watch 判定是否变化，apply 执行重放。
+   * updateConfig 只按数组顺序依次执行命中的 effect —— 新增功能不再改这个方法主体。
+   * 顺序即执行顺序（如 nameMarks 重放需晚于 penetration 重置）。
+   */
+  private readonly configEffects: ReadonlyArray<{
+    name: string;
+    watch: (oldCfg: ListEnhancementConfig, cur: ListEnhancementConfig) => boolean;
+    apply: () => void;
+  }> = [
+    {
+      name: 'scrollPaging',
+      watch: (o, c) => o.enableScrollPaging !== c.enableScrollPaging,
+      apply: () => {
+        if (this.config.enableScrollPaging && this.config.enabled) {
+          this.initScrollPaging();
+          log('Scroll paging enabled and initialized');
+        } else {
+          this.cleanupScrollPaging();
+          log('Scroll paging disabled and cleaned up');
+        }
+      },
+    },
+    {
+      name: 'actorFilter',
+      watch: (o, c) =>
+        o.hideBlacklistedActorsInList !== c.hideBlacklistedActorsInList ||
+        o.hideNonFavoritedActorsInList !== c.hideNonFavoritedActorsInList ||
+        o.hideUnrecognizedActorsInList !== c.hideUnrecognizedActorsInList ||
+        o.treatSubscribedAsFavorited !== c.treatSubscribedAsFavorited,
+      apply: () => {
+        log('Actor filter config changed, reapplying filters...');
+        this.reapplyActorHidingForAll();
+      },
+    },
+    {
+      name: 'actorNameMarks',
+      watch: (o, c) =>
+        (o.enableActorNameMarks !== false) !== (c.enableActorNameMarks !== false),
+      apply: () => {
+        this.actorNameMarkPrepped = false;
+        this.subscribedActorIds = new Set();
+        if (this.config.enableActorNameMarks !== false) {
+          void this.warmActorNameMarkData();
+        }
+      },
+    },
+    {
+      name: 'actorPenetration',
+      watch: (o, c) =>
+        (o.enableActorPenetration === true) !== (c.enableActorPenetration === true),
+      apply: () => {
+        this.actorPenetration.reset();
+        const items = document.querySelectorAll<HTMLElement>('.movie-list .item');
+        if (this.config.enableActorPenetration !== true) {
+          items.forEach(item => this.actorPenetration.clear(item));
+        } else if (this.hasInitialized) {
+          items.forEach(item => {
+            const info = extractListItemVideoInfo(item);
+            if (info?.code) this.enqueueActorPenetration(item, info);
+          });
+        }
+      },
+    },
+    {
+      name: 'actorNameMarksReplay',
+      watch: (o, c) =>
+        (o.enableActorNameMarks !== false) !== (c.enableActorNameMarks !== false),
+      apply: () => this.reapplyActorRowMarksIfReady(),
+    },
+    {
+      name: 'listDisplay',
+      watch: (o, c) => {
+        const last = this.lastDisplayControl;
+        const cur = c.listDisplayControl;
+        const changed = !last || (
+          last.enabled !== cur?.enabled ||
+          last.columnCount !== cur?.columnCount ||
+          last.containerWidth !== cur?.containerWidth ||
+          last.enableContainerExpansion !== cur?.enableContainerExpansion
+        );
+        if (changed && cur) {
+          this.lastDisplayControl = {
+            enabled: cur.enabled,
+            columnCount: cur.columnCount,
+            containerWidth: cur.containerWidth,
+            enableContainerExpansion: cur.enableContainerExpansion ?? false,
+          };
+        }
+        log('Display control changed:', changed);
+        return changed;
+      },
+      apply: () => {
+        log('Applying list display styles due to config change...');
+        this.applyListDisplayStyles();
+      },
+    },
+    {
+      name: 'popularity',
+      watch: (o, c) =>
+        JSON.stringify(o.popularityEffects || null) !== JSON.stringify(c.popularityEffects || null),
+      apply: () => {
+        this.ensurePopularityStyles();
+        this.reapplyPopularityEffects();
+      },
+    },
+    {
+      name: 'sorting',
+      watch: (o, c) =>
+        JSON.stringify(o.sorting || null) !== JSON.stringify(c.sorting || null) && this.hasInitialized,
+      apply: () => this.listSortingController.updateConfig(normalizeListSortingConfig(this.config.sorting)),
+    },
+  ];
+
   updateConfig(newConfig: Partial<ListEnhancementConfig>): void {
     const oldConfig = { ...this.config };
     this.config = { ...this.config, ...newConfig };
     log('List enhancement config updated:', this.config);
-    
-    // 如果滚动翻页配置发生变化，重新初始化
-    if (oldConfig.enableScrollPaging !== this.config.enableScrollPaging) {
-      if (this.config.enableScrollPaging && this.config.enabled) {
-        this.initScrollPaging();
-        log('Scroll paging enabled and initialized');
-      } else {
-        this.cleanupScrollPaging();
-        log('Scroll paging disabled and cleaned up');
+
+    for (const effect of this.configEffects) {
+      if (effect.watch(oldConfig, this.config)) {
+        effect.apply();
       }
-    }
-
-    // 若演员过滤配置变化，重应用一次（不清除缓存，避免所有影片被误判）
-    const actorFlagsChanged = (
-      oldConfig.hideBlacklistedActorsInList !== this.config.hideBlacklistedActorsInList ||
-      oldConfig.hideNonFavoritedActorsInList !== this.config.hideNonFavoritedActorsInList ||
-      oldConfig.hideUnrecognizedActorsInList !== this.config.hideUnrecognizedActorsInList ||
-      oldConfig.treatSubscribedAsFavorited !== this.config.treatSubscribedAsFavorited
-    );
-    if (actorFlagsChanged) {
-      log('Actor filter config changed, reapplying filters...');
-      this.reapplyActorHidingForAll();
-    }
-
-    // 演员名称标识开关变化：重新预热数据并重放已渲染行
-    const nameMarksFlipped =
-      (oldConfig.enableActorNameMarks !== false) !== (this.config.enableActorNameMarks !== false);
-    if (nameMarksFlipped) {
-      this.actorNameMarkPrepped = false;
-      this.subscribedActorIds = new Set();
-      if (this.config.enableActorNameMarks !== false) {
-        void this.warmActorNameMarkData();
-      }
-    }
-
-    // 演员穿透开关变化：关闭时移除所有演员行并重置运行时；开启时重新处理当前卡片
-    const penetrationChanged = (
-      (oldConfig.enableActorPenetration === true) !== (this.config.enableActorPenetration === true)
-    );
-    if (penetrationChanged) {
-      this.actorPenetration.reset();
-      if (this.config.enableActorPenetration !== true) {
-        document.querySelectorAll<HTMLElement>('.movie-list .item').forEach(item => {
-          this.actorPenetration.clear(item);
-        });
-      } else if (this.hasInitialized) {
-        document.querySelectorAll<HTMLElement>('.movie-list .item').forEach(item => {
-          const info = extractListItemVideoInfo(item);
-          if (info?.code) {
-            this.enqueueActorPenetration(item, info);
-          }
-        });
-      }
-    }
-
-    // 名称标识开关变化：重放已渲染的穿透行以刷新/清除着色
-    if (nameMarksFlipped) {
-      this.reapplyActorRowMarksIfReady();
-    }
-
-    // 🆕 如果列表显示控制配置发生变化，重新应用样式
-    const currentControl = this.config.listDisplayControl;
-    const lastControl = this.lastDisplayControl;
-    
-    log('Checking display control changes...', {
-      lastEnabled: lastControl?.enabled,
-      currentEnabled: currentControl?.enabled,
-      lastColumnCount: lastControl?.columnCount,
-      currentColumnCount: currentControl?.columnCount,
-      lastContainerWidth: lastControl?.containerWidth,
-      currentContainerWidth: currentControl?.containerWidth,
-      lastEnableContainerExpansion: lastControl?.enableContainerExpansion,
-      currentEnableContainerExpansion: currentControl?.enableContainerExpansion
-    });
-    
-    const displayControlChanged = !lastControl || (
-      lastControl.enabled !== currentControl?.enabled ||
-      lastControl.columnCount !== currentControl?.columnCount ||
-      lastControl.containerWidth !== currentControl?.containerWidth ||
-      lastControl.enableContainerExpansion !== currentControl?.enableContainerExpansion
-    );
-    
-    log('Display control changed:', displayControlChanged);
-    
-    if (displayControlChanged) {
-      log('Applying list display styles due to config change...');
-      this.applyListDisplayStyles();
-      // 保存当前配置作为下次比较的基准
-      if (currentControl) {
-        this.lastDisplayControl = {
-          enabled: currentControl.enabled,
-          columnCount: currentControl.columnCount,
-          containerWidth: currentControl.containerWidth,
-          enableContainerExpansion: currentControl.enableContainerExpansion ?? false
-        };
-      }
-    }
-
-    const popularityChanged = JSON.stringify(oldConfig.popularityEffects || null) !== JSON.stringify(this.config.popularityEffects || null);
-    if (popularityChanged) {
-      this.ensurePopularityStyles();
-      this.reapplyPopularityEffects();
-    }
-
-    const sortingChanged = JSON.stringify(oldConfig.sorting || null) !== JSON.stringify(this.config.sorting || null);
-    if (sortingChanged && this.hasInitialized) {
-      this.listSortingController.updateConfig(normalizeListSortingConfig(this.config.sorting));
     }
   }
 
@@ -655,16 +668,14 @@ class ListEnhancementManager {
    */
   private initListPageActorQuickActions(): void {
     try {
-      if ((this as any).__listQuickActionsInit === true) return;
-      (this as any).__listQuickActionsInit = true;
       const isListPage =
         document.querySelector('.movie-list') !== null ||
         window.location.pathname.match(/\/(list|new|rank|tag|search)\b/) !== null ||
         window.location.search.includes('list=1');
       if (!isListPage) return;
-      // 穿透已开启（initialize 仅在 config.enabled 时调用），
-      // 默认 true 的快捷面板随之初始化；如需独立关闭可在此读 settings 字段
-      void actorQuickActionsManager.init();
+      // 穿透已开启（initialize 仅在 config.enabled 时调用）；
+      // ensureInit 幂等，列表/影片两条路径互不重复初始化
+      void actorQuickActionsManager.ensureInit('list');
     } catch (e) {
       log('initListPageActorQuickActions failed:', e);
     }
