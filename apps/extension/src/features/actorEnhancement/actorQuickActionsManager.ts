@@ -25,6 +25,8 @@ class ActorQuickActionsManager {
   private showTimer: number | null = null;
   private hideTimer: number | null = null;
   private stylesInjected = false;
+  private observer: MutationObserver | null = null;
+  private initedPage: 'video' | 'list' | null = null;
 
   updateConfig(newConfig: Partial<ActorQuickActionsConfig>): void {
     this.config = { ...this.config, ...newConfig };
@@ -623,54 +625,51 @@ class ActorQuickActionsManager {
   /**
    * 初始化
    */
-  async init(): Promise<void> {
+  /**
+   * 幂等初始化：按页面类型只初始化一次。
+   * - 'video'：影片详情页（/v/...）
+   * - 'list'：列表页
+   * 两类互不干扰；重复调用（同类型）直接返回。影片页路径保持原行为。
+   */
+  async ensureInit(pageType: 'video' | 'list'): Promise<void> {
     if (!this.config.enabled) return;
+    if (this.initedPage === pageType) return;
+    this.initedPage = pageType;
 
-    // 检查是否为影片详情页
-    const isVideoDetailPage = /\/v\/\w+/.test(window.location.pathname);
-    if (!isVideoDetailPage) return;
+    console.log(`🎬 演员快速操作增强已启用（${pageType} 页）`);
 
-    console.log('🎬 演员快速操作增强已启用');
-
-    // 注入样式
     this.injectStyles();
 
-    // 查找所有演员链接
     const actorLinks = document.querySelectorAll<HTMLAnchorElement>('a[href*="/actors/"]');
     console.log(`找到 ${actorLinks.length} 个演员链接`);
+    actorLinks.forEach(link => this.enhanceActorLink(link));
 
-    actorLinks.forEach(link => {
-      this.enhanceActorLink(link);
-    });
+    if (this.observer) return; // 已有监听器（另一类型先 init）则复用
 
-    // 监听DOM变化，处理动态加载的演员链接
-    const observer = new MutationObserver((mutations) => {
+    this.observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            const element = node as HTMLElement;
-            
-            // 检查新增的演员链接
-            if (element.tagName === 'A' && element.getAttribute('href')?.includes('/actors/')) {
-              this.enhanceActorLink(element as HTMLAnchorElement);
-            }
-
-            // 检查子元素中的演员链接
-            const links = element.querySelectorAll<HTMLAnchorElement>('a[href*="/actors/"]');
-            links.forEach(link => {
-              if (!link.classList.contains('x-actor-hoverable')) {
-                this.enhanceActorLink(link);
-              }
-            });
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+          const element = node as HTMLElement;
+          if (element.tagName === 'A' && element.getAttribute('href')?.includes('/actors/')) {
+            this.enhanceActorLink(element as HTMLAnchorElement);
           }
+          element.querySelectorAll<HTMLAnchorElement>('a[href*="/actors/"]').forEach(link => {
+            if (!link.classList.contains('x-actor-hoverable')) {
+              this.enhanceActorLink(link);
+            }
+          });
         });
       });
     });
+    this.observer.observe(document.body, { childList: true, subtree: true });
+  }
 
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
+  /** 兼容旧入口：等价于 ensureInit('video')，且仅在影片详情页生效（保持原行为）。 */
+  async init(): Promise<void> {
+    const isVideoDetailPage = /\/v\/\w+/.test(window.location.pathname);
+    if (!isVideoDetailPage) return;
+    await this.ensureInit('video');
   }
 
   /**
@@ -687,6 +686,9 @@ class ActorQuickActionsManager {
       this.hideTimer = null;
     }
 
+    this.observer?.disconnect();
+    this.observer = null;
+    this.initedPage = null;
     this.hideTooltip();
 
     console.log('🎬 演员快速操作增强已销毁');

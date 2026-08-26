@@ -658,7 +658,7 @@ async function initialize(): Promise<void> {
             showDelay: 300,
             hideDelay: 200,
         });
-        initOrchestrator.add('high', () => actorQuickActionsManager.init(), { label: 'actorQuickActions:init', delayMs: 500, priority: 6, visibilityPolicy: 'background_allowed' });
+        initOrchestrator.add('high', () => actorQuickActionsManager.ensureInit('video'), { label: 'actorQuickActions:init', delayMs: 500, priority: 6, visibilityPolicy: 'background_allowed' });
     }
 
     // 初始化 Emby/Jellyfin 增强功能（延后执行）
