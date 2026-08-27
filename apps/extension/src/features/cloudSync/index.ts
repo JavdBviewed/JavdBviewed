@@ -40,6 +40,7 @@ export {
   extensionCloudFacade,
   type CloudFacadeState,
   type CloudHealthResult,
+  type CloudVersionInfo,
   type CloudLoginInput,
   type CloudConnectionInput,
   type ExtensionCloudFacade,

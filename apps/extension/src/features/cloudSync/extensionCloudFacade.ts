@@ -42,6 +42,15 @@ export type CloudHealthResult = {
   httpStatus?: number;
 };
 
+export type CloudVersionInfo = {
+  version: string;
+  shortCommit?: string;
+  buildNumber?: string;
+  buildTime?: string;
+  releaseChannel?: string;
+  protocolVersion?: number;
+};
+
 export type CloudLoginInput = {
   identifier: string;
   password: string;
@@ -66,6 +75,7 @@ export type ExtensionCloudFacade = {
   loadState(): Promise<CloudFacadeState>;
   saveConnection(input: CloudConnectionInput): Promise<CloudConnectionSettings>;
   checkHealth(baseUrl?: string): Promise<CloudHealthResult>;
+  fetchCloudVersion(baseUrl?: string): Promise<CloudVersionInfo | null>;
   register(input: CloudLoginInput): Promise<void>;
   login(input: CloudLoginInput): Promise<CloudFacadeState>;
   listDevices(): Promise<DeviceInfo[]>;
@@ -167,6 +177,45 @@ export function createExtensionCloudFacade(
     }
   }
 
+  async function fetchCloudVersion(
+    baseUrl?: string,
+  ): Promise<CloudVersionInfo | null> {
+    const settings = await loadCloudSettings();
+    const root = normalizeCloudBaseUrl(baseUrl ?? settings.baseUrl);
+    if (!root) {
+      return null;
+    }
+    const fetcher = options.fetchImpl ?? fetch;
+    try {
+      const res = await fetcher(`${root}/version`);
+      if (!res.ok) {
+        return null;
+      }
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      const version =
+        typeof data.version === 'string' ? data.version.trim() : '';
+      if (!version) {
+        return null;
+      }
+      const pick = (key: string): string | undefined => {
+        const value = data[key];
+        return typeof value === 'string' && value ? value : undefined;
+      };
+      const protocolVersion =
+        typeof data.protocolVersion === 'number' ? data.protocolVersion : undefined;
+      return {
+        version,
+        shortCommit: pick('shortCommit'),
+        buildNumber: pick('buildNumber'),
+        buildTime: pick('buildTime'),
+        releaseChannel: pick('releaseChannel'),
+        protocolVersion,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async function register(input: CloudLoginInput): Promise<void> {
     const credentials = requireCredentials(input);
     const settings = await saveCloudSettings({
@@ -233,6 +282,7 @@ export function createExtensionCloudFacade(
     loadState,
     saveConnection,
     checkHealth,
+    fetchCloudVersion,
     register,
     login,
     listDevices,

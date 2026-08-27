@@ -73,6 +73,13 @@ describe('CloudSettingsPage copy', () => {
     expect(pageSource).toContain('本机设备名');
   });
 
+  it('shows the Cloud server version once connected', () => {
+    expect(pageSource).toContain('fetchCloudVersion');
+    expect(pageSource).toContain('Cloud 版本');
+    expect(pageSource).toContain('Cloud \${cloudVersion.version}');
+    expect(pageSource).toContain('refreshCloudVersion(state.settings.baseUrl)');
+  });
+
   it('moves connection fields and actions into an edit dialog', () => {
     expect(pageSource).toContain('CloudConnectionEditDialog');
     expect(pageSource).toContain('cloud-connection-edit-modal');

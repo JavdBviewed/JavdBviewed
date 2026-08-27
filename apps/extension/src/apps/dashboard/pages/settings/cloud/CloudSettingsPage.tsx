@@ -24,6 +24,7 @@ import {
   normalizeCloudBaseUrl,
   type CloudAutoSyncSettings,
   type CloudConnectionSettings,
+  type CloudVersionInfo,
   type CloudSessionRecord,
   type CloudSyncProgress,
   type CloudSyncNowResult,
@@ -100,6 +101,7 @@ export function CloudSettingsPage() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [healthState, setHealthState] = useState<HealthState>('unknown');
   const [healthDetail, setHealthDetail] = useState('尚未检测');
+  const [cloudVersion, setCloudVersion] = useState<CloudVersionInfo | null>(null);
   const [banner, setBanner] = useState<{ text: string; tone: StatusTone } | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -223,6 +225,17 @@ export function CloudSettingsPage() {
     [facade, setStatus],
   );
 
+  const refreshCloudVersion = useCallback(async (baseUrl: string) => {
+    const root = normalizeCloudBaseUrl(baseUrl);
+    if (!root) {
+      setCloudVersion(null);
+      return;
+    }
+    // 静默拉取：/version 是 Cloud 公开端点，失败不影响页面其它功能。
+    const info = await facade.fetchCloudVersion(root);
+    setCloudVersion(info);
+  }, [facade]);
+
   const runSyncWithProgress = useCallback(async (showProgress = true): Promise<SyncReport> => {
     const controller = showProgress ? new AbortController() : null;
     if (controller) syncAbortControllerRef.current = controller;
@@ -266,8 +279,9 @@ export function CloudSettingsPage() {
     setSession(state.session);
     setDevices(state.devices);
     setShowPassword(false);
+    void refreshCloudVersion(state.settings.baseUrl);
     await runSyncWithProgress(showProgress);
-  }, [facade, identifier, password, runSyncWithProgress]);
+  }, [facade, identifier, password, refreshCloudVersion, runSyncWithProgress]);
 
   // 仅挂载加载一次，避免输入被 effect 覆盖
   useEffect(() => {
@@ -292,12 +306,13 @@ export function CloudSettingsPage() {
       if (cancelled || !loadedSettings) return;
       if (normalizeCloudBaseUrl(loadedSettings.baseUrl)) {
         void probeHealthUrl(loadedSettings.baseUrl, { silent: true });
+        void refreshCloudVersion(loadedSettings.baseUrl);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [facade, probeHealthUrl]);
+  }, [facade, probeHealthUrl, refreshCloudVersion]);
 
   useEffect(() => {
     if (loading || !loggedIn) return;
@@ -336,6 +351,7 @@ export function CloudSettingsPage() {
           await toast('连接失败', 'error');
           return;
         }
+        void refreshCloudVersion(saved.baseUrl);
         const state = await facade.login({ identifier: identifier.trim(), password });
         setSettings(state.settings);
         setAutoSync(state.autoSync);
@@ -560,7 +576,7 @@ export function CloudSettingsPage() {
           label="服务"
           badge={healthBadge(healthState)}
           detail={healthDetail}
-          meta={configuredBaseUrl}
+          meta={cloudVersion ? `${configuredBaseUrl} · Cloud ${cloudVersion.version}` : configuredBaseUrl}
         />
         <OverviewCard
           label="登录"
@@ -674,6 +690,7 @@ export function CloudSettingsPage() {
           baseUrl={configuredBaseUrl}
           healthState={healthState}
           healthDetail={healthDetail}
+          cloudVersion={cloudVersion}
           loggedIn={loggedIn}
           hasSavedCredentials={hasSavedCredentials}
           autoConnectionState={autoConnectionState}
@@ -830,6 +847,7 @@ function CloudConnectionSummary(props: {
   baseUrl: string;
   healthState: HealthState;
   healthDetail: string;
+  cloudVersion?: CloudVersionInfo | null;
   loggedIn: boolean;
   hasSavedCredentials: boolean;
   autoConnectionState: AutoConnectionState;
@@ -867,6 +885,22 @@ function CloudConnectionSummary(props: {
                 {props.deviceLabel}
               </dd>
             </div>
+            {props.cloudVersion ? (
+              <div>
+                <dt className="text-[var(--color-fg-muted)]">Cloud 版本</dt>
+                <dd
+                  className="m-0 mt-0.5 truncate font-semibold text-[var(--color-fg)]"
+                  title={`Cloud ${props.cloudVersion.version}${props.cloudVersion.shortCommit ? `（commit ${props.cloudVersion.shortCommit}）` : ''}`}
+                >
+                  {props.cloudVersion.version}
+                  {props.cloudVersion.shortCommit ? (
+                    <span className="ml-1 text-[var(--color-fg-muted)]">
+                      {props.cloudVersion.shortCommit}
+                    </span>
+                  ) : null}
+                </dd>
+              </div>
+            ) : null}
           </dl>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
