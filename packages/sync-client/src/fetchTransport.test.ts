@@ -3,7 +3,12 @@
  * @description HTTP 传输压缩回归测试
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createFetchTransport } from './fetchTransport';
+
+/**
+ * gzip 拒绝探测是模块级单例。
+ * 测试顺序保证：401 用例在前（不触发拒绝），retry 用例各自独立 transport。
+ */
+import { createFetchTransport, __resetGzipRejectedForTest } from './fetchTransport';
 
 describe('createFetchTransport request compression', () => {
   afterEach(() => {
@@ -98,5 +103,126 @@ describe('createFetchTransport request compression', () => {
     });
 
     expect(captured?.signal).toBe(controller.signal);
+  });
+
+  it('retries plain JSON after a 400 invalid json when the server rejects the gzip body', async () => {
+    __resetGzipRejectedForTest();
+      const calls: Array<{ encoding?: string; body: unknown }> = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_input: string, init?: RequestInit) => {
+          calls.push({
+            encoding: (init?.headers as Record<string, string>)?.['Content-Encoding'],
+            body: init?.body,
+          });
+          if (calls.length === 1) {
+            return new Response(
+              JSON.stringify({ code: 'invalid_json', message: 'invalid json' }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }),
+      );
+
+      const res = await createFetchTransport('http://cloud.test').request<{ ok: boolean }>({
+        method: 'POST',
+        path: '/v1/sync/session',
+        body: { changes: [{ id: 'x', payload: 'y'.repeat(20_000) }] },
+      });
+
+      expect(res).toEqual({ ok: true });
+      expect(calls).toHaveLength(2);
+      expect(calls[0].encoding).toBe('gzip');
+      expect(calls[0].body).toBeInstanceOf(Blob);
+      expect(calls[1].encoding).toBeUndefined();
+      expect(typeof calls[1].body).toBe('string');
+      expect(JSON.parse(String(calls[1].body)).changes[0].id).toBe('x');
+  });
+
+  it('retries plain JSON after a 400 invalid gzip body (legacy server without gzip middleware)', async () => {
+    __resetGzipRejectedForTest();
+      const calls: Array<{ encoding?: string }> = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_input: string, init?: RequestInit) => {
+          calls.push({ encoding: (init?.headers as Record<string, string>)?.['Content-Encoding'] });
+          if (calls.length === 1) {
+            return new Response(
+              JSON.stringify({ code: 'invalid_gzip', message: 'invalid gzip body' }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }),
+      );
+
+      const res = await createFetchTransport('http://cloud.test').request<{ ok: boolean }>({
+        method: 'POST',
+        path: '/v1/sync/session',
+        body: { changes: [{ id: 'x', payload: 'y'.repeat(20_000) }] },
+      });
+
+      expect(res).toEqual({ ok: true });
+      expect(calls).toHaveLength(2);
+      expect(calls[0].encoding).toBe('gzip');
+      expect(calls[1].encoding).toBeUndefined();
+  });
+
+  it('does not retry after a 401 auth failure on a gzip body', async () => {
+    __resetGzipRejectedForTest();
+      const calls: Array<{ encoding?: string }> = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_input: string, init?: RequestInit) => {
+          calls.push({ encoding: (init?.headers as Record<string, string>)?.['Content-Encoding'] });
+          return new Response(
+            JSON.stringify({ code: 'unauthorized', message: 'invalid credentials' }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+          );
+        }),
+      );
+
+      await expect(
+        createFetchTransport('http://cloud.test').request<{ ok: boolean }>({
+          method: 'POST',
+          path: '/v1/sync/session',
+          body: { changes: [{ id: 'x', payload: 'y'.repeat(20_000) }] },
+        }),
+      ).rejects.toMatchObject({ status: 401, message: 'invalid credentials' });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].encoding).toBe('gzip');
+  });
+
+  it('stops using gzip for later requests once a server rejected the gzip body', async () => {
+    __resetGzipRejectedForTest();
+      const calls: Array<{ encoding?: string; body: unknown }> = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_input: string, init?: RequestInit) => {
+          calls.push({
+            encoding: (init?.headers as Record<string, string>)?.['Content-Encoding'],
+            body: init?.body,
+          });
+          if (calls.length === 1) {
+            return new Response(
+              JSON.stringify({ code: 'invalid_json', message: 'invalid json' }),
+              { status: 400, headers: { 'Content-Type': 'application/json' } },
+            );
+          }
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }),
+      );
+
+      const transport = createFetchTransport('http://cloud.test');
+      const big = { changes: [{ id: 'x', payload: 'y'.repeat(20_000) }] };
+      await transport.request({ method: 'POST', path: '/v1/sync/session', body: big });
+      await transport.request({ method: 'POST', path: '/v1/sync/session', body: big });
+
+      expect(calls).toHaveLength(3);
+      expect(calls[0].encoding).toBe('gzip');
+      expect(calls[1].encoding).toBeUndefined();
+      expect(calls[2].encoding).toBeUndefined();
+      expect(typeof calls[2].body).toBe('string');
   });
 });

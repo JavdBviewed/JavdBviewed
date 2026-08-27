@@ -33,6 +33,8 @@ export function LazyRemoteImage({
   const ref = useRef<HTMLDivElement | null>(null);
   const [inView, setInView] = useState(!lazy);
   const [src, setSrc] = useState('');
+  // 加载失败（如 Emby 离线）后静默停止：不再换 src 重试，避免控制台 ERR_ 刷屏。
+  const [failed, setFailed] = useState(false);
   const want = url ? String(url).trim() : '';
 
   useEffect(() => {
@@ -53,6 +55,7 @@ export function LazyRemoteImage({
 
   useEffect(() => {
     setSrc('');
+    setFailed(false);
     if (!inView || !want) return undefined;
     const ticket = requestImageLoad(() => setSrc(want));
     return () => ticket.cancel();
@@ -65,7 +68,7 @@ export function LazyRemoteImage({
         className={cn(className)}
         style={{
           ...style,
-          ...(src
+          ...(!failed && src
             ? {
                 backgroundImage: `url("${src.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}")`,
                 backgroundSize: 'cover',
@@ -82,13 +85,14 @@ export function LazyRemoteImage({
   // img 与占位共用 outer div 便于 IO
   return (
     <div ref={ref} className={cn(className)} style={style}>
-      {src ? (
+      {src && !failed ? (
         <img
           src={src}
           alt={alt}
           decoding="async"
           referrerPolicy="no-referrer"
           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          onError={() => setFailed(true)}
         />
       ) : null}
     </div>
