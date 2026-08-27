@@ -195,6 +195,7 @@ describe('handleMediaCleanupDeleteCopy: 115 真实链路（mock settings/fetch�
     const response = await waitForResponse(sendResponse);
 
     expect(response).toMatchObject({ success: false, ok: false });
-    expect(String(response.message)).toContain('Failed to fetch');
+    // 网络异常现由 friendlyRequestError 统一翻译成可读文案（而非英文原始提示）
+    expect(String(response.message)).toBe('网络异常，无法连接 115 服务，请稍后重试');
   });
 });

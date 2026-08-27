@@ -207,6 +207,43 @@ export interface Drive115V2TaskListResponse {
 }
 
 
+/**
+ * 绑定到宿主全局的 fetch。
+ *
+ * MV3 Service Worker 的全局作用域是 WorkerGlobalScope：个别运行环境下，
+ * 在模块内裸调 `fetch(...)` 会丢失宿主 this 绑定并抛
+ * `TypeError: Failed to execute 'fetch' on 'WorkerGlobalScope': Illegal invocation`
+ * （典型场景：background 兜底直连 115 open API，而后台代理不可用）。
+ * 统一经由此处以宿主全局（self / globalThis）为 this 再调用，规避该问题。
+ */
+function nativeFetch(input: any, init?: any): any {
+  const target = (globalThis as any).fetch;
+  // Function.prototype.apply 在所有环境（Worker/页面/Node）都能以宿主全局为 this 调用，
+  // 避免裸调 fetch 丢失宿主绑定导致的 "Illegal invocation"。
+  return Function.prototype.apply.call(target, globalThis, init === undefined ? [input] : [input, init]);
+}
+
+/**
+ * 将底层平台错误（Illegal invocation / TypeError 等）翻译成可读文案，
+ * 避免把 "Failed to execute 'fetch' on 'WorkerGlobalScope': Illegal invocation"
+ * 这类底层细节直接透传给用户。
+ * 只处理「非 115 业务」的底层错误；对带 115 业务码的错误返回 undefined，
+ * 由调用方继续用 describe115Error 兜底，保证 115 业务码文案优先级最高。
+ */
+function friendlyRequestError(e: any, fallback = ''): string | undefined {
+  const msg = e instanceof Error ? e.message : String(e || '');
+  if (!msg) return fallback || undefined;
+  // 先判底层平台错误并翻译成可读文案（优于 115 业务码文案）
+  if (/illegal invocation/i.test(msg)) {
+    return '当前运行环境无法发起该请求（后台代理不可用），请稍后重试或检查扩展后台是否正常';
+  }
+  if (/failed to fetch|networkerror|load failed|network request failed|timed? ?out|timeout/i.test(msg)) {
+    return '网络异常，无法连接 115 服务，请稍后重试';
+  }
+  // 非平台错误：若带 115 业务码则交给 describe115Error（业务码文案优先），否则原样透传
+  return describe115Error(e) || msg;
+}
+
 class Drive115V2Service {
   private static instance: Drive115V2Service | null = null;
   // 并发刷新保护：避免多处同时触发 refresh 导致频繁请求
@@ -1537,7 +1574,9 @@ class Drive115V2Service {
         fd.set('file_ids', ids.join(','));
 
         await addLogV2({ timestamp: Date.now(), level: 'debug', message: `尝试删除文件：${url}` });
-        const res = await fetch(url, {
+        // 经 nativeFetch 绑定 self 调用，规避 Service Worker 裸调 fetch 的
+        // "Illegal invocation"（详见 nativeFetch 注释）
+        const res = await nativeFetch(url, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,
@@ -1553,7 +1592,8 @@ class Drive115V2Service {
         }
         lastMsg = describe115Error(json) || json.message || json.error || `删除失败 (${res.status})`;
       } catch (e: any) {
-        lastMsg = describe115Error(e) || e?.message || '删除请求异常';
+        // 优先底层错误翻译（Illegal invocation / 网络异常），115 业务码兜底
+        lastMsg = friendlyRequestError(e) || describe115Error(e) || e?.message || '删除请求异常';
       }
     }
     await addLogV2({ timestamp: Date.now(), level: 'warn', message: `删除文件失败：${lastMsg}` });
