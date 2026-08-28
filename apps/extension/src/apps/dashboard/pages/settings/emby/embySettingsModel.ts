@@ -23,6 +23,8 @@ export type EmbySettingsFormState = {
   /** 媒体库同步 / 入库状态能力（依赖至少一台已启用服务器） */
   libraryEnabled: boolean;
   matchUrls: string[];
+  /** 非表单字段：额外匹配地址的编辑草稿（含空行），刷新后可继续编辑；落库 matchUrls 已过滤空行 */
+  matchUrlDrafts?: string[];
   linkBehavior: EmbyLinkBehavior;
   showQuickSearchCode: boolean;
   showQuickSearchActor: boolean;
@@ -223,6 +225,11 @@ export function mapSettingsToEmbyForm(
   const matchUrls = Array.isArray(emby.matchUrls)
     ? (emby.matchUrls as string[]).map((u) => String(u))
     : [];
+  // 空行草稿：持久化时保留（map 原样），以便刷新页面后仍可继续编辑；
+  // 落库的 matchUrls 已在 formToEmbySettings 中过滤为空值。
+  const matchUrlDrafts = Array.isArray(emby.matchUrlDrafts)
+    ? (emby.matchUrlDrafts as string[]).map((u) => String(u))
+    : matchUrls;
 
   // 主开关拆分：优先读新字段；旧数据（无 recognitionEnabled/libraryEnabled）
   // 回退到 enabled 总闸 + libraryStatus.enabled，与 storage.ts 迁移规则一致。
@@ -241,7 +248,8 @@ export function mapSettingsToEmbyForm(
     enabled: recognitionEnabled || libraryEnabled,
     recognitionEnabled,
     libraryEnabled,
-    matchUrls,
+    matchUrls: matchUrlDrafts,
+    matchUrlDrafts,
     linkBehavior,
     showQuickSearchCode: emby.showQuickSearchCode !== false,
     showQuickSearchActor: emby.showQuickSearchActor !== false,
@@ -294,7 +302,10 @@ export function formToEmbySettings(form: EmbySettingsFormState): Record<string, 
     enabled: recognitionEnabled || libraryEnabled,
     recognitionEnabled,
     libraryEnabled,
+    // 空行（新建未填/刚清空）直接丢弃，避免空字符串进入设置或触发校验错误
     matchUrls: form.matchUrls.map((u) => u.trim()).filter(Boolean),
+    matchUrlDrafts: form.matchUrls,
+
     videoCodePatterns:
       form.videoCodePatterns.length > 0
         ? [...form.videoCodePatterns]

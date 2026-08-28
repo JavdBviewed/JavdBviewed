@@ -175,7 +175,8 @@ export async function persistEmbyForm(form: EmbySettingsFormState): Promise<{
   ok: boolean;
   error?: string;
 }> {
-  const validation = validateEmbyForm(form);
+  // 匹配地址的空行不视为校验错误（新建未填/刚清空），由 formToEmbySettings 统一丢弃
+  const validation = validateEmbyForm(normalizeEmbyFormForPersist(form));
   if (!validation.isValid) {
     return { ok: false, error: validation.errors[0] || '校验失败' };
   }
@@ -192,6 +193,16 @@ export async function persistEmbyForm(form: EmbySettingsFormState): Promise<{
       error: err instanceof Error ? err.message : '保存设置失败',
     };
   }
+}
+
+/**
+ * 持久化前规范化：丢弃匹配地址空行
+ */
+function normalizeEmbyFormForPersist(form: EmbySettingsFormState): EmbySettingsFormState {
+  return {
+    ...form,
+    matchUrls: form.matchUrls.map((u) => u.trim()).filter(Boolean),
+  };
 }
 
 /**

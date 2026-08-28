@@ -12,6 +12,7 @@ import { SettingField } from '../../../../../ui/patterns/SettingField/SettingFie
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import type { EmbyMediaServer, EmbyServerType } from '../../../../../features/embyLibrary/types';
+import { showConfirm } from '../../../../../dashboard/components/confirmModal';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import type { SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import { SettingsHighlightNotice } from '../shared/SettingsHighlightNotice';
@@ -78,9 +79,11 @@ export function EmbySettingsPage() {
     const result = await persistEmbyForm(nextForm);
     if (!result.ok) {
       setSaveError(result.error || '保存失败');
+      await toast(result.error || '保存失败', 'error');
       return result;
     }
     setSaveError(null);
+    await toast('设置已保存', 'success');
     return result;
   }, []);
 
@@ -254,11 +257,26 @@ export function EmbySettingsPage() {
     );
   };
 
-  const onAddMatchUrl = () => {
-    setFormAndSchedule((prev) => ({
-      ...prev,
-      matchUrls: addMatchUrl(prev.matchUrls, ''),
-    }));
+  const onAddMatchUrl = async () => {
+    if (formRef.current.matchUrls.length >= 20) {
+      await toast('最多添加 20 个额外匹配地址', 'warning');
+      return;
+    }
+    const confirmed = await showConfirm({
+      title: '添加额外匹配地址',
+      message: '将在下方追加一行匹配地址，请填写后自动保存。',
+      confirmText: '添加',
+      type: 'info',
+    });
+    if (!confirmed) return;
+    setFormAndSchedule(
+      (prev) => ({
+        ...prev,
+        matchUrls: addMatchUrl(prev.matchUrls, ''),
+      }),
+      true,
+    );
+    await toast('已添加一行，请填写地址', 'success');
   };
 
   const onMatchUrlChange = (index: number, value: string) => {
@@ -268,7 +286,16 @@ export function EmbySettingsPage() {
     }));
   };
 
-  const onRemoveMatchUrl = (index: number) => {
+  const onRemoveMatchUrl = async (index: number) => {
+    const target = formRef.current.matchUrls[index];
+    if (!target) return;
+    const confirmed = await showConfirm({
+      title: '删除匹配地址',
+      message: `确定删除「${target}」？`,
+      confirmText: '删除',
+      type: 'danger',
+    });
+    if (!confirmed) return;
     setFormAndSchedule(
       (prev) => ({
         ...prev,
@@ -276,6 +303,7 @@ export function EmbySettingsPage() {
       }),
       true,
     );
+    await toast('匹配地址已删除', 'success');
   };
 
   const onManualSync = async () => {
@@ -481,12 +509,13 @@ export function EmbySettingsPage() {
               {(form.matchUrls.length === 0 ? [''] : form.matchUrls).map((url, index) => {
                 const realIndex = form.matchUrls.length === 0 ? -1 : index;
                 const displayValue = form.matchUrls.length === 0 ? '' : url;
+                const isDraft = form.matchUrls.length === 0 || !url.trim();
                 return (
                   <div key={`url-${index}`} className="flex flex-wrap items-center gap-2">
                     <Input
                       className="min-w-0 flex-1"
                       disabled={!recognitionEnabled}
-                      placeholder="备用域名或反代地址，如 https://media.example.com/*"
+                      placeholder="备用域名或反代地址，如 https://media.example.com（留空不会保存）"
                       value={displayValue}
                       onChange={(e) => {
                         const value = e.currentTarget.value;
@@ -502,12 +531,12 @@ export function EmbySettingsPage() {
                     />
                     <Button
                       variant="secondary"
-                      disabled={!recognitionEnabled}
+                      disabled={!recognitionEnabled || isDraft}
                       title="删除"
                       aria-label="删除匹配地址"
                       onClick={() => {
-                        if (form.matchUrls.length === 0) return;
-                        onRemoveMatchUrl(realIndex);
+                        if (isDraft) return;
+                        void onRemoveMatchUrl(realIndex);
                       }}
                     >
                       <i className="fas fa-trash" aria-hidden="true" /> 删除
@@ -521,7 +550,7 @@ export function EmbySettingsPage() {
                   id="add-emby-url"
                   variant="secondary"
                   disabled={!recognitionEnabled}
-                  onClick={onAddMatchUrl}
+                  onClick={() => void onAddMatchUrl()}
                 >
                   <i className="fas fa-plus" aria-hidden="true" /> 添加额外匹配地址
                 </Button>

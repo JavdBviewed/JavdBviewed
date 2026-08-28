@@ -99,6 +99,18 @@ describe('EmbySettingsPage media server layout', () => {
     expect(pageSource).toContain('setEditingServerIndex(null)');
   });
 
+  it('asks for confirmation and feedback on extra match address mutations', () => {
+    expect(pageSource).toContain('import { showConfirm }');
+    expect(pageSource).toContain('const confirmed = await showConfirm({');
+    expect(pageSource).toContain('删除匹配地址');
+    expect(pageSource).toContain('添加额外匹配地址');
+    expect(pageSource).toContain('disabled={!recognitionEnabled || isDraft}');
+    expect(pageSource).toContain('匹配地址已删除');
+    expect(pageSource).toContain('已添加一行，请填写地址');
+    expect(pageSource).toContain("toast('设置已保存', 'success')");
+    expect(pageSource).toContain('留空不会保存');
+  });
+
   it('restores the in-page section quick-nav for the split Emby page', () => {
     // 快速导航统一由共享外框 SettingsPageFrame 渲染（单一导航，不再页面内手动嵌套）。
     expect(pageSource).toContain('SettingsPageFrame');

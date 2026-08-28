@@ -39,8 +39,16 @@ describe('embySettingsModel', () => {
   });
 
   it('maps empty settings to defaults', () => {
-    expect(mapSettingsToEmbyForm(undefined)).toEqual(DEFAULT_EMBY_SETTINGS_FORM);
-    expect(mapSettingsToEmbyForm({})).toEqual(DEFAULT_EMBY_SETTINGS_FORM);
+    // matchUrlDrafts 是 mapSettingsToEmbyForm 的派生字段（与 matchUrls 同源），不参与默认表单契约
+    const excludeDrafts = (v: unknown) => {
+      if (v && typeof v === 'object' && 'matchUrlDrafts' in (v as object)) {
+        const { matchUrlDrafts: _drop, ...rest } = v as Record<string, unknown>;
+        return rest;
+      }
+      return v;
+    };
+    expect(excludeDrafts(mapSettingsToEmbyForm(undefined))).toEqual(excludeDrafts(DEFAULT_EMBY_SETTINGS_FORM));
+    expect(excludeDrafts(mapSettingsToEmbyForm({}))).toEqual(excludeDrafts(DEFAULT_EMBY_SETTINGS_FORM));
   });
 
   it('maps nested ExtensionSettings.emby', () => {
@@ -118,6 +126,7 @@ describe('embySettingsModel', () => {
     };
     const emby = formToEmbySettings(form);
     expect((emby.matchUrls as string[])).toEqual(['https://a.com/*']);
+    expect((emby.matchUrlDrafts as string[])).toEqual(['https://a.com/*', '  ']);
     expect((emby.mediaServers as any[])[0].url).toBe('http://10.0.0.1:8096');
     expect((emby.libraryStatus as any).enabled).toBe(true);
     expect((emby.realtimeCheck as any).enabled).toBe(true);
@@ -209,6 +218,23 @@ describe('embySettingsModel', () => {
     expect(bad.errors.some((e) => e.includes('http 或 https'))).toBe(true);
     expect(bad.errors.some((e) => e.includes('API Key'))).toBe(true);
     expect(bad.errors.some((e) => e.includes('同步间隔'))).toBe(true);
+  });
+
+  it('keeps empty match-url drafts in settings for editing while persisting only filled ones', () => {
+    const emby = formToEmbySettings({
+      ...DEFAULT_EMBY_SETTINGS_FORM,
+      matchUrls: ['https://a.com/*', ''],
+    });
+    expect((emby.matchUrls as string[])).toEqual(['https://a.com/*']);
+    expect((emby.matchUrlDrafts as string[])).toEqual(['https://a.com/*', '']);
+
+    const remapped = mapSettingsToEmbyForm(emby);
+    expect(remapped.matchUrls).toEqual(['https://a.com/*', '']);
+
+    // 编辑后保存：落库 matchUrls 只有非空行；drafts 保留空行以便刷新后继续编辑
+    const saved = formToEmbySettings(remapped);
+    expect((saved.matchUrls as string[])).toEqual(['https://a.com/*']);
+    expect((saved.matchUrlDrafts as string[])).toEqual(['https://a.com/*', '']);
   });
 
   it('warns on suspicious match url pattern', () => {
