@@ -437,11 +437,16 @@ export function recordMissingWatchedCopies(
   previousTitles: WatchedMediaTitleSnapshot[],
   nextCopyIds: ReadonlySet<string>,
   now = Date.now(),
+  shouldSkipCopy?: (
+    title: WatchedMediaTitleSnapshot,
+    copy: MediaCleanupCopySnapshot,
+  ) => boolean,
 ): MediaDeletionHistoryState {
   const records = { ...input.records };
   for (const title of previousTitles) {
     for (const copy of title.copies) {
       if (!copy.watchedAt || nextCopyIds.has(copy.copyId)) continue;
+      if (shouldSkipCopy?.(title, copy)) continue;
       const id = `external_missing:${copy.copyId}:${copy.lastFoundAt}`;
       records[id] = records[id] || {
         ...copy,

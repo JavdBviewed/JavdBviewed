@@ -57,6 +57,7 @@ export async function processPersistedEmbySyncCleanup(input: {
   previous: EmbyLibraryState;
   next: EmbyLibraryState;
   successfulServerKeys: ReadonlySet<string>;
+  removedServerKeys?: ReadonlySet<string>;
   now: number;
 }): Promise<{ enqueuedCount: number; baselineCount: number }> {
   const [cleanup, history, drive115State] = await Promise.all([

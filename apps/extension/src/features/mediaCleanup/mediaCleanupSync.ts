@@ -1,4 +1,5 @@
 import type { EmbyLibraryIndexEntry, EmbyLibraryState } from '../embyLibrary/types';
+import { normalizeServerKey, normalizeServerUrl } from '../embyLibrary/domain/libraryIndex';
 import { normalizeVideoCodeCandidate } from '../../shared/utils/videoCodeExtractor';
 import {
   recordMissingWatchedCopies,
@@ -8,16 +9,12 @@ import {
   type WatchedMediaTitleSnapshot,
 } from './mediaCleanupModel';
 
-function normalizeServerUrl(value: unknown): string {
-  return String(value || '').trim().replace(/\/+$/, '');
-}
-
 function entryServerKey(entry: EmbyLibraryIndexEntry): string {
-  return `${entry.serverType}:${normalizeServerUrl(entry.serverUrl)}`;
+  return `${entry.serverType}:${normalizeServerKey(entry.serverUrl)}`;
 }
 
 function entryCopyId(entry: EmbyLibraryIndexEntry): string {
-  return `${entry.serverType}:${normalizeServerUrl(entry.serverUrl)}:${entry.itemId}`;
+  return `${entry.serverType}:${normalizeServerKey(entry.serverUrl)}:${entry.itemId}`;
 }
 
 export type Drive115CleanupLibraryState = {
@@ -192,6 +189,7 @@ export function processEmbySyncCleanupState(input: {
   previous: EmbyLibraryState;
   next: EmbyLibraryState;
   successfulServerKeys: ReadonlySet<string>;
+  removedServerKeys?: ReadonlySet<string>;
   additionalTitles?: WatchedMediaTitleSnapshot[];
   now?: number;
 }): {
@@ -201,6 +199,7 @@ export function processEmbySyncCleanupState(input: {
   enqueuedCount: number;
 } {
   const now = input.now ?? Date.now();
+  const removedKeys = input.removedServerKeys || new Set<string>();
   const previousTitles = buildEmbyCleanupSnapshots(input.previous, input.successfulServerKeys);
   const nextTitles = attachMatchingCleanupCopies(
     buildEmbyCleanupSnapshots(input.next, input.successfulServerKeys),
@@ -208,11 +207,15 @@ export function processEmbySyncCleanupState(input: {
   );
   const nextCopyIds = new Set(nextTitles.flatMap((title) => title.copies.map((copy) => copy.copyId)));
   const scan = scanWatchedTitles(input.cleanup, nextTitles, now);
+  // 副本因「服务器被删除 / 改地址」（key 移出配置白名单）而消失：不算「外部删除」，
+  // 不写入删除历史（用户是主动移除服务器，不是文件被外部删掉）。
+  // 注意：同 title 若仍有其它来源（如 115）副本，emby 副本的消失仍是外部删除，要记录。
   const history = recordMissingWatchedCopies(
     input.history,
     previousTitles,
     nextCopyIds,
     now,
+    (_title, copy) => removedKeys.has(`${copy.source}:${normalizeServerKey(String(copy.serverUrl || ''))}`),
   );
   return {
     cleanup: scan.state,

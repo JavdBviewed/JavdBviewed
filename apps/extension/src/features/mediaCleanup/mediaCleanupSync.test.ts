@@ -126,6 +126,23 @@ describe('mediaCleanupSync', () => {
     expect(result.enqueuedCount).toBe(0);
   });
 
+  it('does not record external_missing when the copy disappeared via a removed server', () => {
+    const previous: EmbyLibraryState = {
+      entries: { 'AAA-001': [entry('item-1', true)] },
+      updatedAt: 400,
+    };
+    const result = processEmbySyncCleanupState({
+      cleanup: EMPTY_MEDIA_CLEANUP_STATE,
+      history: EMPTY_MEDIA_DELETION_HISTORY,
+      previous,
+      next: { entries: {}, updatedAt: 1000 },
+      successfulServerKeys: new Set(),
+      removedServerKeys: new Set(['emby:http://home.local']),
+      now: 1000,
+    });
+    expect(Object.values(result.history.records)).toHaveLength(0);
+  });
+
   it('reports a first-sync historical candidate count without enqueueing it', () => {
     const next: EmbyLibraryState = {
       entries: { 'AAA-001': [entry('item-1', true)] },
