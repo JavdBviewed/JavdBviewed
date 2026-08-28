@@ -949,4 +949,147 @@ describe('emby library background handlers', () => {
       updatedAt: 500,
     }));
   });
+
+  it('prunes entries of servers removed from settings during a full sync', async () => {
+    const sendResponse = vi.fn();
+    const fetchImpl = createFetchMock(async () => new Response(JSON.stringify({
+      Items: [{ Id: 'new-item', Name: 'ABC-401', Path: '/movies/ABC-401.mkv' }],
+    }), { status: 200 }));
+    const previousState: EmbyLibraryState = {
+      entries: {
+        'ABC-400': [{
+          serverType: 'emby',
+          serverName: 'Old Server',
+          serverUrl: 'http://192.168.1.66:8096',
+          itemId: 'old-item',
+          itemName: 'ABC-400',
+          updatedAt: 500,
+        }],
+      },
+      updatedAt: 500,
+    };
+    const deps = createDeps(fetchImpl, previousState);
+
+    await handleEmbyLibrarySync({ manual: true }, sendResponse, deps);
+
+    const savedState = deps.saveState.mock.calls[0][0] as EmbyLibraryState;
+    expect(savedState.entries['ABC-400']).toBeUndefined();
+    expect(savedState.entries['ABC-401'][0]).toMatchObject({
+      serverName: 'Main',
+      itemId: 'new-item',
+    });
+  });
+
+  it('prunes stale url entries (case/trailing-slash variants) when the same server is re-indexed', async () => {
+    const sendResponse = vi.fn();
+    const fetchImpl = createFetchMock(async () => new Response(JSON.stringify({
+      Items: [{ Id: 'new-item', Name: 'ABC-402', Path: '/movies/ABC-402.mkv' }],
+    }), { status: 200 }));
+    const previousState: EmbyLibraryState = {
+      entries: {
+        'ABC-402': [{
+          serverType: 'emby',
+          serverName: 'Main',
+          serverUrl: 'http://media.local:8096',
+          itemId: 'old-item',
+          itemName: 'ABC-402',
+          updatedAt: 500,
+        }],
+      },
+      updatedAt: 500,
+    };
+    const deps = {
+      ...createDeps(fetchImpl, previousState),
+      getSettings: vi.fn(async () => ({
+        emby: {
+          mediaServers: [{ ...server, url: 'HTTP://MEDIA.LOCAL:8096/' }],
+          libraryStatus: { enabled: true, showOnList: true, showOnDetail: true },
+        },
+      })),
+    };
+
+    await handleEmbyLibrarySync({ manual: true }, sendResponse, deps);
+
+    const savedState = deps.saveState.mock.calls[0][0] as EmbyLibraryState;
+    // 旧 key 大小写/尾斜杠变体与新配置归一化一致 → 只保留新条目
+    expect(savedState.entries['ABC-402']).toHaveLength(1);
+    expect(savedState.entries['ABC-402'][0].itemId).toBe('new-item');
+  });
+
+  it('clears emby entries when the library feature is disabled and a full manual sync runs', async () => {
+    const sendResponse = vi.fn();
+    const fetchImpl = createFetchMock(async () => new Response(JSON.stringify({
+      Items: [{ Id: 'new-item', Name: 'ABC-404', Path: '/movies/ABC-404.mkv' }],
+    }), { status: 200 }));
+    const previousState: EmbyLibraryState = {
+      entries: {
+        'ABC-404': [{
+          serverType: 'emby',
+          serverName: 'Main',
+          serverUrl: 'http://media.local:8096',
+          itemId: 'old-item',
+          itemName: 'ABC-404',
+          updatedAt: 500,
+        }],
+      },
+      updatedAt: 500,
+    };
+    const deps = {
+      ...createDeps(fetchImpl, previousState),
+      getSettings: vi.fn(async () => ({
+        emby: {
+          mediaServers: [server],
+          libraryStatus: { enabled: false, showOnList: true, showOnDetail: true },
+          libraryEnabled: false,
+        },
+      })),
+    };
+
+    await handleEmbyLibrarySync({ manual: true }, sendResponse, deps);
+
+    const savedState = deps.saveState.mock.calls[0][0] as EmbyLibraryState;
+    expect(savedState.entries['ABC-404']).toBeUndefined();
+    expect(savedState.serverResults).toEqual([
+      expect.objectContaining({ serverId: 'main', success: true }),
+    ]);
+  });
+
+  it('does not wipe entries for a configured server when the realtime alarm sync is disabled', async () => {
+    const sendResponse = vi.fn();
+    const fetchImpl = createFetchMock(async () => new Response('unauthorized', { status: 401 }));
+    const previousState: EmbyLibraryState = {
+      entries: {
+        'ABC-405': [{
+          serverType: 'emby',
+          serverName: 'Main',
+          serverUrl: 'http://media.local:8096',
+          itemId: 'old-item',
+          itemName: 'ABC-405',
+          updatedAt: 500,
+        }],
+      },
+      updatedAt: 500,
+    };
+    const deps = {
+      ...createDeps(fetchImpl, previousState),
+      getSettings: vi.fn(async () => ({
+        emby: {
+          mediaServers: [server],
+          libraryStatus: { enabled: false, showOnList: true, showOnDetail: true },
+          libraryEnabled: false,
+        },
+      })),
+    };
+
+    await handleEmbyLibrarySync({ manual: false }, sendResponse, deps);
+
+    // 定时/实时同步（manual !== true）+ 入库开关关闭 → 不清空、不写回、不更新清理账本，
+    // 返回 skipped（整轮对持久化无影响），但仍回传各服务器诊断。
+    expect(deps.saveState).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      synced: 0,
+      skipped: true,
+    }));
+  });
 });

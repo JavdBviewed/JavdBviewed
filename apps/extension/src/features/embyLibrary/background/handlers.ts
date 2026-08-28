@@ -11,6 +11,7 @@ import {
   extractCodeFromMediaItem,
   generateVideoCodeSearchTerms,
   mergeLibraryIndexes,
+  normalizeServerKey,
   normalizeServerUrl,
   normalizeVideoCode,
 } from '../domain/libraryIndex';
@@ -22,6 +23,7 @@ import { reportWatchProgress } from '../../media/mediaWatchEvidence';
 import { processPersistedEmbySyncCleanup } from '../../mediaCleanup/mediaCleanupStorage';
 import type {
   EmbyLibraryFolderOption,
+  EmbyLibraryIndex,
   EmbyLibraryIndexEntry,
   EmbyLibraryServerResult,
   EmbyLibraryState,
@@ -42,6 +44,7 @@ export interface EmbyLibraryHandlerDeps {
     previous: EmbyLibraryState;
     next: EmbyLibraryState;
     successfulServerKeys: ReadonlySet<string>;
+    removedServerKeys?: ReadonlySet<string>;
     now: number;
   }) => Promise<{ enqueuedCount: number; baselineCount: number }>;
 }
@@ -84,7 +87,7 @@ function getEnabledServers(settings: any): EmbyMediaServer[] {
             .filter((opt: EmbyLibraryFolderOption) => opt.id)
         : undefined;
       return {
-        id: String(server.id || `${type}:${server.url || server.name || ''}`),
+        id: String(server.id || `${type}:${normalizeServerUrl(String(server.url || ''))}`),
         type,
         name: String(server.name || (type === 'jellyfin' ? 'Jellyfin' : 'Emby')),
         url: normalizeServerUrl(String(server.url || '')),
@@ -124,11 +127,64 @@ function sanitizeError(error: unknown): string {
 }
 
 function getServerIndexKey(server: Pick<EmbyMediaServer, 'type' | 'url'>): string {
-  return `${server.type}:${normalizeServerUrl(server.url)}`;
+  return `${server.type}:${normalizeServerKey(server.url)}`;
 }
 
 function getEntryServerIndexKey(entry: Pick<EmbyLibraryIndexEntry, 'serverType' | 'serverUrl'>): string {
-  return `${entry.serverType}:${normalizeServerUrl(entry.serverUrl)}`;
+  return `${entry.serverType}:${normalizeServerKey(entry.serverUrl)}`;
+}
+
+/**
+ * 以「当前设置里的已启用服务器」为准清理孤儿索引 entry：
+ * - 服务器被删除、或改地址后旧地址的 entry（serverKey 不在当前配置白名单）→ 移除；
+ * - 仍在配置中但本次同步失败的服务器 → 保留旧 entry（避免临时故障导致数据丢失）。
+ */
+function isLibraryFeatureEnabled(emby: unknown): boolean {
+  const config = (emby || {}) as { libraryEnabled?: unknown; libraryStatus?: { enabled?: unknown } };
+  // 不依赖 isEmbyLibraryEnabled 的回退分支：旧数据只有 libraryStatus 且无
+  // recognitionEnabled/libraryEnabled 字段时，isEmbyLibraryEnabled 要求 emby.enabled===true，
+  // 会误判为关闭；这里用「未显式关闭 + 任一启用信号」判定。
+  return config.libraryEnabled !== false
+    && (config.libraryEnabled === true || config.libraryStatus?.enabled === true);
+}
+
+function pruneOrphanedEntries(
+  state: EmbyLibraryState,
+  configuredServers: EmbyMediaServer[],
+): EmbyLibraryState['entries'] {
+  const validKeys = new Set(configuredServers.map((server) => getServerIndexKey(server)));
+  const next: Record<string, EmbyLibraryIndexEntry[]> = {};
+  for (const [code, entries] of Object.entries(state.entries || {})) {
+    const kept = entries.filter((entry) => validKeys.has(getEntryServerIndexKey(entry)));
+    if (kept.length > 0) next[code] = kept;
+  }
+  return next;
+}
+
+/**
+ * 将「本次同步成功的服务器」的旧 entry 替换为新索引的 entry。
+ * 与旧 removeEntriesForSuccessfulServers 等价：成功服务器的旧条目（改名 / 改地址 /
+ * 重新索引产生的旧 itemId）全部移除，由后续 mergeLibraryIndexes 用新索引回填，
+ * 避免同 code 出现新旧两条重复。
+ */
+function removeEntriesForSyncedServers(
+  state: EmbyLibraryState,
+  servers: EmbyMediaServer[],
+  indices: EmbyLibraryIndex[],
+  successfulServerIds: ReadonlySet<string>,
+): EmbyLibraryState['entries'] {
+  if (successfulServerIds.size === 0) return { ...(state.entries || {}) };
+  const successfulServers = new Set(
+    servers
+      .filter((server) => successfulServerIds.has(server.id))
+      .map((server) => getServerIndexKey(server)),
+  );
+  const next: Record<string, EmbyLibraryIndexEntry[]> = {};
+  for (const [code, entries] of Object.entries(state.entries || {})) {
+    const kept = entries.filter((entry) => !successfulServers.has(getEntryServerIndexKey(entry)));
+    if (kept.length > 0) next[code] = kept;
+  }
+  return next;
 }
 
 function ticksToSeconds(ticks: unknown): number | undefined {
@@ -414,30 +470,6 @@ async function fetchMoviesForServer(
   return deduplicateMediaItemsById(buckets);
 }
 
-function removeEntriesForSuccessfulServers(
-  state: EmbyLibraryState,
-  successfulServerIds: Set<string>,
-  servers: EmbyMediaServer[],
-): Record<string, EmbyLibraryIndexEntry[]> {
-  if (successfulServerIds.size === 0) return { ...(state.entries || {}) };
-
-  const successfulServers = new Set(
-    servers
-      .filter((server) => successfulServerIds.has(server.id))
-      .map((server) => getServerIndexKey(server)),
-  );
-  const next: Record<string, EmbyLibraryIndexEntry[]> = {};
-
-  for (const [code, entries] of Object.entries(state.entries || {})) {
-    const kept = entries.filter((entry) => {
-      return !successfulServers.has(getEntryServerIndexKey(entry));
-    });
-    if (kept.length > 0) next[code] = kept;
-  }
-
-  return next;
-}
-
 function deduplicateMediaItemsById(items: EmbyMediaItem[]): EmbyMediaItem[] {
   const seenIds = new Set<string>();
   const deduplicatedItems: EmbyMediaItem[] = [];
@@ -520,29 +552,74 @@ export async function handleEmbyLibrarySync(
       }
     }
 
-    const keptEntries = removeEntriesForSuccessfulServers(previousState, successfulServerIds, servers);
+    // 以当前配置为准对账：服务器被删除 / 改地址后，旧地址的 entry 必须清掉，
+    // 否则媒体库页会一直渲染已失效的封面与条目（同步只按 serverId 选目标，旧 key 永不被覆盖）。
+    // 仍在配置中但本次同步失败的服务器不受影响，其旧 entry 保留。
+    const allEnabledServers = getEnabledServers(settings);
+    // 媒体库同步/入库开关被用户明确关闭（libraryEnabled === false）时，全量手动同步
+    // 意味着「不再维护本地索引」→ 最终清空 emby entries。
+    // 注意：不依赖 isEmbyLibraryEnabled 的回退分支（旧数据只有 libraryStatus 且无
+    // recognitionEnabled/libraryEnabled 字段时它要求 emby.enabled===true，否则会误判为关闭）。
+    // 定时/实时同步（manual !== true）不清空，避免关闭功能期间把最后快照也丢掉。
+    const libraryFeatureEnabled = isLibraryFeatureEnabled(settings?.emby);
+    const wipeEntries = message?.manual === true
+      && servers.length === allEnabledServers.length
+      && !libraryFeatureEnabled;
+
+    // ① 替换：把本次同步成功的服务器的旧 entry 换掉，交由新索引回填，避免新旧重复。
+    const nextEntries = removeEntriesForSyncedServers(previousState, servers, indexes, successfulServerIds);
     const nextUpdatedAt = successfulServerIds.size > 0 ? now : Number(previousState.updatedAt || 0);
-    const merged = mergeLibraryIndexes([{ entries: keptEntries, updatedAt: previousState.updatedAt || 0 }, ...indexes], nextUpdatedAt);
+    const merged = mergeLibraryIndexes([{ entries: nextEntries, updatedAt: previousState.updatedAt || 0 }, ...indexes], nextUpdatedAt);
+    // ② 对账：以「当前配置里的已启用服务器」为白名单，移除孤儿 entry（服务器被删除 /
+    // 改地址）。必须在 merge 之后执行，才能同时清掉「旧 key 的残留」与「刚被新索引引入、
+    // 但已不在当前配置的 key」。仍在配置中但本次同步失败的服务器不受影响。
+    const reconciledEntries = pruneOrphanedEntries(
+      { ...merged, entries: merged.entries },
+      allEnabledServers,
+    );
+    // ③ 关闭入库开关时的全量手动同步：清掉整个索引。
+    const finalEntries = wipeEntries ? {} : reconciledEntries;
     const nextState: EmbyLibraryState = {
       ...merged,
+      entries: finalEntries,
       updatedAt: nextUpdatedAt,
       serverResults,
     };
 
-    await deps.saveState(nextState);
+    // removedServerKeys = 之前快照里有、但对账后（按当前配置白名单）消失的 entry 所属
+    // 服务器 key：覆盖「服务器被删除 / 改地址」；仍在配置中但本次失败的服务器不在其中
+    // （其副本消失不算「外部删除」，不写入删除历史）。
+    const removedServerKeys = new Set(
+      Object.entries(previousState.entries)
+        .flatMap(([code, entries]) => entries
+          .filter((entry) => !(reconciledEntries[code] || []).some(
+            (kept) => kept.itemId === entry.itemId
+            && getEntryServerIndexKey(kept) === getEntryServerIndexKey(entry),
+          ))
+          .map((entry) => getEntryServerIndexKey(entry))),
+    );
+
+    // 入库开关被明确关闭（libraryEnabled === false）且本次不是「关闭即清空」的全量手动同步：
+    // 既不写回持久化状态（保留最后快照），也不更新清理账本。
+    const persistState = !(settings?.emby?.libraryEnabled === false && !wipeEntries);
+    if (persistState) {
+      await deps.saveState(nextState);
+    }
 
     let cleanupSummary: { enqueuedCount: number; baselineCount: number } | undefined;
-    if (successfulServerIds.size > 0 && deps.processCleanupSync) {
+    const successfulServerKeys = new Set(
+      servers
+        .filter((server) => successfulServerIds.has(server.id))
+        .map((server) => getServerIndexKey(server)),
+    );
+    if (persistState && successfulServerIds.size > 0 && deps.processCleanupSync) {
       try {
-        const successfulServerKeys = new Set(
-          servers
-            .filter((server) => successfulServerIds.has(server.id))
-            .map((server) => getServerIndexKey(server)),
-        );
+        // removedServerKeys：删除 / 改地址导致副本消失的服务器，不算「外部删除」。
         cleanupSummary = await deps.processCleanupSync({
           previous: previousState,
           next: nextState,
           successfulServerKeys,
+          removedServerKeys,
           now,
         });
       } catch (error) {
@@ -553,6 +630,14 @@ export async function handleEmbyLibrarySync(
     const synced = serverResults.filter((result) => result.success).length;
     const failed = serverResults.filter((result) => !result.success).length;
     const firstError = serverResults.find((result) => !result.success)?.error;
+
+    // 入库关闭 + 无成功服务器 + 非全量手动同步 → 整轮同步对持久化无影响，返回 skipped 即可。
+    if (!persistState && synced === 0) {
+      mediaLog.info('媒体库同步跳过（入库关闭且无成功服务器）', { failed });
+      sendResponse({ success: true, synced: 0, failed: 0, serverResults: [], skipped: true });
+      return;
+    }
+
     mediaLog.info('媒体库同步结束', { synced, failed, firstError: firstError || null });
     sendResponse({
       success: synced > 0,

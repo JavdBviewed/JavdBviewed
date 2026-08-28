@@ -8,6 +8,8 @@ import {
   buildMediaPlaybackUrl,
   findLibraryMatches,
   generateVideoCodeSearchTerms,
+  normalizeServerKey,
+  normalizeServerUrl,
   normalizeVideoCode,
 } from './libraryIndex';
 import type { EmbyMediaServer } from '../types';
@@ -31,6 +33,19 @@ const jellyfinServer: EmbyMediaServer = {
 };
 
 describe('emby library index', () => {
+  it('normalizes server keys case-insensitively for url matching', () => {
+    expect(normalizeServerKey('http://192.168.1.66:8096/')).toBe('http://192.168.1.66:8096');
+    expect(normalizeServerKey('HTTP://192.168.1.66:8096//')).toBe('http://192.168.1.66:8096');
+    expect(normalizeServerKey('https://emby.example.com:8920/path/')).toBe(
+      'https://emby.example.com:8920/path',
+    );
+    // 大小写不同但指向同一 host 的 URL 应归一化为同一 key
+    expect(normalizeServerKey('Http://Emby.Example.com:8920/')).toBe(
+      normalizeServerKey('http://emby.example.com:8920'),
+    );
+    expect(normalizeServerUrl('http://192.168.1.66:8096/')).toBe('http://192.168.1.66:8096');
+  });
+
   it('generates conservative search terms for common code variants', () => {
     expect(generateVideoCodeSearchTerms('ABC-123')).toEqual([
       'ABC-123',

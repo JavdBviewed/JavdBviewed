@@ -18,6 +18,14 @@ export function normalizeServerUrl(url: string): string {
   return String(url || '').trim().replace(/\/+$/, '');
 }
 
+/**
+ * 服务器索引键的归一化：统一大小写（协议/host），
+ * 使「改地址大小写/尾斜杠」后的同一服务器仍能匹配到旧 entry。
+ */
+export function normalizeServerKey(value: string): string {
+  return normalizeServerUrl(value).toLowerCase();
+}
+
 export function normalizeVideoCode(value: string): string | null {
   const text = String(value || '').trim();
   if (!text) return null;
