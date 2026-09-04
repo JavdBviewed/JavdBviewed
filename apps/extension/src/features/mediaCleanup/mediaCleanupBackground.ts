@@ -1,6 +1,8 @@
 import { getDrive115V2Service } from '../drive115/v2';
+import { is115FileGoneResult } from '../drive115/v2/errorCodes';
 import { getSettings } from '../../utils/storage';
 import { deleteMediaCleanupCopy } from './mediaCleanupDelete';
+import { deleteDrive115FolderAttachments } from './mediaCleanupDrive115';
 import type { MediaCleanupCopySnapshot } from './mediaCleanupModel';
 import { executeQueuedCleanupCopy } from './mediaCleanupStorage';
 
@@ -28,12 +30,18 @@ async function deleteCopyWithConfiguredSource(copy: MediaCleanupCopySnapshot): P
       return {
         ok: deleted.success,
         message: deleted.message || (deleted.success ? '已删除 115 文件' : '115 删除失败'),
+        // 115 明确说文件已不存在时透传，让上层按删除成功收敛（幂等）
+        fileGone: !deleted.success && is115FileGoneResult(deleted.raw),
       };
     },
+    deleteDrive115FolderAttachments: async (input) => deleteDrive115FolderAttachments({
+      ...input,
+      videoFileName: copy.fileName,
+    }),
   });
 }
 
-const DEFAULT_DEPENDENCIES: MediaCleanupDeleteDependencies = {
+export const DEFAULT_DEPENDENCIES: MediaCleanupDeleteDependencies = {
   executeQueuedCleanupCopy,
   deleteCopy: deleteCopyWithConfiguredSource,
 };

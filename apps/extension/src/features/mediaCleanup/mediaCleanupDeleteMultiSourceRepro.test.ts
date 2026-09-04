@@ -105,11 +105,17 @@ describe('mediaCleanupDelete: multi-source failure paths (mock)', () => {
       fetchImpl: fetchImpl as typeof fetch,
       deleteDrive115File: vi.fn(),
     });
-    expect(result).toEqual({ ok: false, message: '媒体服务器拒绝删除，请检查账号权限' });
+    // 删除前探测先拿到 403 → 明确报凭证/权限问题，且不发出 DELETE
+    expect(result).toEqual({
+      ok: false,
+      message: '删除前校验失败：媒体服务器凭证均无效（Emby Emby-134，item=item-9）：API Key HTTP 403，请检查服务器设置中的账号 / API 密钥',
+    });
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://emby.example.local/Items/item-9?api_key=read-only-key',
-      expect.objectContaining({ method: 'DELETE' }),
+      'http://emby.example.local/Items?Ids=item-9&api_key=read-only-key',
+      expect.objectContaining({}),
     );
+    const methods = fetchImpl.mock.calls.map((call) => (call[1] as RequestInit | undefined)?.method);
+    expect(methods).not.toContain('DELETE');
   });
 
   it('Emby DELETE 401（accessToken 失效）→ 权限类失败原因', async () => {
@@ -145,7 +151,16 @@ describe('mediaCleanupDelete: multi-source failure paths (mock)', () => {
       deleteDrive115File: vi.fn(),
     });
     expect(result.ok).toBe(false);
-    expect(result.message).toBe('媒体服务器拒绝删除，请检查账号权限');
+    expect(result.message).toBe(
+      '删除前校验失败：媒体服务器凭证均无效（Jellyfin JF-1，item=item-9）：用户令牌（u） HTTP 401，请检查服务器设置中的账号 / API 密钥',
+    );
+    // 探测走 GET /Users/{uid}/Items/{id}（令牌头鉴权）；未发出 DELETE
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://jf.example.local/Users/user-1/Items/item-9',
+      expect.objectContaining({}),
+    );
+    const methods = fetchImpl.mock.calls.map((call) => (call[1] as RequestInit | undefined)?.method);
+    expect(methods).not.toContain('DELETE');
   });
 
   it('Emby DELETE 网络异常 → 透传网络错误消息', async () => {
@@ -165,7 +180,7 @@ describe('mediaCleanupDelete: multi-source failure paths (mock)', () => {
       fetchImpl: fetchImpl as typeof fetch,
       deleteDrive115File: vi.fn(),
     });
-    expect(result).toEqual({ ok: false, message: 'Failed to fetch' });
+    expect(result).toEqual({ ok: false, message: '删除请求失败：Failed to fetch（Emby Emby-134，已尝试 API Key）' });
   });
 
   it('Emby DELETE 404（文件已不存在）→ 按删除成功处理', async () => {
@@ -183,6 +198,6 @@ describe('mediaCleanupDelete: multi-source failure paths (mock)', () => {
       fetchImpl: fetchImpl as typeof fetch,
       deleteDrive115File: vi.fn(),
     });
-    expect(result).toEqual({ ok: true, message: '文件已不存在，按删除成功处理' });
+    expect(result).toEqual({ ok: true, message: '条目在媒体服务器上已不存在，按删除成功处理' });
   });
 });

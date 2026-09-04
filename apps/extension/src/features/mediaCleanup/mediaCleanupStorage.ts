@@ -7,6 +7,7 @@ import {
   enqueueWatchedTitle,
   importHistoricalWatched,
   markCleanupCopyResult,
+  resetFailedCleanupCopyToPending,
   migrateLegacy115CleanupState,
   migrateLegacy115DeletionHistory,
   type Legacy115CleanupState,
@@ -101,6 +102,7 @@ export async function enqueueCompletedPlayback(input: {
   if (!code || !copyId) throw new Error('缺少影片或来源副本标识');
   const now = input.watchedAt || Date.now();
   const state = await loadMediaCleanupState();
+  const nowMs = Date.now();
   const result = enqueueWatchedTitle(state, {
     titleId: code,
     code,
@@ -119,9 +121,39 @@ export async function enqueueCompletedPlayback(input: {
       watchedAt: now,
       lastFoundAt: now,
     }],
-  }, now);
+  }, nowMs);
   await saveMediaCleanupState(result.state);
   return result;
+}
+
+/**
+ * 操作记录里「失败」副本的重试入口：重置状态后立即执行删除，返回真实删除结果。
+ * 用户无需再回到待处理手动确认一次；只有 failed 状态的副本可重试（幂等）。
+ */
+export async function retryFailedCleanupCopy(input: {
+  titleId: string;
+  copyId: string;
+  deleteCopy: (copy: MediaCleanupState['items'][string]['copies'][string]) => Promise<{
+    ok: boolean;
+    message: string;
+  }>;
+}): Promise<{ ok: boolean; changed: boolean; message: string }> {
+  const cleanup = await loadMediaCleanupState();
+  const next = resetFailedCleanupCopyToPending({
+    cleanup,
+    titleId: input.titleId,
+    copyId: input.copyId,
+  });
+  if (!next.changed) {
+    return { ok: true, changed: false, message: '该副本当前不是失败状态，无需重试' };
+  }
+  await saveMediaCleanupState(next.cleanup);
+  const executed = await executeQueuedCleanupCopy({
+    titleId: input.titleId,
+    copyId: input.copyId,
+    deleteCopy: input.deleteCopy,
+  });
+  return { ok: executed.ok, changed: true, message: executed.message };
 }
 
 export async function executeQueuedCleanupCopy(input: {
@@ -146,6 +178,7 @@ export async function executeQueuedCleanupCopy(input: {
     copyId: input.copyId,
     success: result.ok,
     error: result.ok ? undefined : result.message,
+    message: result.ok ? result.message : undefined,
   });
   await Promise.all([
     saveMediaCleanupState(next.cleanup),
@@ -156,6 +189,7 @@ export async function executeQueuedCleanupCopy(input: {
 
 export async function importHistoricalWatchedFromCurrentLibrary(): Promise<{
   enqueuedCount: number;
+  convergedCount: number;
   state: MediaCleanupState;
 }> {
   const [cleanup, libraryState, drive115State, watchEvidence] = await Promise.all([
@@ -176,5 +210,9 @@ export async function importHistoricalWatchedFromCurrentLibrary(): Promise<{
   );
   const result = importHistoricalWatched(cleanup, snapshots);
   await saveMediaCleanupState(result.state);
-  return result;
+  return {
+    enqueuedCount: result.enqueuedCount,
+    convergedCount: result.convergedCount,
+    state: result.state,
+  };
 }

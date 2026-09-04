@@ -33,6 +33,8 @@ export type WatchedMediaTitleSnapshot = {
 
 export type MediaCleanupCopyEntry = MediaCleanupCopySnapshot & {
   status: MediaCleanupCopyStatus;
+  /** 删除成功时的返回信息（用于操作记录展示），失败用 error 字段。 */
+  message?: string;
   error?: string;
   updatedAt: number;
 };
@@ -292,18 +294,136 @@ function watchedCopyIds(titles: WatchedMediaTitleSnapshot[]): Set<string> {
     .map((copy) => copy.copyId)));
 }
 
+/** 去除 copyId 的 ::rev{ts} 派生后缀，得到同一来源文件的基座 copyId。 */
+export function baseCopyId(copyId: string): string {
+  const index = copyId.indexOf('::rev');
+  return index === -1 ? copyId : copyId.slice(0, index);
+}
+
+/**
+ * 合并历史重复记录（旧假成功 bug 遗留的脏数据）。
+ * 同一基座来源文件在队列中存在多份副本（≥2）时收敛：
+ * - 文件仍在库里（activeBaseCopyIds 命中）：只保留一份可处理副本——
+ *   组内有 pending → 保留 updatedAt 最新的一份；无 pending → 将最新一份提升为 pending 重新入队。
+ * - 文件已不在库里（可能已被外部删除）：无可执行目标，组内除 deleted 终态外的记录全部
+ *   标记 skipped，避免过期记录永久滞留「待处理」。
+ * - 单份记录不收敛（保留用户仍可手动删除、由删除幂等逻辑兜底的兜底路径）。
+ * - 组内有 deleting（在途删除）副本时整组不碰。
+ * - deleted 终态始终保持原样（删除历史可追溯，不参与折叠）。
+ */
+export function convergeStaleDuplicateCopies(
+  input: MediaCleanupState,
+  activeBaseCopyIds: ReadonlySet<string>,
+  now = Date.now(),
+): { state: MediaCleanupState; convergedCount: number } {
+  let convergedCount = 0;
+  let changed = false;
+  const items: Record<string, MediaCleanupItem> = {};
+  for (const [itemId, item] of Object.entries(input.items)) {
+    // 以对象键为权威分组：历史脏数据的 entry.copyId 字段可能仍是基座 ID（旧版 enqueueTitle 的 bug），
+    // 每次写回都规范化 copyId=键，从而自愈存量脏数据。
+    const groups = new Map<string, { key: string; copy: MediaCleanupCopyEntry }[]>();
+    for (const [key, copy] of Object.entries(item.copies)) {
+      const base = baseCopyId(key);
+      const list = groups.get(base);
+      if (list) list.push({ key, copy });
+      else groups.set(base, [{ key, copy }]);
+    }
+    let itemChanged = false;
+    const copies = { ...item.copies };
+    for (const list of groups.values()) {
+      if (list.length < 2) continue;
+      const base = baseCopyId(list[0].key);
+      const fileStillPresent = activeBaseCopyIds.has(base);
+      if (list.some(({ copy }) => copy.status === 'deleting')) continue;
+      const sorted = [...list].sort(
+        (a, b) => (b.copy.updatedAt - a.copy.updatedAt) || (a.key < b.key ? 1 : -1),
+      );
+      // 文件仍在库里：保留/提升一份可处理副本；文件已不在库里：全部折叠为 skipped。
+      const keep = fileStillPresent
+        ? sorted.find(({ copy }) => copy.status === 'pending') || sorted[0]
+        : undefined;
+      let groupChanged = false;
+      if (keep && keep.copy.status !== 'pending') {
+        copies[keep.key] = {
+          ...keep.copy,
+          copyId: keep.key,
+          status: 'pending',
+          error: undefined,
+          message: '重新扫描发现文件仍在媒体库中，已重新入队',
+          updatedAt: now,
+        };
+        groupChanged = true;
+      } else if (keep) {
+        // 规范化 copyId=键（自愈旧版派生副本的脏字段）。
+        copies[keep.key] = { ...keep.copy, copyId: keep.key };
+        groupChanged = true;
+      }
+      for (const { key, copy } of sorted) {
+        if (keep && key === keep.key) continue;
+        // deleted 终态是删除历史的一部分，保持原样；只折叠 failed/skipped/多余 pending。
+        if (copy.status === 'deleted') continue;
+        const message = fileStillPresent
+          ? '历史重复记录，已随重新扫描合并'
+          : '重新扫描时该文件已不在媒体库中，记录已合并';
+        copies[key] = {
+          ...copy,
+          copyId: key,
+          status: 'skipped',
+          error: undefined,
+          message,
+          updatedAt: now,
+        };
+        convergedCount += 1;
+        groupChanged = true;
+      }
+      itemChanged = itemChanged || groupChanged;
+    }
+    if (itemChanged) {
+      changed = true;
+      items[itemId] = { ...item, copies, updatedAt: now };
+    } else {
+      items[itemId] = item;
+    }
+  }
+  if (!changed) return { state: input, convergedCount: 0 };
+  return {
+    state: { ...input, items, updatedAt: Math.max(input.updatedAt, now) },
+    convergedCount,
+  };
+}
+
 function enqueueTitle(
   state: MediaCleanupState,
   title: WatchedMediaTitleSnapshot,
   now: number,
-): { state: MediaCleanupState; added: boolean } {
+): { state: MediaCleanupState; added: boolean; requeuedCount: number } {
   const existing = state.items[title.titleId];
   const copies = { ...(existing?.copies || {}) };
+  let requeuedCount = 0;
   for (const copy of title.copies) {
     const current = copies[copy.copyId];
-    // 终态副本（失败/已删除）不参与重新入队，避免扫描或同步把已处理的副本
-    // 重置回 pending（重新出现时通过新的 copyId 入队）。
-    if (current && (current.status === 'deleted' || current.status === 'failed')) {
+    if (current && current.status === 'failed') {
+      // 失败副本保持终态，走操作记录里的「重试删除」，不静默重置。
+      copies[copy.copyId] = { ...current, ...copy, status: current.status, updatedAt: now };
+      continue;
+    }
+    if (current && current.status === 'deleted') {
+      // 已删除副本默认保持终态；但若扫描时该文件仍出现在本地索引中，
+      // 说明此前的"删除成功"不可信（典型为旧版删除接口假成功），
+      // 按新的 copyId 重新入队，让文件可以再次被处理。
+      // 关键：若同一基座已经存在任意 ::rev 派生副本（pending/deleting/failed/deleted），
+      // 说明该文件已经处于"重新处理"流程中，不再重复生成，避免每次查找都叠加一份。
+      const hasRequeueDerivative = Object.keys(copies).some(
+        (id) => id !== copy.copyId && id.startsWith(copy.copyId + '::rev'),
+      );
+      if (!hasRequeueDerivative) {
+        // 派生副本的 copyId 字段必须与键一致：删除/重试链路按键取 entry，
+        // 若字段仍是基座 ID，操作会命中基座条目，导致派生行永远不更新。
+        const revCopyId = `${copy.copyId}::rev${now}`;
+        copies[revCopyId] = { ...copy, copyId: revCopyId, status: 'pending', updatedAt: now };
+        requeuedCount += 1;
+      }
       copies[copy.copyId] = { ...current, ...copy, status: current.status, updatedAt: now };
       continue;
     }
@@ -323,6 +443,7 @@ function enqueueTitle(
   };
   return {
     added: !existing,
+    requeuedCount,
     state: {
       ...state,
       items: { ...state.items, [title.titleId]: item },
@@ -335,7 +456,7 @@ export function enqueueWatchedTitle(
   input: MediaCleanupState,
   title: WatchedMediaTitleSnapshot,
   now = Date.now(),
-): { state: MediaCleanupState; added: boolean } {
+): { state: MediaCleanupState; added: boolean; requeuedCount: number } {
   const result = enqueueTitle(input, title, now);
   const observed = new Set(result.state.observedWatchedCopyIds || []);
   title.copies.forEach((copy) => {
@@ -343,6 +464,7 @@ export function enqueueWatchedTitle(
   });
   return {
     added: result.added,
+    requeuedCount: result.requeuedCount,
     state: {
       ...result.state,
       observedWatchedCopyIds: Array.from(observed).sort(),
@@ -355,13 +477,14 @@ export function scanWatchedTitles(
   input: MediaCleanupState,
   titles: WatchedMediaTitleSnapshot[],
   now = Date.now(),
-): { state: MediaCleanupState; baselineCount: number; enqueuedCount: number } {
+): { state: MediaCleanupState; baselineCount: number; enqueuedCount: number; convergedCount: number } {
   const currentWatchedIds = watchedCopyIds(titles);
   const baselineCount = titles.filter((title) => title.copies.some((copy) => currentWatchedIds.has(copy.copyId))).length;
   if (!input.baseline?.capturedAt) {
     return {
       baselineCount,
       enqueuedCount: 0,
+      convergedCount: 0,
       state: {
         ...input,
         observedWatchedCopyIds: Array.from(currentWatchedIds).sort(),
@@ -389,10 +512,16 @@ export function scanWatchedTitles(
     const result = enqueueTitle(state, title, now);
     state = result.state;
     if (result.added) enqueuedCount += 1;
+    enqueuedCount += result.requeuedCount;
   }
+  // 合并历史重复记录：同一来源文件至多保留一份可处理副本，避免脏数据滞留「待处理」。
+  const activeBaseCopyIds = new Set(titles.flatMap((title) => title.copies.map((copy) => baseCopyId(copy.copyId))));
+  const converged = convergeStaleDuplicateCopies(state, activeBaseCopyIds, now);
+  state = converged.state;
   return {
     baselineCount: input.baseline.candidateCount,
     enqueuedCount,
+    convergedCount: converged.convergedCount,
     state: {
       ...state,
       observedWatchedCopyIds: Array.from(new Set([...observed, ...currentWatchedIds])).sort(),
@@ -405,24 +534,33 @@ export function importHistoricalWatched(
   input: MediaCleanupState,
   titles: WatchedMediaTitleSnapshot[],
   now = Date.now(),
-): { state: MediaCleanupState; enqueuedCount: number } {
+): { state: MediaCleanupState; enqueuedCount: number; convergedCount: number } {
+  // 每次查找用独立的入队纪元：既避免同毫秒多次查找生成相同 ::rev 副本 ID，
+  // 也保证同一扫描周期内不会重复生成新的待处理副本。
+  const batch = (input.baseline?.importedAt || 0) + 1;
   let state = input;
   let enqueuedCount = 0;
   for (const title of titles) {
     if (!title.copies.some((copy) => Number(copy.watchedAt) > 0)) continue;
-    const result = enqueueTitle(state, title, now);
+    const result = enqueueTitle(state, title, batch);
     state = result.state;
     if (result.added) enqueuedCount += 1;
+    enqueuedCount += result.requeuedCount;
   }
+  // 合并历史重复记录（旧假成功 bug 遗留脏数据）：同一来源文件至多保留一份可处理副本。
+  const activeBaseCopyIds = new Set(titles.flatMap((title) => title.copies.map((copy) => baseCopyId(copy.copyId))));
+  const converged = convergeStaleDuplicateCopies(state, activeBaseCopyIds, batch);
+  state = converged.state;
   const baseline = state.baseline || {
     capturedAt: now,
     candidateCount: titles.length,
   };
   return {
     enqueuedCount,
+    convergedCount: converged.convergedCount,
     state: {
       ...state,
-      baseline: { ...baseline, importedAt: now },
+      baseline: { ...baseline, importedAt: batch },
       observedWatchedCopyIds: Array.from(new Set([
         ...(state.observedWatchedCopyIds || []),
         ...watchedCopyIds(titles),
@@ -462,6 +600,39 @@ export function recordMissingWatchedCopies(
   return { version: 1, records, updatedAt: now };
 }
 
+export function resetFailedCleanupCopyToPending(input: {
+  cleanup: MediaCleanupState;
+  titleId: string;
+  copyId: string;
+  now?: number;
+}): { cleanup: MediaCleanupState; changed: boolean } {
+  const now = input.now ?? Date.now();
+  const item = input.cleanup.items[input.titleId];
+  const copy = item?.copies[input.copyId];
+  if (!item || !copy || copy.status !== 'failed') return { cleanup: input.cleanup, changed: false };
+  const nextCopy: MediaCleanupCopyEntry = {
+    ...copy,
+    status: 'pending',
+    error: undefined,
+    updatedAt: now,
+  };
+  return {
+    cleanup: {
+      ...input.cleanup,
+      items: {
+        ...input.cleanup.items,
+        [input.titleId]: {
+          ...item,
+          copies: { ...item.copies, [input.copyId]: nextCopy },
+          updatedAt: now,
+        },
+      },
+      updatedAt: now,
+    },
+    changed: true,
+  };
+}
+
 export function markCleanupCopyResult(input: {
   cleanup: MediaCleanupState;
   history: MediaDeletionHistoryState;
@@ -469,15 +640,22 @@ export function markCleanupCopyResult(input: {
   copyId: string;
   success: boolean;
   error?: string;
+  message?: string;
   now?: number;
 }): { cleanup: MediaCleanupState; history: MediaDeletionHistoryState } {
   const now = input.now ?? Date.now();
   const item = input.cleanup.items[input.titleId];
   const copy = item?.copies[input.copyId];
   if (!item || !copy) return { cleanup: input.cleanup, history: input.history };
+  // 重试场景：只有 pending/deleting 状态的副本可以被结果覆盖，
+  // 避免并发/重复消息把已删除的终态副本误改。
+  if (copy.status !== 'pending' && copy.status !== 'deleting') {
+    return { cleanup: input.cleanup, history: input.history };
+  }
   const nextCopy: MediaCleanupCopyEntry = {
     ...copy,
     status: input.success ? 'deleted' : 'failed',
+    message: input.success ? (input.message || '删除成功') : copy.message,
     error: input.success ? undefined : (input.error || '删除失败'),
     updatedAt: now,
   };

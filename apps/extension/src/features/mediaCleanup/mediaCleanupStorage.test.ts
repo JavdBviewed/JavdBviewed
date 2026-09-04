@@ -4,6 +4,7 @@ import {
   importHistoricalWatchedFromCurrentLibrary,
   loadMediaCleanupState,
   loadMediaDeletionHistory,
+  retryFailedCleanupCopy,
 } from './mediaCleanupStorage';
 
 const storageMock = vi.hoisted(() => {
@@ -21,6 +22,91 @@ vi.mock('../../utils/storage', () => ({
   getValue: storageMock.getValue,
   setValue: storageMock.setValue,
 }));
+
+describe('retryFailedCleanupCopy', () => {
+  beforeEach(() => {
+    storageMock.values.clear();
+  });
+
+  async function seedFailedCopy() {
+    await storageMock.setValue(STORAGE_KEYS.MEDIA_CLEANUP_STATE, {
+      version: 1,
+      observedWatchedCopyIds: ['115:file-1'],
+      updatedAt: 1000,
+      items: {
+        'AAA-001': {
+          id: 'AAA-001',
+          titleId: 'AAA-001',
+          code: 'AAA-001',
+          title: 'AAA-001 title',
+          reason: 'watched',
+          addedAt: 900,
+          updatedAt: 1000,
+          copies: {
+            '115:file-1': {
+              copyId: '115:file-1',
+              source: '115',
+              serverName: '115 片库',
+              fileId: 'file-1',
+              fileName: 'AAA-001.mp4',
+              lastFoundAt: 900,
+              watchedAt: 950,
+              status: 'failed',
+              error: '115 凭证不可用',
+              updatedAt: 1000,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  it('resets a failed copy and immediately executes the deletion, returning the real result', async () => {
+    await seedFailedCopy();
+    const deleteCopy = vi.fn(async () => ({ ok: true, message: '已删除 115 文件' }));
+    const result = await retryFailedCleanupCopy({
+      titleId: 'AAA-001',
+      copyId: '115:file-1',
+      deleteCopy,
+    });
+    expect(result).toMatchObject({ ok: true, changed: true, message: '已删除 115 文件' });
+    expect(deleteCopy).toHaveBeenCalledTimes(1);
+    const saved = storageMock.values.get(STORAGE_KEYS.MEDIA_CLEANUP_STATE) as {
+      items: Record<string, { copies: Record<string, { status: string }> }>;
+    };
+    // 终态是 deleted（而不是退回 pending 等用户再点一次）
+    expect(saved.items['AAA-001'].copies['115:file-1'].status).toBe('deleted');
+  });
+
+  it('propagates a failed deletion without leaving the copy stuck in pending', async () => {
+    await seedFailedCopy();
+    const deleteCopy = vi.fn(async () => ({ ok: false, message: '115 凭证不可用' }));
+    const result = await retryFailedCleanupCopy({
+      titleId: 'AAA-001',
+      copyId: '115:file-1',
+      deleteCopy,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('115 凭证不可用');
+    const saved = storageMock.values.get(STORAGE_KEYS.MEDIA_CLEANUP_STATE) as {
+      items: Record<string, { copies: Record<string, { status: string }> }>;
+    };
+    // 仍为 failed，操作记录里可继续重试
+    expect(saved.items['AAA-001'].copies['115:file-1'].status).toBe('failed');
+  });
+
+  it('is a no-op for copies that are not in failed status', async () => {
+    await seedFailedCopy();
+    const deleteCopy = vi.fn(async () => ({ ok: true, message: 'ok' }));
+    const result = await retryFailedCleanupCopy({
+      titleId: 'AAA-001',
+      copyId: '115:file-2',
+      deleteCopy,
+    });
+    expect(result).toMatchObject({ ok: true, changed: false });
+    expect(deleteCopy).not.toHaveBeenCalled();
+  });
+});
 
 describe('watched media organizer scan', () => {
   beforeEach(() => {

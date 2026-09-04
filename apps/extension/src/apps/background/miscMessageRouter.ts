@@ -41,8 +41,9 @@ import {
 } from '../../features/embyLibrary/background/handlers';
 import {
   enqueueCompletedPlayback,
+  retryFailedCleanupCopy,
 } from '../../features/mediaCleanup/mediaCleanupStorage';
-import { handleMediaCleanupDeleteCopy } from '../../features/mediaCleanup/mediaCleanupBackground';
+import { DEFAULT_DEPENDENCIES, handleMediaCleanupDeleteCopy } from '../../features/mediaCleanup/mediaCleanupBackground';
 import {
   handleDrive115MediaLibraryCancelIndex,
   handleDrive115MediaLibraryGetState,
@@ -316,6 +317,21 @@ export function registerMiscRouter(): void {
         }
         case 'MEDIA_CLEANUP_DELETE_COPY': {
           return handleMediaCleanupDeleteCopy(message, sendResponse);
+        }
+        case 'MEDIA_CLEANUP_RETRY_COPY': {
+          void (async () => {
+            try {
+              const result = await retryFailedCleanupCopy({
+                titleId: String(message?.titleId || '').trim(),
+                copyId: String(message?.copyId || '').trim(),
+                deleteCopy: DEFAULT_DEPENDENCIES.deleteCopy,
+              });
+              sendResponse({ success: true, ...result });
+            } catch (e) {
+              sendResponse({ success: false, error: e?.message || String(e) });
+            }
+          })();
+          return true;
         }
         case 'setup-alarms':
           setupWebDAVSyncAlarm().then(() => sendResponse({ success: true }))

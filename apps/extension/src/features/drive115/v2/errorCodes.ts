@@ -108,3 +108,19 @@ export function is115RefreshRateLimitCode(code?: number): boolean {
   if (!Number.isFinite(code)) return false;
   return code === 40140117; // access_token 刷新太频繁
 }
+
+/**
+ * 判定：删除/文件操作失败响应是否表示「目标文件在 115 上已不存在」。
+ * 用于「已看影片整理」删除的幂等收敛：文件若已被手动删除、或已被历史操作
+ * 删掉（重复入队的脏记录），删除操作应按成功处理，避免记录卡在待处理永远失败。
+ * 判定信号（任一命中）：
+ * - 115 业务码 30001（文件/文件夹不存在的经典码）
+ * - 服务端错误文案含「不存在 / 已删除 / 找不到」等（115 中文错误文案）
+ */
+export function is115FileGoneResult(err: any): boolean {
+  const code = Number(err?.code ?? err?.errNo ?? err?.errno ?? NaN);
+  if (Number.isFinite(code) && code === 30001) return true;
+  const message = String(err?.message || err?.msg || err?.error || '').trim();
+  if (!message) return false;
+  return /文件不存在|文件已删除|已删除|不存在|找不到|not\s*found|no\s*such\s*file/i.test(message);
+}
