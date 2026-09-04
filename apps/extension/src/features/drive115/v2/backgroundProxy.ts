@@ -19,6 +19,35 @@ function logDrive115Proxy(message: string, data?: any): void {
   } catch {}
 }
 
+/**
+ * 以宿主全局（WorkerGlobalScope / self）为 this 调用 fetch。
+ *
+ * MV3 Service Worker 中个别环境下在模块内裸调 `fetch(...)` 会丢失宿主 this 绑定并抛
+ * `TypeError: Failed to execute 'fetch' on 'WorkerGlobalScope': Illegal invocation`。
+ * 该后台代理运行在 Service Worker，是 115 open API 的主执行路径（dashboard 经
+ * chrome.runtime 转发到此），必须统一经由此处绑定宿主全局再调用。
+ */
+function nativeFetch(input: any, init?: any): Promise<Response> {
+  const target = (globalThis as any).fetch;
+  return Function.prototype.apply.call(target, globalThis, init === undefined ? [input] : [input, init]);
+}
+
+/**
+ * 将底层平台错误翻译成可读文案，避免把
+ * "Failed to execute 'fetch' on 'WorkerGlobalScope': Illegal invocation"
+ * 这类底层细节直接透传到界面卡片。
+ */
+function friendlyRequestError(e: any, fallback = ''): string {
+  const msg = e instanceof Error ? e.message : String(e || '');
+  if (/illegal invocation/i.test(msg)) {
+    return '当前运行环境无法发起该请求（后台代理异常），请稍后重试或检查扩展后台是否正常';
+  }
+  if (/failed to fetch|networkerror|load failed|network request failed|timed? ?out|timeout/i.test(msg)) {
+    return '网络异常，无法连接 115 服务，请稍后重试';
+  }
+  return msg || fallback;
+}
+
 export function installDrive115V2Proxy(): void {
   try {
     // 避免重复注册
@@ -64,7 +93,7 @@ export function installDrive115V2Proxy(): void {
             startedAt: fetchStartedAt,
           });
 
-          fetch(`${base}/open/offline/add_task_urls`, {
+          nativeFetch(`${base}/open/offline/add_task_urls`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${accessToken}`,
@@ -94,7 +123,7 @@ export function installDrive115V2Proxy(): void {
                 durationMs: Date.now() - fetchStartedAt,
                 error: err?.message || String(err),
               });
-              sendResponse({ success: false, message: err?.message || '后台请求失败' });
+              sendResponse({ success: false, message: friendlyRequestError(err, '后台请求失败') });
             });
           return true; // 异步响应
         } else if (message.type === 'drive115.refresh_token_v2') {
@@ -107,7 +136,7 @@ export function installDrive115V2Proxy(): void {
             }
             const fd = new URLSearchParams();
             fd.set('refresh_token', rt);
-            fetch(`${refreshBase}/open/refreshToken`, {
+            nativeFetch(`${refreshBase}/open/refreshToken`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
               body: fd.toString(),
@@ -118,7 +147,7 @@ export function installDrive115V2Proxy(): void {
                 sendResponse({ success: ok, raw });
               })
               .catch((err) => {
-                sendResponse({ success: false, message: err?.message || '后台刷新请求失败' });
+                sendResponse({ success: false, message: friendlyRequestError(err, '后台刷新请求失败') });
               });
             return true; // 异步响应
           } catch (e: any) {
@@ -138,7 +167,7 @@ export function installDrive115V2Proxy(): void {
             fd.set('client_id', clientId);
             fd.set('code_challenge', codeChallenge);
             fd.set('code_challenge_method', codeChallengeMethod);
-            fetch('https://passportapi.115.com/open/authDeviceCode', {
+            nativeFetch('https://passportapi.115.com/open/authDeviceCode', {
               method: 'POST',
               headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
               body: fd.toString(),
@@ -149,7 +178,7 @@ export function installDrive115V2Proxy(): void {
                 sendResponse({ success: ok, message: raw?.message || raw?.error, raw });
               })
               .catch((err) => {
-                sendResponse({ success: false, message: err?.message || '后台获取扫码信息失败' });
+                sendResponse({ success: false, message: friendlyRequestError(err, '后台获取扫码信息失败') });
               });
             return true;
           } catch (e: any) {
@@ -169,7 +198,7 @@ export function installDrive115V2Proxy(): void {
             url.searchParams.set('uid', uid);
             url.searchParams.set('time', time);
             url.searchParams.set('sign', sign);
-            fetch(url.toString(), {
+            nativeFetch(url.toString(), {
               method: 'GET',
               headers: { 'Accept': 'application/json' },
             })
@@ -179,7 +208,7 @@ export function installDrive115V2Proxy(): void {
                 sendResponse({ success: ok, message: raw?.message || raw?.error, raw });
               })
               .catch((err) => {
-                sendResponse({ success: false, message: err?.message || '后台轮询扫码状态失败' });
+                sendResponse({ success: false, message: friendlyRequestError(err, '后台轮询扫码状态失败') });
               });
             return true;
           } catch (e: any) {
@@ -197,7 +226,7 @@ export function installDrive115V2Proxy(): void {
             const fd = new URLSearchParams();
             fd.set('uid', uid);
             fd.set('code_verifier', codeVerifier);
-            fetch('https://passportapi.115.com/open/deviceCodeToToken', {
+            nativeFetch('https://passportapi.115.com/open/deviceCodeToToken', {
               method: 'POST',
               headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
               body: fd.toString(),
@@ -209,7 +238,7 @@ export function installDrive115V2Proxy(): void {
                 sendResponse({ success: ok, message: raw?.message || raw?.error, raw });
               })
               .catch((err) => {
-                sendResponse({ success: false, message: err?.message || '后台换取 token 失败' });
+                sendResponse({ success: false, message: friendlyRequestError(err, '后台换取 token 失败') });
               });
             return true;
           } catch (e: any) {
@@ -233,7 +262,7 @@ export function installDrive115V2Proxy(): void {
               }
             });
 
-            fetch(url.toString(), {
+            nativeFetch(url.toString(), {
               method: 'GET',
               headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -250,7 +279,7 @@ export function installDrive115V2Proxy(): void {
                 path: raw?.path,
               });
             }).catch((err) => {
-              sendResponse({ success: false, message: err?.message || '后台文件列表请求失败' });
+              sendResponse({ success: false, message: friendlyRequestError(err, '后台文件列表请求失败') });
             });
             return true;
           } catch (e: any) {
@@ -265,7 +294,7 @@ export function installDrive115V2Proxy(): void {
               sendResponse({ success: false, message: '缺少 access_token' });
               return false;
             }
-            fetch(`${base}/open/offline/get_quota_info`, {
+            nativeFetch(`${base}/open/offline/get_quota_info`, {
               method: 'GET',
               headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -276,7 +305,7 @@ export function installDrive115V2Proxy(): void {
               const ok = typeof raw.state === 'boolean' ? raw.state : res.ok;
               sendResponse({ success: ok, raw });
             }).catch((err) => {
-              sendResponse({ success: false, message: err?.message || '后台配额请求失败' });
+              sendResponse({ success: false, message: friendlyRequestError(err, '后台配额请求失败') });
             });
             return true; // 异步响应
           } catch (e: any) {
@@ -304,7 +333,7 @@ export function installDrive115V2Proxy(): void {
               const fd = new FormData();
               fd.set('file_id', fileIds.join(','));
               fd.set('file_ids', fileIds.join(','));
-              fetch(url, {
+              nativeFetch(url, {
                 method: 'POST',
                 headers: {
                   Authorization: `Bearer ${accessToken}`,
@@ -335,7 +364,7 @@ export function installDrive115V2Proxy(): void {
                     tryNext(idx + 1);
                     return;
                   }
-                  sendResponse({ success: false, message: err?.message || '后台删除请求失败' });
+                  sendResponse({ success: false, message: friendlyRequestError(err, '后台删除请求失败') });
                 });
             };
             tryNext(0);
@@ -393,7 +422,7 @@ export function installDrive115V2Proxy(): void {
                 return;
               }
               const endpoint = endpoints[idx];
-              fetch(endpoint.url, {
+              nativeFetch(endpoint.url, {
                 ...endpoint.init(),
                 headers: {
                   Authorization: `Bearer ${accessToken}`,
