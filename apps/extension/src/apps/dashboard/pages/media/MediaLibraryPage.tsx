@@ -1054,27 +1054,21 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
     }
   };
 
-  const scanWatchedMedia = async (): Promise<{ enqueuedCount: number; warning?: string }> => {
+  const scanWatchedMedia = async (): Promise<{ enqueuedCount: number; warning?: string; convergedCount: number }> => {
     if (syncing) throw new Error('媒体来源正在更新，请稍后再试');
-    setSyncing(true);
-    try {
-      const allKeys = new Set(syncTargets.map((target) => target.key));
-      let errors: string[];
-      if (allKeys.size > 0) {
-        errors = (await runMediaSourceSync(allKeys)).errors;
-      } else {
-        errors = ['未配置可更新的媒体来源，已使用本地记录查找'];
-      }
-      const result = await importHistoricalWatchedFromCurrentLibrary();
-      setCleanupRefreshKey((current) => current + 1);
-      return {
-        enqueuedCount: result.enqueuedCount,
-        ...(errors.length > 0 ? { warning: errors.slice(0, 2).join('；') } : {}),
-      };
-    } finally {
-      setSyncing(false);
-    }
+    // 仅基于本地媒体索引快照与已看记录做对比，不触发任何 115/Emby 网络同步。
+    // 需要刷新索引时请单独使用「同步媒体来源」，避免频繁调用 115 接口。
+    const result = await importHistoricalWatchedFromCurrentLibrary();
+    setCleanupRefreshKey((current) => current + 1);
+    return {
+      enqueuedCount: result.enqueuedCount,
+      convergedCount: result.convergedCount,
+      warning: syncTargets.length > 0
+        ? undefined
+        : '本地尚无媒体索引，已基于历史已看记录查找；如需最新文件请先同步媒体来源',
+    };
   };
+
 
   const openSyncPanel = () => {
     setSelectedSyncTargetKeys(new Set(syncTargets.map((target) => target.key)));

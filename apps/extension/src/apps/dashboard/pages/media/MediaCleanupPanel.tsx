@@ -24,12 +24,13 @@ import {
   type MediaCleanupTitleGroup,
 } from './mediaCleanupViewModel';
 import { useDrive115Cover } from './useDrive115Cover';
+import { showMessage } from '../../../../dashboard/ui/toast';
 
-type CleanupTab = 'pending' | 'failed' | 'history';
+type CleanupTab = 'pending' | 'history';
 type SelectedCopy = { titleId: string; copyId: string };
 type MediaCleanupPanelProps = {
   refreshKey?: number;
-  onScan?: () => Promise<{ enqueuedCount: number; warning?: string }>;
+  onScan?: () => Promise<{ enqueuedCount: number; warning?: string; convergedCount?: number }>;
 };
 
 function formatTime(value: number): string {
@@ -46,48 +47,83 @@ function copyLabel(copy: MediaCleanupCopyEntry): string {
   return [sourceLabel(copy.source), copy.serverName, copy.fileName || copy.folderPath].filter(Boolean).join(' · ');
 }
 
-function sourceSummary(copies: readonly MediaCleanupCopyEntry[]): string[] {
-  const counts = new Map<string, { label: string; count: number }>();
+function sourceSummary(copies: readonly MediaCleanupCopyEntry[]): Array<{ key: string; label: string }> {
+  const counts = new Map<string, { label: string; count: number; requeued: boolean }>();
   for (const copy of copies) {
     const key = `${copy.source}\u0000${copy.serverName || ''}`;
     const current = counts.get(key) || {
       label: [sourceLabel(copy.source), copy.serverName].filter(Boolean).join(' · '),
       count: 0,
+      requeued: false,
     };
     current.count += 1;
+    if (copy.copyId.includes('::rev')) current.requeued = true;
     counts.set(key, current);
   }
-  return Array.from(counts.values()).map(({ label, count }) => `${label} · ${count} 个文件`);
+  return Array.from(counts.values()).map((entry, index) => ({
+    key: `${entry.label}-${index}`,
+    label: `${entry.label} · ${entry.count} 个文件${entry.requeued ? '【含重新入队】' : ''}`,
+  }));
 }
 
-function toHistoryTitleGroups(history: MediaDeletionHistoryState): MediaCleanupTitleGroup[] {
-  const groups = new Map<string, MediaCleanupTitleGroup>();
-  for (const record of Object.values(history.records)) {
+type HistoryOperation = {
+  key: string;
+  titleId: string;
+  code: string;
+  title: string;
+  copy: MediaCleanupCopyEntry;
+  occurredAt: number;
+  succeeded: boolean;
+  detail: string;
+};
+
+function toHistoryOperations(input: {
+  cleanup: MediaCleanupState;
+  history: MediaDeletionHistoryState;
+}): HistoryOperation[] {
+  const operations: HistoryOperation[] = [];
+  // 历史归档记录（成功删除的账本）
+  const seenArchived = new Set<string>();
+  for (const record of Object.values(input.history.records)) {
     const copy: MediaCleanupCopyEntry = {
       ...record,
       status: 'deleted',
       updatedAt: record.deletedAt,
+      message: '已从来源删除',
     };
-    const current = groups.get(record.titleId);
-    if (current) {
-      current.copies.push(copy);
-      current.item.copies[copy.copyId] = copy;
-      current.item.updatedAt = Math.max(current.item.updatedAt, record.deletedAt);
-      continue;
-    }
-    const item: MediaCleanupItem = {
-      id: record.titleId,
+    seenArchived.add(`${record.copyId}\u0000${record.source}`);
+    operations.push({
+      key: record.id,
       titleId: record.titleId,
       code: record.code,
       title: record.title,
-      reason: 'watched',
-      addedAt: record.deletedAt,
-      updatedAt: record.deletedAt,
-      copies: { [copy.copyId]: copy },
-    };
-    groups.set(record.titleId, { item, copies: [copy] });
+      copy,
+      occurredAt: record.deletedAt,
+      succeeded: true,
+      detail: '已从来源删除，并归档到操作记录',
+    });
   }
-  return Array.from(groups.values()).sort((a, b) => b.item.updatedAt - a.item.updatedAt);
+  // 清理状态中的终态条目：failed/skipped 必须始终展示（用于重试/诊断），
+  // deleted 仅在未被历史归档覆盖时展示（避免与归档记录重复）。
+  for (const item of Object.values(input.cleanup.items)) {
+    for (const copy of Object.values(item.copies)) {
+      if (!['deleted', 'failed', 'skipped'].includes(copy.status)) continue;
+      const dedupeKey = `${copy.copyId}\u0000${copy.source}`;
+      if (copy.status === 'deleted' && seenArchived.has(dedupeKey)) continue;
+      const succeeded = copy.status === 'deleted';
+      operations.push({
+        key: `${item.titleId}:${copy.copyId}`,
+        titleId: item.titleId,
+        code: item.code,
+        title: item.title,
+        copy,
+        occurredAt: copy.updatedAt,
+        succeeded,
+        detail: copy.error || copy.message || (copy.status === 'skipped' ? '已跳过' : succeeded ? '已删除' : '处理失败'),
+      });
+    }
+  }
+  return operations.sort((a, b) => b.occurredAt - a.occurredAt);
 }
 
 function IndeterminateCheckbox({
@@ -160,7 +196,7 @@ function CleanupTitleCard({
   const allCopies = Object.values(item.copies);
   const selection = getTitleSelectionState(selectedKeys, item, copies);
   return (
-    <article className="ml-cleanup-card" data-media-cleanup-card="1">
+    <article className={`ml-cleanup-card${history ? ' is-history' : ''}`} data-media-cleanup-card="1">
       <CleanupCardCover code={item.code} copies={allCopies} />
       <div className="ml-cleanup-card-main">
         <div className="ml-cleanup-card-heading">
@@ -179,7 +215,7 @@ function CleanupTitleCard({
           </div>
         </div>
         <div className="ml-cleanup-source-badges" aria-label={`${item.code} 的来源`}>
-          {sourceSummary(allCopies).map((label) => <span key={label}>{label}</span>)}
+          {sourceSummary(allCopies).map((entry) => <span key={entry.key}>{entry.label}</span>)}
         </div>
         <small className="ml-cleanup-card-time">
           {history ? `处理于 ${formatTime(item.updatedAt)}` : `已看于 ${formatTime(Math.max(0, ...allCopies.map((copy) => copy.watchedAt || 0))) || '未记录'}`}
@@ -215,7 +251,17 @@ function CleanupTitleCard({
                   <span className="ml-cleanup-copy-body">
                     <strong>{copyLabel(copy)}</strong>
                     <small>{copy.folderPath || copy.fileName || '未记录文件位置'}</small>
-                    {copy.error ? <em>{copy.error}</em> : null}
+                    <small className="ml-cleanup-copy-meta">
+                      {history
+                        ? `处理于 ${formatTime(copy.updatedAt)}`
+                        : `更新于 ${formatTime(copy.updatedAt)}`}
+                      {copy.serverUrl ? ` · ${copy.serverUrl}` : null}
+                    </small>
+                    {history ? (
+                      <small className={`ml-cleanup-copy-result ${copy.status === 'failed' ? 'is-error' : 'is-success'}`}>
+                        结果：{copy.status === 'failed' ? `失败：${copy.error || '未知错误'}` : copy.status === 'skipped' ? '已跳过' : (copy.message || '已从来源删除，并归档到操作记录')}
+                      </small>
+                    ) : copy.error ? <em className="ml-cleanup-copy-error" title={copy.error}>{copy.error}</em> : null}
                   </span>
                   <span className="ml-cleanup-copy-status">
                     {history
@@ -229,6 +275,59 @@ function CleanupTitleCard({
             })}
           </div>
         </details>
+      </div>
+    </article>
+  );
+}
+
+function HistoryOperationRow({
+  operation,
+  busy,
+  onRetry,
+}: {
+  operation: HistoryOperation;
+  busy: boolean;
+  onRetry: (operation: HistoryOperation) => void;
+}) {
+  const { code, title, copy, occurredAt, succeeded, detail } = operation;
+  const retryable = !succeeded && copy.status === 'failed';
+  return (
+    <article
+      className={`ml-cleanup-history-item is-${copy.status}`}
+      data-media-cleanup-history-row="1"
+    >
+      <CleanupCardCover code={code} copies={[copy]} />
+      <div className="ml-cleanup-history-main">
+        <div className="ml-cleanup-history-heading">
+          <strong>{code}</strong>
+          <span>{title}</span>
+        </div>
+        <p className="ml-cleanup-history-copy">
+          <strong>{copyLabel(copy)}</strong>
+          <small>{copy.folderPath || copy.fileName || '未记录文件位置'}</small>
+          {copy.serverUrl ? <small>{copy.serverUrl}</small> : null}
+        </p>
+        <small className="ml-cleanup-history-time">
+          处理于 {formatTime(occurredAt) || '未记录'}
+        </small>
+        <small className={`ml-cleanup-history-result ${succeeded ? 'is-success' : 'is-error'}`} title={detail}>
+          结果：{detail}
+        </small>
+      </div>
+      <div className="ml-cleanup-history-side">
+        <span className="ml-cleanup-history-badge">{succeeded ? '成功' : copy.status === 'skipped' ? '已跳过' : '失败'}</span>
+        {retryable ? (
+          <button
+            type="button"
+            className="ml-cleanup-history-retry"
+            disabled={busy}
+            title="立即重新尝试删除该来源文件"
+            aria-label={`重试删除 ${code}`}
+            onClick={() => onRetry(operation)}
+          >
+            {busy ? '删除中…' : '重试删除'}
+          </button>
+        ) : null}
       </div>
     </article>
   );
@@ -259,19 +358,28 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
 
   const titleGroups = useMemo<MediaCleanupTitleGroup[]>(() => Object.values(cleanup.items).map((item) => ({
     item,
-    copies: Object.values(item.copies).filter((copy) => tab === 'pending'
-      ? copy.status === 'pending'
-      : tab === 'failed'
-        ? copy.status === 'failed'
-        : false),
-  })).filter((group) => group.copies.length > 0), [cleanup.items, tab]);
-  const historyGroups = useMemo(() => toHistoryTitleGroups(history), [history]);
-  const activeGroups = tab === 'history' ? historyGroups : titleGroups;
+    // 待处理只展示可操作状态（pending/deleting）；
+    // 历史 ::rev 脏记录由「重新扫描」合并（convergeStaleDuplicateCopies），终态记录在「操作记录」中查看。
+    copies: Object.values(item.copies).filter(
+      (copy) => copy.status === 'pending' || copy.status === 'deleting',
+    ),
+  })).filter((group) => group.copies.length > 0), [cleanup.items]);
+  const historyOperations = useMemo(
+    () => toHistoryOperations({ cleanup, history }),
+    [cleanup, history],
+  );
+  const historyPage = useMemo(
+    () => getCleanupPage(historyOperations, pageNumber, 15),
+    [historyOperations, pageNumber],
+  );
+  const pagedHistoryOperations = historyPage.items;
+  const activeGroups = tab === 'history' ? [] : titleGroups;
   const page = useMemo(() => getCleanupPage(activeGroups, pageNumber), [activeGroups, pageNumber]);
 
   useEffect(() => {
-    if (pageNumber !== page.page) setPageNumber(page.page);
-  }, [page.page, pageNumber]);
+    const targetPage = tab === 'history' ? historyPage.page : page.page;
+    if (pageNumber !== targetPage) setPageNumber(targetPage);
+  }, [tab, page.page, historyPage.page, pageNumber]);
 
   const selected = useMemo<SelectedCopy[]>(() => titleGroups.flatMap(({ item, copies }) => copies
     .filter((copy) => selectedKeys.has(selectionKey(item.titleId, copy.copyId)))
@@ -336,28 +444,75 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
     setMessage(
       failed === 0
         ? `已处理 ${selected.length} 个文件，全部成功`
-        : `已处理 ${selected.length} 个文件，失败 ${failed} 个；失败原因见「处理失败」列表`,
+        : `已处理 ${selected.length} 个文件，失败 ${failed} 个；失败原因见「操作记录」`,
     );
+    if (failed === 0) {
+      showMessage(`已删除 ${selected.length} 个文件，全部成功`, 'success', 5000);
+    } else {
+      showMessage(
+        `已处理 ${selected.length} 个文件，成功 ${selected.length - failed} 个，失败 ${failed} 个，失败原因见「操作记录」`,
+        'error',
+        8000,
+      );
+    }
     setBusy(false);
     await reload();
-    if (failed > 0) setTab('failed');
+    if (failed > 0) setTab('history');
+  };
+
+  const retryFailed = async (operation: HistoryOperation) => {
+    const { copy, titleId } = operation;
+    try {
+      setBusy(true);
+      const response = await sendRuntimeMessage<{
+        success?: boolean;
+        changed?: boolean;
+        ok?: boolean;
+        error?: string;
+        message?: string;
+      }>({
+        type: 'MEDIA_CLEANUP_RETRY_COPY',
+        titleId,
+        copyId: copy.copyId,
+      });
+      setBusy(false);
+      await reload();
+      if (response?.success && response.changed) {
+        if (response.ok) {
+          showMessage(`${operation.code} 的${copyLabel(copy)}重试删除成功${response.message ? `：${response.message}` : ''}`, 'success', 6000);
+        } else {
+          showMessage(`${operation.code} 的${copyLabel(copy)}重试删除仍失败${response.message ? `：${response.message}` : ''}`, 'error', 8000);
+        }
+      } else {
+        showMessage(response?.error || '该操作记录不支持重试（仅失败的来源文件可重试）', 'warning', 6000);
+      }
+    } catch {
+      setBusy(false);
+      showMessage('重试失败：无法连接后台服务', 'error', 6000);
+    }
   };
 
   const scanWatched = async () => {
     if (busy) return;
     setBusy(true);
-    setMessage('正在更新媒体来源并查找已看影片…');
+    setMessage('正在基于本地媒体索引查找已看影片…');
     try {
-      const result: { enqueuedCount: number; warning?: string } = onScan
-        ? await onScan()
-        : {
-          enqueuedCount: (await importHistoricalWatchedFromCurrentLibrary()).enqueuedCount,
+      let result: { enqueuedCount: number; warning?: string; convergedCount?: number };
+      if (onScan) {
+        result = await onScan();
+      } else {
+        const localResult = await importHistoricalWatchedFromCurrentLibrary();
+        result = {
+          enqueuedCount: localResult.enqueuedCount,
+          convergedCount: localResult.convergedCount,
         };
+      }
       await reload();
+      const mergedNote = result.convergedCount ? `；已合并 ${result.convergedCount} 条历史重复记录` : '';
       setMessage(
         result.enqueuedCount > 0
-          ? `找到并加入 ${result.enqueuedCount} 部已看影片${result.warning ? `；${result.warning}` : ''}`
-          : `查找完成，没有新增待处理影片${result.warning ? `；${result.warning}` : ''}`,
+          ? `找到并加入 ${result.enqueuedCount} 部已看影片${mergedNote}${result.warning ? `；${result.warning}` : ''}`
+          : `查找完成，没有新增待处理影片${mergedNote}${result.warning ? `；${result.warning}` : ''}`,
       );
       setTab('pending');
       setPageNumber(1);
@@ -373,7 +528,7 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
       <section className="ml-cleanup-scan-card">
         <div>
           <strong>整理已看影片</strong>
-          <p>更新来源观看状态后，列出已看影片在 115 网盘和自建媒体库中的文件。查找不会自动选择或删除任何文件。</p>
+          <p>基于本地媒体索引与已看记录做对比，列出已看影片在 115 网盘和自建媒体库中的文件。查找过程不会联网更新索引，也不会自动选择或删除任何文件；若需刷新索引，请先使用「同步媒体来源」。</p>
         </div>
         <Button disabled={busy} onClick={() => void scanWatched()}>
           {busy ? '正在查找…' : '查找已看影片'}
@@ -383,7 +538,6 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
       <div className="ml-cleanup-tabs" role="tablist" aria-label="影片整理视图">
         {([
           ['pending', '待处理'],
-          ['failed', '处理失败'],
           ['history', '操作记录'],
         ] as const).map(([id, label]) => (
           <button
@@ -406,29 +560,55 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
 
       {message ? <p className="ml-cleanup-msg" aria-live="polite">{message}</p> : null}
 
-      {activeGroups.length === 0 ? (
-        <p className="ml-cleanup-empty">
-          {tab === 'pending'
-            ? '当前没有待处理影片。点击上方按钮查找已看影片。'
-            : tab === 'failed'
-              ? '当前没有处理失败的文件。'
-              : '还没有操作记录。'}
-        </p>
+      {tab === 'history' ? (
+        historyOperations.length === 0 ? (
+          <p className="ml-cleanup-empty">还没有操作记录。</p>
+        ) : (
+          <>
+            <div className="ml-cleanup-bulk-actions">
+              <span>共 {historyPage.totalItems} 条操作记录</span>
+            </div>
+            <div className="ml-cleanup-history-list">
+              {pagedHistoryOperations.map((operation) => (
+                <HistoryOperationRow key={operation.key} operation={operation} busy={busy} onRetry={(op) => void retryFailed(op)} />
+              ))}
+            </div>
+            <div className="ml-cleanup-pagination" aria-label="操作记录分页">
+              <button
+                type="button"
+                className="ml-cleanup-page-btn"
+                disabled={historyPage.page <= 1}
+                title="上一页"
+                aria-label="上一页"
+                onClick={() => setPageNumber(historyPage.page - 1)}
+              >&lt;</button>
+              <span>第 {historyPage.page} / {historyPage.totalPages} 页</span>
+              <button
+                type="button"
+                className="ml-cleanup-page-btn"
+                disabled={historyPage.page >= historyPage.totalPages}
+                title="下一页"
+                aria-label="下一页"
+                onClick={() => setPageNumber(historyPage.page + 1)}
+              >&gt;</button>
+            </div>
+          </>
+        )
+      ) : activeGroups.length === 0 ? (
+        <p className="ml-cleanup-empty">当前没有待处理影片。点击上方按钮查找已看影片；已失败的来源文件见「操作记录」。</p>
       ) : (
         <>
-          {tab !== 'history' ? (
-            <div className="ml-cleanup-bulk-actions">
-              <IndeterminateCheckbox
-                checked={pageFullySelected}
-                indeterminate={pagePartiallySelected}
-                disabled={busy}
-                label="选择本页全部影片文件"
-                onChange={togglePage}
-              />
-              <span>本页全选</span>
-              <small>第 {page.page} / {page.totalPages} 页，共 {page.totalItems} 部影片</small>
-            </div>
-          ) : null}
+          <div className="ml-cleanup-bulk-actions">
+            <IndeterminateCheckbox
+              checked={pageFullySelected}
+              indeterminate={pagePartiallySelected}
+              disabled={busy}
+              label="选择本页全部影片文件"
+              onChange={togglePage}
+            />
+            <span>本页全选</span>
+            <small>第 {page.page} / {page.totalPages} 页，共 {page.totalItems} 部影片</small>
+          </div>
           <div className="ml-cleanup-card-grid">
             {page.items.map((group) => (
               <CleanupTitleCard
@@ -436,7 +616,6 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
                 group={group}
                 selectedKeys={selectedKeys}
                 busy={busy}
-                history={tab === 'history'}
                 onToggleTitle={toggleTitle}
                 onToggleCopy={toggleSelected}
               />

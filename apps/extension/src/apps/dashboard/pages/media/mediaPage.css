@@ -2339,6 +2339,201 @@ button.ml-resume-card {
   font-style: normal;
 }
 
+/* 操作记录（history）：一行一个操作，带封面，完整展示返回信息便于诊断 */
+.ml-cleanup-history-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(58vh, 620px);
+  overflow: auto;
+  padding: 2px 4px 2px 0;
+}
+
+.ml-cleanup-history-item {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 110px;
+  border: 1px solid var(--color-border, var(--border-primary));
+  border-radius: 8px;
+  background: var(--color-surface, var(--surface-primary));
+  overflow: hidden;
+}
+
+.ml-cleanup-history-item .ml-cleanup-card-cover {
+  height: 100%;
+  min-height: 110px;
+}
+
+.ml-cleanup-history-item .ml-cleanup-card-cover .ui-media-cover,
+.ml-cleanup-history-item .ml-cleanup-card-cover .ui-media-cover__frame {
+  height: 100%;
+  min-height: 110px;
+  aspect-ratio: auto;
+  border-radius: 0;
+}
+
+.ml-cleanup-history-item.is-failed {
+  border-color: color-mix(in srgb, var(--color-danger, #dc2626) 42%, var(--color-border, #e5e7eb));
+}
+
+.ml-cleanup-history-item.is-deleted {
+  border-color: color-mix(in srgb, var(--color-success, #16a34a) 38%, var(--color-border, #e5e7eb));
+}
+
+.ml-cleanup-history-item.is-skipped {
+  border-color: color-mix(in srgb, var(--color-fg-muted, #9ca3af) 45%, var(--color-border, #e5e7eb));
+}
+
+.ml-cleanup-history-main {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 4px 10px 0;
+}
+
+.ml-cleanup-history-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ml-cleanup-history-heading strong {
+  color: var(--color-primary-active, var(--color-primary, var(--primary)));
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.ml-cleanup-history-heading span {
+  overflow: hidden;
+  color: var(--color-fg, var(--text-primary));
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-cleanup-history-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.ml-cleanup-history-copy strong {
+  overflow: hidden;
+  color: var(--color-fg, var(--text-primary));
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-cleanup-history-copy small {
+  overflow: hidden;
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-cleanup-history-time {
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 11px;
+}
+
+.ml-cleanup-history-result {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.ml-cleanup-history-result.is-success {
+  color: var(--color-success, #16a34a);
+}
+
+.ml-cleanup-history-result.is-error {
+  color: var(--color-danger, #dc2626);
+}
+
+.ml-cleanup-history-badge {
+  align-self: start;
+  margin: 10px 12px 0 0;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--color-surface-2, var(--surface-secondary));
+  color: var(--color-fg-muted, var(--text-secondary));
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ml-cleanup-history-item.is-deleted .ml-cleanup-history-badge {
+  color: var(--color-success, #16a34a);
+}
+
+.ml-cleanup-history-item.is-failed .ml-cleanup-history-badge {
+  color: var(--color-danger, #dc2626);
+}
+
+.ml-cleanup-history-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.ml-cleanup-history-side .ml-cleanup-history-badge {
+  margin: 10px 0 0 0;
+}
+
+.ml-cleanup-history-retry {
+  margin-right: 12px;
+  min-height: 30px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-primary, var(--primary)) 55%, var(--color-border, var(--border-primary)));
+  background: color-mix(in srgb, var(--color-primary, var(--primary)) 14%, var(--color-surface-2, var(--surface-secondary)));
+  color: var(--color-primary, var(--primary));
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ml-cleanup-history-retry:hover {
+  background: color-mix(in srgb, var(--color-primary, var(--primary)) 26%, var(--color-surface-2, var(--surface-secondary)));
+}
+
+.ml-cleanup-copy-error {
+  /* 错误信息允许换行完整展示，便于诊断 */
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.ml-cleanup-copy-result {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ml-cleanup-copy-result.is-success {
+  color: var(--color-success, #16a34a);
+}
+
+.ml-cleanup-copy-result.is-info {
+  color: var(--color-fg-muted, var(--text-secondary));
+}
+
+.ml-cleanup-copy-result.is-error {
+  color: var(--color-danger, #dc2626);
+}
+
 .ml-cleanup-history-row {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
 }
@@ -2359,9 +2554,15 @@ button.ml-resume-card {
 }
 
 .ml-cleanup-footer {
-  margin-top: 14px;
-  padding-top: 12px;
+  /* 固定在整理窗口右下角：随 OverlayShell 滚动区粘底，不再被卡片列表挤到滚动条最底部 */
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  margin: 14px -16px 0;
+  padding: 10px 16px 16px;
   border-top: 1px solid var(--color-border, var(--border-primary));
+  background: color-mix(in srgb, var(--color-surface, var(--surface-primary)) 92%, transparent);
+  backdrop-filter: blur(6px);
   color: var(--color-fg-muted, var(--text-secondary));
   font-size: 12px;
 }
@@ -2397,6 +2598,10 @@ button.ml-resume-card {
   .ml-cleanup-footer {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .ml-cleanup-footer > div {
+    width: 100%;
   }
 
   .ml-cleanup-footer > div > button {
