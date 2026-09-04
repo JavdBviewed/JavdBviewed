@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <title>JavDB E2E mock list page</title>
+</head>
+<body>
+  <!-- navbar-item 让 content script 的 isPageProperlyLoaded() 通过 -->
+  <nav class="navbar">
+    <div class="navbar-brand">
+      <a class="navbar-item" href="https://javdb.com"><span class="jdb-logo">JavDB</span></a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="columns">
+      <div class="column">
+        <!-- JavDB 影片列表：.movie-list > .item 卡片 -->
+        <div class="movie-list" id="movie-list">
+          <div class="item">
+            <a href="/v/AAA111" class="box" title="AAA-111 普通影片 标题">
+              <div class="cover"><img src="https://c0.jdbstatic.com/covers/aa/AAA111.jpg" alt=""></div>
+              <div class="video-title"><span class="x-btn" title="列表功能" data-code="AAA-111" data-title="AAA-111 普通影片 标题"></span><strong>AAA-111</strong> 普通影片 标题</div>
+              <div class="score"><span class="value">4.5分, 由10人評價</span></div>
+              <div class="meta">2026-08-01</div>
+              <div class="tags has-addons"></div>
+            </a>
+          </div>
+          <div class="item">
+            <a href="/v/BBB222" class="box" title="BBB-222 含敏感词XYZ标题 标题">
+              <div class="cover"><img src="https://c0.jdbstatic.com/covers/bb/BBB222.jpg" alt=""></div>
+              <div class="video-title"><span class="x-btn" title="列表功能" data-code="BBB-222" data-title="BBB-222 含敏感词XYZ标题 标题"></span><strong>BBB-222</strong> 含敏感词XYZ标题 标题</div>
+              <div class="score"><span class="value">4.2分, 由20人評價</span></div>
+              <div class="meta">2026-08-02</div>
+              <div class="tags has-addons"></div>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

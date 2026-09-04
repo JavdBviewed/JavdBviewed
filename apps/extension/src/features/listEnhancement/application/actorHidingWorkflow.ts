@@ -15,6 +15,12 @@ import {
   extractActorIdsFromListItem,
   extractActorsFromListItem,
 } from './actorWatermark';
+import {
+  recomputeListHiding,
+  setHidingSource,
+  readListHidingEnablement,
+} from '../../list-hiding';
+import { STATE } from '../../contentState';
 
 export interface ActorHidingWorkflowVideoInfo {
   code: string;
@@ -113,10 +119,12 @@ export async function applyActorBasedHiding(options: ApplyActorBasedHidingOption
 }
 
 export function hideListItemByActor(item: HTMLElement, reason: ActorHidingReason): void {
-  item.style.display = 'none';
-  item.setAttribute('data-hidden-by-default', 'true');
+  // 仅打“来源”标记，真正的显隐由 recomputeListHiding 依据演员隐藏开关裁定。
+  // 保留 data-hidden-by-actor / data-hide-reason-actor 供兼容检测。
   item.setAttribute('data-hidden-by-actor', 'true');
   item.setAttribute('data-hide-reason-actor', reason);
+  setHidingSource(item, 'actor', true);
+  recomputeListHiding(item, readListHidingEnablement(STATE.settings));
 }
 
 export function clearListItemActorHiding(item: HTMLElement): void {
@@ -125,10 +133,8 @@ export function clearListItemActorHiding(item: HTMLElement): void {
 
   item.removeAttribute('data-hidden-by-actor');
   item.removeAttribute('data-hide-reason-actor');
+  setHidingSource(item, 'actor', false);
 
-  const hasOtherReason = item.hasAttribute('data-hide-reason');
-  if (!hasOtherReason) {
-    item.style.display = '';
-    item.removeAttribute('data-hidden-by-default');
-  }
+  // 重算显隐，其它来源（状态/VR）标记若仍命中开关会继续隐藏。
+  recomputeListHiding(item, readListHidingEnablement(STATE.settings));
 }

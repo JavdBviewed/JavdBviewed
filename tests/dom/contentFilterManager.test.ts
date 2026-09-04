@@ -20,7 +20,7 @@ function createMovieCard(code: string): HTMLElement {
 }
 
 async function waitForFilterDebounce(): Promise<void> {
-  await new Promise<void>(resolve => window.setTimeout(resolve, 650));
+  return new Promise<void>(resolve => window.setTimeout(resolve, 650));
 }
 
 describe('ContentFilterManager 生命周期与增量扫描', () => {
@@ -96,6 +96,98 @@ describe('ContentFilterManager 生命周期与增量扫描', () => {
     await waitForFilterDebounce();
 
     expect(internals.filteredElements.has(card)).toBe(false);
+    manager.destroy();
+  });
+});
+
+describe('ContentFilterManager 隐藏开关（hideEnabled）', () => {
+  const hideRule = {
+    id: 'rule-hide',
+    name: '隐藏规则',
+    keyword: 'HIDEME-001',
+    isRegex: false,
+    caseSensitive: false,
+    action: 'hide' as const,
+    enabled: true,
+    fields: ['title'] as const,
+  };
+
+  function setupCard(keyword: string) {
+    const list = document.createElement('div');
+    list.className = 'movie-list';
+    const card = createMovieCard(keyword);
+    list.appendChild(card);
+    document.body.appendChild(list);
+    return card;
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    STATE.settings = null;
+    vi.restoreAllMocks();
+  });
+
+  it('默认（未提供 hideEnabled）时 hide 规则应隐藏匹配卡片', async () => {
+    const card = setupCard('HIDEME-001');
+    STATE.settings = {
+      contentFilter: { keywordRules: [hideRule] },
+      records: {},
+    } as any;
+    const manager = new ContentFilterManager({ enabled: true });
+    await manager.initialize();
+    expect(card.style.display).toBe('none');
+    expect(card.classList.contains('content-filter-hidden')).toBe(true);
+    manager.destroy();
+  });
+
+  it('config.hideEnabled=false 时 hide 规则匹配但不隐藏', async () => {
+    const card = setupCard('HIDEME-001');
+    STATE.settings = {
+      contentFilter: { keywordRules: [hideRule] },
+      records: {},
+    } as any;
+    const manager = new ContentFilterManager({ enabled: true, hideEnabled: false });
+    await manager.initialize();
+    expect(card.style.display).not.toBe('none');
+    expect(card.classList.contains('content-filter-hidden')).toBe(false);
+    manager.destroy();
+  });
+
+  it('updateConfig({hideEnabled:true}) 后先前未隐藏的匹配卡片被隐藏', async () => {
+    const card = setupCard('HIDEME-001');
+    STATE.settings = {
+      contentFilter: { keywordRules: [hideRule] },
+      records: {},
+    } as any;
+    const manager = new ContentFilterManager({ enabled: true, hideEnabled: false });
+    await manager.initialize();
+    expect(card.style.display).not.toBe('none');
+
+    // 让出主线程，使 rescan 的 applyFilters 不被 50ms 重入保护跳过
+    await new Promise<void>(r => setTimeout(r, 120));
+    manager.updateConfig({ hideEnabled: true });
+    await waitForFilterDebounce();
+    // rescan 是异步的，多重等一个防抖窗口
+    await waitForFilterDebounce();
+    expect(card.style.display).toBe('none');
+    expect(card.classList.contains('content-filter-hidden')).toBe(true);
+    manager.destroy();
+  });
+
+  it('单规则 hideEnabled=false 时该规则不隐藏（其余 hide 规则不受影响）', async () => {
+    const cardA = setupCard('HIDEME-001');
+    const cardB = createMovieCard('HIDEME-002');
+    cardA.parentElement!.appendChild(cardB);
+    const perRuleOff = { ...hideRule, id: 'rule-a', keyword: 'HIDEME-001', hideEnabled: false };
+    const perRuleOn = { ...hideRule, id: 'rule-b', keyword: 'HIDEME-002' };
+    STATE.settings = {
+      contentFilter: { keywordRules: [perRuleOff, perRuleOn] },
+      records: {},
+    } as any;
+    const manager = new ContentFilterManager({ enabled: true });
+    await manager.initialize();
+    expect(cardA.style.display).not.toBe('none');
+    expect(cardB.style.display).toBe('none');
     manager.destroy();
   });
 });

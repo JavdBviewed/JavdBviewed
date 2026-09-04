@@ -6,9 +6,8 @@
 // src/features/contentFilter/contentFilterManager.ts
 // 内容过滤系统
 
-import { STATE, getContentRecord, log } from '../contentState';
+import { STATE, log } from '../contentState';
 import { showToast } from '../../platform/browser/toast';
-import { VIDEO_STATUS } from '../../utils/config';
 import type { KeywordFilterRule, ContentFilterConfig } from '../../types';
 import { countContentPerformanceEvent, recordContentPerformanceDuration, runChunkedWork, saveSubtaskDetail, yieldToMainThread } from '../../platform/tasks';
 
@@ -36,6 +35,7 @@ export class ContentFilterManager {
     this.config = {
       enabled: true,
       showFilteredCount: true,
+      hideEnabled: true,
       keywordRules: [],
       ...config,
     };
@@ -250,19 +250,10 @@ export class ContentFilterManager {
         return; // 已处理，静默跳过
       }
 
-      // 检查是否应该被默认功能隐藏
-      const hasDefaultHiddenFlag = item.hasAttribute('data-hidden-by-default');
-      const shouldBeHiddenByDefault = hasDefaultHiddenFlag || this.shouldBeHiddenByDefault(item);
-
-      // 清除之前的过滤效果（但保留默认隐藏状态）
-      this.clearItemFilters(item, shouldBeHiddenByDefault);
-
-      // 如果元素应该被默认功能隐藏，不应用智能过滤规则
-      if (shouldBeHiddenByDefault) {
-        item.setAttribute('data-hidden-by-default', 'true');
-        item.setAttribute('data-filter-processed', 'true');
-        return;
-      }
+      // 清除之前的过滤效果。
+      // 注意：状态/VR/演员等“内置隐藏”不再由本模块接管，
+      // 统一交由 list-hiding 依据各自开关重算，避免与它们互相覆盖。
+      this.clearItemFilters(item);
 
       // 提取项目信息
       const itemData = this.extractItemData(item);
@@ -296,8 +287,15 @@ export class ContentFilterManager {
    * 检查是否在详情页
    */
   private isDetailPage(): boolean {
-    // 检查URL是否为详情页格式 (/v/xxx)
-    const isDetailUrl = /\/v\/[^\/]+/.test(window.location.pathname);
+    // 检查URL是否为详情页格式 (/v/xxx)。
+    // 注意：仅当路径“整体”是 /v/xxx 时才视为详情页；
+    // 列表页（/、/tags 等）内卡片链接 a[href="/v/..."] 不算。
+    let isDetailUrl = false;
+    try {
+      isDetailUrl = /^\/v\/[^\/]+$/.test(window.location.pathname);
+    } catch {
+      isDetailUrl = false;
+    }
 
     // 检查页面是否有详情页特有的元素
     const hasDetailElements = !!(
@@ -587,15 +585,14 @@ export class ContentFilterManager {
   /**
    * 清除项目的过滤效果
    */
-  private clearItemFilters(item: HTMLElement, shouldBeHiddenByDefault: boolean = false): void {
-    // 恢复显示状态 - 但要考虑默认隐藏功能
-    if (!shouldBeHiddenByDefault) {
+  private clearItemFilters(item: HTMLElement): void {
+    // 本模块只管理“关键字过滤规则”的隐藏，
+    // 不触碰 list-hiding（状态/VR/演员）维护的默认隐藏标记，
+    // 避免清除掉由开关控制、来源不同的隐藏状态。
+    if (item.classList.contains('content-filter-hidden')) {
       item.style.display = '';
-      item.removeAttribute('data-hidden-by-default');
-    } else {
-      // 保持默认隐藏状态
-      item.style.display = 'none';
-      item.setAttribute('data-hidden-by-default', 'true');
+      item.classList.remove('content-filter-hidden');
+      item.removeAttribute('data-hidden-by-filter');
     }
 
     // 清除智能过滤相关的样式
@@ -772,8 +769,10 @@ export class ContentFilterManager {
         if (shouldSkipHideActions) {
           break;
         }
-        // 只有在不被默认功能隐藏的情况下才应用智能过滤隐藏
-        if (!item.hasAttribute('data-hidden-by-default')) {
+        // 隐藏动作受开关控制：全局“隐藏开关”(config.hideEnabled) 或单规则 hideEnabled。
+        // 任一为 false 时匹配后不隐藏，卡片保持原样。
+        const hideAllowed = this.config.hideEnabled !== false && rule.hideEnabled !== false;
+        if (hideAllowed) {
           item.style.display = 'none';
           item.classList.add('content-filter-hidden');
           item.setAttribute('data-filter-applied', 'hide');
@@ -850,67 +849,6 @@ export class ContentFilterManager {
     }
 
     item.appendChild(messageElement);
-  }
-
-  /**
-   * 检查元素是否应该被默认功能隐藏
-   * 复制 itemProcessor.ts 中的逻辑以保持一致性
-   */
-  private shouldBeHiddenByDefault(item: HTMLElement): boolean {
-    // 首先检查是否已经有默认隐藏标记
-    if (item.hasAttribute('data-hidden-by-default')) {
-      return true;
-    }
-
-    if (!STATE.settings || STATE.isSearchPage) {
-      return false;
-    }
-
-    if (this.shouldSkipHideActionsOnCurrentPage()) {
-      return false;
-    }
-
-    // 提取视频ID
-    const videoId = this.extractVideoId(item);
-    if (!videoId) {
-      return false;
-    }
-
-    // 检查VR隐藏设置
-    if (STATE.settings.display.hideVR) {
-      // 检查VR标签
-      const vrTag = item.querySelector('.tag.is-link');
-      const isVR = vrTag?.textContent?.trim() === 'VR';
-
-      // 检查data-title属性中是否包含VR标识
-      const dataTitleElement = item.querySelector('div.video-title > span.x-btn');
-      const dataTitle = dataTitleElement?.getAttribute('data-title') || '';
-      const isVRInDataTitle = dataTitle.includes('【VR】');
-
-      if (isVR || isVRInDataTitle) {
-        return true;
-      }
-    }
-
-    // 检查已看过和已浏览的隐藏设置
-    const { hideViewed, hideBrowsed } = STATE.settings.display;
-    const record = getContentRecord(videoId);
-
-    if (!record) {
-      return false;
-    }
-
-    const isViewed = record.status === VIDEO_STATUS.VIEWED;
-    const isBrowsed = record.status === VIDEO_STATUS.BROWSED;
-
-    if (hideViewed && isViewed) {
-      return true;
-    }
-    if (hideBrowsed && isBrowsed) {
-      return true;
-    }
-
-    return false;
   }
 
   private shouldSkipHideActionsOnCurrentPage(): boolean {
@@ -998,18 +936,12 @@ export class ContentFilterManager {
   private clearAllFilters(): void {
     this.cleanupDetachedFilteredElements();
     this.filteredElements.forEach((_, element) => {
-      // 检查是否应该被默认功能隐藏（尊重已有默认隐藏标记）
-      const hasDefaultHiddenFlag = element.hasAttribute('data-hidden-by-default');
-      const shouldBeHiddenByDefault = hasDefaultHiddenFlag || this.shouldBeHiddenByDefault(element);
-
-      // 恢复显示状态 - 但要考虑默认隐藏功能
-      if (!shouldBeHiddenByDefault) {
+      // 只恢复“关键字过滤规则”造成的隐藏，
+      // 不触碰 list-hiding（状态/VR/演员）维护的默认隐藏状态。
+      if (element.classList.contains('content-filter-hidden')) {
         element.style.display = '';
-        element.removeAttribute('data-hidden-by-default');
-      } else {
-        // 保持默认隐藏状态
-        element.style.display = 'none';
-        element.setAttribute('data-hidden-by-default', 'true');
+        element.classList.remove('content-filter-hidden');
+        element.removeAttribute('data-hidden-by-filter');
       }
 
       // 清除智能过滤相关的样式
@@ -1142,17 +1074,40 @@ export class ContentFilterManager {
   }
 
   /**
+   * 强制重新扫描整个列表页：清除 data-filter-processed 标记后重跑过滤。
+   * 用于开关类配置变更（如 hideEnabled），此时已处理卡片的动作需要重新裁定。
+   */
+  rescan(): void {
+    if (!this.isInitialized) return;
+    document
+      .querySelectorAll<HTMLElement>('[data-filter-processed]')
+      .forEach(item => item.removeAttribute('data-filter-processed'));
+    void this.applyFilters().catch(error => {
+      log('Error rescan filters:', error);
+    });
+  }
+
+  /**
    * 更新配置
    */
   updateConfig(newConfig: Partial<ContentFilterConfig>): void {
+    const previous = this.config;
     this.config = { ...this.config, ...newConfig };
 
     if (this.isInitialized) {
       // 重新应用过滤规则
       this.clearAllFilters();
-      void this.applyFilters().catch(error => {
-        log('Error reapplying filters after config update:', error);
-      });
+      // applyFilters 只处理未标记卡片；hideEnabled 变化或规则变化时需重扫已处理卡片
+      if (
+        newConfig.hideEnabled !== undefined &&
+        newConfig.hideEnabled !== previous.hideEnabled
+      ) {
+        this.rescan();
+      } else {
+        void this.applyFilters().catch(error => {
+          log('Error reapplying filters after config update:', error);
+        });
+      }
     }
   }
 

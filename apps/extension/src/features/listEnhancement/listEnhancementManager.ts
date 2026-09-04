@@ -79,6 +79,8 @@ import { createActorWorkQueue, type ActorWorkQueue } from './application/actorWo
 import { createActorPenetrationRuntime, resolveActorLinkMark } from './actorPenetration';
 import { createActorVisibilityGate } from './application/actorVisibilityGate';
 import { countContentPerformanceEvent } from '../../platform/tasks';
+import { recomputeListHiding, readListHidingEnablement } from '../list-hiding';
+import { STATE as _STATE } from '../contentState';
 
 export type { ListEnhancementConfig } from './domain/config';
 
@@ -199,6 +201,7 @@ class ListEnhancementManager {
         o.treatSubscribedAsFavorited !== c.treatSubscribedAsFavorited,
       apply: () => {
         log('Actor filter config changed, reapplying filters...');
+        this.recomputeAllListHiding();
         this.reapplyActorHidingForAll();
       },
     },
@@ -750,6 +753,14 @@ class ListEnhancementManager {
       hideItemByActor: hideListItemByActor,
       clearActorOnlyHiding: clearListItemActorHiding,
       logger: (...args) => log(...args),
+    });
+  }
+
+  /** 依据当前开关对所有列表卡片重算隐藏（状态/VR/演员/关键字等来源）。 */
+  public recomputeAllListHiding(): void {
+    const enablement = readListHidingEnablement(_STATE.settings);
+    document.querySelectorAll<HTMLElement>('.movie-list .item').forEach(item => {
+      recomputeListHiding(item, enablement);
     });
   }
 

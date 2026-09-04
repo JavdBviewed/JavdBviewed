@@ -22,6 +22,11 @@ import {
     selectListItemsForProcessing,
     type ListProcessingOptions,
 } from './listProcessingPolicy';
+import {
+    recomputeListHiding,
+    setHidingSource,
+    readListHidingEnablement,
+} from '../../list-hiding';
 
 export function processVisibleItems(options: ListProcessingOptions = {}): void {
     // 首先检查页面是否正常加载
@@ -155,78 +160,32 @@ export function setupObserver(): void {
     STATE.observer.observe(targetNode, { childList: true, subtree: true });
 }
 
-function shouldHide(videoId: string): boolean {
-    if (STATE.isSearchPage || !STATE.settings) {
-        return false;
-    }
-
-    // 在“想看/已看”聚合页禁用状态隐藏，避免影响数据查看
+/** 当前是否处于“想看/已看”聚合页（这些页面不应用任何隐藏）。 */
+function isStatusHiddenPage(): boolean {
     try {
         const p = window.location.pathname;
-        if (p.startsWith('/users/want_watch_videos') || p.startsWith('/users/watched_videos')) {
-            return false;
-        }
-    } catch {}
-
-    const { hideViewed, hideBrowsed, hideWant } = STATE.settings.display as any;
-    const record = getContentRecord(videoId);
-
-    if (!record) {
+        return p.startsWith('/users/want_watch_videos') || p.startsWith('/users/watched_videos');
+    } catch {
         return false;
     }
-
-    const isViewed = record.status === VIDEO_STATUS.VIEWED;
-    const isBrowsed = record.status === VIDEO_STATUS.BROWSED;
-    const isWant = record.status === VIDEO_STATUS.WANT;
-
-    if (hideViewed && isViewed) {
-        return true;
-    }
-    if (hideBrowsed && isBrowsed) {
-        return true;
-    }
-    if (hideWant && isWant) {
-        return true;
-    }
-
-    return false;
 }
 
-function getHideReason(videoId: string): string {
-    if (STATE.isSearchPage || !STATE.settings) {
-        return '';
+/**
+ * 返回该影片记录对应隐藏来源（viewed/browsed/want）。
+ * 仅根据记录状态判断“来源”，是否真正隐藏由对应开关决定（见 recomputeListHiding）。
+ */
+function getStatusHideSource(videoId: string): 'viewed' | 'browsed' | 'want' | null {
+    if (!STATE.settings || isStatusHiddenPage()) {
+        return null;
     }
-
-    // 在“想看/已看”聚合页不返回隐藏原因（即不隐藏）
-    try {
-        const p = window.location.pathname;
-        if (p.startsWith('/users/want_watch_videos') || p.startsWith('/users/watched_videos')) {
-            return '';
-        }
-    } catch {}
-
-    const { hideViewed, hideBrowsed, hideWant } = (STATE.settings.display as any);
     const record = getContentRecord(videoId);
-
     if (!record) {
-        return '';
+        return null;
     }
-
-    const isViewed = record.status === VIDEO_STATUS.VIEWED;
-    const isBrowsed = record.status === VIDEO_STATUS.BROWSED;
-    const isWant = record.status === VIDEO_STATUS.WANT;
-
-    if (hideViewed && isViewed) {
-        return 'VIEWED';
-    }
-    if (hideBrowsed && isBrowsed) {
-        return 'BROWSED';
-    }
-    if (hideWant && isWant) {
-        return 'WANT';
-    }
-
-    return '';
+    if (record.status === VIDEO_STATUS.VIEWED) return 'viewed';
+    if (record.status === VIDEO_STATUS.BROWSED) return 'browsed';
+    if (record.status === VIDEO_STATUS.WANT) return 'want';
+    return null;
 }
 
 function processItem(item: HTMLElement): string | null {
@@ -338,34 +297,30 @@ function processItem(item: HTMLElement): string | null {
 
     const finalIsVR = isVR || isVRInDataTitle || isVRInTitleText;
 
-    if (!STATE.isSearchPage && STATE.settings?.display.hideVR && finalIsVR) {
-        log(`Hiding VR video: ${videoId}`);
-        item.style.display = 'none';
-        // 添加标记，表示被默认功能隐藏
-        item.setAttribute('data-hidden-by-default', 'true');
-        item.setAttribute('data-hide-reason', 'VR');
-        return videoId;
+    // 记录隐藏“来源”标记（来源 ≠ 开关）。
+    // 是否真正隐藏由 recomputeListHiding 依据当前开关统一裁定，
+    // 这样每个隐藏动作都有独立开关，且开关切换可即时生效。
+    if (!STATE.isSearchPage) {
+        if (finalIsVR) {
+            setHidingSource(item, 'vr', true);
+            log(`Marked VR video: ${videoId}`);
+        }
+        const statusSource = getStatusHideSource(videoId);
+        if (statusSource) {
+            setHidingSource(item, statusSource, true);
+            log(`Marked status source ${statusSource} for: ${videoId}`);
+        }
     }
 
-    if (shouldHide(videoId)) {
-        log(`Hiding video based on status: ${videoId}`);
-        item.style.display = 'none';
-        // 添加标记，表示被默认功能隐藏
-        item.setAttribute('data-hidden-by-default', 'true');
-        item.setAttribute('data-hide-reason', getHideReason(videoId));
-        return videoId;
+    // 依据开关统一重算显隐（整合 VR / 状态 / 演员 所有来源）。
+    // 聚合页（想看/已看列表）豁免：强制显示，不应用任何内置隐藏。
+    const enablement = readListHidingEnablement(STATE.settings);
+    if (isStatusHiddenPage()) {
+        item.style.display = '';
+    } else {
+        recomputeListHiding(item, enablement);
     }
 
-    if (item.hasAttribute('data-hidden-by-actor')) {
-        item.style.display = 'none';
-        return videoId;
-    }
-
-    // 确保显示未被隐藏的项目
-    item.style.display = '';
-    // 移除默认隐藏标记
-    item.removeAttribute('data-hidden-by-default');
-    item.removeAttribute('data-hide-reason');
     return videoId;
 }
 

@@ -646,6 +646,10 @@ async function initialize(): Promise<void> {
 
     if (settings.userExperience.enableContentFilter) {
         initOrchestrator.add('idle', async () => {
+            // 「隐藏」总开关：关闭后 hide 规则只匹配不隐藏
+            contentFilterManager.updateConfig({
+                hideEnabled: (settings as { contentFilter?: { hideEnabled?: boolean } }).contentFilter?.hideEnabled !== false,
+            });
             contentFilterManager.initialize();
             log('Content filter initialized after default hide processing');
         }, { label: 'contentFilter:initialize', idle: true, idleTimeout: 5000, delayMs: 2500 });

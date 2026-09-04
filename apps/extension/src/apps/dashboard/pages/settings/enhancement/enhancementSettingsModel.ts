@@ -30,6 +30,8 @@ export type EnhancementSettingsFormState = {
   // —— 子标签（仅 UI）——
   // 列表页
   enableContentFilter: boolean;
+  /** 内容过滤「隐藏」动作总开关：关闭后 hide 规则只匹配不隐藏 */
+  contentFilterHideEnabled: boolean;
   filterRules: KeywordFilterRule[];
   enableClickEnhancement: boolean;
   enableClickEnhancementList: boolean;
@@ -245,6 +247,7 @@ function defaultOnlineAvailabilitySites(): OnlineAvailabilitySitesMap {
 
 export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   enableContentFilter: false,
+  contentFilterHideEnabled: true,
   filterRules: [],
   enableClickEnhancement: true,
   enableClickEnhancementList: true,
@@ -432,6 +435,7 @@ function mapFilterRules(raw: unknown): KeywordFilterRule[] {
       caseSensitive: !!(r as KeywordFilterRule).caseSensitive,
       action: (r as KeywordFilterRule).action || 'hide',
       enabled: (r as KeywordFilterRule).enabled !== false,
+      hideEnabled: (r as KeywordFilterRule).hideEnabled !== false,
       fields: Array.isArray((r as KeywordFilterRule).fields)
         ? (r as KeywordFilterRule).fields
         : (['title'] as KeywordFilterRule['fields']),
@@ -468,6 +472,7 @@ export function mapSettingsToEnhancementForm(
 
   return {
     enableContentFilter: !!(ux.enableContentFilter ?? cf.enabled),
+    contentFilterHideEnabled: cf.hideEnabled !== false,
     filterRules: mapFilterRules(cf.keywordRules),
     enableClickEnhancement: le.enableClickEnhancement !== false,
     enableClickEnhancementList: le.enableClickEnhancementList !== false,
@@ -832,6 +837,7 @@ export function applyEnhancementFormToSettings(
     contentFilter: {
       ...((current as any).contentFilter || {}),
       enabled: form.enableContentFilter,
+      hideEnabled: form.contentFilterHideEnabled,
       keywordRules: form.filterRules.map((r) => ({ ...r })),
     },
   };
@@ -929,6 +935,20 @@ export function setFilterRuleEnabled(
   if (index < 0 || index >= rules.length) return rules;
   const next = [...rules];
   next[index] = { ...next[index], enabled };
+  return next;
+}
+
+/**
+ * 切换过滤规则 hideEnabled（仅对 action=hide 的规则生效）
+ */
+export function setFilterRuleHideEnabled(
+  rules: KeywordFilterRule[],
+  index: number,
+  hideEnabled: boolean,
+): KeywordFilterRule[] {
+  if (index < 0 || index >= rules.length) return rules;
+  const next = [...rules];
+  next[index] = { ...next[index], hideEnabled };
   return next;
 }
 

@@ -8,7 +8,7 @@ import { EnhancementFeatureCard, type EnhancementFeatureMeta } from './Enhanceme
 import type { EnhancementSettingsFormState } from './enhancementSettingsModel';
 
 const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
-  '内容过滤': { icon: '🎯', status: '可用', tone: 'available', effect: '在列表页过滤关键字，可隐藏、高亮或标记匹配内容。', usage: '配置规则后自动应用到列表页。' },
+  '内容过滤': { icon: '🎯', status: '可用', tone: 'available', effect: '在列表页过滤关键字，可隐藏、高亮或标记匹配内容；隐藏动作可整体或按规则单独关闭。', usage: '配置规则后自动应用到列表页。' },
   '点击增强': { icon: '🖱️', status: '可用', tone: 'available', effect: '统一卡片和标题的点击行为，减少不必要的页面跳转。', usage: '适用于列表页和影片页相关作品区域。' },
   '视频预览': { icon: '🎬', status: '可用', tone: 'available', effect: '悬停列表封面时播放预览片段。', usage: '需要所选预览源支持。' },
   '高清封面': { icon: '🖼️', status: '已弃用', tone: 'neutral', effect: 'JavDB 已默认使用高质量封面，保留该项仅为兼容旧设置。' },
@@ -109,6 +109,7 @@ export {
   PREVIEW_SOURCE_OPTIONS,
   removeFilterRuleAt,
   setFilterRuleEnabled,
+  setFilterRuleHideEnabled,
   toggleActorDefaultTag,
   toggleOnlineAvailabilitySite,
   TRANSLATION_DISPLAY_MODE_OPTIONS,

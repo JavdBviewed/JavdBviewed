@@ -325,3 +325,14 @@
     transition: none;
   }
 }
+
+/* 规则编辑器：隐藏开关（仅 action=hide 时显示） */
+.enhancement-filter-rule-modal__hide-enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+.enhancement-filter-rule-modal__hide-enabled input { width: auto; margin: 0; }

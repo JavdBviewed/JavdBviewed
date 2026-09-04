@@ -244,6 +244,8 @@ export interface KeywordFilterRule {
   caseSensitive: boolean;
   action: 'hide' | 'highlight' | 'blur' | 'mark';
   enabled: boolean;
+  /** 仅对 action==='hide' 生效：为 false 时规则匹配后不隐藏（保持原样）。默认 true。 */
+  hideEnabled?: boolean;
   fields: ('title' | 'actor' | 'studio' | 'genre' | 'tag' | 'video-id' | 'release-date')[];
   style?: {
     backgroundColor?: string;
@@ -266,6 +268,8 @@ export interface KeywordFilterRule {
 export interface ContentFilterConfig {
   enabled: boolean;
   showFilteredCount: boolean;
+  /** 隐藏动作总开关：为 false 时所有 hide 规则都不隐藏（仅高亮/模糊/标记仍可用）。 */
+  hideEnabled?: boolean;
   keywordRules: KeywordFilterRule[];
 }
 
