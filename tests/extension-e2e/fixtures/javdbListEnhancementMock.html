@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-Hant" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <title>JavDB E2E mock list enhancement page</title>
+</head>
+<body>
+  <!-- navbar-item 让 content script 的 isPageProperlyLoaded() 通过 -->
+  <nav class="navbar">
+    <div class="navbar-brand">
+      <a class="navbar-item" href="https://javdb.com"><span class="jdb-logo">JavDB</span></a>
+    </div>
+  </nav>
+
+  <div class="container">
+    <div class="columns">
+      <div class="column">
+        <!--
+          与 javdbListMock.html 的关键差异：卡片不带 .x-btn。
+          x-btn 应由扩展（optimizeListItemTitle）插入，用于断言
+          列表增强主开关 / 子开关是否真正作用于内容脚本。
+          - 卡片1（TEST-001）：标题不含任何可识别演员名，
+            是「隐藏未识别演员」开关的目标卡片；
+            同时 TEST-001 命中 listPreviewLoader 的内置预览钩子
+            （直接返回 BigBuckBunny 示例地址，无需真实网络解析）。
+          - 卡片2（AAA-111）：标题含 "Test Actress"（测试注入的演员名），
+            作为对照组（不应被隐藏）。
+        -->
+        <div class="movie-list" id="movie-list">
+          <div class="item">
+            <a href="/v/TEST001" class="box" title="TEST-001 无演员信息影片 甲">
+              <div class="cover" style="position: relative; display: block; width: 200px; height: 300px; overflow: hidden; background: #eee;"><img src="https://c0.jdbstatic.com/covers/te/TEST001.jpg" alt=""></div>
+              <div class="video-title"><strong>TEST-001</strong> 无演员信息影片 甲</div>
+              <div class="score"><span class="value">4.5分, 由10人評價</span></div>
+              <div class="meta">2026-08-01</div>
+              <div class="tags has-addons"></div>
+            </a>
+          </div>
+          <div class="item">
+            <a href="/v/AAA111" class="box" title="AAA-111 Test Actress 有演员影片 乙">
+              <div class="cover" style="position: relative; display: block; width: 200px; height: 300px; overflow: hidden; background: #eee;"><img src="https://c0.jdbstatic.com/covers/aa/AAA111.jpg" alt=""></div>
+              <div class="video-title"><strong>AAA-111</strong> Test Actress 有演员影片 乙</div>
+              <div class="score"><span class="value">4.2分, 由20人評價</span></div>
+              <div class="meta">2026-08-02</div>
+              <div class="tags has-addons"></div>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
