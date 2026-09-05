@@ -142,8 +142,10 @@ export class RequestScheduler {
   private computeNextWakeTime(): number {
     let next = Infinity;
     for (const task of this.queue) {
-      const timestamp = this.getHostNextAvailableTime(task.host);
-      if (timestamp < next) next = timestamp;
+      const rateTime = this.getHostNextAvailableTime(task.host);
+      const cooldownTime = this.hostCooldownUntil.get(task.host) || 0;
+      const candidate = Math.max(rateTime, cooldownTime);
+      if (candidate < next) next = candidate;
     }
     return next === Infinity ? this.now() : next;
   }
