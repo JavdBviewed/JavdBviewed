@@ -262,8 +262,28 @@ function switchTabContent(runtime: NavigationRuntime, tabId: string): boolean {
   runtime.contents.forEach(content => content.classList.remove('active'));
   nextContent.classList.add('active');
   dispatchTabEvent('tab:show', tabId);
+  resetDocumentScrollInstant();
 
   return true;
+}
+
+/**
+ * 立即（非平滑）把文档滚动归零，并取消进行中的平滑滚动动画。
+ *
+ * 全局 `html { scroll-behavior: smooth }` 会让所有程序化滚动都变成动画，
+ * 且 same-document hash 导航（如设置子页切换）不会中断旧页面上进行中的
+ * 平滑动画——动画会在新页面布局上继续，导致用户落在错误的滚动位置。
+ * 每次 tab 内容激活后调用本函数，可根除这类跨导航滚动泄漏。
+ *
+ * 注意：必须临时把 scrollBehavior 置为 auto，否则 scrollTo 仍会走动画。
+ */
+function resetDocumentScrollInstant(): void {
+  const de = document.documentElement;
+  if (!de) return;
+  const previous = de.style.scrollBehavior;
+  de.style.scrollBehavior = 'auto';
+  window.scrollTo(0, 0);
+  de.style.scrollBehavior = previous;
 }
 
 type ScheduleActivation = (state: DashboardNavState, options: ActivateOptions) => Promise<void>;

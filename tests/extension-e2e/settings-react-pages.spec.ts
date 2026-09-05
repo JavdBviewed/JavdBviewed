@@ -393,6 +393,16 @@ test.describe('settings React pages in Chromium', () => {
         await page.goto(extensionPageUrl(extensionId, `dashboard/dashboard.html#tab-settings/${pageId}`), {
           waitUntil: 'domcontentloaded',
         });
+        // 防御性复位：same-document hash 导航不会中断上一页进行中的平滑滚动
+        //（app 侧已在 navigation.ts 复位，这里再兜底一次），避免 hover 目标
+        // 被顶出视口或被固定顶栏遮挡导致反馈断言失败。
+        await page.evaluate(() => {
+          const de = document.documentElement;
+          const previous = de.style.scrollBehavior;
+          de.style.scrollBehavior = 'auto';
+          window.scrollTo(0, 0);
+          de.style.scrollBehavior = previous;
+        });
         await page.mouse.move(0, 0);
         const section = page.locator('[data-ui-pattern="setting-section"]').first();
         await expect(section).toBeVisible();
