@@ -555,123 +555,166 @@ export class NewWorksCollector {
 
                 const tabId = tab.id;
                 let isResolved = false;
+                let pollTimer: ReturnType<typeof setInterval> | null = null;
+                let attempt = 0;
+
+                const onUpdated = (updatedTabId: number, changeInfo: any) => {
+                    // load 完成时立即尝试一次（load 可能因第三方脚本挂起而不触发，
+                    // 因此这只是加速路径，真正的就绪判定靠轮询 executeScript）
+                    if (updatedTabId === tabId && changeInfo.status === 'complete') {
+                        tryParse();
+                    }
+                };
+
+                const cleanup = () => {
+                    clearTimeout(timeout);
+                    if (pollTimer) {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                    }
+                    chrome.tabs.onUpdated.removeListener(onUpdated);
+                };
+
+                // 注入脚本解析作品数据。
+                // 页面未就绪（仍在导航 / readyState=loading / 列表容器未渲染）时返回 null，
+                // 由调用方继续轮询；就绪后返回作品数组（空数组表示该页确实没有作品）。
+                const parseFunc = (targetUrl: string): any[] | null => {
+                    try {
+                        const target = new URL(targetUrl);
+                        const here = new URL(window.location.href);
+                        if (here.origin !== target.origin || here.pathname !== target.pathname) {
+                            return null;
+                        }
+                        if (document.readyState === 'loading') {
+                            return null;
+                        }
+                        const hasContainer = !!document.querySelector('.movie-list, .grid-item');
+                        if (!hasContainer && document.readyState !== 'complete') {
+                            return null;
+                        }
+
+                        const works: any[] = [];
+                        const movieItems = document.querySelectorAll('.movie-list .item, .grid-item .item');
+
+                        movieItems.forEach(item => {
+                            try {
+                                // 获取作品链接和ID
+                                const linkElement = item.querySelector('a[href*="/v/"]');
+                                if (!linkElement) return;
+
+                                const href = linkElement.getAttribute('href');
+                                if (!href) return;
+
+                                // 提取视频ID
+                                const videoIdMatch = href.match(/\/v\/([^\/?]+)/);
+                                if (!videoIdMatch) return;
+                                const videoId = videoIdMatch[1];
+
+                                // 获取标题
+                                const titleElement = item.querySelector('.video-title, .title');
+                                const title = titleElement?.textContent?.trim() || '';
+
+                                // 从标题中提取番号作为ID（用于与番号库匹配）
+                                // 标题格式通常是: "MIAB-608 【FANZA限定】..."
+                                let actualId = videoId; // 默认使用JavDB ID
+                                const codeMatch = title.match(/^([A-Z]+-\d+)/);
+                                if (codeMatch) {
+                                    actualId = codeMatch[1]; // 使用番号作为ID
+                                    console.log(`[ACTOR] 提取番号: ${actualId} (JavDB ID: ${videoId})`);
+                                } else {
+                                    console.log(`[ACTOR] 未能从标题提取番号，使用JavDB ID: ${videoId}, 标题: ${title}`);
+                                }
+
+                                // 获取封面图
+                                const imgElement = item.querySelector('img');
+                                const coverImage = imgElement?.getAttribute('data-src') || imgElement?.getAttribute('src') || '';
+
+                                // 获取发行日期
+                                const dateElement = item.querySelector('.meta, .video-meta');
+                                const dateText = dateElement?.textContent?.trim() || '';
+
+                                // 简单的日期提取
+                                let releaseDate = '';
+                                const dateMatch = dateText.match(/(\d{4}-\d{2}-\d{2})/);
+                                if (dateMatch) {
+                                    releaseDate = dateMatch[1];
+                                }
+
+                                // 获取标签
+                                const tagElements = item.querySelectorAll('.tag, .genre');
+                                const tags: string[] = [];
+                                tagElements.forEach(tag => {
+                                    const tagText = tag.textContent?.trim();
+                                    if (tagText) tags.push(tagText);
+                                });
+
+                                // 注意：URL 始终使用 javdb.com 作为持久化存储的域名
+                                // 显示时会通过 RouteManager 动态替换为当前选择的线路
+                                works.push({
+                                    id: actualId, // 使用提取的番号或JavDB ID
+                                    javdbId: videoId, // 保留JavDB ID用于链接
+                                    title,
+                                    url: `https://javdb.com${href}`,
+                                    coverImage,
+                                    releaseDate,
+                                    tags
+                                });
+
+                            } catch (error) {
+                                console.warn('[ACTOR] 解析作品项失败:', error);
+                            }
+                        });
+
+                        return works;
+                    } catch (error) {
+                        return null;
+                    }
+                };
+
+                const tryParse = () => {
+                    if (isResolved) return;
+                    chrome.scripting.executeScript(
+                        {
+                            target: { tabId: tabId },
+                            func: parseFunc,
+                            args: [url]
+                        },
+                        (results) => {
+                            if (isResolved) return;
+                            // 执行失败（页面仍在导航、无可用上下文等）时 results 为空，继续轮询
+                            const result = results && results[0] && results[0].result;
+                            if (!Array.isArray(result)) return;
+                            isResolved = true;
+                            cleanup();
+                            chrome.tabs.remove(tabId);
+                            console.log(`[ACTOR] 第 ${attempt} 次尝试解析成功，作品数: ${result.length}`);
+                            resolve(result);
+                        }
+                    );
+                };
 
                 // 设置超时
                 const timeout = setTimeout(() => {
                     if (!isResolved) {
                         isResolved = true;
+                        cleanup();
                         chrome.tabs.remove(tabId);
-                        reject(new Error('解析作品数据超时'));
+                        reject(new Error(`解析作品数据超时（${attempt} 次尝试后页面仍未就绪）`));
                     }
                 }, 30000); // 30秒超时
 
-                // 监听标签页加载完成
-                const onUpdated = (updatedTabId: number, changeInfo: any) => {
-                    if (updatedTabId === tabId && changeInfo.status === 'complete') {
-                        chrome.tabs.onUpdated.removeListener(onUpdated);
-
-                        // 注入脚本解析作品数据
-                        chrome.scripting.executeScript({
-                            target: { tabId: tabId },
-                            func: () => {
-                                const works: any[] = [];
-
-                                // 查找作品列表容器
-                                const movieItems = document.querySelectorAll('.movie-list .item, .grid-item .item');
-
-                                movieItems.forEach(item => {
-                                    try {
-                                        // 获取作品链接和ID
-                                        const linkElement = item.querySelector('a[href*="/v/"]');
-                                        if (!linkElement) return;
-
-                                        const href = linkElement.getAttribute('href');
-                                        if (!href) return;
-
-                                        // 提取视频ID
-                                        const videoIdMatch = href.match(/\/v\/([^\/\?]+)/);
-                                        if (!videoIdMatch) return;
-                                        const videoId = videoIdMatch[1];
-
-                                        // 获取标题
-                                        const titleElement = item.querySelector('.video-title, .title');
-                                        const title = titleElement?.textContent?.trim() || '';
-
-                                        // 从标题中提取番号作为ID（用于与番号库匹配）
-                                        // 标题格式通常是: "MIAB-608 【FANZA限定】..."
-                                        let actualId = videoId; // 默认使用JavDB ID
-                                        const codeMatch = title.match(/^([A-Z]+-\d+)/);
-                                        if (codeMatch) {
-                                            actualId = codeMatch[1]; // 使用番号作为ID
-                                            console.log(`[ACTOR] 提取番号: ${actualId} (JavDB ID: ${videoId})`);
-                                        } else {
-                                            console.log(`[ACTOR] 未能从标题提取番号，使用JavDB ID: ${videoId}, 标题: ${title}`);
-                                        }
-
-                                        // 获取封面图
-                                        const imgElement = item.querySelector('img');
-                                        const coverImage = imgElement?.getAttribute('data-src') || imgElement?.getAttribute('src') || '';
-
-                                        // 获取发行日期
-                                        const dateElement = item.querySelector('.meta, .video-meta');
-                                        const dateText = dateElement?.textContent?.trim() || '';
-
-                                        // 简单的日期提取
-                                        let releaseDate = '';
-                                        const dateMatch = dateText.match(/(\d{4}-\d{2}-\d{2})/);
-                                        if (dateMatch) {
-                                            releaseDate = dateMatch[1];
-                                        }
-
-                                        // 获取标签
-                                        const tagElements = item.querySelectorAll('.tag, .genre');
-                                        const tags: string[] = [];
-                                        tagElements.forEach(tag => {
-                                            const tagText = tag.textContent?.trim();
-                                            if (tagText) tags.push(tagText);
-                                        });
-
-                                        // 注意：URL 始终使用 javdb.com 作为持久化存储的域名
-                                        // 显示时会通过 RouteManager 动态替换为当前选择的线路
-                                        works.push({
-                                            id: actualId, // 使用提取的番号或JavDB ID
-                                            javdbId: videoId, // 保留JavDB ID用于链接
-                                            title,
-                                            url: `https://javdb.com${href}`,
-                                            coverImage,
-                                            releaseDate,
-                                            tags
-                                        });
-
-                                    } catch (error) {
-                                        console.warn('[ACTOR] 解析作品项失败:', error);
-                                    }
-                                });
-
-                                return works;
-                            }
-                        }, (results) => {
-                            clearTimeout(timeout);
-                            chrome.tabs.remove(tabId);
-
-                            if (!isResolved) {
-                                isResolved = true;
-                                if (results && results[0] && results[0].result) {
-                                    resolve(results[0].result as any[]);
-                                } else {
-                                    resolve([]);
-                                }
-                            }
-                        });
-                    }
-                };
-
                 chrome.tabs.onUpdated.addListener(onUpdated);
+
+                // 不等待 load 事件：页面可能因第三方脚本（如 yandex metrika）挂起而永不触发 load，
+                // 而 DOM 在 domcontentloaded 后即可解析。轮询 executeScript，页面就绪（URL 匹配 +
+                // readyState 非 loading + 列表容器存在）时立即解析。
+                pollTimer = setInterval(() => {
+                    attempt += 1;
+                    tryParse();
+                }, 800);
             });
         });
     }
-
-    
 
     /**
      * 计算日期阈值
