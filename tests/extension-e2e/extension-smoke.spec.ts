@@ -351,8 +351,9 @@ test.describe('JavdBviewed extension browser smoke', () => {
       const cleanupOverlay = page.locator('[data-media-cleanup-overlay="1"]');
       await expect(cleanupOverlay).toBeVisible();
       await expect(cleanupOverlay.getByRole('button', { name: '查找已看影片' })).toBeVisible();
+      // 2026-09 起「处理失败」tab 已并入「操作记录」（含重试入口），面板只有 2 个 tab
+      await expect(cleanupOverlay.getByRole('tab')).toHaveCount(2);
       await expect(cleanupOverlay.getByRole('tab', { name: '待处理' })).toBeVisible();
-      await expect(cleanupOverlay.getByRole('tab', { name: '处理失败' })).toBeVisible();
       await expect(cleanupOverlay.getByRole('tab', { name: '操作记录' })).toBeVisible();
       const cleanupCard = cleanupOverlay.locator('[data-media-cleanup-card="1"]');
       await expect(cleanupCard).toHaveCount(1);
