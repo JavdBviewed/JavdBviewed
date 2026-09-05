@@ -249,3 +249,156 @@ describe('isBulmaModalTrigger excludes modal buttons from interception', () => {
     expect(evt.defaultPrevented).toBe(true);
   });
 });
+
+describe('VideoDetailEnhancer related lists enhancement (JavDB new DOM, 2026-08+)', () => {
+  /**
+   * 2026-08 起 JavDB 影片页新 DOM（/v/ZNzGYP 实测）：
+   * tab 为 li[data-movie-tab-target="listTab"] > a.list-tab[data-url="/v/<id>/lists/related"]，
+   * 原生空面板为 div[data-movie-tab-target="lists"]#lists（此前会被旧通配选择器误命中）。
+   */
+  const NEW_DOM = `
+    <div class="columns" data-controller="movie-tab">
+      <div class="column">
+        <div class="tabs no-bottom">
+          <ul>
+            <li class="is-active" data-movie-tab-target="magnetTab">
+              <a name="magnet-links" data-action="click-&gt;movie-tab#magnets" href="javascript:void(0);"><span>磁鏈</span></a>
+            </li>
+            <li data-movie-tab-target="reviewTab" data-loaded="false">
+              <a class="review-tab" data-url="/v/NQ6pPb/reviews/lastest" data-action="click-&gt;movie-tab#latestReviews" href="javascript:;"><span>短評(7)</span></a>
+            </li>
+            <li data-movie-tab-target="listTab" data-loaded="false">
+              <a class="list-tab" data-url="/v/NQ6pPb/lists/related" data-action="click-&gt;movie-tab#relatedLists" data-plans-url="/plans" href="javascript:;"><span>相關清單</span></a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div id="tabs-container" data-movie-tab-target="tabsContainer">
+      <div data-movie-tab-target="magnets" id="magnets"></div>
+      <div data-movie-tab-target="reviews" id="reviews"></div>
+      <div data-movie-tab-target="lists" id="lists" style="display: none;"></div>
+    </div>
+  `;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+    (window as any).__JDB_VERBOSE = false;
+  });
+
+  it('finds the listTab tab instead of the native #lists panel', () => {
+    document.body.innerHTML = NEW_DOM;
+    const enhancer = new VideoDetailEnhancer({ enableRelatedLists: true }) as any;
+
+    const tab = enhancer.findRelatedListsTab();
+
+    expect(tab).not.toBeNull();
+    expect(tab!.id).not.toBe('lists');
+    // 新 DOM 命中的是 li 下的 a.list-tab 锚点本身
+    expect(tab!.matches('a.list-tab')).toBe(true);
+    expect(tab!.textContent).toContain('相關清單');
+  });
+
+  it('neutralizes the new-DOM tab, keeps #lists intact, and intercepts click', async () => {
+    window.history.pushState({}, '', '/v/NQ6pPb');
+    document.body.innerHTML = NEW_DOM;
+    const enhancer = new VideoDetailEnhancer({ enableRelatedLists: true }) as any;
+    const getRelatedLists = vi.spyOn(relatedListsService, 'getRelatedLists').mockResolvedValue({
+      success: true,
+      data: [],
+      page: 1,
+      totalPages: 0,
+      hasMore: false,
+    });
+
+    await enhancer.initCore();
+
+    // 原生空面板结构必须保留
+    const nativePanel = document.getElementById('lists');
+    expect(nativePanel?.getAttribute('data-movie-tab-target')).toBe('lists');
+    expect(nativePanel?.getAttribute('data-action')).toBeNull();
+
+    // tab 锚点被中和：href 改写、data-action 剥离、原 href 记录
+    const tab = document.querySelector<HTMLAnchorElement>('li[data-movie-tab-target="listTab"] a.list-tab');
+    expect(tab).not.toBeNull();
+    expect(tab!.getAttribute('data-jdb-related-lists-original-href')).toBe('javascript:;');
+    expect(tab!.getAttribute('data-action')).toBeNull();
+    expect(tab!.getAttribute('href')).toBe('#jdb-related-lists-panel');
+
+    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+    tab?.dispatchEvent(clickEvent);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(clickEvent.defaultPrevented).toBe(true);
+    expect(getRelatedLists).toHaveBeenCalledWith('NQ6pPb', 1, 10);
+    expect(document.getElementById('jdb-related-lists-panel')?.getAttribute('aria-hidden')).toBe('false');
+  });
+
+  it('intercepts click even before neutralization (data-url fallback)', async () => {
+    window.history.pushState({}, '', '/v/NQ6pPb');
+    document.body.innerHTML = NEW_DOM;
+    const enhancer = new VideoDetailEnhancer({ enableRelatedLists: true }) as any;
+    vi.spyOn(relatedListsService, 'getRelatedLists').mockResolvedValue({
+      success: true,
+      data: [],
+      page: 1,
+      totalPages: 0,
+      hasMore: false,
+    });
+
+    // 绕过 initCore 的中和逻辑，直接安装点击拦截后点击未中和的 tab
+    enhancer.bindRelatedListsTabInterception(null, 'NQ6pPb');
+
+    const tab = document.querySelector<HTMLAnchorElement>('li[data-movie-tab-target="listTab"] a.list-tab')!;
+    expect(tab.getAttribute('href')).toBe('javascript:;'); // 尚未中和
+
+    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+    tab.dispatchEvent(clickEvent);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(clickEvent.defaultPrevented).toBe(true);
+  });
+
+  it('still intercepts old-DOM /plans/ tab alongside native #lists panel', async () => {
+    window.history.pushState({}, '', '/v/NQ6pPb');
+    document.body.innerHTML = `
+      <h2 class="title is-4"><strong>SSIS-001</strong></h2>
+      <div class="movie-panel-info">
+        <div class="tabs">
+          <ul>
+            <li><a href="/plans/ypay">Related lists</a></li>
+          </ul>
+        </div>
+      </div>
+      <div id="tabs-container">
+        <div id="reviews"></div>
+        <div data-movie-tab-target="lists" id="lists" style="display: none;"></div>
+      </div>
+    `;
+    const enhancer = new VideoDetailEnhancer({ enableRelatedLists: true }) as any;
+    const getRelatedLists = vi.spyOn(relatedListsService, 'getRelatedLists').mockResolvedValue({
+      success: true,
+      data: [],
+      page: 1,
+      totalPages: 0,
+      hasMore: false,
+    });
+
+    await enhancer.initCore();
+
+    const tab = enhancer.findRelatedListsTab();
+    expect(tab).not.toBeNull();
+    expect(tab!.id).not.toBe('lists');
+
+    const relatedTab = document.querySelector<HTMLAnchorElement>('a[data-jdb-related-lists-original-href="/plans/ypay"]');
+    expect(relatedTab).not.toBeNull();
+    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+    relatedTab?.dispatchEvent(clickEvent);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(clickEvent.defaultPrevented).toBe(true);
+    expect(getRelatedLists).toHaveBeenCalledWith('NQ6pPb', 1, 10);
+    expect(document.getElementById('lists')?.getAttribute('data-movie-tab-target')).toBe('lists');
+  });
+});
