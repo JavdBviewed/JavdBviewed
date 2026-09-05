@@ -121,6 +121,7 @@ describe('enhancementSettingsModel', () => {
         showStatusBadge: false,
         enableStatusQuickAction: true,
         enableListFavoriteQuickAction: true,
+        resourceTags: true,
         popularityEffects: { enabled: true, minRating: 4.5, minRatingCount: 100 },
         sorting: {
           enabled: true,
@@ -210,6 +211,7 @@ describe('enhancementSettingsModel', () => {
     expect(form.listColumnCount).toBe(6);
     expect(form.enableContainerExpansion).toBe(true);
     expect(form.showStatusBadge).toBe(false);
+    expect(form.resourceTags).toBe(true);
     expect(form.enableListSorting).toBe(true);
     expect(form.listSortingAppendStrategy).toBe('auto-resort');
     expect(form.listSortingAutoResortPosition).toBe('top');
@@ -319,6 +321,21 @@ describe('enhancementSettingsModel', () => {
     // re-read from settings back into form
     const remapped = mapSettingsToEnhancementForm(on);
     expect(remapped.enableActorPenetration).toBe(true);
+  });
+
+  it('round-trips resourceTags (default OFF)', () => {
+    const defaultForm = mapSettingsToEnhancementForm({} as any);
+    expect(defaultForm.resourceTags).toBe(false);
+    expect(DEFAULT_ENHANCEMENT_SETTINGS_FORM.resourceTags).toBe(false);
+
+    const on = applyEnhancementFormToSettings({} as any, { ...DEFAULT_ENHANCEMENT_SETTINGS_FORM, resourceTags: true });
+    expect(on.listEnhancement.resourceTags).toBe(true);
+
+    const off = applyEnhancementFormToSettings({} as any, { ...DEFAULT_ENHANCEMENT_SETTINGS_FORM, resourceTags: false });
+    expect(off.listEnhancement.resourceTags).toBe(false);
+
+    expect(mapSettingsToEnhancementForm(on).resourceTags).toBe(true);
+    expect(mapSettingsToEnhancementForm(off).resourceTags).toBe(false);
   });
 
   it('validates ranges', () => {

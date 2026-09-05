@@ -54,6 +54,8 @@ export type EnhancementSettingsFormState = {
   enableStatusQuickAction: boolean;
   enableListFavoriteQuickAction: boolean;
   enableLibraryMatchStatus: boolean;
+  /** 资源标签：列表卡片标注中字/破解等资源证据 */
+  resourceTags: boolean;
   enableListSorting: boolean;
   listSortingAppendStrategy: ListSortingAppendStrategy;
   listSortingAutoResortPosition: ListSortingPosition;
@@ -269,6 +271,7 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   enableStatusQuickAction: false,
   enableListFavoriteQuickAction: false,
   enableLibraryMatchStatus: false,
+  resourceTags: false,
   enableListSorting: false,
   listSortingAppendStrategy: 'prompt',
   listSortingAutoResortPosition: 'preserve',
@@ -513,6 +516,7 @@ export function mapSettingsToEnhancementForm(
     enableStatusQuickAction: le.enableStatusQuickAction === true,
     enableListFavoriteQuickAction: le.enableListFavoriteQuickAction === true,
     enableLibraryMatchStatus: libraryMatchStatus.enabled === true,
+    resourceTags: le.resourceTags === true,
     enableListSorting: sorting.enabled === true,
     listSortingAppendStrategy: normalizeAppendStrategy(sorting.appendStrategy),
     listSortingAutoResortPosition: normalizeSortPosition(sorting.autoResortPosition),
@@ -811,6 +815,7 @@ export function applyEnhancementFormToSettings(
       showStatusBadge: form.showStatusBadge,
       enableStatusQuickAction: form.enableStatusQuickAction,
       enableListFavoriteQuickAction: form.enableListFavoriteQuickAction,
+      resourceTags: form.resourceTags,
       popularityEffects: {
         ...existingPop,
         enabled: form.enablePopularityEffects,

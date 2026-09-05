@@ -380,6 +380,16 @@ export function ListTab({
         />
       </SettingSection>
 
+      <SettingSection title="资源标签" description="列表卡片上的资源证据标注">
+        <SettingToggleRow
+          id="resourceTags"
+          label="启用资源标签"
+          description="在列表卡片标注中字/破解等资源证据"
+          checked={form.resourceTags}
+          onChange={(v) => setToggle('resourceTags', v)}
+        />
+      </SettingSection>
+
     </div>
   );
 }
