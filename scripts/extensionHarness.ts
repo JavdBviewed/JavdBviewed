@@ -53,6 +53,8 @@ export interface LaunchExtensionContextOptions {
   channel?: string;
   headless?: boolean;
   slowMo?: number;
+  /** 追加的 Chromium 启动参数（如 --no-proxy-server，用于代理不可达目标站点的真机 E2E） */
+  extraArgs?: string[];
 }
 
 export interface PrepareChromeTestProfileOptions {
@@ -443,6 +445,9 @@ export async function launchExtensionContext(
 ): Promise<BrowserContext> {
   await assertExtensionBuildDirectory(harnessOptions.extensionDir);
   const args = createChromiumExtensionArgs(harnessOptions.extensionDir);
+  if (launchOptions.extraArgs?.length) {
+    args.push(...launchOptions.extraArgs);
+  }
 
   if (harnessOptions.chromeDataSnapshot.enabled) {
     const snapshot = await ensureChromeDataSnapshot(harnessOptions.chromeDataSnapshot);
