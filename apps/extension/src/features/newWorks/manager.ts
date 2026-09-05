@@ -49,6 +49,16 @@ export class NewWorksManager {
     private newWorks: Map<string, NewWorkRecord> = new Map();
     private globalConfig: NewWorksGlobalConfig = DEFAULT_NEW_WORKS_CONFIG;
     private isLoaded = false;
+    // 跨上下文一致性（SW / dashboard 各持独立实例，initialize 幂等只读一次）：
+    // baseline = initialize 读存储时的 id 集合（每次保存后重设）；
+    // dirty = 本实例改过的 id（全量回写白名单，同步时不因存储缺失被移除）；
+    // localDeleted = 本实例已删、待持久化的 id（同步时不从存储重新合并）。
+    private subscriptionBaseline: Set<string> = new Set();
+    private workBaseline: Set<string> = new Set();
+    private dirtySubscriptionIds: Set<string> = new Set();
+    private dirtyWorkIds: Set<string> = new Set();
+    private localDeletedSubscriptionIds: Set<string> = new Set();
+    private localDeletedWorkIds: Set<string> = new Set();
     private readonly autoStatusSyncGate = createNewWorksAutoStatusSyncGate<NewWorksStatusSyncResult>({
         ttlMs: NEW_WORKS_AUTO_STATUS_SYNC_TTL_MS,
         createSkipped: () => ({ updated: 0, details: [], skipped: true }),
@@ -111,6 +121,11 @@ export class NewWorksManager {
             this.newWorks.clear();
             Object.values(newWorksData).forEach(work => { this.newWorks.set(work.id, work); });
 
+            // 记录加载基线：后续保存同步时，只移除"基线中存在且本实例未修改"的存储缺失项，
+            // 避免误删 initialize 后由调用方直接注入内存的条目（兼容既有契约）
+            this.subscriptionBaseline = new Set(this.subscriptions.keys());
+            this.workBaseline = new Set(this.newWorks.keys());
+
             this.isLoaded = true;
             log.verbose(`NewWorksManager: Loaded ${this.subscriptions.size} subscriptions, ${this.newWorks.size} works`);
         } catch (error) {
@@ -147,7 +162,11 @@ export class NewWorksManager {
         await this.initialize();
         let changed = false;
         for (const id of workIds) {
-            if (this.newWorks.has(id)) { this.newWorks.delete(id); changed = true; }
+            if (this.newWorks.has(id)) {
+                this.newWorks.delete(id);
+                this.localDeletedWorkIds.add(id);
+                changed = true;
+            }
             try { await dbNewWorksDelete(id); } catch {}
         }
         if (changed) await this.saveNewWorks();
@@ -179,6 +198,7 @@ export class NewWorksManager {
         };
 
         this.subscriptions.set(actorId, subscription);
+        this.dirtySubscriptionIds.add(actorId);
         await this.saveSubscriptions();
     }
 
@@ -190,6 +210,7 @@ export class NewWorksManager {
 
         if (this.subscriptions.has(actorId)) {
             this.subscriptions.delete(actorId);
+            this.localDeletedSubscriptionIds.add(actorId);
             await this.saveSubscriptions();
         }
     }
@@ -218,6 +239,7 @@ export class NewWorksManager {
             log.verbose(`NewWorksManager: 切换订阅状态 - 演员: ${subscription.actorName}, 从 ${subscription.enabled} 切换到 ${enabled}`);
             subscription.enabled = enabled;
             this.subscriptions.set(actorId, subscription);
+            this.dirtySubscriptionIds.add(actorId);
             await this.saveSubscriptions();
             log.verbose(`NewWorksManager: 订阅状态已保存`);
         } else {
@@ -318,21 +340,17 @@ export class NewWorksManager {
                     cur.isRead = true;
                     pending.push(cur);
                     this.newWorks.set(id, cur);
-                } else if (!cur) {
-                    const backup = this.newWorks.get(id);
-                    if (backup && !backup.isRead) {
-                        backup.isRead = true;
-                        pending.push(backup);
-                        this.newWorks.set(id, backup);
-                    }
+                    this.dirtyWorkIds.add(id);
                 }
+                // IDB 查无该作品 = 已被删除（本实例或他处）：不再用内存副本回写，防止复活
             } catch (e) {
-                // 回退：只更新缓存
+                // IDB 读取失败（非删除）：只更新内存、不放入待写集合，
+                // 避免异常状态下用内存旧副本回写 IDB 复活已删记录
                 const backup = this.newWorks.get(id);
                 if (backup && !backup.isRead) {
                     backup.isRead = true;
                     this.newWorks.set(id, backup);
-                    pending.push(backup);
+                    this.dirtyWorkIds.add(id);
                 }
             }
         }
@@ -467,6 +485,7 @@ export class NewWorksManager {
                 const updated = { ...work, isRead: newIsRead, status: newStatus } as NewWorkRecord;
                 toUpdate.push(updated);
                 this.newWorks.set(work.id, updated);
+                this.dirtyWorkIds.add(work.id);
                 updatedCount++;
                 updateDetails.push({ id: work.id, oldStatus, newStatus: newIsRead ? `read (${newStatus})` : `unread (${newStatus})` });
             } else {
@@ -540,25 +559,97 @@ export class NewWorksManager {
     /**
      * 保存订阅数据
      */
+    /**
+     * 将内存订阅表与 chrome.storage 双向同步（在全量回写之前调用）
+     * - 存储有、内存无（且非本实例待持久化的删除）= 他处新增 → 并入内存
+     * - 加载基线中存在、内存仍有、存储已无（且本实例未修改）= 他处已删 → 从内存移除
+     * 读存储失败时告警并按当前内存状态继续（不阻塞保存）
+     */
+    private async syncSubscriptionsFromStorage(): Promise<void> {
+        let stored: Record<string, ActorSubscription> | null = null;
+        try {
+            stored = await getValue<Record<string, ActorSubscription>>(STORAGE_KEYS.NEW_WORKS_SUBSCRIPTIONS, {});
+        } catch (e) {
+            log.warn('[NewWorks] 同步订阅存储失败，按内存状态继续', e);
+            return;
+        }
+        const storedMap = new Map<string, ActorSubscription>();
+        Object.entries(stored ?? {}).forEach(([id, sub]) => {
+            if (sub) storedMap.set(id, sub);
+        });
+        storedMap.forEach((sub, id) => {
+            if (!this.subscriptions.has(id) && !this.localDeletedSubscriptionIds.has(id)) {
+                if (sub.enabled === undefined) sub.enabled = true;
+                this.subscriptions.set(id, sub);
+            }
+        });
+        this.subscriptionBaseline.forEach(id => {
+            if (this.subscriptions.has(id) && !storedMap.has(id) && !this.dirtySubscriptionIds.has(id)) {
+                this.subscriptions.delete(id);
+            }
+        });
+    }
+
+    /**
+     * 将内存新作品表与 chrome.storage 兼容键双向同步，策略同 syncSubscriptionsFromStorage
+     */
+    private async syncNewWorksFromStorage(): Promise<void> {
+        let stored: Record<string, NewWorkRecord> | null = null;
+        try {
+            stored = await getValue<Record<string, NewWorkRecord>>(STORAGE_KEYS.NEW_WORKS_RECORDS, {});
+        } catch (e) {
+            log.warn('[NewWorks] 同步新作品存储失败，按内存状态继续', e);
+            return;
+        }
+        const storedMap = new Map<string, NewWorkRecord>();
+        Object.entries(stored ?? {}).forEach(([id, work]) => {
+            if (work) storedMap.set(id, work);
+        });
+        storedMap.forEach((work, id) => {
+            if (!this.newWorks.has(id) && !this.localDeletedWorkIds.has(id)) {
+                this.newWorks.set(id, work);
+            }
+        });
+        this.workBaseline.forEach(id => {
+            if (this.newWorks.has(id) && !storedMap.has(id) && !this.dirtyWorkIds.has(id)) {
+                this.newWorks.delete(id);
+            }
+        });
+    }
+
+    /**
+     * 保存订阅数据（先同步后全量回写，防止陈旧内存快照复活他处已删的订阅）
+     */
     private async saveSubscriptions(): Promise<void> {
+        await this.syncSubscriptionsFromStorage();
         const subscriptionsObject: Record<string, ActorSubscription> = {};
         this.subscriptions.forEach((sub, id) => {
             subscriptionsObject[id] = sub;
         });
 
         await setValue(STORAGE_KEYS.NEW_WORKS_SUBSCRIPTIONS, subscriptionsObject);
+        this.dirtySubscriptionIds.clear();
+        this.localDeletedSubscriptionIds.clear();
+        this.subscriptionBaseline = new Set(this.subscriptions.keys());
     }
 
     /**
      * 保存新作品数据
      */
+    /**
+     * 保存新作品数据（先同步后全量回写，防止陈旧内存快照复活他处已删的作品）
+     */
     private async saveNewWorks(): Promise<void> {
+        await this.syncNewWorksFromStorage();
         const newWorksObject: Record<string, NewWorkRecord> = {};
         this.newWorks.forEach((work, id) => { newWorksObject[id] = work; });
         // 先保存到本地存储，保持兼容
         await setValue(STORAGE_KEYS.NEW_WORKS_RECORDS, newWorksObject);
         // 再批量写入 IDB（直接调用，SW/dashboard 同 origin 共享同一 IDB）
         try { await newWorksBulkPut(Object.values(newWorksObject)); } catch (err) { log.error('[NewWorks] 批量写入 IndexedDB 失败:', err); }
+        this.dirtyWorkIds.clear();
+        this.localDeletedWorkIds.clear();
+        this.workBaseline = new Set(this.newWorks.keys());
     }
 
     /**
@@ -568,6 +659,7 @@ export class NewWorksManager {
         await this.initialize();
         if (!this.newWorks.has(work.id)) {
             this.newWorks.set(work.id, work);
+            this.dirtyWorkIds.add(work.id);
             await this.saveNewWorks();
         }
         try {
@@ -598,6 +690,7 @@ export class NewWorksManager {
         works.forEach(work => {
             if (!this.newWorks.has(work.id)) {
                 this.newWorks.set(work.id, work);
+                this.dirtyWorkIds.add(work.id);
                 hasChanges = true;
             }
         });
@@ -637,24 +730,13 @@ export class NewWorksManager {
      */
     async markSubscriptionChecked(actorId: string): Promise<void> {
         await this.initialize();
-        let subscription = this.subscriptions.get(actorId);
-        if (!subscription) {
-            // SW 可能在该订阅创建之前就已启动（initialize 幂等，内存订阅表陈旧）：
-            // 从存储读取最新订阅表并合并回内存（只增不删），
-            // 避免 saveSubscriptions 用陈旧快照覆盖存储、误删新增订阅
-            const stored = await getValue<Record<string, ActorSubscription>>(
-                STORAGE_KEYS.NEW_WORKS_SUBSCRIPTIONS,
-                {}
-            );
-            Object.entries(stored ?? {}).forEach(([id, sub]) => {
-                if (sub && !this.subscriptions.has(id)) {
-                    this.subscriptions.set(id, sub);
-                }
-            });
-            subscription = this.subscriptions.get(actorId);
-            if (!subscription) return;
-        }
+        // SW 可能在该订阅创建之前就已启动（initialize 幂等，内存订阅表陈旧）：
+        // 先与存储双向同步（并入他处新增 / 移除他处已删），再处理目标订阅
+        await this.syncSubscriptionsFromStorage();
+        const subscription = this.subscriptions.get(actorId);
+        if (!subscription) return;
         subscription.lastCheckTime = Date.now();
+        this.dirtySubscriptionIds.add(actorId);
         await this.saveSubscriptions();
         log.verbose(`[NewWorks] 已更新订阅最后检查时间: ${subscription.actorName}`);
     }
