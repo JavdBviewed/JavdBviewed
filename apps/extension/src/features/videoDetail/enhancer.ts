@@ -818,6 +818,8 @@ export class VideoDetailEnhancer {
     const listTab = this.findRelatedListsTab();
     if (listTab) {
       this.neutralizeRelatedListsTab(listTab);
+    } else {
+      log('[RelatedLists] related lists tab not found (DOM drift?)', { movieId });
     }
 
     const relatedPanel = await this.ensureRelatedListsPanel();
@@ -926,6 +928,12 @@ export class VideoDetailEnhancer {
   }
 
   private neutralizeRelatedListsTab(tab: HTMLElement): void {
+    // 防御：误取到原生空面板 #lists（非 tab）时直接跳过，避免剥离其结构属性
+    if (tab.id === 'lists' && !tab.querySelector('a')) {
+      log('[RelatedLists] neutralize skipped: native lists panel is not a tab');
+      return;
+    }
+
     const anchors = tab.matches('a')
       ? [tab as HTMLAnchorElement]
       : Array.from(tab.querySelectorAll<HTMLAnchorElement>('a'));
@@ -968,15 +976,18 @@ export class VideoDetailEnhancer {
 
     const anchor = (candidate.matches('a') ? candidate : candidate.querySelector('a')) as HTMLAnchorElement | null;
     const href = anchor?.getAttribute('href') || '';
+    const dataUrl = anchor?.getAttribute('data-url') || '';
     const dataTarget = candidate.getAttribute('data-movie-tab-target')
       || candidate.querySelector<HTMLElement>('[data-movie-tab-target]')?.getAttribute('data-movie-tab-target')
       || '';
     const text = candidate.textContent || '';
     const inMovieTabBar = !!candidate.closest('.tabs, .movie-panel-info, [data-controller*="movie-tab"]');
     const isRelated = dataTarget === 'lists'
+      || dataTarget === 'listTab'
       || href.includes('#lists')
       || href.includes('/plans/')
-      || /相关清单|相关清單|lists/i.test(text);
+      || dataUrl.includes('/lists/related')
+      || /相关清单|相關清單|清单|清單|lists/i.test(text);
 
     return inMovieTabBar && isRelated ? candidate : null;
   }
@@ -1059,7 +1070,14 @@ export class VideoDetailEnhancer {
   }
 
   private findRelatedListsTab(): HTMLElement | null {
+    // JavDB 新版 DOM（2026-08 起）：tab 为 li[data-movie-tab-target="listTab"] > a.list-tab，
+    // data-url 指向 /v/<id>/lists/related；旧通配 [data-movie-tab-target="lists"] 会命中
+    // 原生空面板 #lists（querySelector 文档序先命中），必须移除并前置新选择器。
     const selectors = [
+      'li[data-movie-tab-target="listTab"] > a',
+      'a.list-tab[data-url$="/lists/related"]',
+      'a[data-url$="/lists/related"]',
+      'li[data-movie-tab-target="listTab"]',
       '.movie-panel-info a[data-movie-tab-target="lists"]',
       'a[href="#lists"]',
       'a[data-movie-tab-target="lists"]',
@@ -1068,13 +1086,25 @@ export class VideoDetailEnhancer {
       '.movie-panel-info a[href*="/plans/"]',
       '.tabs a[href*="/plans/"]',
       '[data-tab="lists"]',
-      '[data-movie-tab-target="lists"]',
     ];
-    const direct = document.querySelector(selectors.join(', ')) as HTMLElement | null;
-    if (direct) return direct;
+    for (const selector of selectors) {
+      const direct = document.querySelector(selector) as HTMLElement | null;
+      if (direct && this.isRelatedListsTabElement(direct)) return direct;
+    }
 
     const candidates = Array.from(document.querySelectorAll<HTMLElement>('.tabs li, .tabs a, .tab, button, [role="tab"]'));
-    return candidates.find((el) => /相关清单|相關清單|清单|清單|lists/i.test(el.textContent || '')) || null;
+    return candidates.find(
+      (el) => this.isRelatedListsTabElement(el) && /相关清单|相關清單|清单|清單|lists/i.test(el.textContent || ''),
+    ) || null;
+  }
+
+  /**
+   * 合法 tab 必须包含可点击锚点，避免把原生空面板 #lists
+   * （div[data-movie-tab-target="lists"]）误当成 tab。
+   */
+  private isRelatedListsTabElement(el: HTMLElement): boolean {
+    if (el.id === 'lists') return false;
+    return el.matches('a') || !!el.querySelector('a');
   }
 
   private isRelatedListsPanelVisible(panel: HTMLElement): boolean {
