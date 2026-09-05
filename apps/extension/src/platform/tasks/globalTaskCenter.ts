@@ -476,6 +476,9 @@ export class GlobalTaskCenter {
     this.cleanupStaleTasks();
     const task = this.store.getTask(taskId);
     if (!task) return { granted: false, waitReason: 'task-not-found' };
+    if (task.runtime.status === 'done' || task.runtime.status === 'error' || task.runtime.status === 'canceled') {
+      return { granted: false, waitReason: `task-${task.runtime.status}` };
+    }
     const bucket = resolveTaskBucket(task.descriptor.label);
     const baseLimit = TASK_BUCKET_LIMITS[bucket] ?? 1;
     const visible = this.store.isTabVisible(task.descriptor.tabId);
@@ -670,6 +673,17 @@ export class GlobalTaskCenter {
     }
 
     const retryLimit = Math.max(0, task.descriptor.retryLimit || 0);
+    // 终态守卫：过期 FAIL 不得把 done/error/canceled 任务重新排回队列
+    if (task.runtime.status === 'done' || task.runtime.status === 'error' || task.runtime.status === 'canceled') {
+      return {
+        ok: true,
+        retryable: false,
+        retryCount: task.runtime.retryCount,
+        retryLimit,
+        status: task.runtime.status,
+        waitReason: task.runtime.waitReason,
+      };
+    }
     task.runtime.retryCount += 1;
     task.runtime.detail = error || undefined;
 

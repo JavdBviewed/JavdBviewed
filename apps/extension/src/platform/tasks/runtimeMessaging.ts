@@ -5,7 +5,7 @@
  */
 import { TASK_CENTER_MESSAGE } from '../../shared/taskCenterProtocol';
 import type { GlobalTaskDescriptor } from '../../shared/taskCenterTypes';
-import { isDeferredTaskWaitReason, isTaskLeaseAvailabilityWaitReason } from './waitPolicy';
+import { isDeferredTaskWaitReason, isTaskLeaseAvailabilityWaitReason, isTerminalTaskWaitReason } from './waitPolicy';
 
 /** 向 background 注册任务并获取分配的 taskId 和 tabId */
 export type RegisteredManagedTask = GlobalTaskDescriptor & {
@@ -183,6 +183,9 @@ export async function waitForTaskLease(
       return lease;
     }
     lastWaitReason = lease.waitReason || lastWaitReason;
+    if (lastWaitReason && isTerminalTaskWaitReason(lastWaitReason)) {
+      return { granted: false, waitReason: lastWaitReason };
+    }
     if (lastWaitReason === 'tab-hidden') {
       return { granted: false, waitReason: lastWaitReason };
     }
@@ -210,7 +213,7 @@ async function executeRegisteredManagedTask<T>(
   if (!lease.granted) {
     untrackActiveManagedTask(registeredDescriptor.taskId);
     const waitReason = lease.waitReason || 'lease-denied';
-    if (!isDeferredTaskWaitReason(waitReason)) {
+    if (!isDeferredTaskWaitReason(waitReason) && !isTerminalTaskWaitReason(waitReason)) {
       await failManagedTask(registeredDescriptor.taskId, waitReason);
     }
     return { executed: false, waitReason };
