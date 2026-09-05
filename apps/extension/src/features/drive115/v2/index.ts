@@ -791,10 +791,24 @@ class Drive115V2Service {
       emitDrive115TokenRefreshEvent({ phase: 'reuse', source: 'auto', reused: true });
       ret = await this.refreshingPromise;
     } else {
-      await addLogV2({ timestamp: Date.now(), level: 'info', message: 'access_token 已过期，开始自动刷新（v2）' });
-      // 重新读取最新的 refresh_token（可能已被其他地方更新）
+      // 重新读取最新的凭证（可能已被其他上下文刷新）
       const latestSettings = await getSettings();
-      const latestRt = ((latestSettings?.drive115 as any)?.v2RefreshToken || '').trim() || refreshToken;
+      const latestDrv = (latestSettings?.drive115 || {}) as any;
+      const latestAt = String(latestDrv.v2AccessToken || '').trim();
+      const latestExp = normalizeDrive115TokenExpiry({ expires_at: latestDrv.v2TokenExpiresAt }, nowSec);
+      const latestRefreshAt = Number(latestDrv.v2LastTokenRefreshAtSec || 0) || 0;
+      const refreshedElsewhere = latestRefreshAt > 0
+        && latestRefreshAt !== lastRefreshAtSec
+        && (nowSec - latestRefreshAt) < 300;
+      // 复检：若刚有别的上下文刷新并持久化，直接复用，避免重复 refresh 请求
+      if (!forceRefresh && latestAt && (refreshedElsewhere || (typeof latestExp === 'number' && latestExp - skewSec > nowSec))) {
+        await addLogV2({ timestamp: Date.now(), level: 'info', message: '其他上下文刚完成刷新，直接复用新的 access_token（v2）' });
+        emitDrive115TokenRefreshEvent({ phase: 'reuse', source: 'auto', reused: true });
+        return { success: true, accessToken: latestAt };
+      }
+
+      await addLogV2({ timestamp: Date.now(), level: 'info', message: 'access_token 已过期，开始自动刷新（v2）' });
+      const latestRt = String(latestDrv.v2RefreshToken || '').trim() || refreshToken;
 
       this.refreshingPromise = this.refreshToken(latestRt, { source: 'auto' });
       try {

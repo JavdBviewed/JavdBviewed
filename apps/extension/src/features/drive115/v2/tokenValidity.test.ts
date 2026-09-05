@@ -69,6 +69,43 @@ describe('Drive115V2Service token validity', () => {
     expect(mocks.saveSettings).toHaveBeenCalled();
   });
 
+  it('reuses a token persisted by another context moments ago instead of issuing a duplicate refresh', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const staleRead = {
+      drive115: {
+        v2AccessToken: 'old-access-token',
+        v2RefreshToken: 'refresh-token',
+        v2TokenExpiresAt: nowSec - 120,
+        v2AutoRefresh: true,
+        v2AutoRefreshSkewSec: 60,
+        v2RefreshTokenStatus: 'valid',
+        v2LastTokenRefreshAtSec: nowSec - 3600,
+      },
+    };
+    const freshRead = {
+      drive115: {
+        ...staleRead.drive115,
+        v2AccessToken: 'fresh-access-token',
+        v2TokenExpiresAt: nowSec + 7200,
+        v2LastTokenRefreshAtSec: nowSec - 5,
+      },
+    };
+    let readCount = 0;
+    mocks.getSettings.mockImplementation(async () => {
+      readCount += 1;
+      return readCount === 1 ? staleRead : freshRead;
+    });
+
+    const service = getDrive115V2Service();
+    const refreshSpy = vi.spyOn(service, 'refreshToken');
+
+    const result = await service.getValidAccessToken({ forceAutoRefresh: true });
+
+    expect(result).toEqual({ success: true, accessToken: 'fresh-access-token' });
+    expect(refreshSpy).not.toHaveBeenCalled();
+    expect(mocks.saveSettings).not.toHaveBeenCalled();
+  });
+
   it('normalizes absolute and relative expiry values to a seconds timestamp', () => {
     const nowSec = 1_800_000_000;
 
