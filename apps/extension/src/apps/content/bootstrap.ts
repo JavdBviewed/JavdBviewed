@@ -533,7 +533,7 @@ async function initialize(): Promise<void> {
             // 新增：演员过滤
             hideBlacklistedActorsInList: (settings.listEnhancement as any)?.hideBlacklistedActorsInList === true,
             hideNonFavoritedActorsInList: (settings.listEnhancement as any)?.hideNonFavoritedActorsInList === true,
-            hideUnrecognizedActorsInList: (settings.listEnhancement as any)?.hideUnrecognizedActorsInList !== false, // 默认true
+            hideUnrecognizedActorsInList: (settings.listEnhancement as any)?.hideUnrecognizedActorsInList === true, // 默认false（空演员库保护）
             treatSubscribedAsFavorited: (settings.listEnhancement as any)?.treatSubscribedAsFavorited !== false,
             enableActorPenetration: (settings.listEnhancement as any)?.enableActorPenetration === true,
             enableActorNameMarks: (settings as any)?.videoEnhancement?.enableActorNameMarks !== false,

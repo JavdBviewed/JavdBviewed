@@ -721,7 +721,11 @@ class ListEnhancementManager {
   }
 
   private isActorHidingEnabled(): boolean {
-    return !!this.config.hideBlacklistedActorsInList || !!this.config.hideNonFavoritedActorsInList;
+    return (
+      !!this.config.hideBlacklistedActorsInList ||
+      !!this.config.hideNonFavoritedActorsInList ||
+      this.config.hideUnrecognizedActorsInList === true
+    );
   }
 
   /** 名称标识数据变化/预热完成后，重放已渲染的穿透行以刷新/清除着色。 */
@@ -745,7 +749,7 @@ class ListEnhancementManager {
       videoInfo,
       hideByBlacklist: !!this.config.hideBlacklistedActorsInList,
       hideByNonFavorited: !!this.config.hideNonFavoritedActorsInList,
-      hideUnrecognized: this.config.hideUnrecognizedActorsInList !== false,
+      hideUnrecognized: this.config.hideUnrecognizedActorsInList === true,
       treatSubscribedAsFavorited: this.config.treatSubscribedAsFavorited !== false,
       ensureActorIndex: () => this.actorDataCache.ensureActorIndex(),
       ensureSubscriptions: () => this.actorDataCache.ensureSubscriptions(),

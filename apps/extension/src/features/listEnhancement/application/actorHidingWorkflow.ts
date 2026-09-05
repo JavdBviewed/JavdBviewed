@@ -62,7 +62,7 @@ export async function applyActorBasedHiding(options: ApplyActorBasedHidingOption
   try {
     debugLog(`[ActorHiding] ${videoInfo.code}: hideByBlacklist=${hideByBlacklist}, hideByNonFavorited=${hideByNonFavorited}, hideUnrecognized=${hideUnrecognized}`);
 
-    if (!hideByBlacklist && !hideByNonFavorited) {
+    if (!hideByBlacklist && !hideByNonFavorited && !hideUnrecognized) {
       options.clearActorOnlyHiding(item);
       return;
     }
@@ -101,6 +101,7 @@ export async function applyActorBasedHiding(options: ApplyActorBasedHidingOption
       domActorIds: allActorIds,
       actors,
       subscribedActorIds: subscribed,
+      actorIndexSize: actorIndex.size,
     });
 
     debugLog(`[ActorHiding] ${videoInfo.code}: Final decision - matchedBlack=${decision.matchedBlack}, matchedNonFav=${decision.matchedNonFavorited}, reason=${decision.reason || 'none'}`);

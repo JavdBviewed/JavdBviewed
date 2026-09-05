@@ -98,7 +98,7 @@ export function createDefaultListEnhancementConfig(): ListEnhancementConfig {
     actorWatermarkOpacity: 0.8,
     hideBlacklistedActorsInList: false,
     hideNonFavoritedActorsInList: false,
-    hideUnrecognizedActorsInList: true,
+    hideUnrecognizedActorsInList: false,
     enableActorPenetration: false,
     enableActorNameMarks: true,
     treatSubscribedAsFavorited: true,

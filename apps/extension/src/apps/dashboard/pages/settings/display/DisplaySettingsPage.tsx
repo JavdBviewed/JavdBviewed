@@ -117,6 +117,7 @@ export function DisplaySettingsPage() {
                   key={field.id}
                   id={field.id}
                   label={field.label}
+                  description={field.description}
                   checked={form[field.key]}
                   onChange={(checked) => updateField(field.key, checked)}
                 />

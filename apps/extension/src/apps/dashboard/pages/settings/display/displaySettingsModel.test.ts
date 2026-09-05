@@ -12,7 +12,7 @@ import {
 } from './displaySettingsModel';
 
 describe('displaySettingsModel', () => {
-  it('defaults match legacy: display false, two list flags true', () => {
+  it('defaults: display false, blacklisted/nonFavorited false, unrecognized off, subscribed true', () => {
     expect(DEFAULT_DISPLAY_SETTINGS_FORM).toEqual({
       hideViewed: false,
       hideBrowsed: false,
@@ -20,7 +20,7 @@ describe('displaySettingsModel', () => {
       hideWant: false,
       hideBlacklistedActorsInList: false,
       hideNonFavoritedActorsInList: false,
-      hideUnrecognizedActorsInList: true,
+      hideUnrecognizedActorsInList: false,
       treatSubscribedAsFavorited: true,
       enableActorPenetration: false,
     });
@@ -63,13 +63,13 @@ describe('displaySettingsModel', () => {
     });
   });
 
-  it('treats undefined hideUnrecognized / treatSubscribed as true', () => {
+  it('treats undefined hideUnrecognized as false / treatSubscribed as true', () => {
     const form = mapSettingsToDisplayForm({
       listEnhancement: {
         hideBlacklistedActorsInList: true,
       },
     });
-    expect(form.hideUnrecognizedActorsInList).toBe(true);
+    expect(form.hideUnrecognizedActorsInList).toBe(false);
     expect(form.treatSubscribedAsFavorited).toBe(true);
     expect(form.hideBlacklistedActorsInList).toBe(true);
   });

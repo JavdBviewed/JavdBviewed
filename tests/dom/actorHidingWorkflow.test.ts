@@ -46,10 +46,54 @@ describe('actor hiding workflow', () => {
       videoInfo: { code: 'ABC-001', title: 'Sample', url: 'https://javdb.com/v/abc' },
       hideByBlacklist: false,
       hideByNonFavorited: false,
-      hideUnrecognized: true,
+      hideUnrecognized: false,
       treatSubscribedAsFavorited: true,
       ensureActorIndex: vi.fn(),
       ensureSubscriptions: vi.fn(),
+      getActorById: vi.fn(),
+      hideItemByActor: vi.fn(),
+      clearActorOnlyHiding,
+      logger: vi.fn(),
+    });
+
+    expect(clearActorOnlyHiding).toHaveBeenCalledWith(item);
+  });
+
+  it('does not early-clear and hides as ACTOR_UNRECOGNIZED when only hideUnrecognized is on', async () => {
+    const item = createItem([]);
+    const hideItemByActor = vi.fn();
+
+    await applyActorBasedHiding({
+      item,
+      videoInfo: { code: 'ABC-010', title: 'Unrecognized', url: 'https://javdb.com/v/abc' },
+      hideByBlacklist: false,
+      hideByNonFavorited: false,
+      hideUnrecognized: true,
+      treatSubscribedAsFavorited: true,
+      ensureActorIndex: vi.fn(async () => new Map([['someone', createActor('a', 'Someone')]])),
+      ensureSubscriptions: vi.fn(async () => new Set()),
+      getActorById: vi.fn(),
+      hideItemByActor,
+      clearActorOnlyHiding: vi.fn(),
+      logger: vi.fn(),
+    });
+
+    expect(hideItemByActor).toHaveBeenCalledWith(item, 'ACTOR_UNRECOGNIZED');
+  });
+
+  it('does not hide via unrecognized when the actor index is empty (protective valve)', async () => {
+    const item = createItem([]);
+    const clearActorOnlyHiding = vi.fn();
+
+    await applyActorBasedHiding({
+      item,
+      videoInfo: { code: 'ABC-011', title: 'Unrecognized', url: 'https://javdb.com/v/abc' },
+      hideByBlacklist: false,
+      hideByNonFavorited: false,
+      hideUnrecognized: true,
+      treatSubscribedAsFavorited: true,
+      ensureActorIndex: vi.fn(async () => new Map()),
+      ensureSubscriptions: vi.fn(async () => new Set()),
       getActorById: vi.fn(),
       hideItemByActor: vi.fn(),
       clearActorOnlyHiding,

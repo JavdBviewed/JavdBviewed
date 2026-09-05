@@ -582,7 +582,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
         // 新增：基于演员偏好的过滤默认配置
         hideBlacklistedActorsInList: false,
         hideNonFavoritedActorsInList: false,
-        hideUnrecognizedActorsInList: true, // 默认隐藏无法识别演员的作品
+        hideUnrecognizedActorsInList: false, // 默认关闭：仅本地演员库可用时生效，空演员库不隐藏
         treatSubscribedAsFavorited: true,
         // 新增：列表页显示控制默认配置
         listDisplayControl: {

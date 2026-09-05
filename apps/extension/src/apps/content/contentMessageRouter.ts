@@ -81,7 +81,7 @@ export function installContentMessageRouter(): void {
                         enableActorNameMarks: (settings as any)?.videoEnhancement?.enableActorNameMarks !== false,
                         hideBlacklistedActorsInList: (settings.listEnhancement as any)?.hideBlacklistedActorsInList === true,
                         hideNonFavoritedActorsInList: (settings.listEnhancement as any)?.hideNonFavoritedActorsInList === true,
-                        hideUnrecognizedActorsInList: (settings.listEnhancement as any)?.hideUnrecognizedActorsInList !== false,
+                        hideUnrecognizedActorsInList: (settings.listEnhancement as any)?.hideUnrecognizedActorsInList === true, // 默认false（空演员库保护）
                         treatSubscribedAsFavorited: (settings.listEnhancement as any)?.treatSubscribedAsFavorited !== false,
                         listDisplayControl: {
                             enabled: (settings.listEnhancement as any)?.listDisplayControl?.enabled !== false,

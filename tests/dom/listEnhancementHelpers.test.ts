@@ -105,6 +105,7 @@ describe('list enhancement helpers', () => {
       domActorIds: new Set(['actor-black']),
       actors: [blacklisted],
       subscribedActorIds: new Set(),
+      actorIndexSize: 2,
     }).reason).toBe('ACTOR_BLACKLIST');
 
     expect(decideActorHiding({
@@ -115,6 +116,7 @@ describe('list enhancement helpers', () => {
       domActorIds: new Set(['actor-missing']),
       actors: [],
       subscribedActorIds: new Set(),
+      actorIndexSize: 3,
     }).reason).toBe('ACTOR_NOT_FAVORITED');
 
     expect(decideActorHiding({
@@ -125,6 +127,7 @@ describe('list enhancement helpers', () => {
       domActorIds: new Set(),
       actors: [],
       subscribedActorIds: new Set(),
+      actorIndexSize: 3,
     }).reason).toBe('ACTOR_NOT_FAVORITED');
 
     expect(decideActorHiding({
@@ -135,6 +138,61 @@ describe('list enhancement helpers', () => {
       domActorIds: new Set(['actor-miho']),
       actors: [miho],
       subscribedActorIds: new Set(),
+      actorIndexSize: 3,
     }).reason).toBeNull();
+  });
+
+  it('decides ACTOR_UNRECOGNIZED independently when actor index is non-empty and nothing is resolvable', () => {
+    // (a) 仅开启 hideUnrecognized + 演员库非空 + DOM/本地均无演员 → ACTOR_UNRECOGNIZED
+    const decision = decideActorHiding({
+      hideByBlacklist: false,
+      hideByNonFavorited: false,
+      hideUnrecognized: true,
+      treatSubscribedAsFavorited: true,
+      domActorIds: new Set(),
+      actors: [],
+      subscribedActorIds: new Set(),
+      actorIndexSize: 12,
+    });
+    expect(decision.reason).toBe('ACTOR_UNRECOGNIZED');
+    expect(decision.matchedUnrecognized).toBe(true);
+    expect(decision.matchedBlack).toBe(false);
+    expect(decision.matchedNonFavorited).toBe(false);
+
+    // (b) 空演员库保护阀：index 为空时不隐藏（防新装用户整列被藏）
+    expect(decideActorHiding({
+      hideByBlacklist: false,
+      hideByNonFavorited: false,
+      hideUnrecognized: true,
+      treatSubscribedAsFavorited: true,
+      domActorIds: new Set(),
+      actors: [],
+      subscribedActorIds: new Set(),
+      actorIndexSize: 0,
+    }).reason).toBeNull();
+
+    // (c) 保守边界：DOM 有演员 id 但本地无记录时不算「未识别」（交给黑名单/未收藏开关）
+    expect(decideActorHiding({
+      hideByBlacklist: false,
+      hideByNonFavorited: false,
+      hideUnrecognized: true,
+      treatSubscribedAsFavorited: true,
+      domActorIds: new Set(['actor-missing']),
+      actors: [],
+      subscribedActorIds: new Set(),
+      actorIndexSize: 12,
+    }).reason).toBeNull();
+
+    // (d) 优先级：未收藏 > 未识别（同条件命中时 reason 取 ACTOR_NOT_FAVORITED）
+    expect(decideActorHiding({
+      hideByBlacklist: false,
+      hideByNonFavorited: true,
+      hideUnrecognized: true,
+      treatSubscribedAsFavorited: true,
+      domActorIds: new Set(),
+      actors: [],
+      subscribedActorIds: new Set(),
+      actorIndexSize: 12,
+    }).reason).toBe('ACTOR_NOT_FAVORITED');
   });
 });

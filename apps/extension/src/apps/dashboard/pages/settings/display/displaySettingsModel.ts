@@ -34,7 +34,7 @@ export type DisplaySettingsFormState = DisplayFilterState & ActorListFilterState
 /**
  * 与遗留 DisplaySettings / DEFAULT_SETTINGS 对齐的默认值
  * - display.* 默认 false
- * - hideUnrecognizedActorsInList / treatSubscribedAsFavorited 默认 true
+ * - hideUnrecognizedActorsInList 默认 false（空演员库保护）；treatSubscribedAsFavorited 默认 true
  */
 export const DEFAULT_DISPLAY_SETTINGS_FORM: DisplaySettingsFormState = {
   hideViewed: false,
@@ -43,7 +43,7 @@ export const DEFAULT_DISPLAY_SETTINGS_FORM: DisplaySettingsFormState = {
   hideWant: false,
   hideBlacklistedActorsInList: false,
   hideNonFavoritedActorsInList: false,
-  hideUnrecognizedActorsInList: true,
+  hideUnrecognizedActorsInList: false,
   treatSubscribedAsFavorited: true,
   enableActorPenetration: false,
 };
@@ -64,8 +64,8 @@ export function mapSettingsToDisplayForm(
     hideWant: !!display.hideWant,
     hideBlacklistedActorsInList: !!listEnhancement.hideBlacklistedActorsInList,
     hideNonFavoritedActorsInList: !!listEnhancement.hideNonFavoritedActorsInList,
-    // 默认 true（若未配置）
-    hideUnrecognizedActorsInList: listEnhancement.hideUnrecognizedActorsInList !== false,
+    // 默认 false（若未配置；空演员库时不隐藏）
+    hideUnrecognizedActorsInList: listEnhancement.hideUnrecognizedActorsInList === true,
     treatSubscribedAsFavorited: listEnhancement.treatSubscribedAsFavorited !== false,
     enableActorPenetration: (listEnhancement as Record<string, unknown>).enableActorPenetration === true,
   };
@@ -115,6 +115,7 @@ export const ACTOR_LIST_FILTER_FIELDS: {
   key: keyof ActorListFilterState;
   id: string;
   label: string;
+  description?: string;
 }[] = [
   {
     key: 'hideBlacklistedActorsInList',
@@ -129,11 +130,13 @@ export const ACTOR_LIST_FILTER_FIELDS: {
   {
     key: 'hideUnrecognizedActorsInList',
     id: 'hideUnrecognizedActorsInList',
-    label: '隐藏无法识别演员的作品（默认隐藏）',
+    label: '隐藏无法识别演员的作品',
+    description: '仅在本地演员库可用时生效；本地演员库为空时不隐藏。默认关闭',
   },
   {
     key: 'treatSubscribedAsFavorited',
     id: 'treatSubscribedAsFavorited',
     label: '订阅视为收藏',
+    description: '本地演员库暂不区分收藏/订阅状态，此开关当前不生效',
   },
 ];
