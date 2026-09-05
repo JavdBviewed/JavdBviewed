@@ -170,7 +170,10 @@ export class NewWorksScheduler {
   }): Promise<void> {
     try {
       if (results.newWorks.length > 0) {
-        await this.manager!.addNewWorks(results.newWorks);
+        const stats = await this.manager!.addNewWorks(results.newWorks);
+        if (stats.failed > 0) {
+          results.errors.push(`持久化失败: ${stats.saved}/${stats.total} 个新作品未写入 IndexedDB`);
+        }
       }
 
       if (results.discovered > 0) {

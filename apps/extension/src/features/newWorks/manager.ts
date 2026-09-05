@@ -18,7 +18,8 @@ import type {
 } from './types';
 import type { VideoRecord } from '../../types';
 import { actorManager } from '../actors';
-import { dbNewWorksQuery, dbNewWorksStats, dbNewWorksGet, dbNewWorksPut, dbNewWorksBulkPut, dbNewWorksDelete, dbNewWorksGetAll, dbViewedStatusGetMany } from '../../dashboard/dbClient';
+import { dbNewWorksQuery, dbNewWorksStats, dbNewWorksGet, dbNewWorksDelete, dbNewWorksGetAll, dbViewedStatusGetMany } from '../../dashboard/dbClient';
+import { newWorksPut, newWorksBulkPut } from '../../platform/storage/indexedDb';
 import { dbViewedPage } from '../../dashboard/dbClient';
 import { recordNewWorksDiagnosticCounter, recordNewWorksDiagnosticError, recordNewWorksDiagnosticValue, beginNewWorksDiagnosticSpan } from './newWorksDiagnostics';
 import { createNewWorksAutoStatusSyncGate } from './autoStatusSyncGate';
@@ -34,6 +35,13 @@ export interface NewWorksStatusSyncResult {
     updated: number;
     details: Array<{ id: string; oldStatus: string; newStatus: string }>;
     skipped?: boolean;
+}
+
+/** addNewWorks 持久化统计 */
+export interface NewWorksAddStats {
+    total: number;
+    saved: number;
+    failed: number;
 }
 
 export class NewWorksManager {
@@ -329,7 +337,7 @@ export class NewWorksManager {
             }
         }
         if (pending.length > 0) {
-            try { await dbNewWorksBulkPut(pending); } catch {}
+            try { await newWorksBulkPut(pending); } catch (err) { log.error('[NewWorks] 批量写入 IndexedDB 失败:', err); }
             await this.saveNewWorks();
         }
     }
@@ -469,7 +477,7 @@ export class NewWorksManager {
         log.info(`[NewWorks] 共需要更新 ${updatedCount} 个作品的状态`);
 
         if (toUpdate.length > 0) {
-            try { await dbNewWorksBulkPut(toUpdate); } catch {}
+            try { await newWorksBulkPut(toUpdate); } catch (err) { log.error('[NewWorks] 批量写入 IndexedDB 失败:', err); }
             await this.saveNewWorks();
         }
 
@@ -549,8 +557,8 @@ export class NewWorksManager {
         this.newWorks.forEach((work, id) => { newWorksObject[id] = work; });
         // 先保存到本地存储，保持兼容
         await setValue(STORAGE_KEYS.NEW_WORKS_RECORDS, newWorksObject);
-        // 再尝试批量写入 IDB
-        try { await dbNewWorksBulkPut(Object.values(newWorksObject)); } catch {}
+        // 再批量写入 IDB（直接调用，SW/dashboard 同 origin 共享同一 IDB）
+        try { await newWorksBulkPut(Object.values(newWorksObject)); } catch (err) { log.error('[NewWorks] 批量写入 IndexedDB 失败:', err); }
     }
 
     /**
@@ -562,97 +570,92 @@ export class NewWorksManager {
             this.newWorks.set(work.id, work);
             await this.saveNewWorks();
         }
-        try { await dbNewWorksPut(work); } catch {}
+        try {
+            await newWorksPut(work);
+        } catch (err) {
+            log.error(`[NewWorks] 单条写入 IndexedDB 失败 ${work.id}:`, err);
+            try { recordNewWorksDiagnosticError('newworks_add_persist_failed', err); } catch {}
+        }
     }
 
     /**
      * 批量添加新作品记录
+     *
+     * 直接写入 IndexedDB：Service Worker 与 dashboard 页面同 origin、共享同一 IDB，
+     * 不再依赖动态 import / runtime 消息传递（消息路径在 SW 内无接收端，会导致 0/N 全部失败）。
+     * @returns 持久化统计 { total, saved, failed }
      */
-    async addNewWorks(works: NewWorkRecord[]): Promise<void> {
+    async addNewWorks(works: NewWorkRecord[]): Promise<NewWorksAddStats> {
         await this.initialize();
-        log.info(`[NewWorks] 准备添加 ${works.length} 个新作品`);
+        const total = works.length;
+        log.info(`[NewWorks] 准备添加 ${total} 个新作品`);
+
+        if (total === 0) {
+            return { total: 0, saved: 0, failed: 0 };
+        }
+
         let hasChanges = false;
-        const worksToSync: NewWorkRecord[] = [];
-        
-        works.forEach(work => { 
-            if (!this.newWorks.has(work.id)) { 
-                this.newWorks.set(work.id, work); 
-                hasChanges = true; 
+        works.forEach(work => {
+            if (!this.newWorks.has(work.id)) {
+                this.newWorks.set(work.id, work);
+                hasChanges = true;
             }
-            // 无论是否是新作品，都加入同步列表（确保 IDB 同步）
-            worksToSync.push(work);
         });
-        
-        log.verbose(`[NewWorks] hasChanges: ${hasChanges}, 内存中现有 ${this.newWorks.size} 个作品, 需要同步 ${worksToSync.length} 个作品到 IDB`);
-        
+
+        log.verbose(`[NewWorks] hasChanges: ${hasChanges}, 内存中现有 ${this.newWorks.size} 个作品, 将直写 ${total} 个作品到 IndexedDB`);
+
         if (hasChanges) {
             await this.saveNewWorks();
             log.info(`[NewWorks] 已保存到 chrome.storage`);
         }
-        
-        // 无论 hasChanges 是否为 true，都要确保 IndexedDB 同步（逐条写入）
-        if (worksToSync.length > 0) {
+
+        let saved = 0;
+        let failed = 0;
+        for (const work of works) {
             try {
-                // 检测运行环境：如果在后台脚本中，直接调用 IDB 函数
-                // 通过尝试调用 getManifest() 来判断是否在扩展环境中
-                let isExtensionContext = false;
-                try {
-                    if (typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.getManifest === 'function') {
-                        chrome.runtime.getManifest();
-                        isExtensionContext = true;
-                    }
-                } catch {}
-                
-                if (isExtensionContext) {
-                    // 尝试动态导入后台的 db 模块
-                    try {
-                        const { newWorksPut } = await import('../../platform/storage/indexedDb');
-                        log.info(`[NewWorks] 开始逐条写入 ${worksToSync.length} 个作品到 IndexedDB`);
-                        let successCount = 0;
-                        for (const work of worksToSync) {
-                            try {
-                                await newWorksPut(work);
-                                successCount++;
-                                log.verbose(`[NewWorks] 成功写入作品 ${work.id} (${successCount}/${worksToSync.length})`);
-                            } catch (err) {
-                                log.error(`[NewWorks] 写入作品 ${work.id} 失败:`, err);
-                            }
-                        }
-                        log.info(`[NewWorks] 已保存 ${successCount}/${worksToSync.length} 个作品到 IndexedDB (直接调用)`);
-                    } catch (importErr) {
-                        log.verbose(`[NewWorks] 动态导入失败，尝试消息传递:`, importErr);
-                        // 如果导入失败，说明可能在 dashboard 环境，使用消息传递（逐条）
-                        log.info(`[NewWorks] 开始逐条写入 ${worksToSync.length} 个作品到 IndexedDB (消息传递)`);
-                        let successCount = 0;
-                        for (const work of worksToSync) {
-                            try {
-                                await dbNewWorksPut(work);
-                                successCount++;
-                                log.verbose(`[NewWorks] 成功写入作品 ${work.id} (${successCount}/${worksToSync.length})`);
-                            } catch (err) {
-                                log.error(`[NewWorks] 写入作品 ${work.id} 失败:`, err);
-                            }
-                        }
-                        log.info(`[NewWorks] 已保存 ${successCount}/${worksToSync.length} 个作品到 IndexedDB (消息传递)`);
-                    }
-                } else {
-                    // Dashboard 环境，使用消息传递（逐条）
-                    log.info(`[NewWorks] 开始逐条写入 ${worksToSync.length} 个作品到 IndexedDB (消息传递)`);
-                    let successCount = 0;
-                    for (const work of worksToSync) {
-                        try {
-                            await dbNewWorksPut(work);
-                            successCount++;
-                            log.verbose(`[NewWorks] 成功写入作品 ${work.id} (${successCount}/${worksToSync.length})`);
-                        } catch (err) {
-                            log.error(`[NewWorks] 写入作品 ${work.id} 失败:`, err);
-                        }
-                    }
-                    log.info(`[NewWorks] 已保存 ${successCount}/${worksToSync.length} 个作品到 IndexedDB (消息传递)`);
-                }
-            } catch (e) {
-                log.error(`[NewWorks] 保存到 IndexedDB 失败:`, e);
+                await newWorksPut(work);
+                saved++;
+                log.verbose(`[NewWorks] 成功写入作品 ${work.id} (${saved + failed}/${total})`);
+            } catch (err) {
+                failed++;
+                log.error(`[NewWorks] 写入作品 ${work.id} 失败:`, err);
             }
         }
+        log.info(`[NewWorks] 已保存 ${saved}/${total} 个作品到 IndexedDB (直接调用)`);
+
+        if (failed > 0) {
+            try {
+                recordNewWorksDiagnosticError('newworks_add_persist_failed', new Error(`addNewWorks 持久化失败 ${failed}/${total}`));
+            } catch {}
+        }
+
+        return { total, saved, failed };
+    }
+
+    /**
+     * 标记某订阅刚完成一次检查（更新 lastCheckTime 并持久化）
+     */
+    async markSubscriptionChecked(actorId: string): Promise<void> {
+        await this.initialize();
+        let subscription = this.subscriptions.get(actorId);
+        if (!subscription) {
+            // SW 可能在该订阅创建之前就已启动（initialize 幂等，内存订阅表陈旧）：
+            // 从存储读取最新订阅表并合并回内存（只增不删），
+            // 避免 saveSubscriptions 用陈旧快照覆盖存储、误删新增订阅
+            const stored = await getValue<Record<string, ActorSubscription>>(
+                STORAGE_KEYS.NEW_WORKS_SUBSCRIPTIONS,
+                {}
+            );
+            Object.entries(stored ?? {}).forEach(([id, sub]) => {
+                if (sub && !this.subscriptions.has(id)) {
+                    this.subscriptions.set(id, sub);
+                }
+            });
+            subscription = this.subscriptions.get(actorId);
+            if (!subscription) return;
+        }
+        subscription.lastCheckTime = Date.now();
+        await this.saveSubscriptions();
+        log.verbose(`[NewWorks] 已更新订阅最后检查时间: ${subscription.actorName}`);
     }
 }

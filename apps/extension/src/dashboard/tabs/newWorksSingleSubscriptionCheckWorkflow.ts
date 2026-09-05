@@ -6,6 +6,10 @@ export interface SingleSubscriptionCheckResult {
   identified?: number;
   effective?: number;
   discovered?: number;
+  /** 实际持久化到 IndexedDB 的数量（undefined 表示旧版后台未上报） */
+  saved?: number;
+  /** 持久化失败的数量 */
+  failed?: number;
 }
 
 export interface SingleSubscriptionCheckResponse {
@@ -52,10 +56,24 @@ export async function runSingleSubscriptionCheckWorkflow(input: RunSingleSubscri
     }
     statsParts.push(`新增 ${discovered}`);
 
+    // 持久化真实性校验：后台上报了 saved/failed 时按真实保存数提示
+    let messageType: MessageType = discovered > 0 ? 'success' : 'info';
+    let persistTail = '';
+    if (typeof result.saved === 'number') {
+      const failed = result.failed || 0;
+      if (failed > 0) {
+        messageType = 'error';
+        persistTail = `，持久化失败（仅保存 ${result.saved}/${discovered}，详见控制台）`;
+      } else if (result.saved < discovered) {
+        messageType = discovered > 0 ? 'warning' : 'info';
+        persistTail = `，已保存 ${result.saved}/${discovered}`;
+      }
+    }
+
     await deps.render();
     deps.showMessage(
-      `${subscription.actorName}: ${statsParts.join('，')}`,
-      discovered > 0 ? 'success' : 'info',
+      `${subscription.actorName}: ${statsParts.join('，')}${persistTail}`,
+      messageType,
     );
   } catch (error) {
     deps.logError(`检查演员 ${subscription.actorName} 失败:`, error);

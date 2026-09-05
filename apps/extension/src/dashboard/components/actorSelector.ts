@@ -678,15 +678,30 @@ export class ActorSelector {
                         if (typeof result.effective === 'number') {
                             statsParts.push(`有效 ${result.effective} 个`);
                         }
-                        statsParts.push(`新增 ${result.discovered} 个`);
+                        const discovered = typeof result.discovered === 'number' ? result.discovered : 0;
+                        statsParts.push(`新增 ${discovered} 个`);
 
-                        const message = `${actor.name}: ${statsParts.join('，')}`;
+                        // 持久化真实性校验：按后台上报的真实保存数提示
+                        let messageType: 'success' | 'error' | 'info' | 'warning' = discovered > 0 ? 'success' : 'info';
+                        let persistTail = '';
+                        if (typeof result.saved === 'number') {
+                            const failed = result.failed || 0;
+                            if (failed > 0) {
+                                messageType = 'error';
+                                persistTail = `，持久化失败（仅保存 ${result.saved}/${discovered}，详见控制台）`;
+                            } else if (result.saved < discovered) {
+                                messageType = discovered > 0 ? 'warning' : 'info';
+                                persistTail = `，已保存 ${result.saved}/${discovered}`;
+                            }
+                        }
+
+                        const message = `${actor.name}: ${statsParts.join('，')}${persistTail}`;
                         
-                        showMessage(message, result.discovered > 0 ? 'success' : 'info');
+                        showMessage(message, messageType);
                         console.log(`检查完成: ${message}`);
                         
                         // 如果有新作品，触发列表刷新
-                        if (result.discovered > 0) {
+                        if (discovered > 0) {
                             this.triggerListRefresh();
                         }
                     } else if (response && !response.success) {

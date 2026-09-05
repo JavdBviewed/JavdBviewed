@@ -31,7 +31,7 @@ function createManagerMock(config: {
     getSubscriptions: vi.fn(async () => [
       { actorId: 'a1', actorName: 'Actor', enabled: true },
     ]),
-    addNewWorks: vi.fn(async () => undefined),
+    addNewWorks: vi.fn(async () => ({ total: 0, saved: 0, failed: 0 })),
   };
 }
 
@@ -132,6 +132,44 @@ describe('NewWorksScheduler alarms', () => {
     expect(chrome.alarms.create).not.toHaveBeenCalled();
     expect(scheduler.getStatus().isRunning).toBe(false);
     expect(scheduler.getStatus().isInitialized).toBe(true);
+  });
+
+  it('handleAlarm records persistence failure when addNewWorks reports failed>0', async () => {
+    const scheduler = new NewWorksScheduler();
+    const manager = createManagerMock({
+      autoCheckEnabled: true,
+      checkInterval: 1,
+      lastGlobalCheck: Date.now(),
+    });
+    // 模拟：发现 3 个新作品，其中 1 个持久化失败
+    (manager.addNewWorks as any).mockImplementation(async (works: any[]) => ({
+      total: works.length,
+      saved: works.length - 1,
+      failed: 1,
+    }));
+    const collector = createCollectorMock();
+    (collector.checkMultipleActors as any).mockImplementation(async () => ({
+      discovered: 3,
+      errors: [],
+      newWorks: [{ id: 'w1' }, { id: 'w2' }, { id: 'w3' }],
+    }));
+    scheduler.setDependencies(manager as any, collector as any);
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const handled = await scheduler.handleAlarm(NEW_WORKS_CHECK_ALARM);
+      expect(handled).toBe(true);
+      expect(manager.addNewWorks).toHaveBeenCalledTimes(1);
+      // 持久化失败应被记录到错误通道（通过 console.warn 暴露）
+      expect(warnSpy).toHaveBeenCalledWith(
+        'NewWorksScheduler: 采集过程中遇到错误:',
+        expect.arrayContaining([
+          expect.stringContaining('持久化失败: 2/3 个新作品未写入 IndexedDB'),
+        ]),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('handleAlarm runs collection for the periodic alarm name', async () => {

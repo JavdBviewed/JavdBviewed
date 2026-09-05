@@ -57,6 +57,8 @@ function handleManualCheck(sendResponse: SendResponse): void {
       let identifiedTotal = 0;
       let effectiveTotal = 0;
       const errors: string[] = [];
+      let savedTotal = 0;
+      let failedTotal = 0;
 
       const cfg = {
         ...config,
@@ -111,10 +113,17 @@ function handleManualCheck(sendResponse: SendResponse): void {
             if (det.works.length > 0) {
               console.log(`[Background] 准备保存 ${det.works.length} 个新作品到数据库`);
               try {
-                await newWorksManager.addNewWorks(det.works);
-                console.log(`[Background] 成功保存 ${det.works.length} 个新作品`);
+                const stats = await newWorksManager.addNewWorks(det.works);
+                savedTotal += stats.saved;
+                failedTotal += stats.failed;
+                console.log(`[Background] 保存新作品: 成功 ${stats.saved}/${stats.total}${stats.failed > 0 ? `，失败 ${stats.failed}` : ''}`);
+                if (stats.failed > 0) {
+                  errors.push(`${sub.actorName}: ${stats.saved}/${stats.total} 个新作品未持久化到 IndexedDB`);
+                }
               } catch (e) {
                 console.error('[Background] 保存新作品失败:', e);
+                failedTotal += det.works.length;
+                errors.push(`${sub.actorName}: 新作品持久化异常 ${e?.message || String(e)}`);
               }
             }
 
@@ -163,7 +172,7 @@ function handleManualCheck(sendResponse: SendResponse): void {
       }
 
       try { await newWorksManager.updateGlobalConfig({ lastGlobalCheck: Date.now() }); } catch {}
-      sendResponse({ success: true, result: { discovered, errors, cancelled: manualCheckCancel.cancelled, identifiedTotal, effectiveTotal } });
+      sendResponse({ success: true, result: { discovered, errors, cancelled: manualCheckCancel.cancelled, identifiedTotal, effectiveTotal, savedTotal, failedTotal } });
     } catch (error: any) {
       sendResponse({ success: false, error: error?.message || 'manual check failed' });
     }
@@ -224,10 +233,21 @@ function handleSingleActorCheck(message: any, sendResponse: SendResponse): void 
         console.warn('[Background] 发送进度消息失败:', e);
       }
 
+      let saved = 0;
+      let failed = 0;
       if (det.works.length > 0) {
         console.log(`[Background] 准备保存 ${det.works.length} 个新作品`);
-        await newWorksManager.addNewWorks(det.works);
-        console.log(`[Background] 成功保存 ${det.works.length} 个新作品`);
+        const stats = await newWorksManager.addNewWorks(det.works);
+        saved = stats.saved;
+        failed = stats.failed;
+        console.log(`[Background] 保存新作品: 成功 ${stats.saved}/${stats.total}${stats.failed > 0 ? `，失败 ${stats.failed}` : ''}`);
+      }
+
+      // 更新订阅的"最后检查"时间（仅当该演员已存在订阅时）
+      try {
+        await newWorksManager.markSubscriptionChecked(actorId);
+      } catch (e) {
+        console.warn('[Background] 更新订阅最后检查时间失败:', e);
       }
 
       sendResponse({
@@ -238,7 +258,12 @@ function handleSingleActorCheck(message: any, sendResponse: SendResponse): void 
           effective: det.effective,
           filteredOut: det.filteredOut,
           existingCount: det.existingCount,
-          filterBreakdown: det.filterBreakdown
+              filterBreakdown: det.filterBreakdown,
+              // 本次写入的作品主键（番号或 JavDB ID）。同一番号的原版/特典版会共享主键，
+              // 调用方按 workIds 去重后才是应落库的唯一记录数（#42 E2E 断言依据）
+              workIds: det.works.map((w) => w.id),
+              saved,
+              failed
         }
       });
     } catch (error: any) {

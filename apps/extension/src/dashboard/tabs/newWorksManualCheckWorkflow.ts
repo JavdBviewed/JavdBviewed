@@ -12,6 +12,10 @@ export interface NewWorksManualCheckResult {
   discovered?: number;
   cancelled?: boolean;
   errors?: string[];
+  /** 实际持久化到 IndexedDB 的数量（undefined 表示旧版后台未上报） */
+  savedTotal?: number;
+  /** 持久化失败的数量 */
+  failedTotal?: number;
 }
 
 export interface NewWorksManualCheckResponse {
@@ -71,6 +75,7 @@ export async function runNewWorksManualCheckWorkflow(input: RunNewWorksManualChe
     const result = response.result || {};
     const errors = Array.isArray(result.errors) ? result.errors : [];
     const discovered = typeof result.discovered === 'number' ? result.discovered : 0;
+    const failedTotal = typeof result.failedTotal === 'number' ? result.failedTotal : 0;
     const statsTail = buildManualCheckStatsTail(result, discovered);
     let message = result.cancelled
       ? `检查已取消（${statsTail}，已保留已获取数据）`
@@ -86,7 +91,11 @@ export async function runNewWorksManualCheckWorkflow(input: RunNewWorksManualChe
       deps.logWarn('新作品检查错误详情:', errors);
     }
 
-    deps.showMessage(message, discovered > 0 ? 'success' : (errors.length > 0 ? 'warn' : 'info'));
+    const persistFailed = failedTotal > 0;
+    deps.showMessage(
+      message,
+      persistFailed ? 'warn' : (discovered > 0 ? 'success' : (errors.length > 0 ? 'warn' : 'info')),
+    );
     deps.updateProgressUI({ done: true });
   } catch (error) {
     deps.logError('立即检查失败:', error);
@@ -107,5 +116,8 @@ function buildManualCheckStatsTail(result: NewWorksManualCheckResult, discovered
     parts.push(`有效 ${result.effectiveTotal}`);
   }
   parts.push(`新增 ${discovered}`);
+  if (typeof result.savedTotal === 'number' && result.savedTotal < discovered) {
+    parts.push(`持久化 ${result.savedTotal}/${discovered}`);
+  }
   return parts.join('，');
 }
