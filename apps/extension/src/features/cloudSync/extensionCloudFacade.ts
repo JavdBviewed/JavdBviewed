@@ -36,11 +36,19 @@ export type CloudFacadeState = {
   devices: DeviceInfo[];
 };
 
+export type CloudHealthAuthState =
+  | 'authenticated'
+  | 'invalid'
+  | 'not-logged-in'
+  | 'unknown';
+
 export type CloudHealthResult = {
   ok: boolean;
   detail: string;
   protocolVersion?: number;
   httpStatus?: number;
+  /** 探测目标为已存地址时的鉴权状态（只读探测，不触发自动恢复） */
+  auth?: CloudHealthAuthState;
 };
 
 export type CloudVersionInfo = {
@@ -151,8 +159,28 @@ export function createExtensionCloudFacade(
     });
   }
 
+  /** 用已存令牌裸 GET /v1/devices 判定鉴权状态；只读，不触发任何自动恢复。 */
+  async function probeAuthState(
+    fetcher: typeof fetch,
+    root: string,
+  ): Promise<CloudHealthAuthState> {
+    try {
+      const session = await loadCloudSession();
+      if (!session?.accessToken) return 'not-logged-in';
+      const res = await fetcher(`${root}/v1/devices`, {
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      });
+      if (res.status === 401 || res.status === 403) return 'invalid';
+      if (res.ok) return 'authenticated';
+      return 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }
+
   async function checkHealth(baseUrl?: string): Promise<CloudHealthResult> {
     const settings = await loadCloudSettings();
+    const savedRoot = normalizeCloudBaseUrl(settings.baseUrl);
     const root = normalizeCloudBaseUrl(baseUrl ?? settings.baseUrl);
     if (!root) {
       return { ok: false, detail: '地址无效' };
@@ -167,12 +195,17 @@ export function createExtensionCloudFacade(
       if (!res.ok || !data.ok) {
         return { ok: false, detail: `异常 · HTTP ${res.status}`, httpStatus: res.status };
       }
-      return {
+      const result: CloudHealthResult = {
         ok: true,
         detail: `在线 · 协议 v${data.protocolVersion ?? '?'}`,
         protocolVersion: data.protocolVersion,
         httpStatus: res.status,
       };
+      // 仅探测目标=已存地址时附带鉴权状态；探测别的地址不能误判已存会话。
+      if (root === savedRoot) {
+        result.auth = await probeAuthState(fetcher, root);
+      }
+      return result;
     } catch {
       return { ok: false, detail: '无法连接' };
     }

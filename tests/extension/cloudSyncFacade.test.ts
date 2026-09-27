@@ -79,6 +79,94 @@ describe('Cloud sync extension facade', () => {
     );
   });
 
+  it('probes stored-credential auth state read-only in checkHealth for the saved address only', async () => {
+    const { CLOUD_SESSION_STORAGE_KEY } = await import(
+      '../../apps/extension/src/features/cloudSync/chromeTokenStore'
+    );
+    const { createExtensionCloudFacade } = await import(
+      '../../apps/extension/src/features/cloudSync/extensionCloudFacade'
+    );
+
+    const jsonResponse = (status: number, body: unknown) =>
+      ({
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => body,
+      }) as unknown as Response;
+
+    const calls: Array<{ url: string; auth?: string }> = [];
+    let devicesStatus = 401;
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      calls.push({ url, auth: headers.Authorization });
+      if (url.endsWith('/health')) {
+        return jsonResponse(200, { ok: true, protocolVersion: 3 });
+      }
+      if (url.endsWith('/v1/devices')) {
+        return jsonResponse(devicesStatus, []);
+      }
+      throw new Error(`unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const facade = createExtensionCloudFacade({ fetchImpl });
+
+    await facade.saveConnection({
+      baseUrl: 'http://probe.test',
+      deviceLabel: 'probe',
+      identifier: 'admin',
+      password: 'pw',
+    });
+    setChromeStorage({
+      [CLOUD_SESSION_STORAGE_KEY]: {
+        accessToken: 'tok-1',
+        refreshToken: 'rt-1',
+        userId: 'u-1',
+        deviceId: 'd-1',
+        savedAt: 1,
+      },
+    });
+
+    // 已存地址 + 已存令牌被拒（401）→ invalid；判定只读，仅一次裸 GET /v1/devices
+    const invalid = await facade.checkHealth();
+    expect(invalid.ok).toBe(true);
+    expect(invalid.auth).toBe('invalid');
+    expect(calls).toContainEqual({
+      url: 'http://probe.test/v1/devices',
+      auth: 'Bearer tok-1',
+    });
+
+    // 会话被清空（如 refresh 失败后）→ not-logged-in，不再请求 /v1/devices
+    setChromeStorage({ [CLOUD_SESSION_STORAGE_KEY]: null });
+    const anonymous = await facade.checkHealth();
+    expect(anonymous.ok).toBe(true);
+    expect(anonymous.auth).toBe('not-logged-in');
+    expect(calls.filter((c) => c.url.endsWith('/v1/devices')).length).toBe(1);
+
+    // 探测别的地址：只探 health，不附带鉴权状态，不触碰已存会话
+    setChromeStorage({
+      [CLOUD_SESSION_STORAGE_KEY]: {
+        accessToken: 'tok-2',
+        refreshToken: 'rt-2',
+        userId: 'u-1',
+        deviceId: 'd-1',
+        savedAt: 2,
+      },
+    });
+    const other = await facade.checkHealth('http://other.test');
+    expect(other.ok).toBe(true);
+    expect(other.auth).toBeUndefined();
+    expect(calls.filter((c) => c.url.startsWith('http://other.test')).map((c) => c.url)).toEqual([
+      'http://other.test/health',
+    ]);
+
+    // 令牌有效 → authenticated；全程不发起任何登录请求（不触发自动恢复）
+    devicesStatus = 200;
+    const authed = await facade.checkHealth();
+    expect(authed.auth).toBe('authenticated');
+    expect(calls.every((c) => !c.url.endsWith('/v1/auth/login'))).toBe(true);
+  });
+
   it('persists configured account credentials with the reusable Cloud connection', async () => {
     const { createExtensionCloudFacade } = await import(
       '../../apps/extension/src/features/cloudSync/extensionCloudFacade'
