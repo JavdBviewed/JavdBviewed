@@ -11,6 +11,7 @@
   "dependencies": {
     "@javdb/sync-client": "workspace:*",
     "@javdb/sync-protocol": "workspace:*",
+    "@javdb/video-category-dict": "workspace:*",
     "artplayer": "^5.4.0",
     "fs-extra": "^10.1.0",
     "hls.js": "^1.6.16",

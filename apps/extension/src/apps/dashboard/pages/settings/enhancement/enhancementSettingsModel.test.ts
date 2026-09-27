@@ -469,3 +469,56 @@ describe('list filter fields (migrated from display settings)', () => {
     expect(next.listEnhancement.hideUnrecognizedActorsInList).toBe(true);
   });
 });
+
+describe('category filter mapping (08-29-actor-passthrough-category-filter P1)', () => {
+  it('defaults: 开关 off + black 空（存量用户零变化）', () => {
+    expect(DEFAULT_ENHANCEMENT_SETTINGS_FORM.enableCategoryFilter).toBe(false);
+    expect(DEFAULT_ENHANCEMENT_SETTINGS_FORM.categoryFilterBlack).toEqual([]);
+  });
+
+  it('map: 读取 enableCategoryFilter + categoryFilter.black（丢弃非字符串脏项）', () => {
+    const form = mapSettingsToEnhancementForm({
+      listEnhancement: {
+        enableCategoryFilter: true,
+        categoryFilter: { black: ['c4=17', 'c7=28', 42, 'x'] },
+      },
+    } as any);
+    expect(form.enableCategoryFilter).toBe(true);
+    expect(form.categoryFilterBlack).toEqual(['c4=17', 'c7=28', 'x']);
+  });
+
+  it('map: 字段缺失 → off + 空（零回填）', () => {
+    const form = mapSettingsToEnhancementForm({ listEnhancement: {} } as any);
+    expect(form.enableCategoryFilter).toBe(false);
+    expect(form.categoryFilterBlack).toEqual([]);
+  });
+
+  it('apply: 写 listEnhancement.enableCategoryFilter + categoryFilter.black，兄弟键保留', () => {
+    const current = {
+      listEnhancement: { enableActorPenetration: true, another: 1 },
+    } as any;
+    const form = {
+      ...DEFAULT_ENHANCEMENT_SETTINGS_FORM,
+      enableActorPenetration: true,
+      enableCategoryFilter: true,
+      categoryFilterBlack: ['c7=28'],
+    };
+    const next = applyEnhancementFormToSettings(current, form);
+    expect(next.listEnhancement.enableCategoryFilter).toBe(true);
+    expect(next.listEnhancement.categoryFilter).toEqual({ black: ['c7=28'] });
+    expect(next.listEnhancement.enableActorPenetration).toBe(true);
+    expect(next.listEnhancement.another).toBe(1);
+  });
+
+  it('round-trip: 保存后读回选择一致（含 c9 时长码）', () => {
+    const form = {
+      ...DEFAULT_ENHANCEMENT_SETTINGS_FORM,
+      enableCategoryFilter: true,
+      categoryFilterBlack: ['c1=157', 'c9=gt-120'],
+    };
+    const saved = applyEnhancementFormToSettings({}, form);
+    const reloaded = mapSettingsToEnhancementForm(saved);
+    expect(reloaded.enableCategoryFilter).toBe(true);
+    expect(reloaded.categoryFilterBlack).toEqual(['c1=157', 'c9=gt-120']);
+  });
+});

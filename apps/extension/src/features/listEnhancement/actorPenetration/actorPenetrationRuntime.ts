@@ -14,6 +14,7 @@ import {
   type ActorPenetrationCacheValue,
 } from './actorPenetrationCache';
 import { extractFemaleActors, parseDetailActors, type DetailActor } from './parseDetailActors';
+import { BUILTIN_CATEGORY_DICTIONARY, parseDetailCategories } from '@javdb/video-category-dict';
 import { removeActorRow, renderActorRow, type ActorLinkMark } from './renderActorRow';
 import { bindActorQuickActionsToLink } from '../../actorEnhancement/actorQuickActionsManager';
 import { countContentPerformanceEvent } from '../../../platform/tasks';
@@ -44,6 +45,13 @@ export interface ActorPenetrationDeps {
    * 本地隐藏重决策；不传则无副作用）。
    */
   onActorsRendered?: (item: HTMLElement, actors: DetailActor[]) => void;
+  /**
+   * 类别解析结果回调（08-29-actor-passthrough-category-filter P1）：
+   * 每次渲染（缓存命中或新鲜抓取）且缓存值携带 categories 时触发，
+   * 由 manager 据此重放类别黑名单隐藏决策。categories 为 undefined（旧缓存）
+   * 时不触发。实现需自行保证幂等（按 item 去重）。
+   */
+  onCategoriesResolved?: (item: HTMLElement, categories: string[]) => void;
   /** 详情请求超时（毫秒），默认 10s */
   timeoutMs?: number;
 }
@@ -183,6 +191,13 @@ export class ActorPenetrationRuntime {
         /* 重决策失败不影响渲染主流程 */
       }
     }
+    if (this.deps.onCategoriesResolved && Array.isArray(value.categories)) {
+      try {
+        this.deps.onCategoriesResolved(item, value.categories);
+      } catch {
+        /* 类别重决策失败不影响渲染主流程 */
+      }
+    }
   }
 
   private async fetchAndParse(url: string): Promise<FetchParseOutcome> {
@@ -214,6 +229,15 @@ export class ActorPenetrationRuntime {
     }
 
     const female = extractFemaleActors(parseDetailActors(doc));
+    // 同一次详情请求顺带解析类别面板（字典内条目，未知丢弃）——
+    // 一次 fetch 同时产出 actors + categories，写缓存合并（P1）。
+    let categories: string[] | undefined;
+    try {
+      // 字典按站点分组；当前扩展站点固定为字典 activeSite（P5 后台刷新会替换存储字典，届时再注入）。
+      categories = parseDetailCategories(doc, BUILTIN_CATEGORY_DICTIONARY.activeSite);
+    } catch {
+      categories = undefined; // 类别解析失败不影响演员主流程
+    }
     // 缓存最多保存 MAX_ACTORS_RENDERED + 1 个以计算 hasMore；渲染层再截断
     const clean = female.filter(a => a.name).slice(0, MAX_ACTORS_RENDERED + 1);
     if (clean.length === 0) return { status: 'empty' };
@@ -223,6 +247,7 @@ export class ActorPenetrationRuntime {
         actors: clean,
         hasMore: clean.length > MAX_ACTORS_RENDERED,
         fetchedAt: Date.now(),
+        categories,
       },
     };
   }

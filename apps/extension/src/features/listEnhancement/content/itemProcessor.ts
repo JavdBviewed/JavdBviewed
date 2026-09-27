@@ -26,6 +26,7 @@ import {
     recomputeListHiding,
     setHidingSource,
     readListHidingEnablement,
+    isStatusAggregatePage,
 } from '../../list-hiding';
 import {
     DEFAULT_EXISTING_ITEMS_CHUNK_SIZE,
@@ -185,11 +186,10 @@ export function setupObserver(): void {
     STATE.observer.observe(targetNode, { childList: true, subtree: true });
 }
 
-/** 当前是否处于“想看/已看”聚合页（这些页面不应用任何隐藏）。 */
+/** 当前是否处于“想看/已看”聚合页（这些页面不应用任何隐藏，含类别黑名单）。 */
 function isStatusHiddenPage(): boolean {
     try {
-        const p = window.location.pathname;
-        return p.startsWith('/users/want_watch_videos') || p.startsWith('/users/watched_videos');
+        return isStatusAggregatePage(window.location.pathname);
     } catch {
         return false;
     }

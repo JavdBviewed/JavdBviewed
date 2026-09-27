@@ -20,13 +20,15 @@
     "baseUrl": ".",
     "paths": {
       "@javdb/sync-protocol": ["packages/sync-protocol/src/index.ts"],
-      "@javdb/sync-client": ["packages/sync-client/src/index.ts"]
+      "@javdb/sync-client": ["packages/sync-client/src/index.ts"],
+      "@javdb/video-category-dict": ["packages/video-category-dict/src/index.ts"]
     }
   },
   "include": [
     "apps/extension/src",
     "packages/sync-protocol/src",
     "packages/sync-client/src",
+    "packages/video-category-dict/src",
     "scripts",
     ".storybook"
   ],

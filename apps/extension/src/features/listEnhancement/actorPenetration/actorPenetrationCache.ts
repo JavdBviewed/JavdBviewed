@@ -12,6 +12,11 @@ export interface ActorPenetrationCacheValue {
   actors: DetailActor[];
   hasMore: boolean;
   fetchedAt: number;
+  /**
+   * 详情页解析出的影片类别 entryKey 列表（'c4=17' 形式，字典内条目）。
+   * 可选：旧缓存无此字段 → undefined，消费方（类别黑名单过滤）不得触发隐藏（兼容）。
+   */
+  categories?: string[];
 }
 
 export type ActorPenetrationCacheResult =
@@ -44,7 +49,9 @@ export async function readActorPenetrationCache(code: string): Promise<ActorPene
   const entry = await globalCache.get<{ failed?: boolean; loginRequired?: boolean } & ActorPenetrationCacheValue>(key).catch(() => null);
   if (!entry) return { status: 'miss' };
   if (entry.failed) return { status: 'failed', loginRequired: entry.loginRequired === true };
-  return { status: 'hit', value: { actors: entry.actors, hasMore: entry.hasMore, fetchedAt: entry.fetchedAt } };
+  // categories 仅接受 string[] 形态；旧缓存无此字段或脏数据 → undefined（消费方不触发类别隐藏）。
+  const categories = Array.isArray(entry.categories) ? entry.categories : undefined;
+  return { status: 'hit', value: { actors: entry.actors, hasMore: entry.hasMore, fetchedAt: entry.fetchedAt, categories } };
 }
 
 /** 写入成功缓存（7 天 TTL）。 */

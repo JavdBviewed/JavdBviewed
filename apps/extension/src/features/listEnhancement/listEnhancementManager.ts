@@ -36,7 +36,9 @@ import { matchActorsFromTitle } from './application/actorMatching';
 import {
   applyActorBasedHiding,
   clearListItemActorHiding,
+  clearListItemCategoryHiding,
   hideListItemByActor,
+  hideListItemByCategory,
 } from './application/actorHidingWorkflow';
 import {
   createListScrollPagingController,
@@ -80,7 +82,7 @@ import { createActorWorkQueue, type ActorWorkQueue } from './application/actorWo
 import { createActorPenetrationRuntime, resolveActorLinkMark, type DetailActor } from './actorPenetration';
 import { createActorVisibilityGate } from './application/actorVisibilityGate';
 import { countContentPerformanceEvent } from '../../platform/tasks';
-import { recomputeListHiding, readListHidingEnablement } from '../list-hiding';
+import { isCategoryFilterExemptPage, recomputeListHiding, readListHidingEnablement } from '../list-hiding';
 import { STATE as _STATE } from '../contentState';
 
 export type { ListEnhancementConfig } from './domain/config';
@@ -147,10 +149,21 @@ class ListEnhancementManager {
     concurrency: 2,
     logger: error => log('Actor enhancement task failed:', error),
   });
+  // 类别黑名单隐藏队列（P1）：与 actorWorkQueue 分离，并发 2，按 item 键去重。
+  // 决策纯本地（类别来自穿透运行时同一 fetch 的解析结果），无独立请求。
+  private readonly categoryWorkQueue: ActorWorkQueue = createActorWorkQueue({
+    concurrency: 2,
+    logger: error => log('Category filter task failed:', error),
+  });
+  /** 类别黑名单（'c4=17' 形式 entryKey 集合）；由 categoryFilter effect 同步。 */
+  private categoryBlackSet = new Set<string>();
   private readonly actorPenetration = createActorPenetrationRuntime({
     logger: (...args) => log(...args),
     onActorsRendered: (item, actors) => {
       this.schedulePostPenetrationRehide(item, actors);
+    },
+    onCategoriesResolved: (item, categories) => {
+      this.scheduleCategoryFilterDecision(item, categories);
     },
     getActorMark: (actorId) => {
       if (!this.config.enableActorNameMarks || !this.actorNameMarkPrepped) return undefined;
@@ -226,6 +239,8 @@ class ListEnhancementManager {
         (o.enableActorPenetration === true) !== (c.enableActorPenetration === true),
       apply: () => {
         this.actorPenetration.reset();
+        // 开关翻转时清掉旧挂起的穿透延后任务（关闭防复活渲染；开启后下方重新入队）
+        this.actorVisibilityGate.cancelAll('actorPenetration');
         const items = document.querySelectorAll<HTMLElement>('.movie-list .item');
         if (this.config.enableActorPenetration !== true) {
           items.forEach(item => this.actorPenetration.clear(item));
@@ -235,6 +250,20 @@ class ListEnhancementManager {
             if (info?.code) this.enqueueActorPenetration(item, info);
           });
         }
+      },
+    },
+    {
+      name: 'categoryFilter',
+      watch: (o, c) =>
+        (o.enableCategoryFilter === true) !== (c.enableCategoryFilter === true) ||
+        JSON.stringify(o.categoryFilter?.black ?? []) !== JSON.stringify(c.categoryFilter?.black ?? []),
+      apply: () => {
+        this.categoryBlackSet = new Set(
+          Array.isArray(this.config.categoryFilter?.black)
+            ? this.config.categoryFilter!.black.filter((k): k is string => typeof k === 'string')
+            : [],
+        );
+        this.reapplyCategoryFilterForAll();
       },
     },
     {
@@ -642,7 +671,7 @@ class ListEnhancementManager {
       !this.isActorHidingEnabled() &&
       this.actorVisibilityGate.defer(item, () => {
         this.enqueueActorEnhancement(item, videoInfo, false, true);
-      })
+      }, 'actorEnhancement')
     ) {
       countContentPerformanceEvent('listEnhancement.actorDeferred');
       return;
@@ -717,13 +746,16 @@ class ListEnhancementManager {
 
     const run = () => {
       if (!item.isConnected) return;
+      // 挂起期间开关已关（如 settings-updated 切换穿透）：直接丢弃，防旧延后任务复活渲染
+      if (!this.config.enableActorPenetration) return;
       this.actorPenetration
         .process({ item, code: videoInfo.code, detailUrl: videoInfo.url })
         .catch(err => log('actorPenetration process failed:', err));
     };
 
-    // 复用可见性门控：卡片进入视口附近才触发详情请求
-    if (this.actorVisibilityGate.defer(item, run)) {
+    // 复用可见性门控：卡片进入视口附近才触发详情请求（concern 独立，
+    // reapplyActorHidingForAll 只取消 actorEnhancement concern，不误杀穿透/类别重放）
+    if (this.actorVisibilityGate.defer(item, run, 'actorPenetration')) {
       countContentPerformanceEvent('actorPenetration.deferred');
       return;
     }
@@ -736,6 +768,74 @@ class ListEnhancementManager {
       !!this.config.hideNonFavoritedActorsInList ||
       this.config.hideUnrecognizedActorsInList === true
     );
+  }
+
+  /**
+   * 类别黑名单过滤是否处于激活态：开关开 + 黑名单非空 + 演员穿透开
+   * （依赖穿透的详情请求/缓存，穿透关闭时不可用——UI 以 disabled+提示表达）。
+   */
+  private isCategoryFilterActive(): boolean {
+    return (
+      this.config.enableCategoryFilter === true &&
+      this.categoryBlackSet.size > 0 &&
+      this.config.enableActorPenetration === true
+    );
+  }
+
+  /** 当前页面是否豁免类别黑名单（搜索页 / 想看已看聚合页），与状态隐藏同范围。 */
+  private isCategoryFilterExemptHere(): boolean {
+    try {
+      return isCategoryFilterExemptPage(window.location.pathname, _STATE.isSearchPage === true);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 穿透运行时解析出类别后的本地隐藏决策入口（P1）。
+   * 仅打/清来源标记，真正的显隐由 recomputeListHiding 依开关统一裁定。
+   * categoryWorkQueue 按 item 键去重（渲染风暴期同一卡片不重复决策）。
+   */
+  private scheduleCategoryFilterDecision(item: HTMLElement, categories: string[]): void {
+    if (!this.isCategoryFilterActive()) return;
+    if (this.isCategoryFilterExemptHere()) return;
+    if (!item.isConnected) return;
+    this.categoryWorkQueue.enqueue(async () => {
+      if (!item.isConnected) return;
+      if (!this.isCategoryFilterActive() || this.isCategoryFilterExemptHere()) {
+        // 决策期间开关/黑名单已变化或页面变为豁免：清掉可能残留的类别标记。
+        clearListItemCategoryHiding(item);
+        return;
+      }
+      const hit = categories.some(c => this.categoryBlackSet.has(c));
+      if (hit) {
+        hideListItemByCategory(item);
+      } else {
+        clearListItemCategoryHiding(item);
+      }
+    }, item);
+  }
+
+  /**
+   * 类别过滤开关/黑名单变化时全量重放（P1）。
+   * 激活：逐卡触发穿透 process（缓存命中→onCategoriesResolved 即时重放；
+   * 未命中→走穿透现有门控/并发/缓存链路，不另起请求通道）。
+   * 未激活：清除全部类别来源标记并即时恢复显隐。
+   */
+  private reapplyCategoryFilterForAll(): void {
+    if (!this.hasInitialized) return;
+    const items = Array.from(document.querySelectorAll<HTMLElement>('.movie-list .item'));
+    if (!this.isCategoryFilterActive()) {
+      this.categoryWorkQueue.clearPending();
+      items.forEach(item => clearListItemCategoryHiding(item));
+      return;
+    }
+    if (this.isCategoryFilterExemptHere()) return;
+    items.forEach(item => {
+      const info = extractListItemVideoInfo(item);
+      if (!info?.code) return;
+      this.enqueueActorPenetration(item, info);
+    });
   }
 
   /**
@@ -798,7 +898,10 @@ class ListEnhancementManager {
   // 对外暴露：重应用当前页面所有条目的演员隐藏规则
   public reapplyActorHidingForAll(): void {
     try {
-      this.actorVisibilityGate.cancelAll();
+      // 只取消「演员增强」concern 的挂起任务（本次强制重放将覆盖它）；
+      // 穿透/类别过滤重放的挂起任务保留——缓存命中重放是纯本地的，
+      // 误杀会导致视口外卡片的类别黑名单 live 决策永久丢失直到 reload（08-29 D 修复）。
+      this.actorVisibilityGate.cancelAll('actorEnhancement');
       this.actorWorkQueue.clearPending();
       const items = document.querySelectorAll('.movie-list .item');
       items.forEach((el) => {
