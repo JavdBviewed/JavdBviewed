@@ -1,15 +1,13 @@
 /**
  * @file backgroundCloudSync.test.ts
- * @description Cloud 后台自动登录、定时同步与本地改动同步回归
+ * @description Cloud 后台会话恢复、定时同步与本地改动同步回归
  * @module features/cloudSync
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  loadSession: vi.fn(),
   loadAuto: vi.fn(),
-  loadSettings: vi.fn(),
-  createClient: vi.fn(),
+  recover: vi.fn(),
   runSync: vi.fn(),
   enqueueChange: vi.fn(),
   enqueueDeletion: vi.fn(),
@@ -17,10 +15,8 @@ const mocks = vi.hoisted(() => ({
   shouldSuppress: vi.fn(),
 }));
 
-vi.mock('./chromeTokenStore', () => ({ loadCloudSession: mocks.loadSession }));
 vi.mock('./autoSyncSettings', () => ({ loadCloudAutoSyncSettings: mocks.loadAuto }));
-vi.mock('./cloudSettingsStorage', () => ({ loadCloudSettings: mocks.loadSettings }));
-vi.mock('./createExtensionCloudClient', () => ({ createExtensionCloudClient: mocks.createClient }));
+vi.mock('./cloudAuthRecovery', () => ({ recoverCloudAuthSession: mocks.recover }));
 vi.mock('./runCloudSyncNow', () => ({ runCloudSyncNow: mocks.runSync }));
 vi.mock('./enqueueLocalChange', () => ({
   enqueueStorageItemChange: mocks.enqueueChange,
@@ -36,14 +32,6 @@ import {
   registerCloudSyncStorageListener,
   setupCloudAutoSyncAlarm,
 } from './backgroundCloudSync';
-
-const savedSettings = {
-  baseUrl: 'http://cloud.test',
-  accountIdentifier: 'tester',
-  accountPassword: 'password',
-  deviceId: 'device-1',
-  deviceLabel: '测试浏览器',
-};
 
 describe('backgroundCloudSync', () => {
   let storageChangedListener: ((changes: Record<string, chrome.storage.StorageChange>, area: string) => void) | null = null;
@@ -63,8 +51,7 @@ describe('backgroundCloudSync', () => {
       },
     });
     mocks.loadAuto.mockResolvedValue({ enabled: true, intervalMinutes: 30 });
-    mocks.loadSettings.mockResolvedValue(savedSettings);
-    mocks.createClient.mockResolvedValue({ api: { login: vi.fn().mockResolvedValue(undefined) } });
+    mocks.recover.mockResolvedValue({ outcome: 'already-authenticated' });
     mocks.runSync.mockResolvedValue({ code: 'SYNC_OK' });
     mocks.enqueueChange.mockResolvedValue(undefined);
     mocks.enqueueDeletion.mockResolvedValue(undefined);
@@ -72,34 +59,37 @@ describe('backgroundCloudSync', () => {
     mocks.shouldSuppress.mockReturnValue(false);
   });
 
-  it('restores a saved account session before scheduling periodic sync', async () => {
-    mocks.loadSession
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ accessToken: 'restored-token' });
+  it('recovers a lost session with saved credentials before scheduling periodic sync', async () => {
+    mocks.recover.mockResolvedValue({ outcome: 'recovered' });
 
     await setupCloudAutoSyncAlarm();
 
-    expect(mocks.createClient).toHaveBeenCalledWith(savedSettings);
+    expect(mocks.recover).toHaveBeenCalledWith('ensure-session');
     expect(alarmsCreate).toHaveBeenCalledWith(CLOUD_AUTO_SYNC_ALARM, {
       delayInMinutes: 5,
       periodInMinutes: 30,
     });
   });
 
-  it('restores a saved account session before a periodic alarm sync', async () => {
-    mocks.loadSession
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ accessToken: 'restored-token' });
+  it('does not schedule the alarm when the saved password is invalid', async () => {
+    mocks.recover.mockResolvedValue({ outcome: 'credentials-invalid' });
 
+    await setupCloudAutoSyncAlarm();
+
+    expect(mocks.recover).toHaveBeenCalledWith('ensure-session');
+    expect(alarmsCreate).not.toHaveBeenCalled();
+    expect(alarmsClear).toHaveBeenCalledWith(CLOUD_AUTO_SYNC_ALARM);
+  });
+
+  it('syncs on a periodic alarm while the session is still valid', async () => {
     await expect(handleCloudAutoSyncAlarm(CLOUD_AUTO_SYNC_ALARM)).resolves.toBe(true);
 
-    expect(mocks.createClient).toHaveBeenCalledWith(savedSettings);
+    expect(mocks.recover).toHaveBeenCalledWith('ensure-session');
     expect(mocks.runSync).toHaveBeenCalledTimes(1);
   });
 
   it('syncs eligible local changes shortly after they are enqueued', async () => {
     vi.useFakeTimers();
-    mocks.loadSession.mockResolvedValue({ accessToken: 'token' });
     registerCloudSyncStorageListener();
     expect(storageChangedListener).not.toBeNull();
 

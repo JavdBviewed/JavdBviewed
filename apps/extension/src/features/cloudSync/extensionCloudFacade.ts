@@ -21,6 +21,7 @@ import {
   type CloudConnectionSettings,
 } from './cloudSettingsStorage';
 import { createExtensionCloudClient } from './createExtensionCloudClient';
+import { resetCloudAuthRecoveryState } from './cloudAuthRecovery';
 import {
   runCloudSyncNow,
   type CloudSyncNowOptions,
@@ -246,6 +247,9 @@ export function createExtensionCloudFacade(
         platform: options.platform ?? navigator.userAgent.slice(0, 120),
       },
     });
+    // 用户主动登录成功：清除「密码失效」退避与通知去重状态，
+    // 保证之后再次发生同类失效时能重新通知
+    await resetCloudAuthRecoveryState();
     await setupAlarm(options);
     return loadState();
   }

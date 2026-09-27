@@ -21,6 +21,15 @@ export {
   createExtensionCloudClient,
   type ExtensionCloudClientOptions,
 } from './createExtensionCloudClient';
+export {
+  recoverCloudAuthSession,
+  resetCloudAuthRecoveryState,
+  loadCloudAuthRecoveryBackoff,
+  CREDENTIALS_INVALID_MESSAGE,
+  type CloudAuthRecoveryOutcome,
+  type CloudAuthRecoveryResult,
+  type CloudAuthRecoveryBackoff,
+} from './cloudAuthRecovery';
 export { createChromeCursorStore, CLOUD_CURSORS_STORAGE_KEY } from './chromeCursorStore';
 export {
   createExtensionEntityStore,
