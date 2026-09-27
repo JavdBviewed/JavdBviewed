@@ -15,6 +15,7 @@ import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingS
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import { SettingsHighlightNotice } from '../shared/SettingsHighlightNotice';
+import { SyncHttpError } from '@javdb/sync-client';
 import { showConfirm } from '../../../../../dashboard/components/confirmModal';
 import type { SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import {
@@ -24,6 +25,7 @@ import {
   normalizeCloudBaseUrl,
   type CloudAutoSyncSettings,
   type CloudConnectionSettings,
+  type CloudHealthAuthState,
   type CloudVersionInfo,
   type CloudSessionRecord,
   type CloudSyncProgress,
@@ -87,6 +89,11 @@ function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError';
 }
 
+/** 401/403 = 账号或密码无效（区别于地址不可达 / 服务异常） */
+function isCredentialInvalidError(error: unknown): boolean {
+  return error instanceof SyncHttpError && (error.status === 401 || error.status === 403);
+}
+
 /**
  * Cloud 同步设置完整页面
  */
@@ -101,6 +108,7 @@ export function CloudSettingsPage() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [healthState, setHealthState] = useState<HealthState>('unknown');
   const [healthDetail, setHealthDetail] = useState('尚未检测');
+  const [authProbe, setAuthProbe] = useState<CloudHealthAuthState | null>(null);
   const [cloudVersion, setCloudVersion] = useState<CloudVersionInfo | null>(null);
   const [banner, setBanner] = useState<{ text: string; tone: StatusTone } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -132,6 +140,12 @@ export function CloudSettingsPage() {
   const baseUrlInvalid = baseUrlDraft.trim().length > 0 && !connectionReady;
   const configuredBaseUrl = normalizeCloudBaseUrl(settings?.baseUrl || '') || '未配置地址';
   const hasSavedCredentials = Boolean(settings?.accountIdentifier && settings?.accountPassword);
+  // 登录已失效：已存凭据存在，且健康探测判定凭据无效，或自动连接尝试失败而服务在线
+  const authInvalid =
+    !loggedIn &&
+    hasSavedCredentials &&
+    (authProbe === 'invalid' ||
+      (autoConnectionState === 'failed' && healthState === 'ok'));
 
   const setStatus = useCallback((text: string, tone: StatusTone) => {
     setBanner({ text, tone });
@@ -186,6 +200,7 @@ export function CloudSettingsPage() {
       if (!root) {
         setHealthState('err');
         setHealthDetail('地址无效');
+        setAuthProbe(null);
         if (!silent) {
           setStatus('请填写有效的 Cloud 地址', 'err');
           await toast('地址无效', 'warning');
@@ -198,6 +213,7 @@ export function CloudSettingsPage() {
         if (!result.ok) {
           setHealthState('err');
           setHealthDetail(result.detail);
+          setAuthProbe(null);
           if (!silent) {
             setStatus('健康检查失败：请确认 Cloud 服务已启动且地址端口正确', 'err');
             await toast(result.detail === '地址无效' ? '地址无效' : '连接失败', 'error');
@@ -206,6 +222,7 @@ export function CloudSettingsPage() {
         }
         setHealthState('ok');
         setHealthDetail(result.detail);
+        setAuthProbe(result.auth ?? null);
         if (!silent) {
           setStatus('已连通 Cloud 服务', 'ok');
           await toast('✓ 连接正常', 'success');
@@ -361,9 +378,12 @@ export function CloudSettingsPage() {
         setStatus('测试连接成功，尚未执行同步', 'ok');
         await toast('✓ 连接正常，未执行同步', 'success');
       } catch (e) {
-        const msg = humanizeCloudError(e);
+        const invalidCredentials = isCredentialInvalidError(e);
+        const msg = invalidCredentials
+          ? 'Cloud 地址可连通，但账号或密码无效（若改过密码，请更新后重试）'
+          : humanizeCloudError(e);
         setStatus(msg, 'err');
-        await toast(msg, 'error');
+        await toast(invalidCredentials ? '账号或密码无效' : msg, 'error');
       }
     });
 
@@ -409,8 +429,10 @@ export function CloudSettingsPage() {
         setStatus('已自动登录并完成首次同步', 'ok');
       } catch (e) {
         setAutoConnectionState('failed');
-        const msg = humanizeCloudError(e);
-        setStatus(`自动连接或同步失败：${msg}`, 'err');
+        const msg = isCredentialInvalidError(e)
+          ? 'Cloud 密码可能已变更：请在「编辑连接」中更新账号密码后，使用「测试连接」验证'
+          : `自动连接或同步失败：${humanizeCloudError(e)}`;
+        setStatus(msg, 'err');
       }
     });
   }, [busyAction, loading, loggedIn, loginAndSync, probeHealthUrl, setStatus, settings, withBusy]);
@@ -698,12 +720,14 @@ export function CloudSettingsPage() {
           healthDetail={healthDetail}
           cloudVersion={cloudVersion}
           loggedIn={loggedIn}
+          authInvalid={authInvalid}
           hasSavedCredentials={hasSavedCredentials}
           autoConnectionState={autoConnectionState}
           deviceLabel={settings.deviceLabel || '未命名设备'}
           syncBusy={busyAction === 'sync'}
           disabled={busy}
           onEdit={openConnectionEditor}
+          onReLogin={openConnectionEditor}
           onReconnect={onReconnect}
           onSync={onSyncNow}
         />
@@ -855,12 +879,14 @@ function CloudConnectionSummary(props: {
   healthDetail: string;
   cloudVersion?: CloudVersionInfo | null;
   loggedIn: boolean;
+  authInvalid: boolean;
   hasSavedCredentials: boolean;
   autoConnectionState: AutoConnectionState;
   deviceLabel: string;
   syncBusy: boolean;
   disabled: boolean;
   onEdit: () => void;
+  onReLogin: () => void;
   onReconnect: () => void;
   onSync: () => void;
 }) {
@@ -882,7 +908,7 @@ function CloudConnectionSummary(props: {
             <div>
               <dt className="text-[var(--color-fg-muted)]">登录状态</dt>
               <dd className="m-0 mt-0.5 font-semibold text-[var(--color-fg)]">
-                {props.loggedIn ? '已登录' : '未登录'}
+                {props.loggedIn ? '已登录' : props.authInvalid ? '登录已失效' : '未登录'}
               </dd>
             </div>
             <div>
@@ -917,16 +943,20 @@ function CloudConnectionSummary(props: {
             title={
               props.loggedIn
                 ? '立即同步本机与 Cloud 数据'
-                : props.autoConnectionState === 'connecting'
-                  ? '正在自动连接并同步'
-                  : props.hasSavedCredentials
-                    ? '重新连接并同步 Cloud'
-                    : '请先配置账号密码'
+                : props.authInvalid
+                  ? '已保存的密码可能已失效，点击打开编辑连接更新账号密码'
+                  : props.autoConnectionState === 'connecting'
+                    ? '正在自动连接并同步'
+                    : props.hasSavedCredentials
+                      ? '重新连接并同步 Cloud'
+                      : '请先配置账号密码'
             }
             onClick={
               props.loggedIn
                 ? props.onSync
-                : props.hasSavedCredentials ? props.onReconnect : props.onEdit
+                : props.authInvalid
+                  ? props.onReLogin
+                  : props.hasSavedCredentials ? props.onReconnect : props.onEdit
             }
           >
             <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
@@ -936,7 +966,9 @@ function CloudConnectionSummary(props: {
                 ? '同步中…'
                 : props.loggedIn
                   ? '立即同步'
-                  : props.hasSavedCredentials ? '重新连接' : '配置账号'}
+                  : props.authInvalid
+                    ? '重新登录'
+                    : props.hasSavedCredentials ? '重新连接' : '配置账号'}
           </Button>
           <Button variant="secondary" size="sm" disabled={props.disabled} onClick={props.onEdit}>
             <i className="fas fa-edit" aria-hidden="true" /> 编辑连接

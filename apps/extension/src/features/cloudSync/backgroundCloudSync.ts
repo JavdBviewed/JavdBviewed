@@ -3,10 +3,8 @@
  * @description Background：定时 Cloud 同步闹钟 + 消息触发同步
  * @module features/cloudSync
  */
-import { loadCloudSession } from './chromeTokenStore';
 import { loadCloudAutoSyncSettings } from './autoSyncSettings';
-import { loadCloudSettings } from './cloudSettingsStorage';
-import { createExtensionCloudClient } from './createExtensionCloudClient';
+import { recoverCloudAuthSession } from './cloudAuthRecovery';
 import {
   enqueueStorageItemChange,
   enqueueStorageItemDeletion,
@@ -19,38 +17,15 @@ import { shouldSyncStorageItemKey } from './storageItemPolicy';
 export const CLOUD_AUTO_SYNC_ALARM = 'cloud-auto-sync';
 
 let syncInFlight: Promise<unknown> | null = null;
-let credentialLoginInFlight: Promise<boolean> | null = null;
 let localChangeSyncTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** 会话丢失时用已保存的账号密码恢复；失败不清除配置，等待用户修正后再试。 */
+/**
+ * 会话丢失时用已保存的账号密码恢复；失败不清除配置，等待用户修正后再试。
+ * 统一走 recoverCloudAuthSession：带跨上下文锁、退避与失效提示（见 cloudAuthRecovery.ts）。
+ */
 async function ensureCloudSessionFromSavedCredentials(): Promise<boolean> {
-  const existing = await loadCloudSession();
-  if (existing?.accessToken) return true;
-  if (credentialLoginInFlight) return credentialLoginInFlight;
-  credentialLoginInFlight = (async () => {
-    const settings = await loadCloudSettings();
-    if (!settings.baseUrl || !settings.accountIdentifier || !settings.accountPassword) return false;
-    try {
-      const { api } = await createExtensionCloudClient(settings);
-      await api.login({
-        identifier: settings.accountIdentifier,
-        password: settings.accountPassword,
-        device: {
-          id: settings.deviceId,
-          label: settings.deviceLabel,
-          clientType: 'extension',
-          platform: typeof navigator === 'undefined' ? '' : navigator.userAgent.slice(0, 120),
-        },
-      });
-      return Boolean((await loadCloudSession())?.accessToken);
-    } catch (e) {
-      console.warn('[CloudSync] automatic login failed', e);
-      return false;
-    }
-  })().finally(() => {
-    credentialLoginInFlight = null;
-  });
-  return credentialLoginInFlight;
+  const result = await recoverCloudAuthSession('ensure-session');
+  return result.outcome === 'already-authenticated' || result.outcome === 'recovered';
 }
 
 /** 合并短时间内的本地改动；入队完成后立即同步，不必等待下一个周期闹钟。 */

@@ -14,6 +14,7 @@ import {
   preparePushQueueStats,
 } from './extensionEntityStore';
 import { loadCloudSession } from './chromeTokenStore';
+import { CREDENTIALS_INVALID_MESSAGE, recoverCloudAuthSession } from './cloudAuthRecovery';
 import { loadCloudSettings } from './cloudSettingsStorage';
 import { countByType, type TypeCountMap } from './syncStats';
 import { getValue, setValue } from '../../utils/storage';
@@ -97,7 +98,17 @@ export async function runCloudSyncNow(
 ): Promise<CloudSyncNowResult> {
   if (options.signal?.aborted) throw new DOMException('同步已取消', 'AbortError');
   const startedAt = Date.now();
-  const session = await loadCloudSession();
+  let session = await loadCloudSession();
+  if (!session?.accessToken) {
+    // 会话丢失（如服务端改密撤销全部设备会话）：先凭已存凭据自动重登，
+    // 避免把可自动恢复的情况直接抛给用户。
+    const recovery = await recoverCloudAuthSession('sync-now');
+    if (recovery.outcome === 'already-authenticated' || recovery.outcome === 'recovered') {
+      session = await loadCloudSession();
+    } else if (recovery.outcome === 'credentials-invalid') {
+      throw new Error(CREDENTIALS_INVALID_MESSAGE);
+    }
+  }
   if (!session?.accessToken) {
     throw new Error('请先登录 Cloud');
   }
