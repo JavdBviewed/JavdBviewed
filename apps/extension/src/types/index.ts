@@ -30,6 +30,7 @@ export interface ActorRecord {
     worksCount?: number;
   };
   blacklisted?: boolean;                              // 黑名单演员不显示增强信息
+  favorited?: boolean;                                // 收藏状态：缺省（absent）= 已收藏，显式 false = 未收藏；判定一律 favorited !== false（与 showStatusBadge/backupRange 的 !== false 纪律一致）
   manuallyEditedFields?: string[];                    // 同步时不会覆盖这些字段
   wikiData?: {                                        // 演员元数据刷新功能获取
     age?: number;
@@ -64,6 +65,8 @@ export interface ActorIndexRecord {
   name: string;
   aliases: string[];
   blacklisted?: boolean;
+  /** 收藏状态（与 ActorRecord 同口径）：缺省 = 已收藏；SW 快照仅在源记录存在该字段时序列化，内容侧一律 favorited !== false 判定。 */
+  favorited?: boolean;
 }
 
 /** 演员分页搜索结果 */

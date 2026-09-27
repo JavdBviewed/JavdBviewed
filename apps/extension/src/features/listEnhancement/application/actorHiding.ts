@@ -55,24 +55,27 @@ export function decideActorHiding(input: ActorHidingDecisionInput): ActorHidingD
 }
 
 function isNonFavoritedMatch(input: ActorHidingDecisionInput): boolean {
+  // case1：DOM 有演员信息但匹配记录为零（匹配到名字但库无记录 = 未收藏）→ 照藏
   if (input.domActorIds.size > 0 && input.actors.length === 0) {
     return true;
   }
 
+  // case2：有匹配演员 → 隐藏仅当无任何匹配演员处于收藏
+  //（favorited 缺省 = 已收藏，显式 false = 未收藏；拉黑与收藏正交，拉黑不改变收藏判定）
   if (input.actors.length > 0) {
     return !hasAnyFavoritedActor(input.actors);
   }
 
-  // 无任何演员信息时并入「未识别」语义：须同时满足 hideUnrecognized 且演员库非空
+  // case3：无任何演员信息时并入「未识别」语义：须同时满足 hideUnrecognized 且演员库非空
   //（空演员库保护，2026-09-27 真机审计 B2 修复：原实现绕过空库保护）。
   return input.hideUnrecognized && input.actorIndexSize > 0;
 }
 
+/**
+ * 真收藏判定（09-28-actor-favorited-field）：favorited 缺省 = 已收藏，
+ * 显式 false = 未收藏；与 showStatusBadge / backupRange 的 `!== false` 纪律一致。
+ * 拉黑（blacklisted）与收藏是两个正交状态，不在此判定内。
+ */
 function hasAnyFavoritedActor(actors: ActorIndexRecord[]): boolean {
-  // 数据模型限制（09-26-display-settings-audit B1 止血）：
-  // ActorIndexRecord 只有 blacklisted 字段，没有收藏状态字段，
-  // 因此「未收藏」语义当前等价于「匹配演员全部处于黑名单」。
-  // 收藏/订阅不再参与决策（treatSubscribedAsFavorited 为死代码，已删除）；
-  // 真正的「未收藏」实现（引入收藏数据模型或并入黑名单）待产品决策。
-  return actors.some(actor => !actor.blacklisted);
+  return actors.some(actor => actor.favorited !== false);
 }

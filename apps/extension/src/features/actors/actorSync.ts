@@ -16,6 +16,51 @@ import { actorManager } from './actorManager';
 import { getSettings } from '../../utils/storage';
 import { isCloudflareChallenge } from '../../dashboard/dataSync/cloudflareVerification';
 
+/**
+ * 将 JavDB 同步拿到的演员合并到本地既有记录（纯函数，供 saveActorsToDatabase 与单测共用）。
+ *
+ * 手动编辑保护：本地手动改过、已记入 manuallyEditedFields 的字段（含 favorited）
+ * 一律以本地值为准，同步不覆盖——与编辑弹窗锁图标「此字段已锁定，不会被自动同步覆盖」
+ * 的既有契约一致；manuallyEditedFields 本身是本地概念（JavDB 侧不存在该字段），恒保留本地值。
+ */
+export function mergeSyncedActor(
+  existingActor: ActorRecord,
+  actor: ActorRecord,
+  forceUpdate: boolean,
+  now = Date.now(),
+): ActorRecord {
+  const updated: ActorRecord = {
+    ...actor,
+    // 根据forceUpdate决定是否强制更新性别和分类
+    gender: forceUpdate ? actor.gender : (existingActor.gender !== 'unknown' ? existingActor.gender : actor.gender),
+    category: forceUpdate ? actor.category : (existingActor.category !== 'unknown' ? existingActor.category : actor.category),
+    // 合并别名，去重
+    aliases: [...new Set([...existingActor.aliases, ...actor.aliases])],
+    // 保留创建时间
+    createdAt: existingActor.createdAt,
+    // 更新修改时间
+    updatedAt: now,
+    // 保留其他详细信息
+    details: existingActor.details || actor.details,
+  };
+
+  // 保留手动编辑字段清单本身（JavDB 侧永远不会下发该字段）
+  if (existingActor.manuallyEditedFields) {
+    updated.manuallyEditedFields = existingActor.manuallyEditedFields;
+  }
+
+  // 手动编辑过的字段不被同步覆盖
+  for (const field of existingActor.manuallyEditedFields ?? []) {
+    if (field === 'manuallyEditedFields') continue;
+    const source = existingActor as unknown as Record<string, unknown>;
+    if (field in source) {
+      (updated as unknown as Record<string, unknown>)[field] = source[field];
+    }
+  }
+
+  return updated;
+}
+
 export class ActorSyncService {
     private abortController: AbortController | null = null;
     private isRunning = false;
@@ -557,24 +602,11 @@ export class ActorSyncService {
                 const existingActor = await actorManager.getActorById(actor.id);
 
                 if (existingActor) {
-                    // 根据forceUpdate参数决定更新策略
+                    // 根据forceUpdate参数决定更新策略（合并 + 手动编辑字段保护见 mergeSyncedActor）
                     const oldGender = existingActor.gender;
                     const oldCategory = existingActor.category;
 
-                    const updatedActor: ActorRecord = {
-                        ...actor,
-                        // 根据forceUpdate决定是否强制更新性别和分类
-                        gender: forceUpdate ? actor.gender : (existingActor.gender !== 'unknown' ? existingActor.gender : actor.gender),
-                        category: forceUpdate ? actor.category : (existingActor.category !== 'unknown' ? existingActor.category : actor.category),
-                        // 合并别名，去重
-                        aliases: [...new Set([...existingActor.aliases, ...actor.aliases])],
-                        // 保留创建时间
-                        createdAt: existingActor.createdAt,
-                        // 更新修改时间
-                        updatedAt: Date.now(),
-                        // 保留其他详细信息
-                        details: existingActor.details || actor.details
-                    };
+                    const updatedActor = mergeSyncedActor(existingActor, actor, forceUpdate);
 
                     await actorManager.saveActor(updatedActor);
                     result.updatedActors++;

@@ -12,6 +12,7 @@ export interface ActorCardRuntimeHandlers {
   refreshActorMetadata(actorId: string): Promise<ActorMetadataRefreshResult>;
   deleteActor(actorId: string): void | Promise<void>;
   toggleBlacklisted(actorId: string, isBlacklisted: boolean): Promise<void>;
+  toggleFavorited(actorId: string, isFavorited: boolean): Promise<void>;
   toggleAliasesExpansion(actorId: string): void;
   checkAliasesOverflow(actorId: string): void;
   addSubscription(actorId: string): Promise<void>;
@@ -37,6 +38,7 @@ export function setupActorCardRuntime(
   bindActorButton(root, actorId, '.actor-delete-btn', handlers.deleteActor);
   bindRefreshButton(root, actorId, handlers);
   bindBlacklistButton(root, actorId, handlers);
+  bindFavoriteButton(root, actorId, handlers);
   bindAliasToggleButton(root, actorId, handlers);
   bindSubscriptionButton(root, actorId, handlers);
 
@@ -104,6 +106,24 @@ function bindBlacklistButton(root: ParentNode, actorId: string, handlers: ActorC
     } catch (error) {
       handlers.logError('[Actor] 切换黑名单状态失败:', error);
       handlers.showMessage('切换黑名单状态失败', 'error');
+    }
+  });
+}
+
+function bindFavoriteButton(root: ParentNode, actorId: string, handlers: ActorCardRuntimeHandlers): void {
+  const favoriteBtn = root.querySelector(`[data-actor-id="${actorId}"].actor-favorite-toggle-btn`);
+  favoriteBtn?.addEventListener('click', async (event) => {
+    event.preventDefault();
+    const targetActorId = (event.currentTarget as HTMLElement).dataset.actorId!;
+    const actorCard = root.querySelector(`[data-actor-id="${actorId}"].actor-card`) as HTMLElement | null;
+    // 卡片 data-fav 缺省时按「已收藏」处理（与 favorited 缺省 = 已收藏口径一致）
+    const isFavorited = actorCard?.dataset.fav !== '0';
+
+    try {
+      await handlers.toggleFavorited(targetActorId, isFavorited);
+    } catch (error) {
+      handlers.logError('[Actor] 切换收藏状态失败:', error);
+      handlers.showMessage('切换收藏状态失败', 'error');
     }
   });
 }

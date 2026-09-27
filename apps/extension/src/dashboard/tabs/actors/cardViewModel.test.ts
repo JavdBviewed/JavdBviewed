@@ -43,6 +43,26 @@ describe('actors card view model', () => {
     expect(html).toContain('title="取消拉黑"');
   });
 
+  it('renders favorite toggle: 缺省已收藏（实心星 + 取消收藏）', () => {
+    const html = buildActorCardHtml(actor(), { isSubscribed: false, showBlacklistBadge: false });
+
+    expect(html).toContain('actor-favorite-toggle-btn');
+    expect(html).toContain('data-fav="1"');
+    expect(html).toContain('title="取消收藏"');
+    expect(html).toContain('fas fa-star');
+  });
+
+  it('renders favorite toggle: 显式未收藏（空心星 + 收藏）', () => {
+    const html = buildActorCardHtml(actor({ favorited: false }), {
+      isSubscribed: false,
+      showBlacklistBadge: false,
+    });
+
+    expect(html).toContain('data-fav="0"');
+    expect(html).toContain('title="收藏"');
+    expect(html).toContain('far fa-star');
+  });
+
   it('renders category and sync text helpers', () => {
     expect(getActorCategoryText('uncensored')).toBe('无码');
     expect(getActorCategoryText('western')).toBe('欧美');

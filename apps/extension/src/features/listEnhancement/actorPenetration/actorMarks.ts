@@ -3,8 +3,8 @@
  * @description 演员名称标识（列表穿透卡片用）。
  * 与影片页 markActorsOnPage 同一套判定：
  * - 黑名单（blacklisted = true）→ 红色 + 删除线
- * - 已收藏（本地演员库存在记录）→ 绿色
- * - 已订阅（订阅列表包含该演员）→ 追加 🔔 标记
+ * - 已收藏（本地演员库存在记录且 favorited !== false；favorited 缺省 = 已收藏）→ 绿色
+ * - 已订阅（订阅列表包含该演员）→ 追加 🔔 标记（独立可叠加，不受收藏状态影响）
  * 任一状态命中即返回对应 ActorLinkMark；全部未命中返回 undefined（名称保持默认）。
  * 判定为纯函数：输入演员记录与订阅集合，输出标识（或 undefined），不触碰 DOM、不读 chrome。
  * @module features/listEnhancement/actorPenetration
@@ -32,14 +32,15 @@ export function resolveActorLinkMark(
   lookup: Pick<ActorMarkLookup, 'subscribedActorIds'>,
 ): ActorLinkMark | undefined {
   const isBlacklisted = record?.blacklisted === true;
-  const isCollected = !!record;
+  // 收藏判定：库内存在记录且未被设为未收藏（favorited 缺省 = 已收藏）
+  const isCollected = !!record && record.favorited !== false;
   const isSubscribed = lookup.subscribedActorIds.has(actorId);
 
-  if (!isCollected && !isSubscribed) return undefined;
-
+  // 黑名单与收藏/订阅正交：未收藏也不影响拉红（原 gate 在前会吞掉拉黑标识）
   if (isBlacklisted) {
     return { status: 'blacklisted', title: '黑名单' };
   }
+  if (!isCollected && !isSubscribed) return undefined;
   if (isCollected) {
     return {
       status: 'collected',
