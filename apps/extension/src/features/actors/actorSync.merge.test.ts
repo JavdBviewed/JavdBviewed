@@ -86,6 +86,33 @@ describe('mergeSyncedActor favorited 同步保护', () => {
   });
 });
 
+describe('mergeSyncedActor blacklisted 同步保护', () => {
+  it('拉黑已锁（blacklisted=true + manuallyEditedFields 含 blacklisted）→ 同步后保留 true', () => {
+    const existing = actor({
+      blacklisted: true,
+      favorited: false,
+      manuallyEditedFields: ['favorited', 'blacklisted'],
+    });
+    const incoming = actor({ name: '远端名' }); // JavDB 侧永远不下发 blacklisted
+
+    const merged = mergeSyncedActor(existing, incoming, false, NOW);
+
+    expect(merged.blacklisted).toBe(true);
+    expect(merged.favorited).toBe(false); // 同记录上的另一把锁不受影响
+    expect(merged.manuallyEditedFields).toEqual(['favorited', 'blacklisted']);
+  });
+
+  it('未锁旧数据（blacklisted=true、无 manuallyEditedFields）→ 同步后丢失（现状回归锁）', () => {
+    const existing = actor({ blacklisted: true });
+    const incoming = actor({});
+
+    const merged = mergeSyncedActor(existing, incoming, false, NOW);
+
+    expect(merged.blacklisted).toBeUndefined(); // `...actor` 展开覆盖，无锁不保护
+    expect(merged.manuallyEditedFields).toBeUndefined();
+  });
+});
+
 describe('mergeSyncedActor 既有合并口径不回归', () => {
   it('别名合并去重 / 创建时间保留 / updatedAt 更新', () => {
     const existing = actor({ aliases: ['本地别名'] });

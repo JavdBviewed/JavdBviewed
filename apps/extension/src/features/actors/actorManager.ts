@@ -175,7 +175,9 @@ export class ActorManager {
     }
 
     /**
-     * 设置演员黑名单状态（本地字段）
+     * 设置演员黑名单状态（本地字段，与收藏正交、可并存）。
+     * 拉黑/取消拉黑都是「手动编辑」：把 'blacklisted' 加入 manuallyEditedFields，
+     * JavDB 同步的 `...actor` 展开不会清掉用户拉黑态（JavDB 侧永远不下发该字段，锁只防丢失不挡更新）。
      */
     async setBlacklisted(id: string, blacklisted: boolean): Promise<void> {
         await this.initialize();
@@ -192,9 +194,13 @@ export class ActorManager {
         if (!existing) {
             throw new Error(`Actor not found: ${id}`);
         }
+        const protectedFields = existing.manuallyEditedFields ?? [];
         const updated: ActorRecord = {
             ...existing,
             blacklisted,
+            manuallyEditedFields: protectedFields.includes('blacklisted')
+                ? protectedFields
+                : [...protectedFields, 'blacklisted'],
             updatedAt: Date.now(),
         };
         this.cache.set(id, updated);
