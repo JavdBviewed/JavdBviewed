@@ -116,6 +116,42 @@ describe('Cloud auth recovery', () => {
     expect(opts.title).toBe('Cloud 登录已恢复');
   });
 
+  it('默认 fetch 路径: 未注入 fetchImpl 时以全局对象接收者安全调用（防 Illegal invocation）', async () => {
+    // 仿真 Chrome brand check：this 非全局对象即抛 Illegal invocation
+    // （09-10-cloud-sync-401 真机复现：MV3 SW 内以方法形态调用分离的 fetch 引用）
+    const originalFetch = globalThis.fetch;
+    const chromeLikeFetch = vi.fn(function (this: unknown) {
+      if (this !== globalThis) {
+        throw new Error(
+          "Failed to execute 'fetch' on 'WorkerGlobalScope': Illegal invocation",
+        );
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          accessToken: 'new-at',
+          refreshToken: 'new-rt',
+          userId: 'u1',
+          deviceId: 'device-1',
+          protocolVersion: 1,
+        }),
+      }) as unknown as Response;
+    }) as unknown as typeof fetch;
+    globalThis.fetch = chromeLikeFetch;
+    try {
+      const { recoverCloudAuthSession } = await import(RECOVERY_MODULE);
+      setChromeStorage({ [CLOUD_SETTINGS_STORAGE_KEY]: SETTINGS });
+      const result = await recoverCloudAuthSession('test');
+      expect(result.outcome).toBe('recovered');
+      expect(chromeLikeFetch).toHaveBeenCalledTimes(1);
+      const [url] = chromeLikeFetch.mock.calls[0] as unknown as [string];
+      expect(url).toBe(`${BASE}/v1/auth/login`);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('credentials-invalid: 401 时 30 分钟退避、不写会话、发送失效引导通知', async () => {
     const { recoverCloudAuthSession, CREDENTIALS_INVALID_MESSAGE } = await import(
       RECOVERY_MODULE

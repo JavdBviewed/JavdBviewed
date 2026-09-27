@@ -198,7 +198,11 @@ export async function recoverCloudAuthSession(
   reason?: string,
   options: { fetchImpl?: typeof fetch } = {},
 ): Promise<CloudAuthRecoveryResult> {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  // fetch 需要以全局对象为 this 调用：把分离出的全局 fetch 引用再以方法形态
+  // （obj.fetchImpl(url)）调用会在 MV3 service worker 触发
+  // "Failed to execute 'fetch' on 'WorkerGlobalScope': Illegal invocation"
+  // （09-10-cloud-sync-401 真机复现）；bind 全局对象后任意调用形态均安全。
+  const fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
   const result = await runExclusive(async (): Promise<CloudAuthRecoveryResult> => {
     // 锁内复查：另一上下文可能已完成恢复
     const existing = await loadCloudSession();
