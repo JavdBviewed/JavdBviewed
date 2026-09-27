@@ -21,6 +21,8 @@ function buildActorCardViewHtml(actor: ActorRecord, options: BuildActorCardHtmlO
 
   const isSubscribed = !!options.isSubscribed;
   const isBlacklisted = !!actor.blacklisted;
+  // 收藏判定与全局口径一致：favorited 缺省 = 已收藏，显式 false = 未收藏
+  const isFavorited = actor.favorited !== false;
   const blacklistBadge = isBlacklisted && options.showBlacklistBadge
     ? '<span class="actor-badge actor-badge-blacklisted" title="已拉黑">黑名单</span>'
     : '';
@@ -28,7 +30,7 @@ function buildActorCardViewHtml(actor: ActorRecord, options: BuildActorCardHtmlO
   const cardStyle = isBlacklisted ? 'style="opacity:0.5;"' : '';
 
   return `
-            <div class="actor-card batch-mode" data-actor-id="${actor.id}" data-blacklisted="${isBlacklisted}" data-gender="${actor.gender}" ${cardStyle}>
+            <div class="actor-card batch-mode" data-actor-id="${actor.id}" data-blacklisted="${isBlacklisted}" data-fav="${isFavorited ? '1' : '0'}" data-gender="${actor.gender}" ${cardStyle}>
                 <div class="actor-card-avatar-container">
                     <div class="actor-card-avatar" id="actor-avatar-${actor.id}">
                         <!-- 头像将通过JS添加 -->
@@ -91,6 +93,11 @@ function buildActorCardViewHtml(actor: ActorRecord, options: BuildActorCardHtmlO
                             data-actor-id="${actor.id}"
                             title="${isBlacklisted ? '取消拉黑' : '拉黑'}">
                         <i class="fas fa-ban"></i>
+                    </button>
+                    <button class="actor-action-btn actor-favorite-toggle-btn"
+                            data-actor-id="${actor.id}"
+                            title="${isFavorited ? '取消收藏' : '收藏'}">
+                        <i class="${isFavorited ? 'fas' : 'far'} fa-star"></i>
                     </button>
                     <button class="actor-action-btn actor-subscribe-toggle-btn"
                             data-actor-id="${actor.id}"
@@ -192,6 +199,8 @@ function buildActorListViewHtml(actor: ActorRecord, options: BuildActorCardHtmlO
 
   const isSubscribed = !!options.isSubscribed;
   const isBlacklisted = !!actor.blacklisted;
+  // 收藏判定与全局口径一致：favorited 缺省 = 已收藏，显式 false = 未收藏
+  const isFavorited = actor.favorited !== false;
   const blacklistBadge = isBlacklisted && options.showBlacklistBadge
     ? '<span class="actor-badge actor-badge-blacklisted" title="已拉黑">黑名单</span>'
     : '';
@@ -200,7 +209,7 @@ function buildActorListViewHtml(actor: ActorRecord, options: BuildActorCardHtmlO
 
   // 列表视图：紧凑布局，横向排列
   return `
-    <div class="actor-card batch-mode" data-actor-id="${actor.id}" data-blacklisted="${isBlacklisted}" ${cardStyle}>
+    <div class="actor-card batch-mode" data-actor-id="${actor.id}" data-blacklisted="${isBlacklisted}" data-fav="${isFavorited ? '1' : '0'}" ${cardStyle}>
       <div class="actor-card-avatar" id="actor-avatar-${actor.id}">
         <!-- 头像将通过JS添加 -->
       </div>
@@ -261,6 +270,11 @@ function buildActorListViewHtml(actor: ActorRecord, options: BuildActorCardHtmlO
                 data-actor-id="${actor.id}"
                 title="${isBlacklisted ? '取消拉黑' : '拉黑'}">
           <i class="fas fa-ban"></i>
+        </button>
+        <button class="actor-action-btn actor-favorite-toggle-btn"
+                data-actor-id="${actor.id}"
+                title="${isFavorited ? '取消收藏' : '收藏'}">
+          <i class="${isFavorited ? 'fas' : 'far'} fa-star"></i>
         </button>
         <button class="actor-action-btn actor-subscribe-toggle-btn"
                 data-actor-id="${actor.id}"

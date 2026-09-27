@@ -249,11 +249,11 @@ describe('EnhancementSettingsPage layout', () => {
   });
 
   it('keeps the hideNonFavoritedActorsInList label aligned with the popup short copy', () => {
-    // 2026-09-27 方案 B（用户拍板）：设置页标题对齐 popup 既有短文案（13 字→10 字，
-    // popup 宽度零风险），描述改写为准确口径（收藏=在演员库且未拉黑）。纯文案零行为变更。
+    // label 不变（与 popup 既有短文案逐字一致）；描述 2026-09-28 actor-favorited-field 换真白名单口径：
+    // 收藏 = ActorRecord.favorited（缺省 = 已收藏），拉黑与收藏正交，旧止血口径（收藏≈未拉黑）作废。
     const expectedLabel = '隐藏未收藏演员的作品';
     const expectedDescription =
-      '收藏=演员在演员库且未拉黑（库由「演员同步」拉取你的收藏演员列表+演员页手动收藏构成；拉黑的演员取消收藏后仍保留在库）。匹配演员全被拉黑、或识别出的演员全不在库时，该作品被隐藏。建议先执行一次演员同步以完整覆盖收藏。';
+      '隐藏匹配演员全部未收藏的列表页作品。演员库内演员默认为已收藏，可在演员页将个别演员设为未收藏。无法匹配到演员的作品不受影响；演员库为空时本开关不生效。';
     const fieldsSource = readFileSync(join(here, 'listFilterFields.ts'), 'utf8');
     expect(fieldsSource).toContain(`label: '${expectedLabel}'`);
     expect(fieldsSource).toContain(`description: '${expectedDescription}'`);

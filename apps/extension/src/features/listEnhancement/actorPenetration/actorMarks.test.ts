@@ -46,6 +46,31 @@ describe('resolveActorLinkMark', () => {
     const mark = resolveActorLinkMark('a1', null, subs(['a1']));
     expect(mark).toEqual({ status: 'subscribed', title: '已订阅' });
   });
+
+  it('fav 缺省 + 已订阅 → 收藏标识 + 订阅提示（title 组合跟随 isCollected）', () => {
+    const mark = resolveActorLinkMark('a1', record({}), subs(['a1']));
+    expect(mark).toEqual({ status: 'collected', title: '已收藏 · 已订阅' });
+  });
+
+  it('显式 favorited=true → 绿色收藏标识', () => {
+    const mark = resolveActorLinkMark('a1', record({ favorited: true }), subs([]));
+    expect(mark).toEqual({ status: 'collected', title: '已收藏' });
+  });
+
+  it('favorited=false（未收藏）→ 无绿标（库内有记录但视为未收藏）', () => {
+    const mark = resolveActorLinkMark('a1', record({ favorited: false }), subs([]));
+    expect(mark).toBeUndefined();
+  });
+
+  it('favorited=false + 已订阅 → 订阅标识独立可叠加（无绿标）', () => {
+    const mark = resolveActorLinkMark('a1', record({ favorited: false }), subs(['a1']));
+    expect(mark).toEqual({ status: 'subscribed', title: '已订阅' });
+  });
+
+  it('favorited=false + 黑名单 → 黑名单优先（拉黑与收藏正交、可并存）', () => {
+    const mark = resolveActorLinkMark('a1', record({ blacklisted: true, favorited: false }), subs([]));
+    expect(mark).toEqual({ status: 'blacklisted', title: '黑名单' });
+  });
 });
 
 describe('resolveActorMarkFor', () => {

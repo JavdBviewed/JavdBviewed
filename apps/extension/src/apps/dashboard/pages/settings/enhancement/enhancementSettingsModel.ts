@@ -44,7 +44,7 @@ export type EnhancementSettingsFormState = {
   hideWant: boolean;
   /** listEnhancement.hideBlacklistedActorsInList */
   hideBlacklistedActorsInList: boolean;
-  /** listEnhancement.hideNonFavoritedActorsInList（实际行为：匹配演员全部在黑名单中） */
+  /** listEnhancement.hideNonFavoritedActorsInList（真白名单语义：匹配演员全部未收藏时隐藏；favorited 缺省 = 已收藏） */
   hideNonFavoritedActorsInList: boolean;
   /** listEnhancement.hideUnrecognizedActorsInList（空演员库保护：库为空时不隐藏） */
   hideUnrecognizedActorsInList: boolean;

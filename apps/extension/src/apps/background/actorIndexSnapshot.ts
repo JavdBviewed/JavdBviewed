@@ -6,7 +6,7 @@
  * （DB:ACTORS_QUERY{sharedIndex}）。actorsQuery 的实现对每次查询都执行
  * `db.getAll('actors')` 全表扫描 —— 16 个列表 tab 就是 16 次全表读 +
  * 16 份全量演员表消息传输。本模块把短窗口（TTL）内的全量读合并为
- * 一次 IDB 读取，并返回 slim 投影（内容侧只用 id/name/aliases/blacklisted），
+ * 一次 IDB 读取，并返回 slim 投影（内容侧只用 id/name/aliases/blacklisted/favorited），
  * 显著降低 SW CPU 与消息传输体积。
  *
  * 一致性约定：actors 的所有写路径（PUT/BULK_PUT/DELETE/RESTORE/BULK_RESTORE/
@@ -40,12 +40,17 @@ export interface ActorIndexSnapshot {
 }
 
 function toSlim(actor: ActorRecord): ActorIndexRecord {
-  return {
+  const slim: ActorIndexRecord = {
     id: actor.id,
     name: actor.name,
     aliases: Array.isArray(actor.aliases) ? [...actor.aliases] : [],
     blacklisted: actor.blacklisted === true,
   };
+  // favorited 缺省 = 已收藏：absent 时省略不序列化（快照保持小），内容侧按 !== false 判定
+  if (actor.favorited !== undefined) {
+    slim.favorited = actor.favorited;
+  }
+  return slim;
 }
 
 /** 与 actorsQuery 默认口径一致：排除软删除、按名称升序。 */

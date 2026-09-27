@@ -132,6 +132,31 @@ describe('actorIndexSnapshot', () => {
     expect(items[0].blacklisted).toBe(false);
   });
 
+  it('favorited absent 时省略不序列化（快照保持小，内容侧按 !== false 判为已收藏）', async () => {
+    const snap = createActorIndexSnapshot({ loadAll: () => Promise.resolve([makeActor({ id: 'a1' })]) });
+    const { items } = await snap.get();
+    expect('favorited' in items[0]).toBe(false);
+    // 内容侧判定口径：缺省 = 已收藏
+    expect(items[0].favorited !== false).toBe(true);
+  });
+
+  it('favorited 显式 false / true 时原样透传', async () => {
+    const snap = createActorIndexSnapshot({
+      loadAll: () =>
+        Promise.resolve([
+          makeActor({ id: 'a1', name: '未收藏', favorited: false }),
+          makeActor({ id: 'a2', name: '显式收藏', favorited: true }),
+        ]),
+    });
+    const { items } = await snap.get();
+    // 按 id 取（items 按名称 localeCompare 升序，下标不表达语义）
+    const byId = new Map(items.map(a => [a.id, a]));
+    expect(byId.get('a1')?.favorited).toBe(false);
+    expect(byId.get('a1')?.favorited !== false).toBe(false);
+    expect(byId.get('a2')?.favorited).toBe(true);
+    expect(byId.get('a2')?.favorited !== false).toBe(true);
+  });
+
   it('排除软删除记录（deletedAt）', async () => {
     const snap = createActorIndexSnapshot({
       loadAll: () =>

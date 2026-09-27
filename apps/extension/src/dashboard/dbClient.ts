@@ -394,7 +394,7 @@ export interface ActorsQueryParams {
   order?: 'asc' | 'desc';
   offset?: number;
   limit?: number;
-  /** 走 SW 共享 slim 索引快照（仅 id/name/aliases/blacklisted），内容侧列表用 */
+  /** 走 SW 共享 slim 索引快照（仅 id/name/aliases/blacklisted/favorited），内容侧列表用 */
   sharedIndex?: boolean;
 }
 

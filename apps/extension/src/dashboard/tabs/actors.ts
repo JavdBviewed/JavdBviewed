@@ -414,6 +414,11 @@ export class ActorsTab {
                 await this.loadActors();
                 await this.updateStats();
             },
+            toggleFavorited: async (actorId, isFavorited) => {
+                await actorManager.setFavorited(actorId, !isFavorited);
+                await this.loadActors();
+                await this.updateStats();
+            },
             toggleAliasesExpansion: actorId => toggleActorAliasesExpansion(actorId),
             checkAliasesOverflow: actorId => scheduleActorAliasesOverflowCheck(actorId),
             addSubscription: actorId => newWorksManager.addSubscription(actorId),

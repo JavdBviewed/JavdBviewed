@@ -11,7 +11,7 @@ import {
 
 function renderActorCard() {
   document.body.innerHTML = `
-    <div class="actor-card" data-actor-id="actor-1" data-blacklisted="false">
+    <div class="actor-card" data-actor-id="actor-1" data-blacklisted="false" data-fav="1">
       <div class="actor-card-name" data-actor-id="actor-1" data-actor-name="Alice">
         <i class="actor-name-copy-icon fas fa-copy"></i>
       </div>
@@ -23,6 +23,9 @@ function renderActorCard() {
       <button class="actor-refresh-btn" data-actor-id="actor-1"></button>
       <button class="actor-delete-btn" data-actor-id="actor-1"></button>
       <button class="actor-blacklist-toggle-btn" data-actor-id="actor-1"></button>
+      <button class="actor-favorite-toggle-btn" data-actor-id="actor-1" title="取消收藏">
+        <i class="fas fa-star"></i>
+      </button>
       <button class="aliases-toggle-btn" data-actor-id="actor-1"></button>
       <button class="actor-subscribe-toggle-btn" data-actor-id="actor-1" data-sub="0" title="订阅">
         <i class="fas fa-bell"></i>
@@ -47,6 +50,7 @@ function handlers(overrides: Partial<ActorCardRuntimeHandlers> = {}): ActorCardR
     }),
     deleteActor: vi.fn(),
     toggleBlacklisted: vi.fn().mockResolvedValue(undefined),
+    toggleFavorited: vi.fn().mockResolvedValue(undefined),
     toggleAliasesExpansion: vi.fn(),
     checkAliasesOverflow: vi.fn(),
     addSubscription: vi.fn().mockResolvedValue(undefined),
@@ -101,6 +105,41 @@ describe('actor card runtime', () => {
     });
     expect(refreshBtn.disabled).toBe(false);
     expect(refreshBtn.classList.contains('refreshing')).toBe(false);
+  });
+
+  it('favorite toggle: 默认已收藏（data-fav 缺省/1）点击 → toggleFavorited(id, true)', async () => {
+    renderActorCard();
+    const h = handlers();
+    setupActorCardRuntime('actor-1', h);
+
+    document.querySelector<HTMLElement>('.actor-favorite-toggle-btn')?.click();
+    await vi.waitFor(() => {
+      expect(h.toggleFavorited).toHaveBeenCalledWith('actor-1', true);
+    });
+  });
+
+  it('favorite toggle: data-fav=0（未收藏）点击 → toggleFavorited(id, false)', async () => {
+    renderActorCard();
+    const card = document.querySelector<HTMLElement>('.actor-card')!;
+    card.dataset.fav = '0';
+    const h = handlers();
+    setupActorCardRuntime('actor-1', h);
+
+    document.querySelector<HTMLElement>('.actor-favorite-toggle-btn')?.click();
+    await vi.waitFor(() => {
+      expect(h.toggleFavorited).toHaveBeenCalledWith('actor-1', false);
+    });
+  });
+
+  it('favorite toggle: 切换失败 → 提示错误', async () => {
+    renderActorCard();
+    const h = handlers({ toggleFavorited: vi.fn().mockRejectedValue(new Error('boom')) });
+    setupActorCardRuntime('actor-1', h);
+
+    document.querySelector<HTMLElement>('.actor-favorite-toggle-btn')?.click();
+    await vi.waitFor(() => {
+      expect(h.showMessage).toHaveBeenCalledWith('切换收藏状态失败', 'error');
+    });
   });
 
   it('shows wiki fetch failures from actor metadata refresh results', async () => {

@@ -62,12 +62,19 @@ export class ActorManager {
             if (Array.isArray(items) && items.length > 0) return items;
         } catch {}
         await this.initialize();
-        return Array.from(this.cache.values()).map(a => ({
-            id: a.id,
-            name: a.name,
-            aliases: a.aliases ? [...a.aliases] : [],
-            blacklisted: a.blacklisted === true,
-        }));
+        return Array.from(this.cache.values()).map(a => {
+            const slim: ActorIndexRecord = {
+                id: a.id,
+                name: a.name,
+                aliases: a.aliases ? [...a.aliases] : [],
+                blacklisted: a.blacklisted === true,
+            };
+            // favorited 缺省 = 已收藏：absent 时省略不序列化，内容侧按 !== false 判定
+            if (a.favorited !== undefined) {
+                slim.favorited = a.favorited;
+            }
+            return slim;
+        });
     }
 
     /**
@@ -168,7 +175,9 @@ export class ActorManager {
     }
 
     /**
-     * 设置演员黑名单状态（本地字段）
+     * 设置演员黑名单状态（本地字段，与收藏正交、可并存）。
+     * 拉黑/取消拉黑都是「手动编辑」：把 'blacklisted' 加入 manuallyEditedFields，
+     * JavDB 同步的 `...actor` 展开不会清掉用户拉黑态（JavDB 侧永远不下发该字段，锁只防丢失不挡更新）。
      */
     async setBlacklisted(id: string, blacklisted: boolean): Promise<void> {
         await this.initialize();
@@ -185,9 +194,48 @@ export class ActorManager {
         if (!existing) {
             throw new Error(`Actor not found: ${id}`);
         }
+        const protectedFields = existing.manuallyEditedFields ?? [];
         const updated: ActorRecord = {
             ...existing,
             blacklisted,
+            manuallyEditedFields: protectedFields.includes('blacklisted')
+                ? protectedFields
+                : [...protectedFields, 'blacklisted'],
+            updatedAt: Date.now(),
+        };
+        this.cache.set(id, updated);
+        await this.saveToStorage();
+        try { await dbActorsPut(updated); } catch {}
+    }
+
+    /**
+     * 设置演员收藏状态（本地字段，与黑名单正交、可并存）。
+     * 口径：缺省（absent）= 已收藏，显式 false = 未收藏；判定一律 favorited !== false。
+     * 收藏/取消收藏都是「手动编辑」：把 'favorited' 加入 manuallyEditedFields，
+     * JavDB 收藏同步不会覆盖该字段（取消收藏后再次收藏 = 写 true 并保留标记）。
+     */
+    async setFavorited(id: string, favorited: boolean): Promise<void> {
+        await this.initialize();
+        let existing = this.cache.get(id);
+        if (!existing) {
+            try {
+                const r = await dbActorsGet(id);
+                if (r) {
+                    this.cache.set(id, r);
+                    existing = r;
+                }
+            } catch {}
+        }
+        if (!existing) {
+            throw new Error(`Actor not found: ${id}`);
+        }
+        const protectedFields = existing.manuallyEditedFields ?? [];
+        const updated: ActorRecord = {
+            ...existing,
+            favorited,
+            manuallyEditedFields: protectedFields.includes('favorited')
+                ? protectedFields
+                : [...protectedFields, 'favorited'],
             updatedAt: Date.now(),
         };
         this.cache.set(id, updated);

@@ -145,3 +145,26 @@ describe('ActorManager 跨上下文回写保护', () => {
     expect(dbActorsBulkPurge).toHaveBeenCalledWith(['X', 'Y']);
   });
 });
+
+describe('ActorManager 手动编辑锁记录（09-28-actor-favorited-field 合流小修）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    storageMap = {};
+  });
+
+  it('setBlacklisted 记锁：拉黑写入 blacklisted=true 且 manuallyEditedFields 含 blacklisted；取消拉黑保留 false 且不重复记锁', async () => {
+    const manager = await freshManagerWith({});
+    await manager.saveActor(actor('B'));
+
+    await manager.setBlacklisted('B', true);
+    let rec = readRemote(ACTOR_KEY).B;
+    expect(rec.blacklisted).toBe(true);
+    expect(rec.manuallyEditedFields).toEqual(['blacklisted']);
+
+    // 取消拉黑：本地 false 也记锁（JavDB 侧永不下发该字段，锁只防丢失不挡更新），且不重复
+    await manager.setBlacklisted('B', false);
+    rec = readRemote(ACTOR_KEY).B;
+    expect(rec.blacklisted).toBe(false);
+    expect(rec.manuallyEditedFields).toEqual(['blacklisted']);
+  });
+});
