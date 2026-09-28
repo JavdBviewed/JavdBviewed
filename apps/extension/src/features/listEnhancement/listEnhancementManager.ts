@@ -37,6 +37,7 @@ import {
   applyActorBasedHiding,
   clearListItemActorHiding,
   clearListItemCategoryHiding,
+  decideCategoryHide,
   hideListItemByActor,
   hideListItemByCategory,
 } from './application/actorHidingWorkflow';
@@ -82,7 +83,7 @@ import { createActorWorkQueue, type ActorWorkQueue } from './application/actorWo
 import { createActorPenetrationRuntime, resolveActorLinkMark, type DetailActor } from './actorPenetration';
 import { createActorVisibilityGate } from './application/actorVisibilityGate';
 import { countContentPerformanceEvent } from '../../platform/tasks';
-import { isCategoryFilterExemptPage, recomputeListHiding, readListHidingEnablement } from '../list-hiding';
+import { isCategoryFilterExemptPage, recomputeListHiding, readListHidingEnablement, resolveCategoryFilterMode } from '../list-hiding';
 import { STATE as _STATE } from '../contentState';
 
 export type { ListEnhancementConfig } from './domain/config';
@@ -243,7 +244,11 @@ class ListEnhancementManager {
         this.actorVisibilityGate.cancelAll('actorPenetration');
         const items = document.querySelectorAll<HTMLElement>('.movie-list .item');
         if (this.config.enableActorPenetration !== true) {
-          items.forEach(item => this.actorPenetration.clear(item));
+          items.forEach(item => {
+            this.actorPenetration.clear(item);
+            // 09-29：关穿透=类别过滤（白/黑）整体未生效，即时清残留类别隐藏标记
+            clearListItemCategoryHiding(item);
+          });
         } else if (this.hasInitialized) {
           items.forEach(item => {
             const info = extractListItemVideoInfo(item);
@@ -255,7 +260,7 @@ class ListEnhancementManager {
     {
       name: 'categoryFilter',
       watch: (o, c) =>
-        (o.enableCategoryFilter === true) !== (c.enableCategoryFilter === true) ||
+        resolveCategoryFilterMode(o as any) !== resolveCategoryFilterMode(c as any) ||
         JSON.stringify(o.categoryFilter?.black ?? []) !== JSON.stringify(c.categoryFilter?.black ?? []),
       apply: () => {
         this.categoryBlackSet = new Set(
@@ -770,13 +775,22 @@ class ListEnhancementManager {
     );
   }
 
+  /** 当前类别过滤 mode（mode 缺失时按旧键 enableCategoryFilter 迁移，口径与设置页一致）。 */
+  private currentCategoryMode() {
+    return resolveCategoryFilterMode(this.config as {
+      enableCategoryFilter?: unknown;
+      categoryFilter?: { mode?: unknown };
+    });
+  }
+
   /**
-   * 类别黑名单过滤是否处于激活态：开关开 + 黑名单非空 + 演员穿透开
-   * （依赖穿透的详情请求/缓存，穿透关闭时不可用——UI 以 disabled+提示表达）。
+   * 类别过滤是否处于激活态（09-29 三态）：mode 非 off + 所选集合非空 + 演员穿透开。
+   * whitelist/blacklist 共同前提=穿透开（依赖穿透的详情请求/缓存，穿透关闭时整体不生效——
+   * UI 以「未生效」提示表达，不静默重置 mode）。
    */
   private isCategoryFilterActive(): boolean {
     return (
-      this.config.enableCategoryFilter === true &&
+      this.currentCategoryMode() !== 'off' &&
       this.categoryBlackSet.size > 0 &&
       this.config.enableActorPenetration === true
     );
@@ -807,8 +821,12 @@ class ListEnhancementManager {
         clearListItemCategoryHiding(item);
         return;
       }
-      const hit = categories.some(c => this.categoryBlackSet.has(c));
-      if (hit) {
+      const hide = decideCategoryHide(
+        this.currentCategoryMode(),
+        categories,
+        this.categoryBlackSet,
+      );
+      if (hide) {
         hideListItemByCategory(item);
       } else {
         clearListItemCategoryHiding(item);

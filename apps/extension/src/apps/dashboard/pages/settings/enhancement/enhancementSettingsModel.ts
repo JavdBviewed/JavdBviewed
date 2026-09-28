@@ -16,6 +16,10 @@ import {
   normalizeVideoEnhancementSchedulingMode,
   type VideoEnhancementSchedulingMode,
 } from '../../../../../features/videoDetail/schedulingMode';
+import {
+  resolveCategoryFilterMode,
+  type CategoryFilterMode,
+} from '../../../../../features/list-hiding/listHiding';
 
 export type EnhancementSubtab = 'list' | 'video' | 'actor' | 'other';
 
@@ -63,9 +67,15 @@ export type EnhancementSettingsFormState = {
   preferredPreviewSource: PreviewSource;
   /** 演员穿透：列表卡片显示女性演员名 */
   enableActorPenetration: boolean;
-  /** listEnhancement.enableCategoryFilter（影片类别过滤黑名单开关；依赖演员穿透） */
-  enableCategoryFilter: boolean;
-  /** listEnhancement.categoryFilter.black（'c4=17' 形式 entryKey 数组） */
+  /**
+   * 影片类别过滤三态（09-29）：off=不过滤 / whitelist=仅保留所选类别 / blacklist=命中隐藏；
+   * 两态共同前提 enableActorPenetration=true（依赖穿透详情请求解析类别）。
+   * 读时旧键迁移：categoryFilter.mode 缺失时 enableCategoryFilter=true→blacklist 否则 off（零回填）。
+   */
+  categoryFilterMode: CategoryFilterMode;
+  /** 确认块瞬态（UI 专用，不持久化）：off→非 off 且穿透关时挂起待确认的目标态 */
+  categoryFilterModePending: CategoryFilterMode | null;
+  /** listEnhancement.categoryFilter.black（'c4=17' 形式 entryKey 数组；whitelist 态=所选保留集合） */
   categoryFilterBlack: string[];
   enableActorWatermark: boolean;
   actorWatermarkPosition: WatermarkPosition;
@@ -301,7 +311,8 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   previewVolume: 0.2,
   preferredPreviewSource: 'auto',
   enableActorPenetration: false,
-  enableCategoryFilter: false,
+  categoryFilterMode: 'off',
+  categoryFilterModePending: null,
   categoryFilterBlack: [],
   enableActorWatermark: false,
   actorWatermarkPosition: 'top-right',
@@ -548,7 +559,9 @@ export function mapSettingsToEnhancementForm(
     ),
     preferredPreviewSource: normalizePreviewSource(le.preferredPreviewSource),
     enableActorPenetration: le.enableActorPenetration === true,
-    enableCategoryFilter: le.enableCategoryFilter === true,
+    // 09-29 三态：mode 缺失时按旧键 enableCategoryFilter 迁移（true→blacklist，否则 off），存量用户零回填
+    categoryFilterMode: resolveCategoryFilterMode(le),
+    categoryFilterModePending: null,
     categoryFilterBlack: Array.isArray(le.categoryFilter?.black)
       ? le.categoryFilter.black.filter((k: unknown): k is string => typeof k === 'string')
       : [],
@@ -878,8 +891,15 @@ export function applyEnhancementFormToSettings(
       enableRightClickBackground: true,
       preferredPreviewSource: form.preferredPreviewSource,
       enableActorPenetration: form.enableActorPenetration,
-      enableCategoryFilter: form.enableCategoryFilter,
-      categoryFilter: { black: [...form.categoryFilterBlack] },
+      // 09-29 三态：写 mode + black（展开保留 categoryFilter 对象内未知键，零回填）；
+      // 同步写旧键 enableCategoryFilter = (mode === 'blacklist')：覆盖残留/未来旧键读取点的兼容兜底
+      // （whitelist 故意映射 false——旧读者无白名单语义，不过滤是最安全降级）。
+      enableCategoryFilter: form.categoryFilterMode === 'blacklist',
+      categoryFilter: {
+        ...existingList.categoryFilter,
+        mode: form.categoryFilterMode,
+        black: [...form.categoryFilterBlack],
+      },
       hideBlacklistedActorsInList: form.hideBlacklistedActorsInList,
       hideNonFavoritedActorsInList: form.hideNonFavoritedActorsInList,
       hideUnrecognizedActorsInList: form.hideUnrecognizedActorsInList,

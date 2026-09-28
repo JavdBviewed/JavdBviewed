@@ -1,6 +1,7 @@
 /**
  * @file categoryHidingWorkflow.test.ts
- * @description 类别黑名单隐藏 DOM 测试（08-29-actor-passthrough-category-filter P1）：
+ * @description 类别过滤隐藏 DOM 测试（08-29 P1；09-29 三态：backstop 口径新增共同前提
+ * enableActorPenetration=true，与 manager.isCategoryFilterActive 对齐）：
  * data-hidden-by-category / data-hide-src-category / data-hide-reason=CATEGORY_BLACKLIST
  * 的隐藏、恢复与 actor 来源无串扰。
  * @module tests/dom
@@ -35,6 +36,7 @@ describe('category blacklist hiding (DOM)', () => {
   it('开关开+黑名单非空：命中 → 隐藏且带 CATEGORY_BLACKLIST reason 与来源属性', () => {
     setSettings({
       listEnhancement: {
+        enableActorPenetration: true,
         enableCategoryFilter: true,
         categoryFilter: { black: ['c4=17'] },
       },
@@ -64,6 +66,7 @@ describe('category blacklist hiding (DOM)', () => {
   it('取消勾选（开关仍开但黑名单为空）：恢复显示', () => {
     setSettings({
       listEnhancement: {
+        enableActorPenetration: true,
         enableCategoryFilter: true,
         categoryFilter: { black: ['c4=17'] },
       },
@@ -88,6 +91,7 @@ describe('category blacklist hiding (DOM)', () => {
   it('与 actor 隐藏互不串扰：清类别仍被 actor 隐藏，清 actor 才恢复', () => {
     setSettings({
       listEnhancement: {
+        enableActorPenetration: true,
         hideBlacklistedActorsInList: true,
         enableCategoryFilter: true,
         categoryFilter: { black: ['c7=28'] },

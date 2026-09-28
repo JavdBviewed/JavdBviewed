@@ -11,6 +11,7 @@ import {
   decideActorHiding,
   type ActorHidingDecisionInput,
 } from './actorHiding';
+import { decideCategoryHide } from './actorHidingWorkflow';
 import type { ActorIndexRecord } from '../../../types';
 
 const actor = (id: string, over: Partial<ActorIndexRecord> = {}): ActorIndexRecord => ({
@@ -149,5 +150,37 @@ describe('decideActorHiding B2 空演员库保护（空库 → 不隐藏）', ()
       actorIndexSize: 3,
     }));
     expect(d.reason).toBeNull();
+  });
+});
+
+
+describe('decideCategoryHide（09-29 三态纯判定）', () => {
+  const sel = (keys: string[]) => new Set(keys);
+
+  it('off：任何输入都不隐藏', () => {
+    expect(decideCategoryHide('off', ['c4=17'], sel(['c4=17']))).toBe(false);
+    expect(decideCategoryHide('off', [], sel(['c4=17']))).toBe(false);
+  });
+
+  it('所选集合为空 → no-op 不隐藏（whitelist 空集合=off 口径）', () => {
+    expect(decideCategoryHide('whitelist', ['c4=17'], sel([]))).toBe(false);
+    expect(decideCategoryHide('blacklist', ['c4=17'], sel([]))).toBe(false);
+  });
+
+  it('blacklist：命中隐藏 / 未命中放行（现状回归）', () => {
+    expect(decideCategoryHide('blacklist', ['c4=17', 'c1=157'], sel(['c7=28', 'c4=17']))).toBe(true);
+    expect(decideCategoryHide('blacklist', ['c1=157'], sel(['c7=28']))).toBe(false);
+  });
+
+  it('whitelist：已解析类别与所选集合有交集 → 保留（不隐藏）', () => {
+    expect(decideCategoryHide('whitelist', ['c4=17', 'c1=157'], sel(['c4=17']))).toBe(false);
+  });
+
+  it('whitelist：已解析类别与所选集合无交集 → 隐藏', () => {
+    expect(decideCategoryHide('whitelist', ['c4=17', 'c1=157'], sel(['c7=28']))).toBe(true);
+  });
+
+  it('whitelist：类别未知（已解析集合为空）→ 放行', () => {
+    expect(decideCategoryHide('whitelist', [], sel(['c4=17']))).toBe(false);
   });
 });

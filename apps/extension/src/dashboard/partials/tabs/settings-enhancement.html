@@ -510,7 +510,8 @@
                                     </div>
 
                                     <!-- 内容过滤·列表过滤行（2026-09-27 IA 裁决自「显示设置」页迁入 ListTab；
-                                         2026-09-28 并入「内容过滤」卡（alwaysExpanded 常显），块名=合并卡名；
+                                         2026-09-28 并入「内容过滤」卡，块名=合并卡名；
+                                         2026-09-29 恢复默认收拢+hover 展开（alwaysExpanded 机制已移除）；
                                          本块仅供设置搜索索引，生产 DOM 由 React ListTab 渲染；
                                          控件 id 不变，搜索落点=合并卡内对应控件） -->
                                     <div class="settings-subsection" data-subtab="list">
@@ -544,6 +545,12 @@
                                             <input type="checkbox" id="hideUnrecognizedActorsInList">
                                             <label for="hideUnrecognizedActorsInList">隐藏无法识别演员的作品</label>
                                             <p class="input-description">仅在本地演员库可用时生效；本地演员库为空时不隐藏。默认关闭</p>
+                                        </div>
+                                        <!-- 09-29：影片类别过滤自演员页迁入本卡（三态循环按钮；生产 DOM 由 React SettingCycleRow 渲染） -->
+                                        <div class="form-group-checkbox">
+                                            <button type="button" id="categoryFilterMode"></button>
+                                            <label for="categoryFilterMode">影片类别过滤</label>
+                                            <p class="input-description">空=不过滤；候选=仅保留所选类别；减去=命中隐藏（依赖演员穿透）</p>
                                         </div>
                                     </div>
 

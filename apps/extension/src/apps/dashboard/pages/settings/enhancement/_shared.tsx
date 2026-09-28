@@ -38,7 +38,7 @@ export const ACTOR_CATEGORY_DIMENSIONS: ActorCategoryDimension[] = (() => {
 })();
 
 const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
-  '内容过滤': { icon: '🎯', status: '可用', tone: 'available', effect: '在列表页按关键词、状态与演员过滤/隐藏影片卡片：关键词规则可隐藏、高亮或标记匹配内容（隐藏可整体或按规则单独关闭）；状态行可隐藏已看过、已浏览、VR 或想看的影片；演员行可隐藏黑名单、未收藏或无法识别演员的作品。', usage: '打开对应开关后自动应用到列表页；三组开关相互独立，互不影响。' },
+  '内容过滤': { icon: '🎯', status: '可用', tone: 'available', effect: '在列表页按关键词、状态与演员过滤/隐藏影片卡片：关键词规则可隐藏、高亮或标记匹配内容（隐藏可整体或按规则单独关闭）；状态行可隐藏已看过、已浏览、VR 或想看的影片；演员行可隐藏黑名单、未收藏或无法识别演员的作品；影片类别过滤按穿透解析出的类别隐藏/保留卡片（空=不过滤、候选=仅保留所选类别、减去=命中隐藏，依赖演员穿透）。', usage: '各开关相互独立，互不影响。' },
   '点击增强': { icon: '🖱️', status: '可用', tone: 'available', effect: '统一卡片和标题的点击行为，减少不必要的页面跳转。', usage: '适用于列表页和影片页相关作品区域。' },
   '视频预览': { icon: '🎬', status: '可用', tone: 'available', effect: '悬停列表封面时播放预览片段。', usage: '需要所选预览源支持。' },
   '高清封面': { icon: '🖼️', status: '已弃用', tone: 'neutral', effect: 'JavDB 已默认使用高质量封面，保留该项仅为兼容旧设置。' },
@@ -90,12 +90,10 @@ const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
 export function EnhancementFeatureSection({
   title,
   description,
-  alwaysExpanded,
   children,
 }: {
   title: string;
   description?: ReactNode;
-  alwaysExpanded?: boolean;
   children: ReactNode;
 }) {
   const meta = ENHANCEMENT_FEATURE_META[title] ?? {
@@ -104,7 +102,7 @@ export function EnhancementFeatureSection({
     tone: 'available' as const,
   };
   return (
-    <EnhancementFeatureCard title={title} description={description} meta={meta} alwaysExpanded={alwaysExpanded}>
+    <EnhancementFeatureCard title={title} description={description} meta={meta}>
       {children}
     </EnhancementFeatureCard>
   );

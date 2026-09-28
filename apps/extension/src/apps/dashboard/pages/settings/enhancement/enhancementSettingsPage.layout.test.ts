@@ -210,9 +210,9 @@ describe('EnhancementSettingsPage layout', () => {
     }
   });
 
-  it('merges the migrated list filter rows into the always-expanded content filter card', () => {
-    // 09-28 融合裁决：番号过滤+演员过滤（列表）两个独立 section 并入「内容过滤」卡（alwaysExpanded 常显）；
-    // 键命名空间不变（display.*/listEnhancement.*），控件 id 与原页一致（设置搜索锚点）。
+  it('keeps the merged content filter card as a default-collapsed hover drawer with grouped rows', () => {
+    // 09-29 裁决：内容过滤卡恢复默认收拢 + hover 展开 + 离开收拢（与其他卡一致）；
+    // alwaysExpanded 机制整体移除（无使用点）；键命名空间不变（display.*/listEnhancement.*），控件 id 与原页一致（设置搜索锚点）。
     const listTabSource = readFileSync(join(here, 'ListTab.tsx'), 'utf8');
 
     // 两个独立 section 消失（不再以 section 形态存在）
@@ -220,20 +220,22 @@ describe('EnhancementSettingsPage layout', () => {
     expect(listTabSource).not.toContain('title="演员过滤（列表）"');
     expect(listTabSource).not.toContain('PlainSettingSection');
 
-    // 合并卡：常显 + 卡内 2 组标（细分隔组）
+    // 合并卡 + alwaysExpanded 机制从机制源与全部使用点消失（默认收拢由 EFC data-expanded 初值 0 保证）
+    expect(cardSource).not.toContain('alwaysExpanded');
+    expect(pageSource).not.toContain('alwaysExpanded');
     expect(listTabSource).toContain('title="内容过滤"');
-    expect(listTabSource).toContain('alwaysExpanded');
     expect(listTabSource).toContain('content-filter-group__label');
     expect(listTabSource).toContain('>番号 / 状态</div>');
     expect(listTabSource).toContain('>演员（列表）</div>');
     expect(listTabSource).toContain("from './listFilterFields'");
 
-    // 位置锁定：组标顺序 内容过滤卡 → 番号 / 状态 → 演员（列表）→ 点击增强
+    // 位置锁定：内容过滤卡 → 卡头主开关 → 番号 / 状态组 → 演员（列表）组 → 规则块（enableContentFilter 门控，组后）→ 点击增强
     const order = [
       'title="内容过滤"',
-      'content-filter-group__label',
+      'id="enableContentFilter"',
       '番号 / 状态',
       '演员（列表）',
+      'id="contentFilterConfig"',
       'title="点击增强"',
     ];
     let cursor = -1;
@@ -257,6 +259,52 @@ describe('EnhancementSettingsPage layout', () => {
     ]) {
       expect(fieldsSource).toContain(`id: '${id}'`);
     }
+  });
+
+  it('moves the category filter row into the content filter card as a tri-state cycle row (09-29)', () => {
+    const listTabSource = readFileSync(join(here, 'ListTab.tsx'), 'utf8');
+    const legacySource = readFileSync(
+      join(here, '..', '..', '..', '..', '..', 'dashboard', 'partials', 'tabs', 'settings-enhancement.html'),
+      'utf8',
+    );
+
+    // 通用 SettingCycleRow（零业务语义/零门控，门控留 ListTab）；旧 enableCategoryFilter 布尔行消失
+    expect(listTabSource).toContain("from '../../../../../ui/patterns/SettingCycleRow/SettingCycleRow'");
+    expect(listTabSource).toContain('id="categoryFilterMode"');
+    expect(listTabSource).not.toContain('id="enableCategoryFilter"');
+    expect(listTabSource).not.toContain('影片类别过滤（黑名单）');
+
+    // 子序：演员（列表）组 → 三态行 → 确认块/未生效提示/选择区 → 关键词规则块
+    const order = [
+      '>演员（列表）</div>',
+      'id="categoryFilterMode"',
+      'id="categoryFilterModeConfirm"',
+      'id="categoryFilterConfig"',
+      'id="contentFilterConfig"',
+    ];
+    let cursor = -1;
+    for (const marker of order) {
+      const at = listTabSource.indexOf(marker, cursor + 1);
+      expect(at, `marker ${marker} after previous`).toBeGreaterThan(cursor);
+      cursor = at;
+    }
+
+    // 三态选项（空→候选→减去 循环序）+ 门控确认块必含句 + 两路按钮
+    expect(listTabSource).toContain("{ value: 'off', label: '空' }");
+    expect(listTabSource).toContain("{ value: 'whitelist', label: '候选' }");
+    expect(listTabSource).toContain("{ value: 'blacklist', label: '减去' }");
+    expect(listTabSource).toContain('此功能会增加性能开销与源站的请求量');
+    expect(listTabSource).toContain('启用演员穿透并开启');
+    expect(listTabSource).toContain('未生效');
+
+    // 选择区 note 区分两态语义；⚠️ note 并入必含句
+    expect(listTabSource).toContain('勾选要保留的影片类别');
+    expect(listTabSource).toContain('勾选要隐藏的影片类别');
+
+    // 搜索索引：内容过滤 h4 块新增 button#categoryFilterMode 条目；演员页旧条目（L1218 块）保留不动
+    expect(legacySource).toContain('<button type="button" id="categoryFilterMode"></button>');
+    expect(legacySource).toContain('<label for="categoryFilterMode">影片类别过滤</label>');
+    expect(legacySource).toContain('<h6 class="enhancement-feature-name">🎯 影片类别过滤</h6>');
   });
 
   it('keeps the hideNonFavoritedActorsInList label aligned with the popup short copy', () => {
