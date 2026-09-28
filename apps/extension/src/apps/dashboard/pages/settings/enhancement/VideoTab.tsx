@@ -555,6 +555,14 @@ export function VideoTab({
             </div>
           </div>
         ) : null}
+        {/* 09-29 新增：与「启用磁力搜索」相互独立（不依赖其开启），故置于 section 直属层级 */}
+        <SettingToggleRow
+          id="enableMagnetCommentQuickSearch"
+          label="磁力评论区选文快速搜索"
+          description="在影片页磁力区的「短評」评论正文中选中文本（1–30 字）后，选区右侧出现 🔎 浮标，点击在新标签页用当前镜像域名站内搜索；关闭时不注册任何监听"
+          checked={form.enableMagnetCommentQuickSearch}
+          onChange={(v) => setToggle('enableMagnetCommentQuickSearch', v)}
+        />
       </SettingSection>
     </div>
   );

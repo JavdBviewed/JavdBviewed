@@ -479,6 +479,8 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
         enableContentFilter: false,
         enableKeyboardShortcuts: false, // 开发中，暂时关闭
         enableMagnetSearch: false,
+        // 磁力区「短評」评论区选文快速搜索（09-29 新增，默认关闭=不注册 selectionchange 监听，零开销）
+        enableMagnetCommentQuickSearch: false,
         enableAnchorOptimization: false,
         enableListEnhancement: true, // 默认启用列表增强
         enableActorEnhancement: false,

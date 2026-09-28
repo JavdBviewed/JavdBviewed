@@ -75,3 +75,22 @@ export {
   MagnetSearchManager,
   magnetSearchManager,
 } from './ui/magnetSearchManager';
+export {
+  COMMENT_QUICK_SEARCH_MAX_LENGTH,
+  COMMENT_QUICK_SEARCH_MIN_LENGTH,
+  COMMENT_QUICK_SEARCH_SCOPE_SELECTOR,
+  COMMENT_QUICK_SEARCH_SCOPE_SELECTORS,
+  buildCommentQuickSearchUrl,
+  computeCommentQuickSearchPosition,
+  decideCommentQuickSearch,
+  isCommentQuickSearchLengthAllowed,
+  normalizeCommentQuickSearchQuery,
+  type CommentQuickSearchDecision,
+  type CommentQuickSearchRejectReason,
+} from './application/commentQuickSearch';
+export {
+  MAGNET_COMMENT_QUICK_SEARCH_FLOAT_ID,
+  MAGNET_COMMENT_QUICK_SEARCH_STYLE_ID,
+  MagnetCommentQuickSearchManager,
+  magnetCommentQuickSearchManager,
+} from './ui/magnetCommentQuickSearch';

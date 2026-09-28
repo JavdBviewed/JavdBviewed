@@ -122,6 +122,7 @@ export type EnhancementSettingsFormState = {
   anchorButtonPosition: AnchorButtonPosition;
   showPreviewButton: boolean;
   enableMagnetSearch: boolean;
+  enableMagnetCommentQuickSearch: boolean;
   magnetSourceSukebei: boolean;
   magnetSourceBtdig: boolean;
   magnetSourceBtsow: boolean;
@@ -356,6 +357,7 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   anchorButtonPosition: 'right-center',
   showPreviewButton: true,
   enableMagnetSearch: false,
+  enableMagnetCommentQuickSearch: false,
   magnetSourceSukebei: true,
   magnetSourceBtdig: true,
   magnetSourceBtsow: true,
@@ -645,6 +647,7 @@ export function mapSettingsToEnhancementForm(
     anchorButtonPosition: normalizeAnchorPos(ao.buttonPosition),
     showPreviewButton: ao.showPreviewButton !== false,
     enableMagnetSearch: !!ux.enableMagnetSearch,
+    enableMagnetCommentQuickSearch: ux.enableMagnetCommentQuickSearch === true,
     magnetSourceSukebei: msSources.sukebei !== false,
     magnetSourceBtdig: msSources.btdig !== false,
     magnetSourceBtsow: msSources.btsow !== false,
@@ -836,6 +839,7 @@ export function applyEnhancementFormToSettings(
       enableContentFilter: form.enableContentFilter,
       enableKeyboardShortcuts: false,
       enableMagnetSearch: form.enableMagnetSearch,
+      enableMagnetCommentQuickSearch: form.enableMagnetCommentQuickSearch,
       enableAnchorOptimization: form.enableAnchorOptimization,
       enableListEnhancement: form.enableListEnhancement,
       enableActorEnhancement: form.enableActorEnhancement,
