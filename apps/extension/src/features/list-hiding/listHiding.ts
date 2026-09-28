@@ -23,7 +23,7 @@ export const LIST_HIDE_SRC_ATTR = 'data-hide-src';
 export const LIST_HIDE_DEFAULT_ATTR = 'data-hidden-by-default';
 
 /** 隐藏来源标识。 */
-export type ListHidingSource = 'viewed' | 'browsed' | 'want' | 'vr' | 'actor';
+export type ListHidingSource = 'viewed' | 'browsed' | 'want' | 'vr' | 'actor' | 'category';
 
 /** 来源 → data-hide-reason 的取值（保持与旧标记一致）。 */
 export const LIST_HIDE_REASON_BY_SOURCE: Record<ListHidingSource, string> = {
@@ -32,6 +32,7 @@ export const LIST_HIDE_REASON_BY_SOURCE: Record<ListHidingSource, string> = {
   want: 'WANT',
   vr: 'VR',
   actor: 'ACTOR',
+  category: 'CATEGORY_BLACKLIST',
 };
 
 /**
@@ -45,12 +46,14 @@ export interface ListHidingEnablement {
   want: boolean;
   vr: boolean;
   actor: boolean;
+  /** 类别黑名单隐藏：enableCategoryFilter 且 black 非空。 */
+  category: boolean;
 }
 
 /** 返回某卡片当前所有隐藏来源标记。 */
 export function getActiveHidingSources(item: HTMLElement): ListHidingSource[] {
   const found: ListHidingSource[] = [];
-  for (const source of ['viewed', 'browsed', 'want', 'vr', 'actor'] as ListHidingSource[]) {
+  for (const source of ['viewed', 'browsed', 'want', 'vr', 'actor', 'category'] as ListHidingSource[]) {
     if (item.hasAttribute(`${LIST_HIDE_SRC_ATTR}-${source}`)) {
       found.push(source);
     }
@@ -103,7 +106,7 @@ export function recomputeListHiding(
 
 /** 清除某卡片上所有隐藏来源标记（不改变显隐，由调用方决定是否重算）。 */
 export function clearHidingSources(item: HTMLElement): void {
-  for (const source of ['viewed', 'browsed', 'want', 'vr', 'actor'] as ListHidingSource[]) {
+  for (const source of ['viewed', 'browsed', 'want', 'vr', 'actor', 'category'] as ListHidingSource[]) {
     item.removeAttribute(`${LIST_HIDE_SRC_ATTR}-${source}`);
   }
 }
@@ -119,6 +122,8 @@ export function readListHidingEnablement(settings: unknown): ListHidingEnablemen
       hideBlacklistedActorsInList?: boolean;
       hideNonFavoritedActorsInList?: boolean;
       hideUnrecognizedActorsInList?: boolean;
+      enableCategoryFilter?: boolean;
+      categoryFilter?: { black?: unknown };
     };
   };
   const actor = !!(
@@ -126,11 +131,34 @@ export function readListHidingEnablement(settings: unknown): ListHidingEnablemen
     s.listEnhancement?.hideNonFavoritedActorsInList ||
     s.listEnhancement?.hideUnrecognizedActorsInList
   );
+  const categoryBlack = Array.isArray(s.listEnhancement?.categoryFilter?.black)
+    ? s.listEnhancement!.categoryFilter!.black
+    : [];
+  const category =
+    s.listEnhancement?.enableCategoryFilter === true && categoryBlack.length > 0;
   return {
     viewed: !!s.display?.hideViewed,
     browsed: !!s.display?.hideBrowsed,
     want: !!s.display?.hideWant,
     vr: !!s.display?.hideVR,
     actor,
+    category,
   };
+}
+
+/**
+ * 判断是否处于「状态聚合页」（想看/已看列表）。
+ * 这些页面强制显示全部卡片，不应用任何内置隐藏来源（含类别黑名单）。
+ */
+export function isStatusAggregatePage(pathname: string): boolean {
+  return pathname.startsWith('/users/want_watch_videos') || pathname.startsWith('/users/watched_videos');
+}
+
+/**
+ * 当前页面是否豁免类别黑名单隐藏（搜索页 / 状态聚合页）。
+ * 与状态隐藏的页面范围一致（08-29-actor-passthrough-category-filter design：
+ * 「搜索页、/users/want_watch_videos、/users/watched_videos 不执行」）。
+ */
+export function isCategoryFilterExemptPage(pathname: string, isSearchPage: boolean): boolean {
+  return isSearchPage || isStatusAggregatePage(pathname);
 }

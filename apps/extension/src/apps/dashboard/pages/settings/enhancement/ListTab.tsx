@@ -10,6 +10,8 @@ import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingS
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingSection as PlainSettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
 import type { KeywordFilterRule } from '../../../../../types';
+import { BUILTIN_CATEGORY_DICTIONARY, entryKey } from '@javdb/video-category-dict';
+import type { DimKey } from '@javdb/video-category-dict';
 import type { EnhancementSettingsFormState } from './enhancementSettingsModel';
 import {
   SettingSection,
@@ -29,6 +31,25 @@ import {
   ACTOR_LIST_FILTER_FIELDS,
   DISPLAY_FILTER_FIELDS,
 } from './listFilterFields';
+/**
+ * 影片类别过滤（黑名单）维度分组：数据源为内置类别字典（311 项快照）。
+ * 模块级计算一次；维度顺序与 JavDB /tags 页一致（c1 主題 … c9 時長）。
+ */
+const CATEGORY_FILTER_DIMENSIONS: {
+  key: DimKey;
+  label: string;
+  entries: { id: string; label: string }[];
+}[] = (() => {
+  const source = BUILTIN_CATEGORY_DICTIONARY.sources[BUILTIN_CATEGORY_DICTIONARY.activeSite];
+  return source.dimensionOrder
+    .map((key) => ({
+      key,
+      label: source.dimensions[key]?.label ?? key,
+      entries: (source.dimensions[key]?.entries ?? []).map((e) => ({ id: e.id, label: e.label })),
+    }))
+    .filter((d) => d.entries.length > 0);
+})();
+
 export function ListTab({
   form,
   setToggle,
@@ -325,6 +346,87 @@ export function ListTab({
               会增加列表处理的网络与 CPU 开销。结果缓存 7 天，失败 10 分钟后重试；
               解析失败时卡片保持原状。
             </p>
+          </div>
+        ) : null}
+        <SettingToggleRow
+          id="enableCategoryFilter"
+          label="影片类别过滤（黑名单）"
+          description={
+            form.enableActorPenetration
+              ? '隐藏命中所选类别的列表卡片；类别随演员穿透详情请求解析（不另起请求）'
+              : '需先启用「演员穿透」才能取到卡片类别'
+          }
+          checked={form.enableCategoryFilter}
+          disabled={!form.enableActorPenetration}
+          onChange={(v) => {
+            if (!form.enableActorPenetration) return;
+            setToggle('enableCategoryFilter', v);
+          }}
+        />
+        {form.enableCategoryFilter && form.enableActorPenetration ? (
+          <div id="categoryFilterConfig" className="mt-1 flex flex-col gap-2 px-2">
+            <p className="input-description" role="note">
+              勾选要隐藏的影片类别（黑名单，命中=隐藏，取消勾选即时恢复）。
+              选项来自内置类别字典（311 项），按维度分组。
+            </p>
+            {CATEGORY_FILTER_DIMENSIONS.map((dim) => {
+              const dimKeys = dim.entries.map((e) => entryKey(dim.key, e.id));
+              const checkedCount = dimKeys.filter((k) => form.categoryFilterBlack.includes(k)).length;
+              const allChecked = checkedCount === dim.entries.length && dim.entries.length > 0;
+              return (
+                <details key={dim.key} id={`categoryDim-${dim.key}`} className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+                  <summary className="cursor-pointer select-none px-3 py-2 text-sm font-semibold">
+                    {dim.label}
+                    <span className="ml-2 font-normal text-[var(--color-fg-muted)]">
+                      已选 {checkedCount}/{dim.entries.length}
+                    </span>
+                    <span className="ml-3 inline-flex gap-2 text-xs font-normal">
+                      <button
+                        type="button"
+                        className="text-[var(--color-primary)] hover:underline"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const next = new Set(form.categoryFilterBlack);
+                          for (const k of dimKeys) {
+                            if (allChecked) next.delete(k);
+                            else next.add(k);
+                          }
+                          patchForm({ categoryFilterBlack: Array.from(next) });
+                        }}
+                      >
+                        {allChecked ? '清空' : '全选'}
+                      </button>
+                    </span>
+                  </summary>
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 border-t border-[var(--color-border)] px-3 py-2 sm:grid-cols-3">
+                    {dim.entries.map((e) => {
+                      const k = entryKey(dim.key, e.id);
+                      const checked = form.categoryFilterBlack.includes(k);
+                      return (
+                        <label
+                          key={k}
+                          className="flex min-w-0 items-center gap-1.5 text-[13px]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              const next = new Set(form.categoryFilterBlack);
+                              if (checked) next.delete(k);
+                              else next.add(k);
+                              patchForm({ categoryFilterBlack: Array.from(next) });
+                            }}
+                          />
+                          <span className="truncate" title={e.label}>
+                            {e.label}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </details>
+              );
+            })}
           </div>
         ) : null}
       </SettingSection>

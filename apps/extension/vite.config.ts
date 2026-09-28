@@ -57,6 +57,7 @@ export default defineConfig({
     alias: {
       '@javdb/sync-protocol': path.resolve(repoRoot, 'packages/sync-protocol/src/index.ts'),
       '@javdb/sync-client': path.resolve(repoRoot, 'packages/sync-client/src/index.ts'),
+      '@javdb/video-category-dict': path.resolve(repoRoot, 'packages/video-category-dict/src/index.ts'),
     },
   },
   build: {

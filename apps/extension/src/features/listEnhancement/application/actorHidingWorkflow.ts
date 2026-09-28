@@ -131,3 +131,25 @@ export function clearListItemActorHiding(item: HTMLElement): void {
   // 重算显隐，其它来源（状态/VR）标记若仍命中开关会继续隐藏。
   recomputeListHiding(item, readListHidingEnablement(STATE.settings));
 }
+
+/**
+ * 类别黑名单命中：打「来源」标记（与 hideListItemByActor 对称）。
+ * display:none 与 data-hide-reason（值含 CATEGORY_BLACKLIST）由 recomputeListHiding
+ * 依据隐藏开关统一裁定；保留 data-hidden-by-category 供兼容检测。
+ */
+export function hideListItemByCategory(item: HTMLElement): void {
+  item.setAttribute('data-hidden-by-category', 'true');
+  setHidingSource(item, 'category', true);
+  recomputeListHiding(item, readListHidingEnablement(STATE.settings));
+}
+
+/** 清除类别隐藏来源标记并重算显隐（其它来源标记若仍命中开关会继续隐藏）。 */
+export function clearListItemCategoryHiding(item: HTMLElement): void {
+  const hadCategoryHidden = item.hasAttribute('data-hidden-by-category');
+  if (!hadCategoryHidden) return;
+
+  item.removeAttribute('data-hidden-by-category');
+  setHidingSource(item, 'category', false);
+
+  recomputeListHiding(item, readListHidingEnablement(STATE.settings));
+}

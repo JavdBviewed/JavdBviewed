@@ -59,6 +59,10 @@ export type EnhancementSettingsFormState = {
   preferredPreviewSource: PreviewSource;
   /** 演员穿透：列表卡片显示女性演员名 */
   enableActorPenetration: boolean;
+  /** listEnhancement.enableCategoryFilter（影片类别过滤黑名单开关；依赖演员穿透） */
+  enableCategoryFilter: boolean;
+  /** listEnhancement.categoryFilter.black（'c4=17' 形式 entryKey 数组） */
+  categoryFilterBlack: string[];
   enableActorWatermark: boolean;
   actorWatermarkPosition: WatermarkPosition;
   actorWatermarkOpacity: number;
@@ -285,6 +289,8 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   previewVolume: 0.2,
   preferredPreviewSource: 'auto',
   enableActorPenetration: false,
+  enableCategoryFilter: false,
+  categoryFilterBlack: [],
   enableActorWatermark: false,
   actorWatermarkPosition: 'top-right',
   actorWatermarkOpacity: 0.8,
@@ -527,6 +533,10 @@ export function mapSettingsToEnhancementForm(
     ),
     preferredPreviewSource: normalizePreviewSource(le.preferredPreviewSource),
     enableActorPenetration: le.enableActorPenetration === true,
+    enableCategoryFilter: le.enableCategoryFilter === true,
+    categoryFilterBlack: Array.isArray(le.categoryFilter?.black)
+      ? le.categoryFilter.black.filter((k: unknown): k is string => typeof k === 'string')
+      : [],
     enableActorWatermark: le.enableActorWatermark === true,
     actorWatermarkPosition: normalizeWatermarkPosition(le.actorWatermarkPosition),
     actorWatermarkOpacity: clamp(
@@ -852,6 +862,8 @@ export function applyEnhancementFormToSettings(
       enableRightClickBackground: true,
       preferredPreviewSource: form.preferredPreviewSource,
       enableActorPenetration: form.enableActorPenetration,
+      enableCategoryFilter: form.enableCategoryFilter,
+      categoryFilter: { black: [...form.categoryFilterBlack] },
       hideBlacklistedActorsInList: form.hideBlacklistedActorsInList,
       hideNonFavoritedActorsInList: form.hideNonFavoritedActorsInList,
       hideUnrecognizedActorsInList: form.hideUnrecognizedActorsInList,

@@ -545,6 +545,12 @@ async function initialize(): Promise<void> {
             hideNonFavoritedActorsInList: (settings.listEnhancement as any)?.hideNonFavoritedActorsInList === true,
             hideUnrecognizedActorsInList: (settings.listEnhancement as any)?.hideUnrecognizedActorsInList === true, // 默认false（空演员库保护）
             enableActorPenetration: (settings.listEnhancement as any)?.enableActorPenetration === true,
+            enableCategoryFilter: (settings.listEnhancement as any)?.enableCategoryFilter === true,
+            categoryFilter: {
+                black: Array.isArray((settings.listEnhancement as any)?.categoryFilter?.black)
+                    ? (settings.listEnhancement as any).categoryFilter.black.filter((k: unknown): k is string => typeof k === 'string')
+                    : [],
+            },
             enableActorNameMarks: isVideoEnhancementSubOn(settings, 'enableActorNameMarks'),
             // 高质量封面：列表路径已弃用（JavDB 默认高清）；固定 false，配置字段仅兼容存储
             enableHighQualityCover: false,

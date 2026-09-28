@@ -54,6 +54,13 @@ export interface ListEnhancementConfig {
   hideUnrecognizedActorsInList?: boolean;
   /** 演员穿透：在列表卡片显示女性演员名（默认关闭） */
   enableActorPenetration?: boolean;
+  /**
+   * 影片类别过滤（黑名单）：依赖演员穿透（复用同一详情请求/缓存），
+   * 命中 categoryFilter.black 的卡片隐藏。默认关闭。
+   */
+  enableCategoryFilter?: boolean;
+  /** 类别黑名单（'c4=17' 形式 entryKey）；空数组=不过滤。 */
+  categoryFilter?: { black: string[] };
   /** 演员名称标识：对穿透卡片演员名做收藏/订阅/黑名单着色与悬浮提示（默认开） */
   enableActorNameMarks?: boolean;
   listDisplayControl?: ListDisplayControlConfig;
@@ -99,6 +106,8 @@ export function createDefaultListEnhancementConfig(): ListEnhancementConfig {
     hideNonFavoritedActorsInList: false,
     hideUnrecognizedActorsInList: false,
     enableActorPenetration: false,
+    enableCategoryFilter: false,
+    categoryFilter: { black: [] },
     enableActorNameMarks: true,
     listDisplayControl: {
       enabled: true,

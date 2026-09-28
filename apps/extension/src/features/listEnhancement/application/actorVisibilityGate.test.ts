@@ -71,3 +71,95 @@ describe('actor visibility gate', () => {
     expect(run).not.toHaveBeenCalled();
   });
 });
+
+describe('actor visibility gate concerns（08-29 D 修复：concern 命名空间）', () => {
+  afterEach(() => {
+    clearSharedIntersectionObserversForTest();
+    FakeIntersectionObserver.instances = [];
+    vi.unstubAllGlobals();
+  });
+
+  it('fires all pending concerns for one item when it becomes visible', () => {
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+    const gate = createActorVisibilityGate();
+    const item = {} as HTMLElement;
+    const runA = vi.fn();
+    const runB = vi.fn();
+
+    expect(gate.defer(item, runA, 'actorEnhancement')).toBe(true);
+    expect(gate.defer(item, runB, 'actorPenetration')).toBe(true);
+    // 同 concern 幂等
+    expect(gate.defer(item, runA, 'actorEnhancement')).toBe(true);
+
+    const observer = FakeIntersectionObserver.instances[0];
+    observer?.callback([{ target: item, isIntersecting: true, intersectionRatio: 1 }]);
+
+    expect(runA).toHaveBeenCalledTimes(1);
+    expect(runB).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancelAll(concern) cancels only that concern, preserving the other', () => {
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+    const gate = createActorVisibilityGate();
+    const item = {} as HTMLElement;
+    const runA = vi.fn();
+    const runB = vi.fn();
+
+    gate.defer(item, runA, 'actorEnhancement');
+    gate.defer(item, runB, 'actorPenetration');
+    // 模拟 reapplyActorHidingForAll：只取消演员增强 concern
+    gate.cancelAll('actorEnhancement');
+
+    const observer = FakeIntersectionObserver.instances[0];
+    observer?.callback([{ target: item, isIntersecting: true, intersectionRatio: 1 }]);
+
+    expect(runA).not.toHaveBeenCalled();
+    expect(runB).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancel(item, concern) removes one concern without releasing the observation for others', () => {
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+    const gate = createActorVisibilityGate();
+    const itemA = {} as HTMLElement;
+    const itemB = {} as HTMLElement;
+    const runA1 = vi.fn();
+    const runA2 = vi.fn();
+    const runB = vi.fn();
+
+    gate.defer(itemA, runA1, 'actorEnhancement');
+    gate.defer(itemA, runA2, 'actorPenetration');
+    gate.defer(itemB, runB, 'actorEnhancement');
+
+    gate.cancel(itemA, 'actorPenetration');
+
+    // itemA 只剩 actorEnhancement 挂起；itemB 不受影响
+    for (const observer of FakeIntersectionObserver.instances) {
+      observer.callback([
+        { target: itemA, isIntersecting: true, intersectionRatio: 1 },
+        { target: itemB, isIntersecting: true, intersectionRatio: 1 },
+      ]);
+    }
+    expect(runA1).toHaveBeenCalledTimes(1);
+    expect(runA2).not.toHaveBeenCalled();
+    expect(runB).toHaveBeenCalledTimes(1);
+  });
+
+  it('a single concern callback throwing does not block the other concerns', () => {
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+    const gate = createActorVisibilityGate();
+    const item = {} as HTMLElement;
+    const runB = vi.fn();
+    const runA = vi.fn(() => {
+      throw new Error('boom');
+    });
+
+    gate.defer(item, runA, 'actorEnhancement');
+    gate.defer(item, runB, 'actorPenetration');
+
+    const observer = FakeIntersectionObserver.instances[0];
+    observer?.callback([{ target: item, isIntersecting: true, intersectionRatio: 1 }]);
+
+    expect(runA).toHaveBeenCalledTimes(1);
+    expect(runB).toHaveBeenCalledTimes(1);
+  });
+});

@@ -79,6 +79,12 @@ export function installContentMessageRouter(): void {
                 try {
                     listEnhancementManager.updateConfig({
                         enableActorPenetration: (settings.listEnhancement as any)?.enableActorPenetration === true,
+                        enableCategoryFilter: (settings.listEnhancement as any)?.enableCategoryFilter === true,
+                        categoryFilter: {
+                            black: Array.isArray((settings.listEnhancement as any)?.categoryFilter?.black)
+                                ? (settings.listEnhancement as any).categoryFilter.black.filter((k: unknown): k is string => typeof k === 'string')
+                                : [],
+                        },
                         enableActorNameMarks: isVideoEnhancementSubOn(settings, 'enableActorNameMarks'),
                         hideBlacklistedActorsInList: (settings.listEnhancement as any)?.hideBlacklistedActorsInList === true,
                         hideNonFavoritedActorsInList: (settings.listEnhancement as any)?.hideNonFavoritedActorsInList === true,
