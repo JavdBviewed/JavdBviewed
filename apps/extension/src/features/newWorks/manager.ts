@@ -65,6 +65,54 @@ export class NewWorksManager {
     });
 
     /**
+     * 从存储读取 new_works_config 并套用默认值回填 + 旧字段迁移。
+     * 由 initialize() 抽出，供 reloadGlobalConfig() 复用同一迁移口径
+     * （批 3a：SW 实例跨配置变更存活时内存配置刷新的读取入口）。
+     */
+    private async readMigratedGlobalConfig(): Promise<NewWorksGlobalConfig> {
+        const raw = await getValue<any>(
+            STORAGE_KEYS.NEW_WORKS_CONFIG,
+            DEFAULT_NEW_WORKS_CONFIG as any
+        );
+        // 迁移：将旧的 enabled 映射为 autoCheckEnabled（仅当新字段未设置时）
+        const migrated: NewWorksGlobalConfig = {
+            ...DEFAULT_NEW_WORKS_CONFIG,
+            ...raw,
+            // 深度合并 filters，确保新增字段（如 excludeAR）有默认值
+            filters: {
+                ...DEFAULT_NEW_WORKS_CONFIG.filters,
+                ...(raw?.filters || {}),
+            },
+            autoCheckEnabled: (
+                raw?.autoCheckEnabled !== undefined
+                    ? !!raw.autoCheckEnabled
+                    : (raw?.enabled !== undefined ? !!raw.enabled : DEFAULT_NEW_WORKS_CONFIG.autoCheckEnabled)
+            ),
+            showActorPageScanButton: (
+                raw?.showActorPageScanButton !== undefined
+                    ? !!raw.showActorPageScanButton
+                    : DEFAULT_NEW_WORKS_CONFIG.showActorPageScanButton
+            )
+        };
+        // 清理遗留字段
+        delete (migrated as any).enabled;
+        return migrated;
+    }
+
+    /**
+     * 刷新内存全局配置（批 3a：SW 实例跨配置变更存活时的刷新入口）。
+     * dashboard 页 / storage.onChanged('new_works_config') / 'new-works-scheduler-restart'
+     * 三处外部更新 new_works_config 后调用：重读存储并套用与 initialize 相同的迁移口径。
+     * 只改 globalConfig；不触碰 subscription/work baseline、dirty、localDeleted 四套集合
+     * （订阅/作品数据不在本次刷新范围，保持 initialize 幂等语义不变）。
+     */
+    async reloadGlobalConfig(): Promise<void> {
+        await this.initialize();
+        this.globalConfig = await this.readMigratedGlobalConfig();
+        console.log('[NewWorks] reloadGlobalConfig: 全局配置已刷新（重读 new_works_config）');
+    }
+
+    /**
      * 初始化新作品管理器
      */
     async initialize(): Promise<void> {
@@ -72,33 +120,7 @@ export class NewWorksManager {
 
         try {
             // 加载全局配置（带迁移）
-            const raw = await getValue<any>(
-                STORAGE_KEYS.NEW_WORKS_CONFIG,
-                DEFAULT_NEW_WORKS_CONFIG as any
-            );
-            // 迁移：将旧的 enabled 映射为 autoCheckEnabled（仅当新字段未设置时）
-            const migrated: NewWorksGlobalConfig = {
-                ...DEFAULT_NEW_WORKS_CONFIG,
-                ...raw,
-                // 深度合并 filters，确保新增字段（如 excludeAR）有默认值
-                filters: {
-                    ...DEFAULT_NEW_WORKS_CONFIG.filters,
-                    ...(raw?.filters || {}),
-                },
-                autoCheckEnabled: (
-                    raw?.autoCheckEnabled !== undefined
-                        ? !!raw.autoCheckEnabled
-                        : (raw?.enabled !== undefined ? !!raw.enabled : DEFAULT_NEW_WORKS_CONFIG.autoCheckEnabled)
-                ),
-                showActorPageScanButton: (
-                    raw?.showActorPageScanButton !== undefined
-                        ? !!raw.showActorPageScanButton
-                        : DEFAULT_NEW_WORKS_CONFIG.showActorPageScanButton
-                )
-            };
-            // 清理遗留字段
-            delete (migrated as any).enabled;
-            this.globalConfig = migrated;
+            this.globalConfig = await this.readMigratedGlobalConfig();
 
             // 加载订阅数据
             const subscriptionsData = await getValue<Record<string, ActorSubscription>>(

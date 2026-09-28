@@ -5,6 +5,10 @@
  */
 import type { ExtensionSettings, KeywordFilterRule } from '../../../../../types';
 import { getDefaultTags, ACTOR_FILTER_TAGS } from '../../../../../dashboard/config/actorFilterTags';
+import {
+  ACTOR_T_TAG_CODES,
+  normalizeActorDefaultTags,
+} from '../../../../../features/actorEnhancement/defaultTagsSelection';
 import { normalizeMagnetSortMode } from '../../../../../features/magnets/application/resultSort';
 import type { MagnetSortMode } from '../../../../../features/magnets/domain/types';
 import { DEFAULT_ONLINE_AVAILABILITY_SITES } from '../../../../../features/onlineAvailability';
@@ -138,7 +142,10 @@ export type EnhancementSettingsFormState = {
   // 演员页
   enableActorEnhancement: boolean;
   enableAutoApplyTags: boolean;
-  actorDefaultTags: string[];
+  /** 默认过滤条件 - t 码（s/p/d/c/4k/uncensored） */
+  actorDefaultT: string[];
+  /** 默认过滤条件 - 类别（字典 entryKey `cN=ID`） */
+  actorDefaultCategories: string[];
   aeEnableActionButtons: boolean;
   aeEnableTimeSegmentationDivider: boolean;
   aeTimeSegmentationMonths: number;
@@ -254,6 +261,11 @@ export const ACTOR_DEFAULT_TAG_OPTIONS = ACTOR_FILTER_TAGS.map((t) => ({
   label: t.label,
 }));
 
+/** 仅 t 码选项（basic + quality 组）：P2 起 ActorTab 默认过滤条件分区展示。 */
+export const ACTOR_T_TAG_OPTIONS = ACTOR_DEFAULT_TAG_OPTIONS.filter((o) =>
+  (ACTOR_T_TAG_CODES as readonly string[]).includes(o.value),
+);
+
 export const ONLINE_AVAILABILITY_SITE_OPTIONS = DEFAULT_ONLINE_AVAILABILITY_SITES.map((s) => ({
   key: s.key,
   name: s.name,
@@ -363,7 +375,8 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
 
   enableActorEnhancement: true,
   enableAutoApplyTags: true,
-  actorDefaultTags: getDefaultTags(),
+  actorDefaultT: getDefaultTags(),
+  actorDefaultCategories: [],
   aeEnableActionButtons: true,
   aeEnableTimeSegmentationDivider: false,
   aeTimeSegmentationMonths: 6,
@@ -496,6 +509,8 @@ export function mapSettingsToEnhancementForm(
   const de = s.dataEnhancement || {};
   const tr = s.translation || {};
   const ae = s.actorEnhancement || {};
+  // P2：旧 defaultTags（string[] 混排）/ 新对象形统一经 normalizeActorDefaultTags 拆分
+  const normalizedDefaultTags = normalizeActorDefaultTags((ae as any).defaultTags);
   const ms = s.magnetSearch || {};
   const sa = s.siteAdRemoval || {};
   const msSources = ms.sources || {};
@@ -664,7 +679,8 @@ export function mapSettingsToEnhancementForm(
         ? !!ux.enableActorEnhancement
         : ae.enabled !== false,
     enableAutoApplyTags: ae.autoApplyTags !== false,
-    actorDefaultTags: Array.isArray(ae.defaultTags) ? [...ae.defaultTags] : getDefaultTags(),
+    actorDefaultT: normalizedDefaultTags.t,
+    actorDefaultCategories: normalizedDefaultTags.categories,
     aeEnableActionButtons: ae.enableActionButtons !== false,
     aeEnableTimeSegmentationDivider: ae.enableTimeSegmentationDivider === true,
     aeTimeSegmentationMonths: clamp(
@@ -898,7 +914,7 @@ export function applyEnhancementFormToSettings(
       ...((current as any).actorEnhancement || {}),
       enabled: form.enableActorEnhancement,
       autoApplyTags: form.enableAutoApplyTags,
-      defaultTags: [...form.actorDefaultTags],
+      defaultTags: { t: [...form.actorDefaultT], categories: [...form.actorDefaultCategories] },
       defaultSortType: 0,
       enableActionButtons: form.aeEnableActionButtons,
       enableTimeSegmentationDivider: form.aeEnableTimeSegmentationDivider,

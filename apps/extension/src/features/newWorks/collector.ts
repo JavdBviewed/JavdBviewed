@@ -16,27 +16,193 @@ import type { KeywordFilterRule } from '../../types';
 import { viewedGetAll, newWorksGet } from '../../platform/storage/indexedDb';
 import { buildJavDBUrl } from '../routeManagement';
 import { getSettings } from '../../utils/storage';
+import {
+    applyCategoryBlackFilter,
+    buildCategoryUrlParams,
+    CATEGORY_URL_DIM_KEYS,
+    type RawDetailDocument,
+} from './categoryFilter';
+
+/**
+ * 页内采集器（self-contained，chrome.scripting.executeScript func 序列化要求：
+ * 不得引用任何模块外标识符）。遍历详情页 .panel-block，返回类别/演员面板原始数据。
+ * 返回 null = 页面未就绪（导航中/无面板且未 complete），由调用方继续轮询。
+ */
+const extractDetailPanelsFunc = (targetUrl: string):
+    { redirected: boolean; finalUrl: string; panels: RawDetailDocument['panels'] } | null => {
+    try {
+        const target = new URL(targetUrl);
+        const here = new URL(window.location.href);
+        if (here.origin !== target.origin || here.pathname !== target.pathname) {
+            // 跳转（典型：302→登录页）：立即上报最终 URL，调用方判定
+            return { redirected: true, finalUrl: here.href, panels: [] };
+        }
+        if (document.readyState === 'loading') return null;
+        const hasPanel = document.querySelector('.panel-block') !== null;
+        if (!hasPanel && document.readyState !== 'complete') return null;
+        const panels: RawDetailDocument['panels'] = [];
+        document.querySelectorAll('.panel-block').forEach((panel) => {
+            const strong = panel.querySelector('strong');
+            const label = (strong && strong.textContent) || '';
+            const tagHrefs: string[] = [];
+            panel.querySelectorAll('a[href*="/tags?c"]').forEach((a) => {
+                tagHrefs.push(a.getAttribute('href') || '');
+            });
+            const actorLinks: RawDetailDocument['panels'][number]['actorLinks'] = [];
+            panel.querySelectorAll('a').forEach((a) => {
+                const href = a.getAttribute('href') || '';
+                if (!/\/actors\//.test(href)) return;
+                const next = a.nextElementSibling || a.nextSibling;
+                const parent = a.parentElement;
+                const symbol = parent ? parent.querySelector('.symbol') : null;
+                actorLinks.push({
+                    href: href,
+                    text: a.textContent || '',
+                    nextText: next ? (next.textContent || '') : null,
+                    symbolClass: symbol ? (symbol.getAttribute('class') || '') : null,
+                    symbolText: symbol ? (symbol.textContent || '') : null,
+                });
+            });
+            const value = panel.querySelector('.value');
+            panels.push({
+                label: label,
+                tagHrefs: tagHrefs,
+                actorLinks: actorLinks,
+                hasAnyLink: panel.querySelectorAll('a').length > 0,
+                valueText: value ? (value.textContent || '') : null,
+            });
+        });
+        return { redirected: false, finalUrl: here.href, panels: panels };
+    } catch (e) {
+        return null;
+    }
+};
 
 export class NewWorksCollector {
     private readonly BASE_DELAY = 3000; // 基础延迟3秒
 
     /**
-     * 构建演员作品页面URL，应用类别筛选
+     * 构建演员作品页面URL，应用类别白名单
+     * P3：白名单拆分为 t 码（?t=）+ appliesToUrl 维度类别（?cN=，多值逗号）；
+     * 留空 = 不限制；未验证维度与字典外值不拼 URL（仅告警）。
      */
     private async buildActorWorksUrl(actorId: string, categoryFilters?: string[]): Promise<string> {
         let url = await buildJavDBUrl(`/actors/${actorId}`);
-        
-        // 如果有类别筛选，添加到URL参数
-        // JavDB格式: ?t=s,d&sort_type=0 (用逗号分隔)
-        if (categoryFilters && categoryFilters.length > 0) {
-            const filterParam = categoryFilters.join(',');
-            url += `?t=${filterParam}&sort_type=0`;
-            console.log(`[CS] 应用类别筛选: t=${filterParam}`);
-        } else {
-            console.log(`[CS] 未应用类别筛选（显示所有类别）`);
+
+        const params = buildCategoryUrlParams(categoryFilters ?? []);
+        const parts: string[] = [];
+        if (params.t.length > 0) parts.push(`t=${params.t.join(',')}`);
+        for (const dim of CATEGORY_URL_DIM_KEYS) {
+            const ids = params.byDim[dim];
+            if (ids && ids.length > 0) parts.push(`${dim}=${ids.join(',')}`);
         }
-        
+        if (parts.length > 0) {
+            url += `?${parts.join('&')}&sort_type=0`;
+            console.log(`[CS] 应用类别白名单: ${parts.join('&')}`);
+        } else {
+            console.log(`[CS] 未应用类别白名单（显示所有类别）`);
+        }
+        if (params.notUrlAppliable.length > 0) {
+            console.warn(`[CS] 白名单含不参与 URL 的维度（已忽略）: ${params.notUrlAppliable.join(', ')}`);
+        }
+        if (params.dropped.length > 0) {
+            console.warn(`[CS] 白名单含不可识别值（已忽略）: ${params.dropped.join(', ')}`);
+        }
+
         return url;
+    }
+
+    /**
+     * P3：入库前类别黑名单剔除（保守：解析失败/未知一律保留不丢片）。
+     * 缓存优先（演员穿透缓存），miss 才请求详情（限速 3s/次）。
+     */
+    private async applyCategoryBlacklist(
+        works: any[],
+        blackFilters: string[] | undefined
+    ): Promise<{ kept: any[]; removed: number }> {
+        if (!blackFilters || blackFilters.length === 0 || works.length === 0) {
+            return { kept: works, removed: 0 };
+        }
+        const result = await applyCategoryBlackFilter(works, blackFilters, {
+            delay: (ms) => this.delay(ms),
+            buildDetailUrl: (id) => buildJavDBUrl(`/v/${id}`),
+            // SW 无 DOMParser：详情页经隐藏标签页 + 页内采集取得 raw panels
+            loadDetail: (url) => this.loadDetailInTab(url),
+        });
+        if (result.removed > 0) {
+            console.log(`[CS] 入库前类别黑名单剔除 ${result.removed} 个: ${result.removedIds.join(', ')}`);
+        }
+        return { kept: result.kept, removed: result.removed };
+    }
+
+    /**
+     * P3：隐藏标签页 + 页内采集取详情页原始面板数据（对齐 parseActorWorksInTab 机制：
+     * 轮询 executeScript、URL/readyState 就绪判定、30s 超时、结束关页）。
+     * null = 加载失败（超时/脚本错误/标签页创建失败）；
+     * 非登录跳转 → { finalUrl, panels: [] }（由 looksLikeLoginPage 判定后保守保留）。
+     */
+    private loadDetailInTab(url: string): Promise<RawDetailDocument | null> {
+        return new Promise((resolve) => {
+            chrome.tabs.create({ url, active: false }, (tab) => {
+                if (!tab || tab.id === undefined) {
+                    resolve(null);
+                    return;
+                }
+                const tabId = tab.id;
+                let isResolved = false;
+                let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+                const cleanup = () => {
+                    clearTimeout(timeout);
+                    if (pollTimer) {
+                        clearInterval(pollTimer);
+                        pollTimer = null;
+                    }
+                    chrome.tabs.onUpdated.removeListener(onUpdated);
+                };
+
+                const finish = (value: RawDetailDocument | null) => {
+                    if (isResolved) return;
+                    isResolved = true;
+                    cleanup();
+                    chrome.tabs.remove(tabId);
+                    resolve(value);
+                };
+
+                const onUpdated = (updatedTabId: number, changeInfo: any) => {
+                    if (updatedTabId === tabId && changeInfo.status === 'complete') {
+                        tryRead();
+                    }
+                };
+
+                const tryRead = () => {
+                    if (isResolved) return;
+                    chrome.scripting.executeScript(
+                        {
+                            target: { tabId: tabId },
+                            func: extractDetailPanelsFunc,
+                            args: [url]
+                        },
+                        (results) => {
+                            if (isResolved) return;
+                            // 页面仍在导航/上下文不可用时 results 为空，继续轮询
+                            const result = results && results[0] && results[0].result;
+                            if (!result || typeof result !== 'object') return;
+                            finish({
+                                finalUrl: result.finalUrl,
+                                panels: Array.isArray(result.panels) ? result.panels : []
+                            });
+                        }
+                    );
+                };
+
+                const timeout = setTimeout(() => finish(null), 30000); // 30秒超时
+
+                chrome.tabs.onUpdated.addListener(onUpdated);
+                // 不依赖 load 事件（第三方脚本可能挂起），轮询 executeScript 判定就绪
+                pollTimer = setInterval(tryRead, 800);
+            });
+        });
     }
 
     /**
@@ -57,29 +223,38 @@ export class NewWorksCollector {
             
             // 应用全局过滤条件
             const filteredWorks = await this.applyGlobalFilters(works, globalConfig.filters);
-            
+
             // 转换为NewWorkRecord格式
             const newWorks: NewWorkRecord[] = [];
             const now = Date.now();
-            
+
+            // P3（run11b 真机归因修复）：存在性检查先行，类别黑名单只评估新候选——
+            // 已存在作品不再触发详情抓取（黑名单语义上从不回溯移除已入库作品，终态一致）。
+            // 修复前黑名单在存在性检查之前对全池作品执行：冷穿透缓存下
+            // 510 作品 × (3s 延迟 + 隐藏标签页详情 8~13s) ≈ 50min，SW 120s 无响应。
+            const freshCandidates: any[] = [];
             for (const work of filteredWorks.slice(0, globalConfig.maxWorksPerCheck)) {
                 // 检查是否已存在
                 const exists = await this.checkWorkExists(work.id);
                 if (!exists) {
-                    newWorks.push({
-                        id: work.id,
-                        actorId: subscription.actorId,
-                        actorName: subscription.actorName,
-                        title: work.title,
-                        releaseDate: work.releaseDate,
-                        javdbUrl: work.url,
-                        coverImage: work.coverImage,
-                        tags: work.tags || [],
-                        discoveredAt: now,
-                        isRead: false,
-                        status: 'new'
-                    });
+                    freshCandidates.push(work);
                 }
+            }
+            const blackResult = await this.applyCategoryBlacklist(freshCandidates, globalConfig.filters.categoryBlackFilters);
+            for (const work of blackResult.kept) {
+                newWorks.push({
+                    id: work.id,
+                    actorId: subscription.actorId,
+                    actorName: subscription.actorName,
+                    title: work.title,
+                    releaseDate: work.releaseDate,
+                    javdbUrl: work.url,
+                    coverImage: work.coverImage,
+                    tags: work.tags || [],
+                    discoveredAt: now,
+                    isRead: false,
+                    status: 'new'
+                });
             }
             
             console.log(`演员 ${subscription.actorName} 发现 ${newWorks.length} 个新作品`);
@@ -277,7 +452,7 @@ export class NewWorksCollector {
     private async applyGlobalFiltersWithStats(
         works: any[],
         filters: NewWorksGlobalConfig['filters']
-    ): Promise<{ filteredWorks: any[]; filteredCount: { dateRange: number; viewed: number; browsed: number; want: number; ar: number } }> {
+    ): Promise<{ filteredWorks: any[]; filteredCount: { dateRange: number; viewed: number; browsed: number; want: number; ar: number; categoryBlack: number } }> {
         console.log(`[CS] 开始应用过滤条件(带统计)，原始作品数量: ${works.length}`);
         console.log('[SETTINGS] 过滤设置:', filters);
 
@@ -287,7 +462,8 @@ export class NewWorksCollector {
             viewed: 0,
             browsed: 0,
             want: 0,
-            ar: 0
+            ar: 0,
+            categoryBlack: 0 // P3：入库前类别黑名单剔除计数（由 checkActorNewWorksDetailed 填充）
         };
 
         // 使用 IndexedDB 番号库做状态检查（更准确）
@@ -397,7 +573,7 @@ export class NewWorksCollector {
     async checkActorNewWorksDetailed(
         subscription: ActorSubscription,
         globalConfig: NewWorksGlobalConfig
-    ): Promise<{ works: NewWorkRecord[]; identified: number; effective: number; filteredOut: number; existingCount: number; filterBreakdown: { dateRange: number; viewed: number; browsed: number; want: number; ar: number } }> {
+    ): Promise<{ works: NewWorkRecord[]; identified: number; effective: number; filteredOut: number; existingCount: number; filterBreakdown: { dateRange: number; viewed: number; browsed: number; want: number; ar: number; categoryBlack: number } }> {
         try {
             console.log(`[ACTOR] 开始(详细)检查演员 ${subscription.actorName} 的新作品`);
 
@@ -406,33 +582,42 @@ export class NewWorksCollector {
             const identified = worksRaw.length;
 
             const { filteredWorks, filteredCount } = await this.applyGlobalFiltersWithStats(worksRaw, globalConfig.filters);
-            const effective = filteredWorks.length;
-            const filteredOut = Math.max(0, identified - effective);
 
             const newWorks: NewWorkRecord[] = [];
             let existingCount = 0;
             const now = Date.now();
+            // P3（run11b 真机归因修复）：存在性检查先行，类别黑名单只评估新候选——
+            // 已存在作品不再触发详情抓取（冷穿透缓存全池串行 fetch ≈ 50min，SW 120s 无响应）。
             console.log(`[NEWWORKS] 开始检查 ${filteredWorks.length} 个过滤后的作品是否已存在`);
+            const freshCandidates: any[] = [];
             for (const work of filteredWorks.slice(0, globalConfig.maxWorksPerCheck)) {
                 const exists = await this.checkWorkExists(work.id);
                 console.log(`[NEWWORKS] 作品 ${work.id} (${work.title}) 存在性检查: ${exists ? '已存在' : '新作品'}`);
                 if (!exists) {
-                    newWorks.push({
-                        id: work.id,
-                        actorId: subscription.actorId,
-                        actorName: subscription.actorName,
-                        title: work.title,
-                        releaseDate: work.releaseDate,
-                        javdbUrl: work.url,
-                        coverImage: work.coverImage,
-                        tags: work.tags || [],
-                        discoveredAt: now,
-                        isRead: false,
-                        status: 'new'
-                    });
+                    freshCandidates.push(work);
                 } else {
                     existingCount++;
                 }
+            }
+            // 入库前类别黑名单剔除（仅新候选；剔除数计入 filterBreakdown.categoryBlack）
+            const blackResult = await this.applyCategoryBlacklist(freshCandidates, globalConfig.filters.categoryBlackFilters);
+            filteredCount.categoryBlack = blackResult.removed;
+            const effective = filteredWorks.length - blackResult.removed;
+            const filteredOut = Math.max(0, identified - effective);
+            for (const work of blackResult.kept) {
+                newWorks.push({
+                    id: work.id,
+                    actorId: subscription.actorId,
+                    actorName: subscription.actorName,
+                    title: work.title,
+                    releaseDate: work.releaseDate,
+                    javdbUrl: work.url,
+                    coverImage: work.coverImage,
+                    tags: work.tags || [],
+                    discoveredAt: now,
+                    isRead: false,
+                    status: 'new'
+                });
             }
             console.log(`[NEWWORKS] 检查完成，发现 ${newWorks.length} 个新作品`);
 
@@ -452,7 +637,7 @@ export class NewWorksCollector {
                 effective: 0,
                 filteredOut: 0,
                 existingCount: 0,
-                filterBreakdown: { dateRange: 0, viewed: 0, browsed: 0, want: 0, ar: 0 }
+                filterBreakdown: { dateRange: 0, viewed: 0, browsed: 0, want: 0, ar: 0, categoryBlack: 0 }
             };
         }
     }

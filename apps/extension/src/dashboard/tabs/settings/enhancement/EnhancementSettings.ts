@@ -12,6 +12,7 @@ import type { ExtensionSettings, KeywordFilterRule } from '../../../../types';
 import type { SettingsValidationResult, SettingsSaveResult } from '../types';
 import { saveSettings } from '../../../../utils/storage';
 import { ACTOR_FILTER_TAGS, getDefaultTags } from '../../../config/actorFilterTags';
+import { splitTagValues } from '../../../../features/actorEnhancement/defaultTagsSelection';
 import { handleActorOpacityChange, handleColumnCountChange, handleContainerWidthChange, updateContainerWidthMax, updateCurrentPreviewDelayDisplay, getPreferredPreviewSource, setupCheckboxGroupStyles, setupAnchorConfigStyles, setupVolumeControlStyles } from './ui/enhancementUiStyles';
 import { initializeElements } from './binding/enhancementInit';
 import { bindEvents } from './binding/enhancementBindEvents';
@@ -461,7 +462,7 @@ export class EnhancementSettings extends BaseSettingsPanel {
             s.actorEnhancement = {
                 enabled: true,
                 autoApplyTags: true,
-                defaultTags: getDefaultTags(),
+                defaultTags: { t: getDefaultTags(), categories: [] },
                 defaultSortType: 0,
             } as any;
         }
@@ -938,9 +939,13 @@ export class EnhancementSettings extends BaseSettingsPanel {
                     // 演员页增强运行总开关与主开关保持一致
                     enabled: this.enableActorEnhancement.checked,
                     autoApplyTags: this.enableAutoApplyTags?.checked !== false,
+                    // P2：勾选值（t 码 + 类别 entryKey）拆分为规范对象形 { t, categories }
                     defaultTags: this.actorDefaultTagInputs && this.actorDefaultTagInputs.length > 0
-                        ? Array.from(this.actorDefaultTagInputs).filter((i: HTMLInputElement) => i.checked).map(i => i.value)
-                        : getDefaultTags(),
+                        ? (() => {
+                            const split = splitTagValues(Array.from(this.actorDefaultTagInputs).filter((i: HTMLInputElement) => i.checked).map(i => i.value));
+                            return { t: split.t, categories: split.categories };
+                          })()
+                        : { t: getDefaultTags(), categories: [] } as const,
                     defaultSortType: 0,
                     enableActionButtons: this.aeEnableActionButtons?.checked !== false,
                     // 新增：演员页 影片分段显示

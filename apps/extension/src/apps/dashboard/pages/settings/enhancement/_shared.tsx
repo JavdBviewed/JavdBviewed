@@ -4,8 +4,38 @@
  * @module apps/dashboard/pages/settings/enhancement
  */
 import { type ReactNode } from 'react';
+import { BUILTIN_CATEGORY_DICTIONARY } from '@javdb/video-category-dict';
+import type { DimKey } from '@javdb/video-category-dict';
 import { EnhancementFeatureCard, type EnhancementFeatureMeta } from './EnhancementFeatureCard';
 import type { EnhancementSettingsFormState } from './enhancementSettingsModel';
+
+/**
+ * 演员页「默认过滤条件」影片类别维度分组（08-29-actor-passthrough-category-filter P2）：
+ * 数据源内置类别字典（311 项快照），维度顺序与 JavDB /tags 页一致。
+ * appliesToUrl = 该维度全部条目 appliesToUrl===true（c1/c4/c7）。
+ */
+export interface ActorCategoryDimension {
+  key: DimKey;
+  label: string;
+  appliesToUrl: boolean;
+  entries: { id: string; label: string }[];
+}
+
+export const ACTOR_CATEGORY_DIMENSIONS: ActorCategoryDimension[] = (() => {
+  const source = BUILTIN_CATEGORY_DICTIONARY.sources[BUILTIN_CATEGORY_DICTIONARY.activeSite];
+  return source.dimensionOrder
+    .map((key) => {
+      const dim = source.dimensions[key];
+      const entries = (dim?.entries ?? []).map((e) => ({ id: e.id, label: e.label }));
+      return {
+        key,
+        label: dim?.label ?? key,
+        appliesToUrl: entries.length > 0 && (dim?.entries ?? []).every((e) => e.appliesToUrl === true),
+        entries,
+      };
+    })
+    .filter((d) => d.entries.length > 0);
+})();
 
 const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
   '内容过滤': { icon: '🎯', status: '可用', tone: 'available', effect: '在列表页过滤关键字，可隐藏、高亮或标记匹配内容；隐藏动作可整体或按规则单独关闭。', usage: '配置规则后自动应用到列表页。' },

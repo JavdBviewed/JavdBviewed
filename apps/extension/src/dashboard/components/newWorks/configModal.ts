@@ -3,7 +3,36 @@
 
 import { showMessage } from '../../ui/toast';
 import type { NewWorksGlobalConfig } from '../../../types';
-import { ACTOR_FILTER_TAGS, getTagsByGroup } from '../../config/actorFilterTags';
+import { ACTOR_FILTER_TAGS } from '../../config/actorFilterTags';
+import { BUILTIN_CATEGORY_DICTIONARY, entryKey, type DimKey } from '@javdb/video-category-dict';
+import {
+    normalizeCategoryBlackValues,
+    splitNewWorksFilterValues,
+} from '../../../features/newWorks/categoryFilter';
+
+/** 类别维度分组（与字典 dimensionOrder 一致；appliesToUrl=该维度全条目可拼 URL）。 */
+interface CategoryDimGroup {
+    key: DimKey;
+    label: string;
+    appliesToUrl: boolean;
+    entries: { id: string; label: string }[];
+}
+
+function getCategoryDimGroups(): CategoryDimGroup[] {
+    const source = BUILTIN_CATEGORY_DICTIONARY.sources[BUILTIN_CATEGORY_DICTIONARY.activeSite];
+    return source.dimensionOrder
+        .map((key) => {
+            const dim = source.dimensions[key];
+            const entries = (dim?.entries ?? []).map((e) => ({ id: e.id, label: e.label }));
+            return {
+                key,
+                label: dim?.label ?? key,
+                appliesToUrl: entries.length > 0 && (dim?.entries ?? []).every((e) => e.appliesToUrl === true),
+                entries,
+            };
+        })
+        .filter((d) => d.entries.length > 0);
+}
 
 export class NewWorksConfigModal {
     private modal: HTMLElement | null = null;
@@ -21,24 +50,69 @@ export class NewWorksConfigModal {
     }
 
     /**
-     * 生成类别复选框HTML
+     * 生成类别白名单复选框HTML（t 码 6 项 + 字典维度分组；appliesToUrl=false 维度标注不拼 URL）
      */
-    private generateCategoryCheckboxes(selectedValues?: string[]): string {
-        // 获取所有标签（basic、quality、category）
-        const allTags = ACTOR_FILTER_TAGS.filter(tag => 
-            tag.group === 'basic' || tag.group === 'quality' || tag.group === 'category'
-        );
-        const selected = selectedValues || [];
-        return allTags.map(tag => {
-            const checked = selected.includes(tag.value) ? 'checked' : '';
-            return `
+    private generateWhitelistCheckboxes(selectedValues: string[]): string {
+        const selectedSet = new Set(selectedValues);
+        const tTags = ACTOR_FILTER_TAGS.filter(tag => tag.group === 'basic' || tag.group === 'quality');
+        const tBoxes = tTags.map(tag => `
                 <label class="checkbox-label category-checkbox">
-                    <input type="checkbox" class="category-filter-checkbox" value="${tag.value}" ${checked}>
+                    <input type="checkbox" class="category-whitelist-checkbox" value="${tag.value}" ${selectedSet.has(tag.value) ? 'checked' : ''}>
                     <span class="checkmark"></span>
                     ${tag.label}
                 </label>
-            `;
+            `).join('');
+
+        const dimBlocks = getCategoryDimGroups().map(dim => {
+            const boxes = dim.entries.map(e => {
+                const k = entryKey(dim.key, e.id);
+                return `
+                    <label class="checkbox-label category-checkbox category-checkbox-compact">
+                        <input type="checkbox" class="category-whitelist-checkbox" value="${k}" ${selectedSet.has(k) ? 'checked' : ''}>
+                        <span class="checkmark"></span>
+                        ${e.label}
+                    </label>`;
+            }).join('');
+            return `
+                <details class="category-dim-details" id="nwCatDimWhitelist-${dim.key}">
+                    <summary class="category-dim-summary">
+                        ${dim.label}${dim.appliesToUrl ? '' : '（不拼 URL）'}
+                        <span class="category-dim-hint">已选 ${dim.entries.filter(e => selectedSet.has(entryKey(dim.key, e.id))).length}/${dim.entries.length}</span>
+                    </summary>
+                    <div class="category-filter-grid category-filter-grid-compact">${boxes}</div>
+                </details>`;
         }).join('');
+
+        return `
+            <div class="category-filter-grid">${tBoxes}</div>
+            <div class="category-dim-list">${dimBlocks}</div>
+        `;
+    }
+
+    /**
+     * 生成类别黑名单复选框HTML（仅字典维度分组；勾选=入库前剔除）
+     */
+    private generateBlacklistCheckboxes(selectedKeys: Set<string>): string {
+        const dimBlocks = getCategoryDimGroups().map(dim => {
+            const boxes = dim.entries.map(e => {
+                const k = entryKey(dim.key, e.id);
+                return `
+                    <label class="checkbox-label category-checkbox category-checkbox-compact">
+                        <input type="checkbox" class="category-blacklist-checkbox" value="${k}" ${selectedKeys.has(k) ? 'checked' : ''}>
+                        <span class="checkmark"></span>
+                        ${e.label}
+                    </label>`;
+            }).join('');
+            return `
+                <details class="category-dim-details" id="nwCatDimBlacklist-${dim.key}">
+                    <summary class="category-dim-summary">
+                        ${dim.label}
+                        <span class="category-dim-hint">已选 ${dim.entries.filter(e => selectedKeys.has(entryKey(dim.key, e.id))).length}/${dim.entries.length}</span>
+                    </summary>
+                    <div class="category-filter-grid category-filter-grid-compact">${boxes}</div>
+                </details>`;
+        }).join('');
+        return `<div class="category-dim-list">${dimBlocks}</div>`;
     }
 
     /**
@@ -48,12 +122,11 @@ export class NewWorksConfigModal {
         // 移除已存在的弹窗
         this.removeModal();
 
-        const totalCategoryCount = ACTOR_FILTER_TAGS.filter(tag =>
-            tag.group === 'basic' || tag.group === 'quality' || tag.group === 'category'
-        ).length;
-        const selectedCategoryCount = config.filters.categoryFilters && config.filters.categoryFilters.length > 0
-            ? config.filters.categoryFilters.length
-            : totalCategoryCount;
+        // P3：白名单（t 码 + 类别 entryKey；旧裸 id 透明迁移）与黑名单（类别 entryKey）分别归一后计数
+        const whitelistSplit = splitNewWorksFilterValues(config.filters.categoryFilters || []);
+        const whitelistCount = whitelistSplit.t.length + whitelistSplit.categoryKeys.length;
+        const blacklistNorm = normalizeCategoryBlackValues(config.filters.categoryBlackFilters || []);
+        const blacklistCount = blacklistNorm.keys.size;
 
         this.modal = document.createElement('div');
         this.modal.className = 'new-works-config-modal';
@@ -210,21 +283,23 @@ export class NewWorksConfigModal {
                                     <div class="category-panel">
                                         <div class="category-panel-header">
                                             <div>
-                                                <h5>类别筛选</h5>
-                                                <p>仅扫描你关心的类别；如果不限制，就保持全选状态。</p>
+                                                <h5>类别白名单（只扫这些）</h5>
+                                                <p class="category-panel-desc">勾选后演员作品页 URL 只扫这些类别；留空 = 不限制。标注「不拼 URL」的维度为未实测维度，勾选仅记录、不参与 URL 筛选。</p>
                                             </div>
-                                            <div class="category-panel-meta">已选 <strong id="categorySelectedCount">${selectedCategoryCount}</strong> 项</div>
+                                            <div class="category-panel-meta">已选 <strong id="categoryWhitelistCount">${whitelistCount}</strong> 项</div>
                                         </div>
-                                        <div class="category-panel-toolbar">
-                                            <label class="checkbox-label category-all-checkbox category-pill">
-                                                <input type="checkbox" id="categoryFilterAll">
-                                                <span class="checkmark"></span>
-                                                不限制（全选）
-                                            </label>
+                                        ${this.generateWhitelistCheckboxes([...whitelistSplit.t, ...whitelistSplit.categoryKeys])}
+                                    </div>
+
+                                    <div class="category-panel">
+                                        <div class="category-panel-header">
+                                            <div>
+                                                <h5>类别黑名单（入库前剔除）</h5>
+                                                <p class="category-panel-desc">命中类别的作品在入库前剔除（先读演员穿透缓存，未命中才请求详情并限速；解析失败保守保留不丢片）。</p>
+                                            </div>
+                                            <div class="category-panel-meta">已选 <strong id="categoryBlacklistCount">${blacklistCount}</strong> 项</div>
                                         </div>
-                                        <div class="category-filter-grid">
-                                            ${this.generateCategoryCheckboxes(config.filters.categoryFilters)}
-                                        </div>
+                                        ${this.generateBlacklistCheckboxes(blacklistNorm.keys)}
                                     </div>
                                 </section>
 
@@ -340,8 +415,8 @@ export class NewWorksConfigModal {
             } catch {}
         });
 
-        // 类别筛选的全选/半选逻辑
-        this.setupCategoryFilterListeners();
+        // 类别白/黑名单计数联动
+        this.setupCategoryCountListeners();
 
         // 初始化表单状态
         this.updateFormState(autoCheckCheckbox?.checked || false);
@@ -351,70 +426,21 @@ export class NewWorksConfigModal {
     }
 
     /**
-     * 设置类别筛选的事件监听器
+     * 类别白/黑名单勾选计数联动（P3：两面板各自独立计数）
      */
-    private setupCategoryFilterListeners(): void {
+    private setupCategoryCountListeners(): void {
         if (!this.modal) return;
-
-        const allCheckbox = this.modal.querySelector('#categoryFilterAll') as HTMLInputElement;
-        const categoryCheckboxes = this.modal.querySelectorAll('.category-filter-checkbox') as NodeListOf<HTMLInputElement>;
-
-        if (!allCheckbox || !categoryCheckboxes.length) return;
-
-        // 初始化"不限制"复选框状态
-        this.updateAllCheckboxState();
-
-        // "不限制"复选框点击事件
-        allCheckbox.addEventListener('change', () => {
-            const isChecked = allCheckbox.checked;
-            categoryCheckboxes.forEach(checkbox => {
-                checkbox.checked = isChecked;
-            });
+        const update = () => {
+            const whitelistCount = this.modal!.querySelectorAll('.category-whitelist-checkbox:checked').length;
+            const whitelistEl = this.modal!.querySelector('#categoryWhitelistCount') as HTMLElement | null;
+            if (whitelistEl) whitelistEl.textContent = String(whitelistCount);
+            const blacklistCount = this.modal!.querySelectorAll('.category-blacklist-checkbox:checked').length;
+            const blacklistEl = this.modal!.querySelector('#categoryBlacklistCount') as HTMLElement | null;
+            if (blacklistEl) blacklistEl.textContent = String(blacklistCount);
+        };
+        this.modal.querySelectorAll('.category-whitelist-checkbox, .category-blacklist-checkbox').forEach(cb => {
+            cb.addEventListener('change', update);
         });
-
-        // 各个类别复选框点击事件
-        categoryCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('change', () => {
-                this.updateAllCheckboxState();
-            });
-        });
-    }
-
-    /**
-     * 更新"不限制"复选框的状态（全选/半选/未选）
-     */
-    private updateAllCheckboxState(): void {
-        if (!this.modal) return;
-
-        const allCheckbox = this.modal.querySelector('#categoryFilterAll') as HTMLInputElement;
-        const allCheckmark = this.modal.querySelector('.category-all-checkbox .checkmark') as HTMLElement;
-        const categoryCheckboxes = this.modal.querySelectorAll('.category-filter-checkbox') as NodeListOf<HTMLInputElement>;
-
-        if (!allCheckbox || !allCheckmark || !categoryCheckboxes.length) return;
-
-        const checkedCount = Array.from(categoryCheckboxes).filter(cb => cb.checked).length;
-        const totalCount = categoryCheckboxes.length;
-        const selectedCountEl = this.modal.querySelector('#categorySelectedCount') as HTMLElement | null;
-        if (selectedCountEl) {
-            selectedCountEl.textContent = String(checkedCount || totalCount);
-        }
-
-        if (checkedCount === 0) {
-            // 全不选
-            allCheckbox.checked = false;
-            allCheckbox.indeterminate = false;
-            allCheckmark.classList.remove('indeterminate');
-        } else if (checkedCount === totalCount) {
-            // 全选
-            allCheckbox.checked = true;
-            allCheckbox.indeterminate = false;
-            allCheckmark.classList.remove('indeterminate');
-        } else {
-            // 半选
-            allCheckbox.checked = false;
-            allCheckbox.indeterminate = true;
-            allCheckmark.classList.add('indeterminate');
-        }
     }
 
     /**
@@ -496,9 +522,11 @@ export class NewWorksConfigModal {
             }
         };
 
-        // 获取类别筛选的复选框值
-        const categoryCheckboxes = this.modal.querySelectorAll('.category-filter-checkbox:checked') as NodeListOf<HTMLInputElement>;
-        const categoryFilters = Array.from(categoryCheckboxes).map(cb => cb.value);
+        // 获取类别白/黑名单复选框值（P3：白名单走 URL 筛选，黑名单走入库前剔除）
+        const whitelistCheckboxes = this.modal.querySelectorAll('.category-whitelist-checkbox:checked') as NodeListOf<HTMLInputElement>;
+        const categoryFilters = Array.from(whitelistCheckboxes).map(cb => cb.value);
+        const blacklistCheckboxes = this.modal.querySelectorAll('.category-blacklist-checkbox:checked') as NodeListOf<HTMLInputElement>;
+        const categoryBlackFilters = Array.from(blacklistCheckboxes).map(cb => cb.value);
 
         return {
             checkInterval: getValue('configCheckInterval'),
@@ -512,6 +540,7 @@ export class NewWorksConfigModal {
                 excludeWant: getValue('configExcludeWant'),
                 dateRange: getValue('configDateRange'),
                 categoryFilters: categoryFilters.length > 0 ? categoryFilters : [],
+                categoryBlackFilters: categoryBlackFilters.length > 0 ? categoryBlackFilters : [],
                 excludeAR: getValue('configExcludeAR'),
                 applyContentFilter: getValue('configApplyContentFilter'),
             },

@@ -123,7 +123,8 @@ export const DEFAULT_NEW_WORKS_CONFIG: NewWorksGlobalConfig = {
         excludeBrowsed: true, // 默认排除已浏览
         excludeWant: false, // 默认不排除想看
         dateRange: 3, // 默认近3个月
-        categoryFilters: [], // 默认不限制类别（空数组表示全选）
+        categoryFilters: [], // 默认不限制类别（空数组表示全选/白名单空=不限制）
+        categoryBlackFilters: [], // 默认无类别黑名单（P3：入库前剔除）
         excludeAR: false, // 默认不排除AR影片
         applyContentFilter: false, // 默认不应用智能内容过滤
     },

@@ -3,7 +3,14 @@
  * 自动保存和应用标签过滤器，支持跨演员页面的过滤器同步
  */
 
+import { CATEGORY_DIM_KEYS, entryKey } from '@javdb/video-category-dict';
 import { getValue, setValue } from '../../utils/storage';
+import {
+  actorTagOptionLabel,
+  buildActorCategoryUrlParams,
+  normalizeActorDefaultTags,
+  type ActorDefaultTags,
+} from './defaultTagsSelection';
 import { parseReleaseDateText } from './releaseDateParser';
 import { showToast } from '../../platform/browser/toast';
 import type { ActorRecord } from '../../types';
@@ -16,6 +23,8 @@ import { showEnhancementDone, showEnhancementLoading } from '../../platform/brow
 
 interface ActorTagFilter {
   tags: string[];
+  /** 类别白名单（entryKey `cN=ID`）；新增字段，旧记录缺失 → 视为空 */
+  categories?: string[];
   sortType: number;
   timestamp: number;
 }
@@ -23,7 +32,8 @@ interface ActorTagFilter {
 interface ActorEnhancementConfig {
   enabled: boolean;
   autoApplyTags: boolean;
-  defaultTags: string[];
+  /** 默认过滤条件（P2 起对象形：t 码 + 类别 entryKey；存储/注入统一经 normalizeActorDefaultTags） */
+  defaultTags: ActorDefaultTags;
   defaultSortType: number;
   enableActionButtons?: boolean;
   // 新增：影片分段显示（仅演员页）
@@ -46,7 +56,7 @@ class ActorEnhancementManager {
   private config: ActorEnhancementConfig = {
     enabled: true,
     autoApplyTags: true,
-    defaultTags: ['s', 'd'], // 默認標籤：單體作品 + 含磁鏈
+    defaultTags: { t: ['s', 'd'], categories: [] }, // 默認標籤：單體作品 + 含磁鏈
     defaultSortType: 0
   };
 
@@ -61,6 +71,14 @@ class ActorEnhancementManager {
 
   updateConfig(newConfig: Partial<ActorEnhancementConfig>): void {
     this.config = { ...this.config, ...newConfig };
+    // 防御：defaultTags 一律收敛到对象规范形（兼容旧数组/脏数据注入）
+    if (newConfig.defaultTags !== undefined) {
+      const normalized = normalizeActorDefaultTags(newConfig.defaultTags);
+      if (normalized.dropped.length > 0) {
+        console.warn('[ActorEnhancement] 默认过滤条件含不可识别值（已忽略）:', normalized.dropped);
+      }
+      this.config.defaultTags = { t: normalized.t, categories: normalized.categories };
+    }
   }
 
   private async runActionButtonsTask(): Promise<void> {
@@ -606,6 +624,7 @@ class ActorEnhancementManager {
               if (Number(filterBreakdown.browsed || 0) > 0) breakdownParts.push(`已浏览 ${filterBreakdown.browsed}`);
               if (Number(filterBreakdown.want || 0) > 0) breakdownParts.push(`想看 ${filterBreakdown.want}`);
               if (Number(filterBreakdown.ar || 0) > 0) breakdownParts.push(`AR ${filterBreakdown.ar}`);
+              if (Number(filterBreakdown.categoryBlack || 0) > 0) breakdownParts.push(`类别黑名单 ${filterBreakdown.categoryBlack}`);
               reasonParts.push(
                 breakdownParts.length > 0
                   ? `过滤掉 ${filteredOut}（${breakdownParts.join(' / ')}）`
@@ -913,6 +932,26 @@ class ActorEnhancementManager {
     return tagParam ? tagParam.split(',').filter(t => t.length > 0) : [];
   }
 
+  /** 从 URL 捕获类别过滤参数（?cN= 多值逗号）→ entryKey 列表。 */
+  private getCurrentCategoriesFromUrl(): string[] {
+    const urlParams = new URLSearchParams(window.location.search);
+    const keys: string[] = [];
+    for (const dim of CATEGORY_DIM_KEYS) {
+      const value = urlParams.get(dim);
+      if (!value) continue;
+      for (const id of value.split(',')) {
+        const trimmed = id.trim();
+        if (trimmed) keys.push(entryKey(dim, trimmed));
+      }
+    }
+    return keys;
+  }
+
+  /** URL 是否已带任何过滤（t 码或类别）——自动应用前的跳过守卫。 */
+  private urlHasActiveFilter(): boolean {
+    return this.getCurrentTagsFromUrl().length > 0 || this.getCurrentCategoriesFromUrl().length > 0;
+  }
+
   private getCurrentSortType(): number {
     const urlParams = new URLSearchParams(window.location.search);
     const sortParam = urlParams.get('sort_type');
@@ -921,10 +960,9 @@ class ActorEnhancementManager {
 
   private async applyStoredTagFilter(): Promise<void> {
     try {
-      // 检查当前URL是否已经有过滤器
-      const currentTags = this.getCurrentTagsFromUrl();
-      if (currentTags.length > 0) {
-        console.log('🏷️ 当前页面已有tag过滤器，跳过自动应用');
+      // 检查当前URL是否已经有过滤器（t 码或类别 cN）
+      if (this.urlHasActiveFilter()) {
+        console.log('🏷️ 当前页面已有tag/类别过滤器，跳过自动应用');
         return;
       }
 
@@ -949,24 +987,28 @@ class ActorEnhancementManager {
         return;
       }
 
-      // 检查tag兼容性
+      // 检查tag兼容性（t 码对 availableTags；类别仅 appliesToUrl 维度拼 URL）
       const compatibleTags = this.checkTagCompatibility(lastFilter.tags);
-      if (compatibleTags.length === 0) {
-        console.log('⚠️ 没有兼容的tags，应用默认过滤器');
+      const savedCategories = Array.isArray(lastFilter.categories) ? lastFilter.categories : [];
+      const savedUrlParams = buildActorCategoryUrlParams([], savedCategories);
+      const hasApplicableCategories = Object.keys(savedUrlParams.byDim).length > 0;
+      if (compatibleTags.length === 0 && !hasApplicableCategories) {
+        console.log('⚠️ 没有兼容的tags/类别，应用默认过滤器');
         await this.applyDefaultFilter();
         return;
       }
 
-      // 应用兼容的tags
-      console.log(`🔄 应用保存的tag过滤器: ${compatibleTags.join(',')}`);
+      // 应用兼容的tags + 类别
+      console.log(`🔄 应用保存的过滤器: t=${compatibleTags.join(',')} c=${savedCategories.join(',')}`);
 
       // 标记已应用，防止循环
       sessionStorage.setItem(appliedKey, Date.now().toString());
 
-      const navigated = this.navigateWithTags(compatibleTags, lastFilter.sortType);
+      const navigated = this.navigateWithTags(compatibleTags, savedCategories, lastFilter.sortType);
 
       if (navigated) {
-        showToast(`已应用保存的过滤器: ${this.getTagNames(compatibleTags).join(', ')}`, 'success');
+        const names = [...this.getTagNames(compatibleTags), ...this.getCategoryLabelNames(savedCategories)];
+        showToast(`已应用保存的过滤器: ${names.join(', ')}`, 'success');
       }
     } catch (error) {
       console.error('应用保存的tag过滤器失败:', error);
@@ -975,7 +1017,9 @@ class ActorEnhancementManager {
   }
 
   private async applyDefaultFilter(): Promise<void> {
-    if (this.config.defaultTags.length === 0) return;
+    const defaultT = this.config.defaultTags.t;
+    const defaultCategories = this.config.defaultTags.categories;
+    if (defaultT.length === 0 && defaultCategories.length === 0) return;
 
     // 检查是否刚刚应用过默认过滤器（防止循环）
     const appliedKey = `applied_default_${this.currentActorId}`;
@@ -988,17 +1032,21 @@ class ActorEnhancementManager {
       }
     }
 
-    const compatibleTags = this.checkTagCompatibility(this.config.defaultTags);
-    if (compatibleTags.length > 0) {
-      console.log(`🔄 应用默认tag过滤器: ${compatibleTags.join(',')}`);
+    const compatibleTags = this.checkTagCompatibility(defaultT);
+    const urlParams = buildActorCategoryUrlParams([], defaultCategories);
+    const hasApplicableCategories = Object.keys(urlParams.byDim).length > 0;
+    if (compatibleTags.length === 0 && !hasApplicableCategories) {
+      return;
+    }
+    console.log(`🔄 应用默认过滤器: t=${compatibleTags.join(',')} c=${defaultCategories.join(',')}`);
 
-      // 标记已应用，防止循环
-      sessionStorage.setItem(appliedKey, Date.now().toString());
+    // 标记已应用，防止循环
+    sessionStorage.setItem(appliedKey, Date.now().toString());
 
-      const navigated = this.navigateWithTags(compatibleTags, this.config.defaultSortType);
-      if (navigated) {
-        showToast(`已应用默认过滤器: ${this.getTagNames(compatibleTags).join(', ')}`, 'info');
-      }
+    const navigated = this.navigateWithTags(compatibleTags, defaultCategories, this.config.defaultSortType);
+    if (navigated) {
+      const names = [...this.getTagNames(compatibleTags), ...this.getCategoryLabelNames(defaultCategories)];
+      showToast(`已应用默认过滤器: ${names.join(', ')}`, 'info');
     }
   }
 
@@ -1020,15 +1068,39 @@ class ActorEnhancementManager {
     return tagCodes.map(code => this.availableTags.get(code) || code);
   }
 
-  private navigateWithTags(tags: string[], sortType: number = 0): boolean {
+  /** 类别 entryKey → 字典显示名（toast/展示用）。 */
+  private getCategoryLabelNames(categories: string[]): string[] {
+    return categories.map(code => actorTagOptionLabel(code));
+  }
+
+  /**
+   * 导航应用过滤：t 码拼 ?t=，appliesToUrl 维度类别拼 ?cN=（多值逗号）。
+   * 两者皆空 → 不导航。
+   */
+  private navigateWithTags(tags: string[], categories: string[], sortType: number = 0): boolean {
     // 站点要求登录才能使用演员页 tag 过滤（t= 参数）：未登录时导航到 t= URL 会被 302 到 /login。
     // 为避免把用户带到登录页，未登录时跳过自动导航（用户手动点击 tag 不受影响）。
     if (!this.isSiteUserLoggedIn()) {
       console.log('🚫 站点要求登录后才能使用 tag 过滤，已跳过自动导航（手动点击 tag 不受影响）');
       return false;
     }
+    const urlParams = buildActorCategoryUrlParams(tags, categories);
+    if (urlParams.t.length === 0 && Object.keys(urlParams.byDim).length === 0) {
+      return false;
+    }
+    if (urlParams.excluded.length > 0) {
+      console.log('[ActorEnhancement] 以下类别未拼入 URL（未验证维度/字典外）:', urlParams.excluded);
+    }
     const url = new URL(window.location.href);
-    url.searchParams.set('t', tags.join(','));
+    if (urlParams.t.length > 0) {
+      url.searchParams.set('t', urlParams.t.join(','));
+    }
+    for (const dim of CATEGORY_DIM_KEYS) {
+      const ids = urlParams.byDim[dim];
+      if (ids && ids.length > 0) {
+        url.searchParams.set(dim, ids.join(','));
+      }
+    }
     url.searchParams.set('sort_type', sortType.toString());
     window.location.href = url.toString();
     return true;
@@ -1059,20 +1131,29 @@ class ActorEnhancementManager {
         // 先保存当前状态，然后预测点击后的状态
         await this.saveCurrentTagFilter();
 
-        // 预测点击后的标签状态并保存
+        // 预测点击后的标签/类别状态并保存
         let predictedTags: string[] = [];
+        let predictedCategories: string[] = this.getCurrentCategoriesFromUrl();
         let predictedSortType = this.getCurrentSortType();
 
         if (tagLink) {
-          // 点击标签链接，解析目标URL的标签
-          const href = tagLink.href;
-          const urlParams = new URLSearchParams(new URL(href).search);
-          const tagParam = urlParams.get('t');
+          // 点击标签链接，解析目标URL的标签与类别
+          const hrefUrl = new URL(tagLink.href);
+          const tagParam = hrefUrl.searchParams.get('t');
           predictedTags = tagParam ? tagParam.split(',').filter(t => t.length > 0) : [];
-          const sortParam = urlParams.get('sort_type');
+          predictedCategories = [];
+          for (const dim of CATEGORY_DIM_KEYS) {
+            const value = hrefUrl.searchParams.get(dim);
+            if (!value) continue;
+            for (const id of value.split(',')) {
+              const trimmed = id.trim();
+              if (trimmed) predictedCategories.push(entryKey(dim, trimmed));
+            }
+          }
+          const sortParam = hrefUrl.searchParams.get('sort_type');
           if (sortParam) predictedSortType = parseInt(sortParam, 10);
         } else if (deleteButton) {
-          // 点击删除按钮，解析onclick中的标签
+          // 点击删除按钮，解析onclick中的标签（只影响 t，类别沿用当前 URL）
           const onclick = deleteButton.getAttribute('onclick');
           if (onclick) {
             const match = onclick.match(/[?&]t=([^&']+)/);
@@ -1083,9 +1164,10 @@ class ActorEnhancementManager {
         }
 
         // 保存预测的标签状态
-        if (predictedTags.length > 0) {
+        if (predictedTags.length > 0 || predictedCategories.length > 0) {
           const filterData: ActorTagFilter = {
             tags: predictedTags,
+            categories: predictedCategories,
             sortType: predictedSortType,
             timestamp: Date.now()
           };
@@ -1095,7 +1177,7 @@ class ActorEnhancementManager {
           tagFilters[this.currentActorId] = filterData;
           await setValue(this.storageKey, JSON.stringify(tagFilters));
 
-          console.log(`💾 预保存tag过滤器: ${predictedTags.join(',')} (排序: ${predictedSortType})`);
+          console.log(`💾 预保存过滤器: t=${predictedTags.join(',')} c=${predictedCategories.join(',')} (排序: ${predictedSortType})`);
         }
       }
     });
@@ -1114,6 +1196,7 @@ class ActorEnhancementManager {
 
     try {
       const currentTags = this.getCurrentTagsFromUrl();
+      const currentCategories = this.getCurrentCategoriesFromUrl();
       const currentSort = this.getCurrentSortType();
 
       // 获取现有数据
@@ -1123,6 +1206,7 @@ class ActorEnhancementManager {
       // 保存当前演员的过滤器
       tagFilters[this.currentActorId] = {
         tags: currentTags,
+        categories: currentCategories,
         sortType: currentSort,
         timestamp: Date.now()
       };
@@ -1141,12 +1225,12 @@ class ActorEnhancementManager {
         await setValue(this.storageKey, JSON.stringify(tagFilters));
       }
 
-      // 保存上次应用的标签用于设置页面显示
-      if (currentTags.length > 0) {
-        await setValue('lastAppliedActorTags', currentTags.join(','));
+      // 保存上次应用的标签/类别用于设置页面显示（t 码与 entryKey 混排逗号串，entryKey 含 '=' 可区分）
+      if (currentTags.length > 0 || currentCategories.length > 0) {
+        await setValue('lastAppliedActorTags', [...currentTags, ...currentCategories].join(','));
       }
 
-      console.log(`[ActorEnhancement] 已保存演员 ${this.currentActorId} 的标签过滤器:`, { tags: currentTags, sort: currentSort });
+      console.log(`[ActorEnhancement] 已保存演员 ${this.currentActorId} 的过滤器:`, { tags: currentTags, categories: currentCategories, sort: currentSort });
     } catch (error) {
       if (isExtensionContextInvalidatedError(error)) {
         console.debug('[ActorEnhancement] 保存标签过滤器已跳过：扩展上下文已失效', {

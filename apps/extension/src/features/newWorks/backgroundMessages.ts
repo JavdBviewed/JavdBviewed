@@ -26,7 +26,11 @@ export function handleNewWorksRuntimeMessage(message: any, sendResponse: SendRes
       }
       return true;
     case 'new-works-scheduler-restart':
-      newWorksScheduler.restart()
+      // 批 3a：dashboard 保存配置后发此消息；restart() 的 start() 会读内存配置定 alarm 周期，
+      // 不先 reload 会拿到旧周期 → 先 reloadGlobalConfig 再 restart。
+      // 与 storage.onChanged('new_works_config') 的 reload 为有意冗余（双入口消除竞态，幂等）。
+      newWorksManager.reloadGlobalConfig()
+        .then(() => newWorksScheduler.restart())
         .then(() => sendResponse({ success: true }))
         .catch((error: any) => sendResponse({ success: false, error: error?.message || 'restart failed' }));
       return true;

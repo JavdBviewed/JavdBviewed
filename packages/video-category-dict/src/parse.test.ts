@@ -7,7 +7,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import { BUILTIN_CATEGORY_DICTIONARY } from './builtin';
-import { parseDetailCategories, parseTagsPageCategories } from './parse';
+import {
+  categoriesFromRawPanels,
+  isCategoryPanelLabel,
+  parseDetailCategories,
+  parseTagsPageCategories,
+  type RawCategoryPanel,
+} from './parse';
 import { validateCategoryDictionary } from './validate';
 
 function makeDoc(html: string): Document {
@@ -233,5 +239,76 @@ describe('parseTagsPageCategories', () => {
   it('正常解析结果通过结构校验', () => {
     const dict = parseTagsPageCategories(makeDoc(TAGS_PAGE_HTML), 'javdb');
     expect(validateCategoryDictionary(dict).ok).toBe(true);
+  });
+});
+
+describe('isCategoryPanelLabel', () => {
+  it('四类标签（含大小写/全半角冒号）识别', () => {
+    expect(isCategoryPanelLabel('類別:')).toBe(true);
+    expect(isCategoryPanelLabel('类别：')).toBe(true);
+    expect(isCategoryPanelLabel('Tags:')).toBe(true);
+    expect(isCategoryPanelLabel('CATEGORY:')).toBe(true);
+    expect(isCategoryPanelLabel('  categories ')).toBe(true);
+  });
+
+  it('非类别标签排除（含 Tagged/Tagline 子串陷阱与年龄验证面板）', () => {
+    expect(isCategoryPanelLabel('Actor(s):')).toBe(false);
+    expect(isCategoryPanelLabel('Tagged:')).toBe(false);
+    expect(isCategoryPanelLabel('Are you at least 18 years old?')).toBe(false);
+    expect(isCategoryPanelLabel('')).toBe(false);
+    expect(isCategoryPanelLabel(null)).toBe(false);
+  });
+});
+
+describe('categoriesFromRawPanels（无 DOM 环境消费页内采集数据）', () => {
+  const zh: RawCategoryPanel = { label: '類別:', tagHrefs: ['/tags?c6=93', '/tags?c4=17', '/tags?c6=93'] };
+  const en: RawCategoryPanel = { label: 'Tags:', tagHrefs: ['/tags?c6=93', '/tags?c2=20', '/tags?c6=60', '/tags?c7=28'] };
+  const age: RawCategoryPanel = {
+    label: 'Are you at least 18 years old?',
+    tagHrefs: ['/tags?c10=1', '/tags?c4=17'],
+  };
+  const actorPanel: RawCategoryPanel = { label: '演員:', tagHrefs: ['/tags?c4=17'] };
+
+  it('繁体面板：顺序、去重、字典内校验', () => {
+    expect(categoriesFromRawPanels([zh], 'javdb')).toEqual(['c6=93', 'c4=17']);
+  });
+
+  it('英文面板同样识别', () => {
+    expect(categoriesFromRawPanels([en], 'javdb')).toEqual(['c6=93', 'c2=20', 'c6=60', 'c7=28']);
+  });
+
+  it('年龄验证/演员面板的 /tags?c 链接被面板标签判定排除', () => {
+    expect(categoriesFromRawPanels([age, { label: '類別:', tagHrefs: [] }], 'javdb')).toEqual([]);
+    expect(categoriesFromRawPanels([actorPanel], 'javdb')).toEqual([]);
+  });
+
+  it('c10/c11 保留位维度链接一律忽略', () => {
+    expect(
+      categoriesFromRawPanels([{ label: 'Tags:', tagHrefs: ['/tags?c10=1', '/tags?c11=2026', '/tags?c7=28'] }], 'javdb'),
+    ).toEqual(['c7=28']);
+  });
+
+  it('未知 id 丢弃', () => {
+    expect(
+      categoriesFromRawPanels([{ label: '類別:', tagHrefs: ['/tags?c7=28', '/tags?c7=99999'] }], 'javdb'),
+    ).toEqual(['c7=28']);
+  });
+
+  it('空/脏输入安全', () => {
+    expect(categoriesFromRawPanels([], 'javdb')).toEqual([]);
+    expect(categoriesFromRawPanels(null as any, 'javdb')).toEqual([]);
+  });
+});
+
+describe('parseDetailCategories baseURI 健壮性', () => {
+  // 绝对 URL baseURI 场景由本文件既有全部向量覆盖（vitest jsdom 环境 baseURI=http://localhost:3000/）。
+  it("baseURI 为 about:blank（部分环境缺省）→ 回退字典基址仍可解析", () => {
+    const doc = document.implementation.createHTMLDocument('');
+    doc.open();
+    doc.write(DETAIL_HTML_EN);
+    doc.close();
+    expect(doc.baseURI).toBe('about:blank');
+    const keys = parseDetailCategories(doc, 'javdb');
+    expect(keys).toEqual(['c6=93', 'c2=20', 'c6=60', 'c7=28']);
   });
 });

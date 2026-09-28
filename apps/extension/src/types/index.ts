@@ -342,7 +342,8 @@ export interface NewWorksGlobalConfig {
     excludeBrowsed: boolean;
     excludeWant: boolean;
     dateRange: number;                                // 筛选最近 N 天内的作品
-    categoryFilters?: string[];
+    categoryFilters?: string[];                       // 类别白名单（勾选=只扫这些；空=不限制）
+    categoryBlackFilters?: string[];                  // 类别黑名单（入库前剔除；P3）
     excludeAR?: boolean;                              // 排除 VR/AR 类
     applyContentFilter?: boolean;                     // 是否应用内容过滤规则
   };

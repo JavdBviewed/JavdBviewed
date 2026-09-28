@@ -4,7 +4,7 @@
  * @module apps/background
  */
 import { handleAlarmAsync, compensateOnStartup, INSIGHTS_ALARM, registerMonthlyAlarm } from './scheduler';
-import { newWorksScheduler } from '../../features/newWorks';
+import { newWorksManager, newWorksScheduler } from '../../features/newWorks';
 import { handleTelemetryAlarm, syncTelemetryHeartbeatAlarm, TELEMETRY_HEARTBEAT_ALARM } from '../../features/telemetry';
 import { getSettings } from '../../utils/storage';
 import { registerDynamicContentScripts } from './dynamicContentScripts';
@@ -249,6 +249,19 @@ export function registerBackgroundSettingsChangeRouter(): void {
 
       // 新作品配置变更时同步 alarm
       if (area === 'local' && changes['new_works_config']) {
+        try {
+          // 批 3a：先刷新 manager 内存全局配置再重同步 alarm——
+          // NewWorksManager.initialize 幂等（isLoaded）只读一次存储，
+          // 存活 SW 的内存配置不会随 storage 变更自动更新（run10 真机实证：
+          // 保存类别白/黑名单后单演员检查仍按旧配置执行）。
+          // 与 'new-works-scheduler-restart' 消息路径的 reload 为有意冗余（双入口消除
+          // 消息/事件竞态，~ms 级开销，幂等）。
+          // O1：reload 独立 try/catch——reload 抛错时其后 alarm 重同步仍执行
+          //（同一 try 会被整体跳过，配置变更后 alarm 停留在旧状态）。
+          await newWorksManager.reloadGlobalConfig();
+        } catch (e) {
+          console.warn('[NewWorks] reloadGlobalConfig 失败（alarm 重同步仍继续）:', e);
+        }
         try {
           await newWorksScheduler.initialize();
         } catch {}

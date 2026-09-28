@@ -10,6 +10,7 @@ import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingS
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import type { EnhancementSettingsFormState } from './enhancementSettingsModel';
 import { clearLastAppliedActorTags, toast } from './enhancementSettingsActions';
+import { entryKey } from '@javdb/video-category-dict';
 import {
   SettingSection,
   parseIntNum,
@@ -18,7 +19,9 @@ import {
   toggleActorDefaultTag,
   LIST_SORTING_POSITION_OPTIONS,
   TabProps,
+  ACTOR_CATEGORY_DIMENSIONS,
 } from './_shared';
+import { ACTOR_T_TAG_OPTIONS } from './enhancementSettingsModel';
 export function ActorTab({
   form,
   setToggle,
@@ -84,24 +87,93 @@ export function ActorTab({
                 )}
               </div>
             </div>
-            <div id="actorDefaultTagsGroup" className="grid gap-1 sm:grid-cols-2">
-              <p className="m-0 sm:col-span-2 text-xs font-semibold text-[var(--color-fg-muted)]">
+            <div id="actorDefaultTagsGroup" className="flex flex-col gap-2">
+              <p className="m-0 text-xs font-semibold text-[var(--color-fg-muted)]">
                 默认过滤条件
               </p>
-              {ACTOR_DEFAULT_TAG_OPTIONS.map((tag) => (
-                <SettingToggleRow
-                  key={tag.value}
-                  id={`actorDefaultTag-${tag.value}`}
-                  label={tag.label}
-                  checked={form.actorDefaultTags.includes(tag.value)}
-                  onChange={(v) =>
-                    patchForm({
-                      actorDefaultTags: toggleActorDefaultTag(form.actorDefaultTags, tag.value, v),
-                    })
-                  }
-                  className="!py-1"
-                />
-              ))}
+              {/* t 码白名单（basic + quality 组） */}
+              <div className="grid gap-1 sm:grid-cols-2">
+                {ACTOR_T_TAG_OPTIONS.map((tag) => (
+                  <SettingToggleRow
+                    key={tag.value}
+                    id={`actorDefaultTag-${tag.value}`}
+                    label={tag.label}
+                    checked={form.actorDefaultT.includes(tag.value)}
+                    onChange={(v) =>
+                      patchForm({
+                        actorDefaultT: toggleActorDefaultTag(form.actorDefaultT, tag.value, v),
+                      })
+                    }
+                    className="!py-1"
+                  />
+                ))}
+              </div>
+              {/* 类别白名单（字典维度分组；appliesToUrl=false 维度仅记录、不拼 URL） */}
+              <div id="actorDefaultCategoriesGroup" className="flex flex-col gap-1">
+                <p className="m-0 text-xs font-semibold text-[var(--color-fg-muted)]">
+                  默认类别过滤（白名单；自动应用时随 t 码一起拼入演员页 URL）
+                </p>
+                {ACTOR_CATEGORY_DIMENSIONS.map((dim) => {
+                  const dimKeys = dim.entries.map((e) => entryKey(dim.key, e.id));
+                  const checkedCount = dimKeys.filter((k) => form.actorDefaultCategories.includes(k)).length;
+                  const allChecked = checkedCount === dim.entries.length && dim.entries.length > 0;
+                  return (
+                    <details
+                      key={dim.key}
+                      id={`actorCatDim-${dim.key}`}
+                      className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)]"
+                    >
+                      <summary className="cursor-pointer select-none px-3 py-2 text-sm font-semibold">
+                        {dim.label}
+                        <span className="ml-2 font-normal text-[var(--color-fg-muted)]">
+                          已选 {checkedCount}/{dim.entries.length}
+                          {!dim.appliesToUrl ? '（仅供记录，不拼 URL）' : ''}
+                        </span>
+                        <span className="ml-3 inline-flex gap-2 text-xs font-normal">
+                          <button
+                            type="button"
+                            className="text-[var(--color-primary)] hover:underline"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              const next = new Set(form.actorDefaultCategories);
+                              for (const k of dimKeys) {
+                                if (allChecked) next.delete(k);
+                                else next.add(k);
+                              }
+                              patchForm({ actorDefaultCategories: Array.from(next) });
+                            }}
+                          >
+                            {allChecked ? '清空' : '全选'}
+                          </button>
+                        </span>
+                      </summary>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 border-t border-[var(--color-border)] px-3 py-2 sm:grid-cols-3">
+                        {dim.entries.map((e) => {
+                          const k = entryKey(dim.key, e.id);
+                          const checked = form.actorDefaultCategories.includes(k);
+                          return (
+                            <label key={k} className="flex min-w-0 items-center gap-1.5 text-[13px]">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  const next = new Set(form.actorDefaultCategories);
+                                  if (checked) next.delete(k);
+                                  else next.add(k);
+                                  patchForm({ actorDefaultCategories: Array.from(next) });
+                                }}
+                              />
+                              <span className="truncate" title={e.label}>
+                                {e.label}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  );
+                })}
+              </div>
             </div>
             <div className="info-box">
               <p><strong>功能说明：</strong></p>

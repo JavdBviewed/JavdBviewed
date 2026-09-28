@@ -5,7 +5,12 @@
  * @module features/listEnhancement/actorPenetration
  */
 import { describe, expect, it } from 'vitest';
-import { extractFemaleActors, parseDetailActors } from './parseDetailActors';
+import {
+  actorsFromRawPanels,
+  extractFemaleActors,
+  parseDetailActors,
+  type RawActorPanel,
+} from './parseDetailActors';
 
 function makeDoc(html: string): Document {
   const parser = new DOMParser();
@@ -148,5 +153,102 @@ describe('parseDetailActors 英文标签兼容（B7：镜像按 Accept-Language 
   </div>
 </body></html>`;
     expect(parseDetailActors(makeDoc(html))).toEqual([]);
+  });
+});
+
+describe('actorsFromRawPanels（无 DOM 环境消费页内采集数据）', () => {
+  const femalePanel: RawActorPanel = {
+    label: 'Actor(s):',
+    actorLinks: [
+      { href: '/actors/a1001', text: '佐藤美和', nextText: null, symbolClass: null, symbolText: null },
+      { href: '/actors/a1002', text: '李美淑 ♀', nextText: null, symbolClass: null, symbolText: null },
+    ],
+    hasAnyLink: true,
+    valueText: null,
+  };
+  const malePanel: RawActorPanel = {
+    label: 'Male Actor(s):',
+    actorLinks: [{ href: '/actors/m2001', text: '山本健', nextText: null, symbolClass: null, symbolText: null }],
+    hasAnyLink: true,
+    valueText: null,
+  };
+  const nonActorPanel: RawActorPanel = {
+    label: 'Release:',
+    actorLinks: [{ href: '/studio/s1', text: '某厂牌', nextText: null, symbolClass: null, symbolText: null }],
+    hasAnyLink: true,
+    valueText: null,
+  };
+
+  it('演员面板识别 + 性别符号 + 顺序保持（href 按 baseUrl 归一）', () => {
+    const all = actorsFromRawPanels([femalePanel, malePanel, nonActorPanel], 'https://javdb.com');
+    expect(all.map(a => a.id)).toEqual(['a1001', 'a1002', 'm2001']);
+    const female = extractFemaleActors(all);
+    expect(female.map(a => a.name)).toEqual(['佐藤美和', '李美淑']);
+    expect(female.map(a => a.gender)).toEqual(['female', 'female']);
+    expect(female[0].href).toBe('https://javdb.com/actors/a1001');
+    expect(all.filter(a => a.gender === 'male').map(a => a.name)).toEqual(['山本健']);
+  });
+
+  it('男性默认面板不误判为女性（Male Actor(s) 含 Actor 子串陷阱）', () => {
+    const all = actorsFromRawPanels([malePanel], 'https://javdb.com');
+    expect(extractFemaleActors(all)).toEqual([]);
+  });
+
+  it('紧邻兄弟节点性别符号生效', () => {
+    const panel: RawActorPanel = {
+      label: '演員:',
+      actorLinks: [
+        { href: '/actors/x1', text: '甲', nextText: '♂', symbolClass: null, symbolText: null },
+        { href: '/actors/x2', text: '乙', nextText: null, symbolClass: 'symbol female', symbolText: '♀' },
+      ],
+      hasAnyLink: true,
+      valueText: null,
+    };
+    const all = actorsFromRawPanels([panel]);
+    expect(all.find(a => a.id === 'x1')?.gender).toBe('male');
+    expect(all.find(a => a.id === 'x2')?.gender).toBe('female');
+  });
+
+  it('非演员面板跳过；空演员名跳过', () => {
+    const panel: RawActorPanel = {
+      label: '演員:',
+      actorLinks: [
+        { href: '/actors/blank', text: '   ', nextText: null, symbolClass: null, symbolText: null },
+        { href: '/actors/ok', text: '丙', nextText: null, symbolClass: null, symbolText: null },
+      ],
+      hasAnyLink: true,
+      valueText: null,
+    };
+    const all = actorsFromRawPanels([nonActorPanel, panel]);
+    expect(all.map(a => a.id)).toEqual(['ok']);
+  });
+
+  it('面板含非演员链接时不走 .value 兜底（对齐 DOM 路径语义）', () => {
+    const panel: RawActorPanel = {
+      label: '演員:',
+      actorLinks: [],
+      hasAnyLink: true, // 面板内有 <a>（全被 /actors/ 过滤）
+      valueText: '不该被当成演员的文本',
+    };
+    expect(actorsFromRawPanels([panel])).toEqual([]);
+  });
+
+  it('完全无链接 → .value 文本兜底（按面板性别）', () => {
+    const panel: RawActorPanel = {
+      label: '演員:',
+      actorLinks: [],
+      hasAnyLink: false,
+      valueText: '佐藤美和, 李美淑',
+    };
+    const all = actorsFromRawPanels([panel]);
+    expect(all).toHaveLength(1);
+    expect(all[0].name).toBe('佐藤美和, 李美淑');
+    expect(all[0].gender).toBe('female');
+    expect(all[0].id).toBeNull();
+  });
+
+  it('脏输入安全', () => {
+    expect(actorsFromRawPanels([])).toEqual([]);
+    expect(actorsFromRawPanels(null as any)).toEqual([]);
   });
 });

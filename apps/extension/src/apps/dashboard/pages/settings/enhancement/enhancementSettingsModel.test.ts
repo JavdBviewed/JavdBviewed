@@ -197,7 +197,8 @@ describe('enhancementSettingsModel', () => {
       actorEnhancement: {
         enabled: false,
         autoApplyTags: false,
-        defaultTags: ['s', 'c'],
+        // P2：旧数组混排（t 码 + 裸类别 id）→ 迁移验证向量
+        defaultTags: ['s', 'c', '17'],
         enableActionButtons: false,
         enableTimeSegmentationDivider: true,
         timeSegmentationMonths: 12,
@@ -268,7 +269,9 @@ describe('enhancementSettingsModel', () => {
     expect(form.siteAdRemovalRemoveExtraAds).toBe(false);
     expect(form.magnetPageMaxConcurrentRequests).toBe(3);
     expect(form.enableActorEnhancement).toBe(false);
-    expect(form.actorDefaultTags).toEqual(['s', 'c']);
+    // P2：旧混排数组拆分迁移（'17' → c4=17）
+    expect(form.actorDefaultT).toEqual(['s', 'c']);
+    expect(form.actorDefaultCategories).toEqual(['c4=17']);
     expect(form.aeEnableTimeSegmentationDivider).toBe(true);
     expect(form.aeTimeSegmentationMonths).toBe(12);
     expect(form.enableSuperRanking).toBe(false);
@@ -298,7 +301,8 @@ describe('enhancementSettingsModel', () => {
       magnetSourceJavbus: true,
       magnetSortMode: 'seeders' as const,
       enableActorEnhancement: true,
-      actorDefaultTags: ['s', 'd'],
+      actorDefaultT: ['s', 'd'],
+      actorDefaultCategories: ['c4=17'],
       enablePasswordHelper: true,
       passwordShowMethod: 1,
       passwordWaitTime: 400,
@@ -321,7 +325,7 @@ describe('enhancementSettingsModel', () => {
     expect(next.listEnhancement.sorting.appendStrategy).toBe('auto-resort');
     expect(next.magnetSearch.sources.javbus).toBe(true);
     expect(next.magnetSearch.sortMode).toBe('seeders');
-    expect(next.actorEnhancement.defaultTags).toEqual(['s', 'd']);
+    expect(next.actorEnhancement.defaultTags).toEqual({ t: ['s', 'd'], categories: ['c4=17'] });
     expect(next.passwordHelper.showMethod).toBe(1);
     expect(next.contentFilter.keywordRules).toHaveLength(1);
     expect(next.contentFilter.enabled).toBe(true);
@@ -333,7 +337,8 @@ describe('enhancementSettingsModel', () => {
     expect(remapped.listColumnCount).toBe(5);
     expect(remapped.enableLibraryMatchStatus).toBe(true);
     expect(remapped.magnetSortMode).toBe('seeders');
-    expect(remapped.actorDefaultTags).toEqual(['s', 'd']);
+    expect(remapped.actorDefaultT).toEqual(['s', 'd']);
+    expect(remapped.actorDefaultCategories).toEqual(['c4=17']);
   });
 
   it('round-trips enableActorPenetration (default OFF)', () => {

@@ -1,4 +1,5 @@
 import { getDefaultTags } from '../../../../config/actorFilterTags';
+import { splitTagValues } from '../../../../../features/actorEnhancement/defaultTagsSelection';
 import type { ExtensionSettings } from '../../../../../types';
 import { applyOnlineAvailabilitySiteStates, collectOnlineAvailabilitySiteStates } from './onlineAvailabilitySites';
 import { normalizeMagnetSortMode } from '../../../../../features/magnets';
@@ -80,9 +81,13 @@ export function doGetSettings(host: EnhancementSettingsSyncHost): Partial<Extens
     actorEnhancement: {
       enabled: host.enableActorEnhancement.checked,
       autoApplyTags: host.enableAutoApplyTags?.checked !== false,
+      // P2：勾选值（t 码 + 类别 entryKey）拆分为规范对象形 { t, categories }
       defaultTags: host.actorDefaultTagInputs && host.actorDefaultTagInputs.length > 0
-        ? Array.from(host.actorDefaultTagInputs as HTMLInputElement[]).filter((i: HTMLInputElement) => i.checked).map((i: HTMLInputElement) => i.value)
-        : getDefaultTags(),
+        ? (() => {
+            const split = splitTagValues(Array.from(host.actorDefaultTagInputs as HTMLInputElement[]).filter((i: HTMLInputElement) => i.checked).map((i: HTMLInputElement) => i.value));
+            return { t: split.t, categories: split.categories };
+          })()
+        : { t: getDefaultTags(), categories: [] } as const,
       defaultSortType: 0,
       enableActionButtons: host.aeEnableActionButtons?.checked !== false,
       enableTimeSegmentationDivider: host.aeEnableTimeSegmentationDivider?.checked === true,

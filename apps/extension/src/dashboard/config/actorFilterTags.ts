@@ -1,7 +1,12 @@
 /**
  * 演员页影片过滤标签配置
  * 用于定义可用的过滤标签及其显示文本
+ *
+ * 08-29-actor-passthrough-category-filter P2：category 组改为从公共类别字典
+ * （@javdb/video-category-dict，311 项内置快照）派生，value 统一为 entryKey（`cN=ID`）；
+ * basic/quality 组（t 码）保留原地，它们不是类别维度。
  */
+import { BUILTIN_CATEGORY_DICTIONARY, entryKey } from '@javdb/video-category-dict';
 
 export interface ActorFilterTag {
     /** 标签值（用于存储和API） */
@@ -14,6 +19,8 @@ export interface ActorFilterTag {
     defaultChecked?: boolean;
     /** 标签分组（可选） */
     group?: 'basic' | 'quality' | 'category' | 'custom';
+    /** 仅 category 组：该维度 ?cN= 是否经实测可用于作品列表 URL（保守默认 false） */
+    appliesToUrl?: boolean;
 }
 
 /**
@@ -66,169 +73,32 @@ export const ACTOR_FILTER_TAGS: ActorFilterTag[] = [
         group: 'quality'
     },
     
-    // 常见类别标签（数字ID）
-    {
-        value: '28',
-        label: '单体作品',
-        description: '类别：单体作品',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '17',
-        label: '巨乳',
-        description: '类别：巨乳',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '18',
-        label: '中出',
-        description: '类别：中出',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '37',
-        label: '女上位',
-        description: '类别：女上位',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '72',
-        label: '口交',
-        description: '类别：口交',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '14',
-        label: '乳交',
-        description: '类别：乳交',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '45',
-        label: '第一人称摄影',
-        description: '类别：第一人称摄影（POV）',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '68',
-        label: '潮吹',
-        description: '类别：潮吹',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '80',
-        label: '首次亮相',
-        description: '类别：首次亮相',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '110',
-        label: '滥交',
-        description: '类别：滥交',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '160',
-        label: '流汗',
-        description: '类别：流汗',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '190',
-        label: '礼仪小姐',
-        description: '类别：礼仪小姐',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '312',
-        label: '美少女电影',
-        description: '类别：美少女电影',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '330',
-        label: '素人作品',
-        description: '类别：素人作品',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '32',
-        label: '偶像',
-        description: '类别：偶像',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '26',
-        label: '介绍影片',
-        description: '类别：介绍影片',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '47',
-        label: '各种职业',
-        description: '类别：各种职业',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '48',
-        label: '荡妇',
-        description: '类别：荡妇',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '71',
-        label: '乳液',
-        description: '类别：乳液',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '135',
-        label: '美容院',
-        description: '类别：美容院',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '157',
-        label: '白天出轨',
-        description: '类别：白天出轨',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '200',
-        label: '性感的',
-        description: '类别：性感的',
-        defaultChecked: false,
-        group: 'category'
-    },
-    {
-        value: '23',
-        label: '淫乱真实',
-        description: '类别：淫乱真实',
-        defaultChecked: false,
-        group: 'category'
-    }
+    // 常见类别标签（08-29-actor-passthrough-category-filter P2：从公共字典派生，
+    // value = entryKey `cN=ID`，311 项全量；旧裸数字 id 由 normalizeActorDefaultTags 透明迁移）
+    ...(categoryTagsFromDictionary()),
 ];
+
+/** 从内置类别字典派生 category 组（维度顺序与 /tags 页一致）。 */
+function categoryTagsFromDictionary(): ActorFilterTag[] {
+    const source = BUILTIN_CATEGORY_DICTIONARY.sources[BUILTIN_CATEGORY_DICTIONARY.activeSite];
+    const tags: ActorFilterTag[] = [];
+    for (const dim of source.dimensionOrder) {
+        const dimension = source.dimensions[dim];
+        if (!dimension) continue;
+        for (const entry of dimension.entries) {
+            tags.push({
+                value: entryKey(dim, entry.id),
+                label: entry.label,
+                description: `类别：${entry.label}`,
+                defaultChecked: false,
+                group: 'category',
+                appliesToUrl: entry.appliesToUrl === true,
+            });
+        }
+    }
+    return tags;
+}
+
 
 /**
  * 获取默认选中的标签值列表

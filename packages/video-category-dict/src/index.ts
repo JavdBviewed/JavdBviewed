@@ -22,10 +22,17 @@ export {
   findDimensionById,
   findEntry,
   getDimension,
+  resolveEntryKey,
   isDimKey,
   parseEntryKey,
 } from './query';
 
-export { parseDetailCategories, parseTagsPageCategories } from './parse';
+export {
+  parseDetailCategories,
+  parseTagsPageCategories,
+  categoriesFromRawPanels,
+  isCategoryPanelLabel,
+  type RawCategoryPanel,
+} from './parse';
 
 export { validateCategoryDictionary, type DictionaryValidation } from './validate';

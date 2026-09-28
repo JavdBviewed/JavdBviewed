@@ -4,7 +4,8 @@
  * @module @javdb/video-category-dict
  */
 import { describe, expect, it } from 'vitest';
-import { entryKey, isDimKey, parseEntryKey } from './query';
+import { BUILTIN_CATEGORY_DICTIONARY } from './builtin';
+import { entryKey, isDimKey, parseEntryKey, resolveEntryKey } from './query';
 
 describe('entryKey / parseEntryKey', () => {
   it('往返：数字 id', () => {
@@ -35,5 +36,31 @@ describe('entryKey / parseEntryKey', () => {
     expect(isDimKey('c8')).toBe(false);
     expect(isDimKey('c10')).toBe(false);
     expect(isDimKey('d1')).toBe(false);
+  });
+});
+
+
+describe('resolveEntryKey', () => {
+  const DICT = BUILTIN_CATEGORY_DICTIONARY;
+  const SITE = DICT.activeSite;
+
+  it('entryKey 原样归一（字典内）', () => {
+    expect(resolveEntryKey(DICT, SITE, 'c4=17')).toBe('c4=17');
+    expect(resolveEntryKey(DICT, SITE, 'c7=330')).toBe('c7=330');
+  });
+
+  it('裸数字 id 跨维度反查归一', () => {
+    expect(resolveEntryKey(DICT, SITE, '17')).toBe('c4=17');
+    expect(resolveEntryKey(DICT, SITE, '28')).toBe('c7=28');
+    expect(resolveEntryKey(DICT, SITE, '157')).toBe('c1=157');
+  });
+
+  it('空白/未知/非法 → null', () => {
+    expect(resolveEntryKey(DICT, SITE, '')).toBeNull();
+    expect(resolveEntryKey(DICT, SITE, '   ')).toBeNull();
+    expect(resolveEntryKey(DICT, SITE, '999999')).toBeNull(); // 字典外数字
+    expect(resolveEntryKey(DICT, SITE, 'c4=999999')).toBeNull(); // 字典内维度、字典外 id
+    expect(resolveEntryKey(DICT, SITE, 's')).toBeNull(); // t 码不是类别
+    expect(resolveEntryKey(DICT, SITE, 'c10=1')).toBeNull(); // 保留位维度
   });
 });
