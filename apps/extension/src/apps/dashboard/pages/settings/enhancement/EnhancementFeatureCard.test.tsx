@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  * @file EnhancementFeatureCard.test.tsx
- * @description 功能增强卡片通用壳的渲染契约（含 alwaysExpanded 常显语义，09-28 listtab merge）
+ * @description 功能增强卡片通用壳的渲染契约与默认 hover 抽屉行为（09-29：alwaysExpanded 机制已整体移除）
  * @module apps/dashboard/pages/settings/enhancement
  */
 import { act, createElement, type ReactNode } from 'react';
@@ -53,7 +53,7 @@ describe('EnhancementFeatureCard', () => {
   });
 });
 
-describe('EnhancementFeatureCard alwaysExpanded（09-28 listtab merge）', () => {
+describe('EnhancementFeatureCard 默认 hover 抽屉（09-29：alwaysExpanded 机制移除后全部卡片的契约）', () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -66,14 +66,13 @@ describe('EnhancementFeatureCard alwaysExpanded（09-28 listtab merge）', () =>
     });
   }
 
-  function renderCard(alwaysExpanded?: boolean) {
+  function renderCard() {
     mount(
       createElement(
         EnhancementFeatureCard,
         {
           title: '测试卡片',
           meta: { icon: '✨', status: '可用', tone: 'available', effect: '测试效果' },
-          alwaysExpanded,
         },
         createElement('button', { id: 'master-control', type: 'button' }, '开关'),
         createElement('div', { id: 'detail-control' }, '配置'),
@@ -92,45 +91,23 @@ describe('EnhancementFeatureCard alwaysExpanded（09-28 listtab merge）', () =>
     vi.useRealTimers();
   });
 
-  it('alwaysExpanded：初渲染即常显（无 hover 可见），主开关仍居卡头', () => {
-    const section = renderCard(true);
-    const details = section.querySelector<HTMLElement>('.enhancement-feature-card__details');
-    expect(details).not.toBeNull();
-    expect(details!.className).toContain('is-open');
-    expect(details!.getAttribute('aria-hidden')).toBe('false');
-    expect(section.getAttribute('data-expanded')).toBe('1');
-    // 首子节点（主开关）仍在卡头而非 details
-    expect(section.querySelector('.enhancement-feature-card__master #master-control')).not.toBeNull();
-    expect(details!.querySelector('#master-control')).toBeNull();
-  });
-
-  it('alwaysExpanded：mouseenter/mouseleave 全时序后仍不收拢（跳过 hover 定时器）', () => {
+  it('默认收拢（data-expanded=0）→ hover 展开 → 离开收拢', () => {
     vi.useFakeTimers();
-    const section = renderCard(true);
-    act(() => {
-      section.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
-      vi.advanceTimersByTime(300);
-      section.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
-      vi.advanceTimersByTime(5000);
-    });
-    const details = section.querySelector<HTMLElement>('.enhancement-feature-card__details');
-    expect(details!.className).toContain('is-open');
-    expect(section.getAttribute('data-expanded')).toBe('1');
-  });
-
-  it('负向：无 alwaysExpanded 的其他卡片维持 hover 抽屉（初收拢→hover 展开→离开收拢）', () => {
-    vi.useFakeTimers();
-    const section = renderCard(false);
+    const section = renderCard();
     const details = section.querySelector<HTMLElement>('.enhancement-feature-card__details');
     expect(section.getAttribute('data-expanded')).toBe('0');
     expect(details.className).not.toContain('is-open');
     expect(details.getAttribute('aria-hidden')).toBe('true');
+    // 首子节点（主开关）在卡头而非 details
+    expect(section.querySelector('.enhancement-feature-card__master #master-control')).not.toBeNull();
+    expect(details!.querySelector('#master-control')).toBeNull();
     act(() => {
       section.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body }));
       vi.advanceTimersByTime(300);
     });
     expect(details.className).toContain('is-open');
     expect(section.getAttribute('data-expanded')).toBe('1');
+    expect(details.getAttribute('aria-hidden')).toBe('false');
     act(() => {
       section.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
       vi.advanceTimersByTime(5000);

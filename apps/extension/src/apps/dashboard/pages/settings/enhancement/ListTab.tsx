@@ -68,7 +68,6 @@ export function ListTab({
       <SettingSection
         title="内容过滤"
         description="按关键词、状态与演员过滤/隐藏列表中的影片卡片"
-        alwaysExpanded
       >
         <SettingToggleRow
           id="enableContentFilter"
@@ -77,6 +76,29 @@ export function ListTab({
           checked={form.enableContentFilter}
           onChange={(v) => setToggle('enableContentFilter', v)}
         />
+        {/* 卡内分组（09-28 融合）：组行不随 enableContentFilter 门控，命名空间语义与现状一致 */}
+        <div className="content-filter-group__label">番号 / 状态</div>
+        {DISPLAY_FILTER_FIELDS.map((field) => (
+          <SettingToggleRow
+            key={field.id}
+            id={field.id}
+            label={field.label}
+            checked={form[field.key] as boolean}
+            onChange={(checked) => setToggle(field.key, checked)}
+          />
+        ))}
+        <div className="content-filter-group__label">演员（列表）</div>
+        {ACTOR_LIST_FILTER_FIELDS.map((field) => (
+          <SettingToggleRow
+            key={field.id}
+            id={field.id}
+            label={field.label}
+            description={field.description}
+            checked={form[field.key] as boolean}
+            onChange={(checked) => setToggle(field.key, checked)}
+          />
+        ))}
+        {/* 卡内规则块（09-29 子序裁决）：enableContentFilter 开时显示隐藏开关+规则列表，位于两组之后 */}
         {form.enableContentFilter ? (
           <div id="contentFilterConfig" className="mt-2 flex flex-col gap-2 px-2">
             <SettingToggleRow
@@ -139,28 +161,6 @@ export function ListTab({
             </div>
           </div>
         ) : null}
-        {/* 卡内分组（09-28 融合）：组行不随 enableContentFilter 门控，命名空间语义与现状一致 */}
-        <div className="content-filter-group__label">番号 / 状态</div>
-        {DISPLAY_FILTER_FIELDS.map((field) => (
-          <SettingToggleRow
-            key={field.id}
-            id={field.id}
-            label={field.label}
-            checked={form[field.key] as boolean}
-            onChange={(checked) => setToggle(field.key, checked)}
-          />
-        ))}
-        <div className="content-filter-group__label">演员（列表）</div>
-        {ACTOR_LIST_FILTER_FIELDS.map((field) => (
-          <SettingToggleRow
-            key={field.id}
-            id={field.id}
-            label={field.label}
-            description={field.description}
-            checked={form[field.key] as boolean}
-            onChange={(checked) => setToggle(field.key, checked)}
-          />
-        ))}
       </SettingSection>
 
       <SettingSection title="点击增强" description="优化列表/详情卡片的点击打开行为">

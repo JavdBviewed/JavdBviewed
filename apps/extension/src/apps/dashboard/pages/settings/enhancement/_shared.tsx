@@ -90,12 +90,10 @@ const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
 export function EnhancementFeatureSection({
   title,
   description,
-  alwaysExpanded,
   children,
 }: {
   title: string;
   description?: ReactNode;
-  alwaysExpanded?: boolean;
   children: ReactNode;
 }) {
   const meta = ENHANCEMENT_FEATURE_META[title] ?? {
@@ -104,7 +102,7 @@ export function EnhancementFeatureSection({
     tone: 'available' as const,
   };
   return (
-    <EnhancementFeatureCard title={title} description={description} meta={meta} alwaysExpanded={alwaysExpanded}>
+    <EnhancementFeatureCard title={title} description={description} meta={meta}>
       {children}
     </EnhancementFeatureCard>
   );
