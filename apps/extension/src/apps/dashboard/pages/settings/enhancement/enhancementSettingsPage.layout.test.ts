@@ -210,19 +210,30 @@ describe('EnhancementSettingsPage layout', () => {
     }
   });
 
-  it('keeps the migrated list filter sections in list tab after content filter', () => {
-    // 2026-09-27 IA 裁决：原「显示设置」页整页迁入 ListTab；
+  it('merges the migrated list filter rows into the always-expanded content filter card', () => {
+    // 09-28 融合裁决：番号过滤+演员过滤（列表）两个独立 section 并入「内容过滤」卡（alwaysExpanded 常显）；
     // 键命名空间不变（display.*/listEnhancement.*），控件 id 与原页一致（设置搜索锚点）。
     const listTabSource = readFileSync(join(here, 'ListTab.tsx'), 'utf8');
-    expect(listTabSource).toContain('title="番号过滤"');
-    expect(listTabSource).toContain('title="演员过滤（列表）"');
+
+    // 两个独立 section 消失（不再以 section 形态存在）
+    expect(listTabSource).not.toContain('title="番号过滤"');
+    expect(listTabSource).not.toContain('title="演员过滤（列表）"');
+    expect(listTabSource).not.toContain('PlainSettingSection');
+
+    // 合并卡：常显 + 卡内 2 组标（细分隔组）
+    expect(listTabSource).toContain('title="内容过滤"');
+    expect(listTabSource).toContain('alwaysExpanded');
+    expect(listTabSource).toContain('content-filter-group__label');
+    expect(listTabSource).toContain('>番号 / 状态</div>');
+    expect(listTabSource).toContain('>演员（列表）</div>');
     expect(listTabSource).toContain("from './listFilterFields'");
 
-    // 位置锁定：番号过滤 紧跟 内容过滤 section 之后，点击增强 之后不再出现
+    // 位置锁定：组标顺序 内容过滤卡 → 番号 / 状态 → 演员（列表）→ 点击增强
     const order = [
       'title="内容过滤"',
-      'title="番号过滤"',
-      'title="演员过滤（列表）"',
+      'content-filter-group__label',
+      '番号 / 状态',
+      '演员（列表）',
       'title="点击增强"',
     ];
     let cursor = -1;

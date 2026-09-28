@@ -143,6 +143,18 @@
   pointer-events: auto;
 }
 
+/* 卡内分组组标（09-28-listtab-merge-content-filter）：「内容过滤」卡内 番号/状态、演员（列表）两组，
+   细分隔 + 小字号组标，对齐卡片内既有留白节奏 */
+.enhancement-settings-react #enhancement-settings .content-filter-group__label {
+  margin: 10px 0 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
 .enhancement-settings-react #enhancement-settings .enhancement-current-service {
   margin: 0;
   padding: 8px 10px;

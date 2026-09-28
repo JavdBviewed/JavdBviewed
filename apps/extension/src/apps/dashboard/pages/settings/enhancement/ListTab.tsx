@@ -8,7 +8,6 @@ import { Input } from '../../../../../ui/primitives/Input/Input';
 import { SettingField } from '../../../../../ui/patterns/SettingField/SettingField';
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
-import { SettingSection as PlainSettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
 import type { KeywordFilterRule } from '../../../../../types';
 import { BUILTIN_CATEGORY_DICTIONARY, entryKey } from '@javdb/video-category-dict';
 import type { DimKey } from '@javdb/video-category-dict';
@@ -66,7 +65,11 @@ export function ListTab({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <SettingSection title="内容过滤" description="按关键词隐藏/高亮列表中的影片卡片">
+      <SettingSection
+        title="内容过滤"
+        description="按关键词、状态与演员过滤/隐藏列表中的影片卡片"
+        alwaysExpanded
+      >
         <SettingToggleRow
           id="enableContentFilter"
           label="启用内容过滤"
@@ -136,9 +139,8 @@ export function ListTab({
             </div>
           </div>
         ) : null}
-      </SettingSection>
-
-      <PlainSettingSection title="番号过滤" description="按状态/类型自动隐藏列表中的影片（原「显示设置」页迁入）">
+        {/* 卡内分组（09-28 融合）：组行不随 enableContentFilter 门控，命名空间语义与现状一致 */}
+        <div className="content-filter-group__label">番号 / 状态</div>
         {DISPLAY_FILTER_FIELDS.map((field) => (
           <SettingToggleRow
             key={field.id}
@@ -148,9 +150,7 @@ export function ListTab({
             onChange={(checked) => setToggle(field.key, checked)}
           />
         ))}
-      </PlainSettingSection>
-
-      <PlainSettingSection title="演员过滤（列表）" description="基于本地演员库与订阅信息，近似识别标题中的演员并进行过滤（通过标题识别，故存在一定误差）">
+        <div className="content-filter-group__label">演员（列表）</div>
         {ACTOR_LIST_FILTER_FIELDS.map((field) => (
           <SettingToggleRow
             key={field.id}
@@ -161,7 +161,7 @@ export function ListTab({
             onChange={(checked) => setToggle(field.key, checked)}
           />
         ))}
-      </PlainSettingSection>
+      </SettingSection>
 
       <SettingSection title="点击增强" description="优化列表/详情卡片的点击打开行为">
         <SettingToggleRow

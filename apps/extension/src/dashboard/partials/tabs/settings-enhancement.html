@@ -509,10 +509,12 @@
                                         </div>
                                     </div>
 
-                                    <!-- 列表过滤（2026-09-27 IA 裁决自「显示设置」页迁入 ListTab；
-                                         本块仅供设置搜索索引，生产 DOM 由 React ListTab 渲染） -->
+                                    <!-- 内容过滤·列表过滤行（2026-09-27 IA 裁决自「显示设置」页迁入 ListTab；
+                                         2026-09-28 并入「内容过滤」卡（alwaysExpanded 常显），块名=合并卡名；
+                                         本块仅供设置搜索索引，生产 DOM 由 React ListTab 渲染；
+                                         控件 id 不变，搜索落点=合并卡内对应控件） -->
                                     <div class="settings-subsection" data-subtab="list">
-                                        <h4>列表过滤</h4>
+                                        <h4>内容过滤</h4>
                                         <div class="form-group-checkbox">
                                             <input type="checkbox" id="hideViewed">
                                             <label for="hideViewed">隐藏已标记"看过"的影片</label>
