@@ -20,6 +20,11 @@ export type EnhancementFeatureCardProps = {
   description?: ReactNode;
   meta: EnhancementFeatureMeta;
   children: ReactNode;
+  /**
+   * 常显卡体（09-28-listtab-merge-content-filter）：true 时 __details 恒 is-open 且跳过
+   * hover 收拢定时器（reveal-card 事件保留、触发无效化）；默认 false = 现状 hover 抽屉行为。
+   */
+  alwaysExpanded?: boolean;
 };
 
 /**
@@ -30,6 +35,7 @@ export function EnhancementFeatureCard({
   description,
   meta,
   children,
+  alwaysExpanded = false,
 }: EnhancementFeatureCardProps) {
   const [masterToggle, ...details] = Children.toArray(children);
   const [expanded, setExpanded] = useState(false);
@@ -46,6 +52,7 @@ export function EnhancementFeatureCard({
   };
 
   const open = (immediate = false) => {
+    if (alwaysExpanded) return;
     if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
     closeTimer.current = null;
     if (expanded || openTimer.current !== null) return;
@@ -59,6 +66,7 @@ export function EnhancementFeatureCard({
   };
 
   const close = () => {
+    if (alwaysExpanded) return;
     if (openTimer.current !== null) window.clearTimeout(openTimer.current);
     openTimer.current = null;
     if (!expanded || closeTimer.current !== null) return;
@@ -83,13 +91,15 @@ export function EnhancementFeatureCard({
     return () => section.removeEventListener('jdb:enhancement:reveal-card', reveal);
   });
 
+  const isExpanded = alwaysExpanded || expanded;
+
   return (
     <section
       ref={cardRef}
       className="enhancement-feature-card"
       data-ui-pattern="setting-section"
       data-enhancement-feature={title}
-      data-expanded={expanded ? '1' : '0'}
+      data-expanded={isExpanded ? '1' : '0'}
       onMouseEnter={() => open()}
       onMouseLeave={close}
       onFocusCapture={() => open(true)}
@@ -138,8 +148,8 @@ export function EnhancementFeatureCard({
       ) : null}
       {details.length > 0 ? (
         <div
-          className={`enhancement-feature-card__details${expanded ? ' is-open' : ''}`}
-          aria-hidden={!expanded}
+          className={`enhancement-feature-card__details${isExpanded ? ' is-open' : ''}`}
+          aria-hidden={!isExpanded}
         >
           {details}
         </div>
