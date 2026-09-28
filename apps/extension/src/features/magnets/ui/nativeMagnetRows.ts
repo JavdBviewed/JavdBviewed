@@ -5,6 +5,22 @@
  */
 import { buildNativeMagnetResult, createMagnetQualityTag } from './qualityTag';
 
+/**
+ * 选择原生磁力行（#magnets-content 直接子节点）：
+ * - 生产桌面形态：.item.columns.is-desktop（保留兼容）；
+ * - SSR 列表形态（现行 markup）：.item odd / .item，带 data-rank，含 .magnet-name。
+ * 过滤非磁力节点：.sda-content 广告块、.magnet-sort 排序栏、占位节点等均不命中。
+ */
+export function selectNativeMagnetRows(container: Element): HTMLElement[] {
+  const candidates = Array.from(container.querySelectorAll<HTMLElement>(':scope > .item'));
+  return candidates.filter(row =>
+    row.classList.contains('columns') ||
+    row.classList.contains('is-desktop') ||
+    row.hasAttribute('data-rank') ||
+    row.querySelector('.magnet-name') !== null
+  );
+}
+
 export function decorateNativeMagnetRow(row: HTMLElement): void {
   row.classList.add('jdb-magnet-row', 'jdb-native-magnet-row', 'privacy-protected');
   row.setAttribute('data-privacy-protected', 'true');

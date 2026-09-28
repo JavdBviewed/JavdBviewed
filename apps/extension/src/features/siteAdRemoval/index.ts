@@ -48,6 +48,8 @@ export function backfillSiteAdRemovalSettings(
  * 生成去除原站广告 CSS。主开关关闭返回空串。
  * - .moj-content：详情页推广位（.top-meta 与 article.message.video-panel 内），
  *   display:none 为主，.top-meta 内追加零尺寸塌缩兜底（与历史磁力侧效果对齐，防 flex 留缝）；
+ * - #magnets-content .sda-content：详情页磁力区推广块（6 张外站推广图，静态 HTML 恒在），
+ *   scoped 保守口径仅隐藏磁力区内变体（主开关 enabled 组，默认开即生效）。
  * - 推广按钮：与历史 removeUnwantedButtons 的永久 CSS 口径一致；
  * - 额外广告位（默认关）：.sub-header 顶部广告栏、.app-desktop-banner 桌面App推广位。
  */
@@ -56,6 +58,9 @@ export function buildSiteAdRemovalCss(s: SiteAdRemovalSettings): string {
   const sections: string[] = [];
   sections.push(`
     .moj-content {
+      display: none !important;
+    }
+    #magnets-content .sda-content {
       display: none !important;
     }
     .top-meta .moj-content {
