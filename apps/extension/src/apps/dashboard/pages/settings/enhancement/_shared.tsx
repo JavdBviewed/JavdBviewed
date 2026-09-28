@@ -43,7 +43,7 @@ const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
   '视频预览': { icon: '🎬', status: '可用', tone: 'available', effect: '悬停列表封面时播放预览片段。', usage: '需要所选预览源支持。' },
   '高清封面': { icon: '🖼️', status: '已弃用', tone: 'neutral', effect: 'JavDB 已默认使用高质量封面，保留该项仅为兼容旧设置。' },
   '演员水印': { icon: '🖍️', status: '可用', tone: 'available', effect: '在影片封面角落显示演员订阅或黑名单状态。' },
-  '演员穿透': { icon: '🎭', status: '可用', tone: 'available', effect: '在列表卡片标题下方显示最多 3 位女性演员。', usage: '为可见卡片发起详情页请求并缓存 7 天，会增加网络与 CPU 开销。' },
+  '演员穿透': { icon: '🎭', status: '可用', tone: 'available', effect: '在列表卡片标题下方常显前 3 位女性演员，更多可点击展开。', usage: '为可见卡片发起详情页请求并缓存 7 天，会增加网络与 CPU 开销。' },
   '列表显示控制': { icon: '📐', status: '可用', tone: 'available', effect: '调整列表列数和容器宽度以优化浏览体验。' },
   '快捷操作': { icon: '⚡', status: '可用', tone: 'available', effect: '在列表卡片上显示状态标签、状态快捷标识和收藏快捷按钮，可分别开关。' },
   '资源标签': { icon: '🔖', status: '可用', tone: 'available', effect: '在列表卡片上标注中字、破解等资源证据。', usage: '仅来自列表原生标签与已验证的详情页磁力结果，不从标题猜测。' },

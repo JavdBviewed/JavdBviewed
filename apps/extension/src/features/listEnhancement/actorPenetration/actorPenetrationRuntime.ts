@@ -15,7 +15,7 @@ import {
 } from './actorPenetrationCache';
 import { extractFemaleActors, parseDetailActors, type DetailActor } from './parseDetailActors';
 import { BUILTIN_CATEGORY_DICTIONARY, parseDetailCategories } from '@javdb/video-category-dict';
-import { removeActorRow, renderActorRow, type ActorLinkMark } from './renderActorRow';
+import { ACTOR_ROW_MAX_VISIBLE, removeActorRow, renderActorRow, type ActorLinkMark } from './renderActorRow';
 import { bindActorQuickActionsToLink } from '../../actorEnhancement/actorQuickActionsManager';
 import { countContentPerformanceEvent } from '../../../platform/tasks';
 
@@ -91,7 +91,6 @@ export function detectLoginRequired(finalUrl: string | undefined, html: string):
   return /<title[^>]*>\s*(sign[\s-]?in|log\s?in)/i.test(html);
 }
 
-const MAX_ACTORS_RENDERED = 3;
 
 export class ActorPenetrationRuntime {
   private readonly inFlight = new Set<string>();
@@ -238,14 +237,16 @@ export class ActorPenetrationRuntime {
     } catch {
       categories = undefined; // 类别解析失败不影响演员主流程
     }
-    // 缓存最多保存 MAX_ACTORS_RENDERED + 1 个以计算 hasMore；渲染层再截断
-    const clean = female.filter(a => a.name).slice(0, MAX_ACTORS_RENDERED + 1);
+    // 保存全量有姓名女演员：行支持「点击展开全部」（09-29-actor-penetration-expand），
+    // 且演员过滤判定（onActorsRendered→rehide）消费同一列表——截断会让第 4 位之后
+    // 的演员既不可见也不可命中。hasMore 保留「超过 3」原语义（缓存值字段不变，兼容旧缓存）。
+    const clean = female.filter(a => a.name);
     if (clean.length === 0) return { status: 'empty' };
     return {
       status: 'ok',
       value: {
         actors: clean,
-        hasMore: clean.length > MAX_ACTORS_RENDERED,
+        hasMore: clean.length > ACTOR_ROW_MAX_VISIBLE,
         fetchedAt: Date.now(),
         categories,
       },
