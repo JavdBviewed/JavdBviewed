@@ -390,7 +390,8 @@ export function injectUnifiedMagnetListStyles(): void {
       padding: 1px 6px;
     }
 
-    #magnets-content > .item.columns.is-desktop {
+    #magnets-content > .item.columns.is-desktop,
+    #magnets-content > .item[data-rank] {
       display: flex !important;
       align-items: center;
       gap: 12px;
@@ -403,19 +404,23 @@ export function injectUnifiedMagnetListStyles(): void {
       box-shadow: var(--jdb-magnet-card-shadow);
     }
 
-    #magnets-content > .item.columns.is-desktop.odd {
+    #magnets-content > .item.columns.is-desktop.odd,
+    #magnets-content > .item[data-rank].odd {
       background: var(--jdb-magnet-card-bg);
     }
 
-    #magnets-content > .item.columns.is-desktop.jdb-magnet-page-hidden {
+    #magnets-content > .item.columns.is-desktop.jdb-magnet-page-hidden,
+    #magnets-content > .item[data-rank].jdb-magnet-page-hidden {
       display: none !important;
     }
 
-    #magnets-content > .item.columns.is-desktop .column {
+    #magnets-content > .item.columns.is-desktop .column,
+    #magnets-content > .item[data-rank] .column {
       padding: 0 !important;
     }
 
-    #magnets-content > .item.columns.is-desktop .magnet-name {
+    #magnets-content > .item.columns.is-desktop .magnet-name,
+    #magnets-content > .item[data-rank] .magnet-name {
       flex: 1 1 auto !important;
     }
 

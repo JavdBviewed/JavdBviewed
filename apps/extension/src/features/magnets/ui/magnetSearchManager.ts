@@ -67,7 +67,7 @@ import {
   getMagnetSourceFilterOptions,
   renderMagnetSourceFilterBar,
 } from './magnetSourceFilterControls';
-import { decorateNativeMagnetRow } from './nativeMagnetRows';
+import { decorateNativeMagnetRow, selectNativeMagnetRows } from './nativeMagnetRows';
 import { createUnifiedMagnetItem } from './unifiedMagnetItem';
 import { writeResourceTagIndexFromMagnetResults } from '../../listEnhancement';
 
@@ -1052,7 +1052,7 @@ export class MagnetSearchManager {
     const container = document.querySelector('#magnets-content');
     if (!container) return;
 
-    const rows = Array.from(container.querySelectorAll<HTMLElement>(':scope > .item.columns.is-desktop'));
+    const rows = selectNativeMagnetRows(container);
     if (rows.length === 0) return;
 
     injectUnifiedMagnetListStyles();

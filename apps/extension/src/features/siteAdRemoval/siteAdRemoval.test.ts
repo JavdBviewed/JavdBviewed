@@ -101,6 +101,17 @@ describe('buildSiteAdRemovalCss', () => {
     expect(css).not.toContain('.app-desktop-banner');
   });
 
+  it('主开关开 → 磁力区推广块 #magnets-content .sda-content 一并隐藏（批 0 定案：归主开关，scoped 保守口径）', () => {
+    const css = buildSiteAdRemovalCss({ enabled: true, removePromoButtons: true, removeExtraAds: false });
+    expect(css).toContain('#magnets-content .sda-content');
+    expect(css).toMatch(/#magnets-content \.sda-content \{\s*display: none !important;\s*\}/);
+  });
+
+  it('主开关关 → 磁力区推广块选择器不出现（CSS 为空串）', () => {
+    const css = buildSiteAdRemovalCss({ enabled: false, removePromoButtons: true, removeExtraAds: false });
+    expect(css).toBe('');
+  });
+
   it('removeExtraAds 开 → 追加 .sub-header 与 .app-desktop-banner', () => {
     const css = buildSiteAdRemovalCss({ enabled: true, removePromoButtons: false, removeExtraAds: true });
     expect(css).toContain('.sub-header');
