@@ -1,5 +1,6 @@
 import { STATE } from '../../../../state';
 import { getDefaultTags } from '../../../../config/actorFilterTags';
+import { normalizeActorDefaultTags } from '../../../../../features/actorEnhancement/defaultTagsSelection';
 import { applyOnlineAvailabilitySiteStates } from './onlineAvailabilitySites';
 import { normalizeMagnetSortMode } from '../../../../../features/magnets';
 
@@ -80,7 +81,9 @@ export async function doLoadSettings(host: EnhancementLoadHost): Promise<void> {
   if (host.aeEnableActionButtons) host.aeEnableActionButtons.checked = (actorEnhancement as any).enableActionButtons !== false;
   if (host.aeEnableTimeSegmentationDivider) host.aeEnableTimeSegmentationDivider.checked = (actorEnhancement as any).enableTimeSegmentationDivider === true;
   if (host.aeTimeSegmentationMonths) host.aeTimeSegmentationMonths.value = String((actorEnhancement as any).timeSegmentationMonths ?? 6);
-  const savedDefaultTags: string[] = Array.isArray((actorEnhancement as any).defaultTags) ? (actorEnhancement as any).defaultTags : getDefaultTags();
+  // P2：defaultTags 兼容旧数组（t 码+裸类别 id 混排）与新对象形，统一归一后勾选
+  const normDefaultTags = normalizeActorDefaultTags((actorEnhancement as any).defaultTags);
+  const savedDefaultTags: string[] = [...normDefaultTags.t, ...normDefaultTags.categories];
   if (host.actorDefaultTagInputs && host.actorDefaultTagInputs.length > 0) {
     (host.actorDefaultTagInputs as NodeListOf<HTMLInputElement>).forEach((input: HTMLInputElement) => {
       input.checked = savedDefaultTags.includes(input.value);

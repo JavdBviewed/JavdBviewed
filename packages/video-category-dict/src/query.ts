@@ -74,6 +74,31 @@ export function findDimensionById(
   return null;
 }
 
+/**
+ * 把存储/遗留值归一为字典内 entryKey：
+ * - 已是 entryKey（`c4=17`）且条目存在 → 原样返回
+ * - 裸数字 id 且跨维度唯一命中 → `维度=id`
+ * - 其余（空串/未知 id/非法形式）→ null
+ * 供演员默认值迁移与新作品黑白名单归一复用。
+ */
+export function resolveEntryKey(
+  dict: CategoryDictionary,
+  site: CategorySiteId,
+  value: string,
+): string | null {
+  const v = typeof value === 'string' ? value.trim() : '';
+  if (!v) return null;
+  const parsed = parseEntryKey(v);
+  if (parsed) {
+    return findEntry(dict, site, parsed.dim, parsed.id) ? entryKey(parsed.dim, parsed.id) : null;
+  }
+  if (/^\d+$/.test(v)) {
+    const dim = findDimensionById(dict, site, v);
+    return dim ? entryKey(dim, v) : null;
+  }
+  return null;
+}
+
 /** 某站点全部条目的 entryKey 集合（供 UI 校验选中值合法性）。 */
 export function allEntryKeys(dict: CategoryDictionary, site: CategorySiteId): Set<string> {
   const keys = new Set<string>();

@@ -2698,6 +2698,77 @@ input:checked + .toggle-slider:before {
     transform: none;
 }
 
+/* 类别面板描述（P3：覆盖上方 .category-panel-header p { display:none }） */
+.new-works-config-modal .category-panel-header .category-panel-desc {
+    display: block;
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--text-tertiary, var(--text-secondary));
+    line-height: 1.5;
+}
+
+/* 类别维度分组折叠（P3 白/黑名单共用） */
+.new-works-config-modal .category-dim-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.new-works-config-modal .category-dim-details {
+    border: 1px solid var(--border-primary);
+    border-radius: 10px;
+    background: var(--surface-primary);
+    overflow: hidden;
+}
+
+.new-works-config-modal .category-dim-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.new-works-config-modal .category-dim-summary::-webkit-details-marker {
+    display: none;
+}
+
+.new-works-config-modal .category-dim-summary::before {
+    content: '▸';
+    font-size: 11px;
+    color: var(--text-secondary);
+    transition: transform 0.15s ease;
+}
+
+.new-works-config-modal .category-dim-details[open] > .category-dim-summary::before {
+    transform: rotate(90deg);
+}
+
+.new-works-config-modal .category-dim-hint {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-secondary);
+}
+
+.new-works-config-modal .category-filter-grid-compact {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 6px;
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--border-primary);
+}
+
+.new-works-config-modal .category-checkbox-compact {
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
 .new-works-config-modal .config-link {
     align-self: flex-start;
     display: inline-flex;

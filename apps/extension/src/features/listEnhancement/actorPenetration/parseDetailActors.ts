@@ -19,6 +19,132 @@ const FEMALE_SYMBOL = /[\u2640♀]/;
 const MALE_SYMBOL = /[\u2642♂]/;
 const GENDER_SYMBOL_STRIP = /[\u2640\u2642♀♂]/g;
 
+/** 演员链接原始数据（页内采集器产出；性别判定所需的全部周边信息）。 */
+export interface RawActorLink {
+  href: string;
+  /** 链接文本原文（含性别符号） */
+  text: string;
+  /** 紧邻兄弟节点文本（nextElementSibling ?? nextSibling）；无 → null */
+  nextText: string | null;
+  /** 相邻 .symbol 图标的 class 属性；无 → null */
+  symbolClass: string | null;
+  /** 相邻 .symbol 图标文本；无 → null */
+  symbolText: string | null;
+}
+
+/** 演员面板原始数据（页内采集器产出；SW/无 DOM 环境可直接消费）。 */
+export interface RawActorPanel {
+  /** strong 标签原文 */
+  label: string;
+  actorLinks: RawActorLink[];
+  /** 面板内是否存在任意 <a>（决定链接分支 vs .value 兜底分支，对齐 DOM 路径语义） */
+  hasAnyLink: boolean;
+  /** 面板内 .value 文本（无链接时的兜底）；无 → null */
+  valueText: string | null;
+}
+
+/** base 是否可作为 URL 解析基址（绝对 http/https）。 */
+function isUsableBaseUrl(base: string | null | undefined): base is string {
+  if (!base) return false;
+  try {
+    const u = new URL(base);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** 面板标签 → 默认性别（必须先判 male：「Male Actor(s)」含「Actor」子串）。 */
+function defaultGenderForLabel(label: string): ActorGender | null {
+  if (/男優|男优/i.test(label) || /male\s+actor/i.test(label)) return 'male';
+  if (/演員|演员/i.test(label) || /actress/i.test(label) || /actor/i.test(label)) return 'female';
+  return null;
+}
+
+/** 基于原始周边数据判定性别（纯数据，DOM/无 DOM 两条路径共享）。 */
+function detectGenderFromData(
+  data: Pick<RawActorLink, 'text' | 'nextText' | 'symbolClass' | 'symbolText'>,
+  defaultGender: ActorGender,
+): ActorGender {
+  const text = data.text || '';
+  const inTextFemale = FEMALE_SYMBOL.test(text);
+  const inTextMale = MALE_SYMBOL.test(text);
+  if (inTextFemale || inTextMale) {
+    if (inTextFemale && !inTextMale) return 'female';
+    if (inTextMale && !inTextFemale) return 'male';
+    return defaultGender;
+  }
+
+  const nextText = data.nextText || '';
+  if (nextText) {
+    if (FEMALE_SYMBOL.test(nextText) && !MALE_SYMBOL.test(nextText)) return 'female';
+    if (MALE_SYMBOL.test(nextText) && !FEMALE_SYMBOL.test(nextText)) return 'male';
+  }
+
+  const symbol = `${data.symbolClass || ''} ${data.symbolText || ''}`;
+  if (symbol.trim()) {
+    if (/female|♀/.test(symbol)) return 'female';
+    if (/male|♂/.test(symbol)) return 'male';
+  }
+
+  return defaultGender;
+}
+
+function normalizeHrefRaw(href: string, base: string): string | null {
+  if (!href) return null;
+  try {
+    return href.startsWith('http') ? href : new URL(href, base).href;
+  } catch {
+    return href;
+  }
+}
+
+/**
+ * 从「演员面板原始数据」解析演员列表（含性别；与 parseDetailActors 同一套规则，
+ * 供无 Document 的环境（background SW）消费页内采集的 raw panels）。
+ * @param baseUrl 相对 actor href 的解析基址（站点基址或详情页 finalUrl origin）。
+ */
+export function actorsFromRawPanels(
+  panels: readonly RawActorPanel[],
+  baseUrl: string = 'https://javdb.com',
+): DetailActor[] {
+  const actors: DetailActor[] = [];
+  for (const panel of panels ?? []) {
+    const label = panel?.label || '';
+    const defaultGender = defaultGenderForLabel(label);
+    if (!defaultGender) continue; // 非演员面板
+
+    const links = panel.actorLinks ?? [];
+    // 与原 DOM 路径同语义：面板内只要存在任意 <a> 就走链接分支（即使全被 /actors/ 过滤掉），
+    // 仅完全无链接时才用 .value 兜底
+    if (links.length > 0 || panel.hasAnyLink) {
+      for (const link of links) {
+        const href = link.href || '';
+        if (!/\/actors\//.test(href)) continue;
+        const raw = link.text || '';
+        if (!raw.trim()) continue;
+        const gender = detectGenderFromData(link, defaultGender);
+        const name = stripGenderSymbols(raw).trim();
+        if (!name) continue;
+        actors.push({ id: matchActorId(href), name, href: normalizeHrefRaw(href, baseUrl), gender });
+      }
+    } else {
+      // 兜底：无链接时用 .value 文本，整体按面板性别判断
+      const text = panel.valueText || '';
+      if (text.trim()) {
+        let gender: ActorGender = defaultGender;
+        const hasMale = MALE_SYMBOL.test(text);
+        const hasFemale = FEMALE_SYMBOL.test(text);
+        if (hasMale && !hasFemale) gender = 'male';
+        else if (hasFemale && !hasMale) gender = 'female';
+        const name = stripGenderSymbols(text).trim();
+        if (name) actors.push({ id: null, name, href: null, gender });
+      }
+    }
+  }
+  return actors;
+}
+
 /**
  * 解析详情页文档，返回所有演员（含性别）。
  * 支持两种常见 JAVDB 详情面板结构：
@@ -30,55 +156,39 @@ const GENDER_SYMBOL_STRIP = /[\u2640\u2642♀♂]/g;
  */
 export function parseDetailActors(doc: Document): DetailActor[] {
   const panels = doc.querySelectorAll('.panel-block, .movie-panel-info .panel-block');
-  const actors: DetailActor[] = [];
+  const rawPanels: RawActorPanel[] = [];
 
   panels.forEach(panel => {
     const strong = panel.querySelector('strong');
     const label = strong?.textContent || '';
 
-    let defaultGender: ActorGender = 'unknown';
-    // 必须先判 male：英文「Male Actor(s)」包含「Actor」子串，顺序颠倒会误判性别
-    if (/男優|男优/i.test(label) || /male\s+actor/i.test(label)) {
-      defaultGender = 'male';
-    } else if (/演員|演员/i.test(label) || /actress/i.test(label) || /actor/i.test(label)) {
-      defaultGender = 'female';
-    } else {
-      return; // 非演员面板，跳过
-    }
-
-    const links = panel.querySelectorAll('a');
-    if (links.length > 0) {
-      links.forEach(link => {
-        const href = link.getAttribute('href') || '';
-        if (!/\/actors\//.test(href)) return;
-        const raw = link.textContent || '';
-        if (!raw.trim()) return;
-
-        let gender = detectGenderNearLink(link, defaultGender);
-        const name = stripGenderSymbols(raw).trim();
-        if (!name) return;
-        const id = matchActorId(href);
-        actors.push({ id, name, href: normalizeHref(href, doc), gender });
+    const actorLinks: RawActorLink[] = [];
+    panel.querySelectorAll('a').forEach(link => {
+      const href = link.getAttribute('href') || '';
+      if (!/\/actors\//.test(href)) return;
+      const next = link.nextElementSibling || link.nextSibling;
+      const symbol = link.parentElement?.querySelector('.symbol') || null;
+      actorLinks.push({
+        href,
+        text: link.textContent || '',
+        nextText: next ? (next.textContent || '') : null,
+        symbolClass: symbol ? (symbol.getAttribute('class') || '') : null,
+        symbolText: symbol ? (symbol.textContent || '') : null,
       });
-    } else {
-      // 兜底：无链接时用 .value 文本，整体按面板性别判断
-      const value = panel.querySelector('.value');
-      const text = value?.textContent || '';
-      if (text.trim()) {
-        let gender: ActorGender = defaultGender;
-        const hasMale = MALE_SYMBOL.test(text);
-        const hasFemale = FEMALE_SYMBOL.test(text);
-        if (hasMale && !hasFemale) gender = 'male';
-        else if (hasFemale && !hasMale) gender = 'female';
-        const name = stripGenderSymbols(text).trim();
-        if (name) {
-          actors.push({ id: null, name, href: null, gender });
-        }
-      }
-    }
+    });
+
+    const value = panel.querySelector('.value');
+    rawPanels.push({
+      label,
+      actorLinks,
+      hasAnyLink: panel.querySelectorAll('a').length > 0,
+      valueText: value ? (value.textContent || '') : null,
+    });
   });
 
-  return actors;
+  // baseURI 必须为绝对 http(s) 才可用作解析基址（'about:blank' 回退站点基址）
+  const base = isUsableBaseUrl(doc.baseURI) ? doc.baseURI : 'https://javdb.com';
+  return actorsFromRawPanels(rawPanels, base);
 }
 
 /**
@@ -86,35 +196,6 @@ export function parseDetailActors(doc: Document): DetailActor[] {
  */
 export function extractFemaleActors(actors: DetailActor[]): DetailActor[] {
   return actors.filter(actor => actor.gender === 'female');
-}
-
-/** 检查链接附近的性别图标，返回明确性别；无法判断时返回传入的默认性别。 */
-function detectGenderNearLink(link: Element, defaultGender: ActorGender): ActorGender {
-  const text = link.textContent || '';
-  const inTextFemale = FEMALE_SYMBOL.test(text);
-  const inTextMale = MALE_SYMBOL.test(text);
-  if (inTextFemale || inTextMale) {
-    if (inTextFemale && !inTextMale) return 'female';
-    if (inTextMale && !inTextFemale) return 'male';
-    return defaultGender;
-  }
-
-  // 检查紧邻兄弟节点（JAVDB 常用 <span>♂</span> 跟在 <a> 后）
-  const next = link.nextElementSibling || link.nextSibling;
-  if (next) {
-    const nextText = next.textContent || '';
-    if (FEMALE_SYMBOL.test(nextText) && !MALE_SYMBOL.test(nextText)) return 'female';
-    if (MALE_SYMBOL.test(nextText) && !FEMALE_SYMBOL.test(nextText)) return 'male';
-  }
-
-  // 检查相邻 .symbol 图标（class 标记）
-  const symbol = link.parentElement?.querySelector('.symbol');
-  if (symbol) {
-    if (/female|♀/.test(symbol.className + ' ' + (symbol.textContent || ''))) return 'female';
-    if (/male|♂/.test(symbol.className + ' ' + (symbol.textContent || ''))) return 'male';
-  }
-
-  return defaultGender;
 }
 
 function stripGenderSymbols(text: string): string {
@@ -126,11 +207,3 @@ function matchActorId(href: string): string | null {
   return m?.[1] || null;
 }
 
-function normalizeHref(href: string, doc: Document): string | null {
-  if (!href) return null;
-  try {
-    return href.startsWith('http') ? href : new URL(href, doc.baseURI || 'https://javdb.com').href;
-  } catch {
-    return href;
-  }
-}

@@ -26,8 +26,12 @@ import type {
  */
 const DETAIL_CATEGORY_PANEL_LABELS = new Set(['類別', '类别', 'tag', 'tags', 'category', 'categories']);
 
-/** 详情页 strong 文本是否为类别面板标题（整词匹配，locale 无关）。 */
-function isDetailCategoryPanelLabel(raw: string | null | undefined): boolean {
+/**
+ * 详情页 strong 文本是否为类别面板标题（整词匹配，locale 无关）。
+ * 导出供「页内原始面板数据 → 类别」路径（SW 侧消费页内采集的 raw panels）复用，
+ * 保证两种取数方式共享同一标签判定（单一事实源）。
+ */
+export function isCategoryPanelLabel(raw: string | null | undefined): boolean {
   if (!raw) return false;
   const label = raw.replace(/[\s:：]+$/u, '').trim().toLowerCase();
   return DETAIL_CATEGORY_PANEL_LABELS.has(label);
@@ -51,6 +55,54 @@ function extractDimPair(href: string, base: string): { dim: DimKey; id: string }
   return null;
 }
 
+/** 面板原始数据（页内采集器产出；SW/无 DOM 环境可直接消费，无需 Document）。 */
+export interface RawCategoryPanel {
+  /** strong 标签原文（未 trim；判定走 isCategoryPanelLabel） */
+  label: string;
+  /** 面板内所有 /tags?c 链接的 href 属性原文（保持页面顺序） */
+  tagHrefs: string[];
+}
+
+/** base 是否可作为 URL 解析基址（绝对 http/https；'about:blank' 等无效值 → false）。 */
+function isUsableBaseUrl(base: string | null | undefined): base is string {
+  if (!base) return false;
+  try {
+    const u = new URL(base);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 从「面板原始数据」解析类别 entryKey 列表（与 parseDetailCategories 同一套规则，
+ * 供无 Document 的环境（background SW）消费页内采集的 raw panels）。
+ * @param base href 解析基址（站点基址或详情页 finalUrl origin）；相对 href 依此解析。
+ */
+export function categoriesFromRawPanels(
+  panels: readonly RawCategoryPanel[],
+  site: CategorySiteId,
+  dict: CategoryDictionary = BUILTIN_CATEGORY_DICTIONARY,
+  base: string = 'https://javdb.com',
+): string[] {
+  const found = new Map<string, { dim: DimKey; id: string }>();
+  for (const panel of panels ?? []) {
+    if (!isCategoryPanelLabel(panel?.label)) continue;
+    for (const href of panel.tagHrefs ?? []) {
+      const pair = extractDimPair(href, base);
+      if (!pair) continue;
+      const key = entryKey(pair.dim, pair.id);
+      if (found.has(key)) continue;
+      const exists =
+        dict.sources[site]?.dimensions[pair.dim]?.entries.some(entry => entry.id === pair.id) ??
+        false;
+      if (!exists) continue;
+      found.set(key, pair);
+    }
+  }
+  return [...found.keys()];
+}
+
 /**
  * 解析影片详情页文档，返回该片命中的类别 entryKey 列表（如 ['c4=17', 'c7=28']）。
  * 规则：
@@ -66,29 +118,24 @@ export function parseDetailCategories(
   site: CategorySiteId,
   dict: CategoryDictionary = BUILTIN_CATEGORY_DICTIONARY,
 ): string[] {
-  const panels = doc.querySelectorAll('.panel-block');
-  const base = doc.baseURI || dict.sources[site]?.base || 'https://javdb.com';
-  const found = new Map<string, { dim: DimKey; id: string }>();
+  // baseURI 必须为绝对 http(s) 才可用作 href 解析基址：
+  // JSDOM/部分环境下 baseURI 为 'about:blank'（真值字符串），直接拼接会让
+  // new URL(href, base) 全部抛错 → 解析恒空。无效时回退字典站点基址。
+  const base = isUsableBaseUrl(doc.baseURI)
+    ? doc.baseURI
+    : (dict.sources[site]?.base || 'https://javdb.com');
 
-  panels.forEach(panel => {
+  const panels: RawCategoryPanel[] = [];
+  doc.querySelectorAll('.panel-block').forEach(panel => {
     const strong = panel.querySelector('strong');
-    if (!isDetailCategoryPanelLabel(strong?.textContent)) return;
-
+    const tagHrefs: string[] = [];
     panel.querySelectorAll('a[href*="/tags?c"]').forEach(link => {
-      const href = link.getAttribute('href') || '';
-      const pair = extractDimPair(href, base);
-      if (!pair) return;
-      if (found.has(entryKey(pair.dim, pair.id))) return;
-      // 只保留字典内存在的条目；未知条目丢弃
-      const exists =
-        dict.sources[site]?.dimensions[pair.dim]?.entries.some(entry => entry.id === pair.id) ??
-        false;
-      if (!exists) return;
-      found.set(entryKey(pair.dim, pair.id), pair);
+      tagHrefs.push(link.getAttribute('href') || '');
     });
+    panels.push({ label: strong?.textContent || '', tagHrefs });
   });
 
-  return [...found.keys()];
+  return categoriesFromRawPanels(panels, site, dict, base);
 }
 
 /**

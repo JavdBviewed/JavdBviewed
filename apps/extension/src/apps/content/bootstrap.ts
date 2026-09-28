@@ -28,6 +28,7 @@ import { anchorOptimizationManager } from '../../features/anchorOptimization/con
 import { listEnhancementManager } from '../../features/listEnhancement';
 import { actorEnhancementManager, actorQuickActionsManager } from '../../features/actorEnhancement';
 import { isActorEnhancementEnabled } from '../../features/actorEnhancement/actorEnhancementGate';
+import { normalizeActorDefaultTags } from '../../features/actorEnhancement/defaultTagsSelection';
 import { isVideoEnhancementSubOn } from '../../features/videoDetail/videoEnhancementGate';
 import { embyEnhancementManager } from '../../features/embyEnhancement/content';
 import { exposePreviewVolumeDebug, installPreviewVolumeControl } from '../../features/previews';
@@ -585,7 +586,7 @@ async function initialize(): Promise<void> {
         actorEnhancementManager.updateConfig({
             enabled: true,
             autoApplyTags: settings.actorEnhancement?.autoApplyTags !== false,
-            defaultTags: settings.actorEnhancement?.defaultTags || ['s', 'd'],
+            defaultTags: normalizeActorDefaultTags(settings.actorEnhancement?.defaultTags),
             defaultSortType: settings.actorEnhancement?.defaultSortType || 0,
             enableActionButtons: (settings.actorEnhancement as any)?.enableActionButtons !== false,
             // 新增：演员页“影片分段显示”配置
