@@ -19,6 +19,7 @@ import {
   recomputeListHiding,
   setHidingSource,
   readListHidingEnablement,
+  type CategoryFilterMode,
 } from '../../list-hiding';
 import { STATE } from '../../contentState';
 
@@ -152,4 +153,24 @@ export function clearListItemCategoryHiding(item: HTMLElement): void {
   setHidingSource(item, 'category', false);
 
   recomputeListHiding(item, readListHidingEnablement(STATE.settings));
+}
+
+/**
+ * 类别过滤纯判定（09-29 三态）：给定 mode、卡片已解析类别集合与所选类别集合，
+ * 返回是否隐藏。语义：
+ * - off 或所选集合为空 → 不隐藏（空集合视为 off，no-op）；
+ * - blacklist → 任一已解析类别命中所选集合 = 隐藏；
+ * - whitelist → 已解析类别与所选集合无交集 = 隐藏；已解析类别为空（未知）= 放行。
+ * 注：「依赖演员穿透」共同前提由调用方（isCategoryFilterActive / readListHidingEnablement）
+ * 在更外层把关，本函数只做集合语义。
+ */
+export function decideCategoryHide(
+  mode: CategoryFilterMode,
+  categories: readonly string[],
+  selected: ReadonlySet<string>,
+): boolean {
+  if (mode === 'off' || selected.size === 0) return false;
+  const hit = categories.some((c) => selected.has(c));
+  if (mode === 'blacklist') return hit;
+  return categories.length > 0 && !hit;
 }

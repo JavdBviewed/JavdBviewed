@@ -261,6 +261,52 @@ describe('EnhancementSettingsPage layout', () => {
     }
   });
 
+  it('moves the category filter row into the content filter card as a tri-state cycle row (09-29)', () => {
+    const listTabSource = readFileSync(join(here, 'ListTab.tsx'), 'utf8');
+    const legacySource = readFileSync(
+      join(here, '..', '..', '..', '..', '..', 'dashboard', 'partials', 'tabs', 'settings-enhancement.html'),
+      'utf8',
+    );
+
+    // 通用 SettingCycleRow（零业务语义/零门控，门控留 ListTab）；旧 enableCategoryFilter 布尔行消失
+    expect(listTabSource).toContain("from '../../../../../ui/patterns/SettingCycleRow/SettingCycleRow'");
+    expect(listTabSource).toContain('id="categoryFilterMode"');
+    expect(listTabSource).not.toContain('id="enableCategoryFilter"');
+    expect(listTabSource).not.toContain('影片类别过滤（黑名单）');
+
+    // 子序：演员（列表）组 → 三态行 → 确认块/未生效提示/选择区 → 关键词规则块
+    const order = [
+      '>演员（列表）</div>',
+      'id="categoryFilterMode"',
+      'id="categoryFilterModeConfirm"',
+      'id="categoryFilterConfig"',
+      'id="contentFilterConfig"',
+    ];
+    let cursor = -1;
+    for (const marker of order) {
+      const at = listTabSource.indexOf(marker, cursor + 1);
+      expect(at, `marker ${marker} after previous`).toBeGreaterThan(cursor);
+      cursor = at;
+    }
+
+    // 三态选项（空→候选→减去 循环序）+ 门控确认块必含句 + 两路按钮
+    expect(listTabSource).toContain("{ value: 'off', label: '空' }");
+    expect(listTabSource).toContain("{ value: 'whitelist', label: '候选' }");
+    expect(listTabSource).toContain("{ value: 'blacklist', label: '减去' }");
+    expect(listTabSource).toContain('此功能会增加性能开销与源站的请求量');
+    expect(listTabSource).toContain('启用演员穿透并开启');
+    expect(listTabSource).toContain('未生效');
+
+    // 选择区 note 区分两态语义；⚠️ note 并入必含句
+    expect(listTabSource).toContain('勾选要保留的影片类别');
+    expect(listTabSource).toContain('勾选要隐藏的影片类别');
+
+    // 搜索索引：内容过滤 h4 块新增 button#categoryFilterMode 条目；演员页旧条目（L1218 块）保留不动
+    expect(legacySource).toContain('<button type="button" id="categoryFilterMode"></button>');
+    expect(legacySource).toContain('<label for="categoryFilterMode">影片类别过滤</label>');
+    expect(legacySource).toContain('<h6 class="enhancement-feature-name">🎯 影片类别过滤</h6>');
+  });
+
   it('keeps the hideNonFavoritedActorsInList label aligned with the popup short copy', () => {
     // label 不变（与 popup 既有短文案逐字一致）；描述 2026-09-28 actor-favorited-field 换真白名单口径：
     // 收藏 = ActorRecord.favorited（缺省 = 已收藏），拉黑与收藏正交，旧止血口径（收藏≈未拉黑）作废。

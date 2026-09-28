@@ -14,6 +14,7 @@ import { videoDetailEnhancer } from '../../features/videoDetail';
 import { refreshActorMarksOnPage, runActorRemarksQuick } from '../../features/videoDetail';
 import { contentFilterManager } from '../../features/contentFilter';
 import { listEnhancementManager } from '../../features/listEnhancement';
+import { resolveCategoryFilterMode } from '../../features/list-hiding';
 import { actorEnhancementManager } from '../../features/actorEnhancement';
 import { embyEnhancementManager } from '../../features/embyEnhancement/content';
 import { renderDetailLibraryStatus } from '../../features/embyLibrary/content/statusBadges';
@@ -80,7 +81,9 @@ export function installContentMessageRouter(): void {
                     listEnhancementManager.updateConfig({
                         enableActorPenetration: (settings.listEnhancement as any)?.enableActorPenetration === true,
                         enableCategoryFilter: (settings.listEnhancement as any)?.enableCategoryFilter === true,
+                        // 09-29 三态：mode 缺失时按旧键迁移（true→blacklist 否则 off）
                         categoryFilter: {
+                            mode: resolveCategoryFilterMode(settings.listEnhancement as any),
                             black: Array.isArray((settings.listEnhancement as any)?.categoryFilter?.black)
                                 ? (settings.listEnhancement as any).categoryFilter.black.filter((k: unknown): k is string => typeof k === 'string')
                                 : [],

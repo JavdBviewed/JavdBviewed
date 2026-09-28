@@ -7,7 +7,9 @@ import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
 import { SettingField } from '../../../../../ui/patterns/SettingField/SettingField';
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
+import { SettingCycleRow } from '../../../../../ui/patterns/SettingCycleRow/SettingCycleRow';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
+import type { CategoryFilterMode } from '../../../../../features/list-hiding';
 import type { KeywordFilterRule } from '../../../../../types';
 import { BUILTIN_CATEGORY_DICTIONARY, entryKey } from '@javdb/video-category-dict';
 import type { DimKey } from '@javdb/video-category-dict';
@@ -31,7 +33,7 @@ import {
   DISPLAY_FILTER_FIELDS,
 } from './listFilterFields';
 /**
- * 影片类别过滤（黑名单）维度分组：数据源为内置类别字典（311 项快照）。
+ * 影片类别过滤维度分组（09-29 三态：候选/减去选择区共用此数据源）：内置类别字典（311 项快照）。
  * 模块级计算一次；维度顺序与 JavDB /tags 页一致（c1 主題 … c9 時長）。
  */
 const CATEGORY_FILTER_DIMENSIONS: {
@@ -49,6 +51,19 @@ const CATEGORY_FILTER_DIMENSIONS: {
     .filter((d) => d.entries.length > 0);
 })();
 
+/** 09-29 三态循环选项（空→候选→减去，数组顺序即循环顺序）。 */
+const CATEGORY_FILTER_MODE_OPTIONS: { value: CategoryFilterMode; label: string }[] = [
+  { value: 'off', label: '空' },
+  { value: 'whitelist', label: '候选' },
+  { value: 'blacklist', label: '减去' },
+];
+
+const CATEGORY_FILTER_MODE_LABELS: Record<CategoryFilterMode, string> = {
+  off: '空',
+  whitelist: '候选',
+  blacklist: '减去',
+};
+
 export function ListTab({
   form,
   setToggle,
@@ -63,6 +78,8 @@ export function ListTab({
   onToggleRuleHide: (i: number, hideEnabled: boolean) => void;
   onDeleteRule: (i: number) => void;
 }) {
+  /** 三态门控挂起（UI 瞬态，不持久化）：off→非空 且演员穿透关 = 先出确认块再应用 */
+  const pendingCategoryFilterMode = form.categoryFilterModePending;
   return (
     <div className="flex flex-col gap-4">
       <SettingSection
@@ -98,6 +115,138 @@ export function ListTab({
             onChange={(checked) => setToggle(field.key, checked)}
           />
         ))}
+        {/* 影片类别过滤（09-29 三态自演员穿透 section 迁入本卡）：空→候选→减去 循环；
+            非空态共同前提=演员穿透（依赖穿透详情请求解析类别），穿透关时不静默重置、显示「未生效」 */}
+        <SettingCycleRow
+          id="categoryFilterMode"
+          label="影片类别过滤"
+          description="空=不过滤；候选=仅保留所选类别；减去=命中隐藏（依赖演员穿透）"
+          options={CATEGORY_FILTER_MODE_OPTIONS}
+          value={form.categoryFilterMode}
+          onChange={(next) => {
+            if (form.categoryFilterMode === 'off' && next !== 'off' && !form.enableActorPenetration) {
+              // 门控：空→非空 且穿透关=挂起待确认（pending 仅 UI 瞬态，不持久化；mode 本身持久化）
+              patchForm({ categoryFilterModePending: next });
+            } else {
+              patchForm({ categoryFilterModePending: null, categoryFilterMode: next });
+            }
+          }}
+        />
+        {pendingCategoryFilterMode ? (
+          <div
+            id="categoryFilterModeConfirm"
+            className="mt-1 flex flex-col gap-2 rounded-[var(--radius-2)] border border-[var(--color-warning)] bg-[var(--color-surface)] px-3 py-2"
+          >
+            <p className="m-0 text-[12.5px] leading-relaxed text-[var(--color-fg)]">
+              「影片类别过滤」依赖「演员穿透」：启用后列表卡片会发起详情页请求解析类别
+              （类别数据来自穿透详情请求，不另起请求）。此功能会增加性能开销与源站的请求量。
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                id="categoryFilterModeConfirmApply"
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  patchForm({
+                    enableActorPenetration: true,
+                    categoryFilterMode: pendingCategoryFilterMode,
+                    categoryFilterModePending: null,
+                  })
+                }
+              >
+                启用演员穿透并开启
+              </Button>
+              <Button
+                id="categoryFilterModeConfirmCancel"
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => patchForm({ categoryFilterModePending: null })}
+              >
+                取消
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {form.categoryFilterMode !== 'off' && !form.enableActorPenetration ? (
+          <p className="input-description" role="note">
+            ⚠️ 演员穿透未启用，当前类别过滤（{CATEGORY_FILTER_MODE_LABELS[form.categoryFilterMode]}）未生效；
+            开启「演员穿透」后自动生效（已选类别保留）。
+          </p>
+        ) : null}
+        {form.categoryFilterMode !== 'off' && form.enableActorPenetration ? (
+          <div id="categoryFilterConfig" className="mt-1 flex flex-col gap-2 px-2">
+            <p className="input-description" role="note">
+              {form.categoryFilterMode === 'whitelist'
+                ? '勾选要保留的影片类别（仅保留命中所选类别的卡片，类别未知的卡片放行；所选为空=不过滤）。'
+                : '勾选要隐藏的影片类别（命中=隐藏，取消勾选即时恢复）。'}
+              选项来自内置类别字典（311 项），按维度分组。
+            </p>
+            <p className="input-description" role="note">
+              ⚠️ 类别随「演员穿透」的详情页请求解析（同一请求，不另起），此功能会增加性能开销与源站的请求量。
+              结果缓存 7 天，失败 10 分钟后重试；解析失败时卡片保持原状。
+            </p>
+            {CATEGORY_FILTER_DIMENSIONS.map((dim) => {
+              const dimKeys = dim.entries.map((e) => entryKey(dim.key, e.id));
+              const checkedCount = dimKeys.filter((k) => form.categoryFilterBlack.includes(k)).length;
+              const allChecked = checkedCount === dim.entries.length && dim.entries.length > 0;
+              return (
+                <details key={dim.key} id={`categoryDim-${dim.key}`} className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+                  <summary className="cursor-pointer select-none px-3 py-2 text-sm font-semibold">
+                    {dim.label}
+                    <span className="ml-2 font-normal text-[var(--color-fg-muted)]">
+                      已选 {checkedCount}/{dim.entries.length}
+                    </span>
+                    <span className="ml-3 inline-flex gap-2 text-xs font-normal">
+                      <button
+                        type="button"
+                        className="text-[var(--color-primary)] hover:underline"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const next = new Set(form.categoryFilterBlack);
+                          for (const k of dimKeys) {
+                            if (allChecked) next.delete(k);
+                            else next.add(k);
+                          }
+                          patchForm({ categoryFilterBlack: Array.from(next) });
+                        }}
+                      >
+                        {allChecked ? '清空' : '全选'}
+                      </button>
+                    </span>
+                  </summary>
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 border-t border-[var(--color-border)] px-3 py-2 sm:grid-cols-3">
+                    {dim.entries.map((e) => {
+                      const k = entryKey(dim.key, e.id);
+                      const checked = form.categoryFilterBlack.includes(k);
+                      return (
+                        <label
+                          key={k}
+                          className="flex min-w-0 items-center gap-1.5 text-[13px]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              const next = new Set(form.categoryFilterBlack);
+                              if (checked) next.delete(k);
+                              else next.add(k);
+                              patchForm({ categoryFilterBlack: Array.from(next) });
+                            }}
+                          />
+                          <span className="truncate" title={e.label}>
+                            {e.label}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </details>
+              );
+            })}
+          </div>
+        ) : null}
         {/* 卡内规则块（09-29 子序裁决）：enableContentFilter 开时显示隐藏开关+规则列表，位于两组之后 */}
         {form.enableContentFilter ? (
           <div id="contentFilterConfig" className="mt-2 flex flex-col gap-2 px-2">
@@ -338,95 +487,14 @@ export function ListTab({
         {form.enableActorPenetration ? (
           <div className="flex flex-col gap-1.5">
             <p className="input-description" role="note">
-              ✓ 开启后列表卡片将展示详情页解析出的真实演员，「显示设置 → 演员过滤」
-              （隐藏未收藏 / 黑名单 / 未识别演员）据此判断，过滤准确性显著提升。
+              ✓ 开启后列表卡片将展示详情页解析出的真实演员，「内容过滤」卡的「演员（列表）」行
+              （隐藏未收藏 / 黑名单 / 未识别演员）与「影片类别过滤」据此判断，过滤准确性显著提升。
             </p>
             <p className="input-description" role="note">
               ⚠️ 该功能会为可见卡片发起详情页网络请求，并解析 HTML、读写本地缓存，
               会增加列表处理的网络与 CPU 开销。结果缓存 7 天，失败 10 分钟后重试；
               解析失败时卡片保持原状。
             </p>
-          </div>
-        ) : null}
-        <SettingToggleRow
-          id="enableCategoryFilter"
-          label="影片类别过滤（黑名单）"
-          description={
-            form.enableActorPenetration
-              ? '隐藏命中所选类别的列表卡片；类别随演员穿透详情请求解析（不另起请求）'
-              : '需先启用「演员穿透」才能取到卡片类别'
-          }
-          checked={form.enableCategoryFilter}
-          disabled={!form.enableActorPenetration}
-          onChange={(v) => {
-            if (!form.enableActorPenetration) return;
-            setToggle('enableCategoryFilter', v);
-          }}
-        />
-        {form.enableCategoryFilter && form.enableActorPenetration ? (
-          <div id="categoryFilterConfig" className="mt-1 flex flex-col gap-2 px-2">
-            <p className="input-description" role="note">
-              勾选要隐藏的影片类别（黑名单，命中=隐藏，取消勾选即时恢复）。
-              选项来自内置类别字典（311 项），按维度分组。
-            </p>
-            {CATEGORY_FILTER_DIMENSIONS.map((dim) => {
-              const dimKeys = dim.entries.map((e) => entryKey(dim.key, e.id));
-              const checkedCount = dimKeys.filter((k) => form.categoryFilterBlack.includes(k)).length;
-              const allChecked = checkedCount === dim.entries.length && dim.entries.length > 0;
-              return (
-                <details key={dim.key} id={`categoryDim-${dim.key}`} className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)]">
-                  <summary className="cursor-pointer select-none px-3 py-2 text-sm font-semibold">
-                    {dim.label}
-                    <span className="ml-2 font-normal text-[var(--color-fg-muted)]">
-                      已选 {checkedCount}/{dim.entries.length}
-                    </span>
-                    <span className="ml-3 inline-flex gap-2 text-xs font-normal">
-                      <button
-                        type="button"
-                        className="text-[var(--color-primary)] hover:underline"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          const next = new Set(form.categoryFilterBlack);
-                          for (const k of dimKeys) {
-                            if (allChecked) next.delete(k);
-                            else next.add(k);
-                          }
-                          patchForm({ categoryFilterBlack: Array.from(next) });
-                        }}
-                      >
-                        {allChecked ? '清空' : '全选'}
-                      </button>
-                    </span>
-                  </summary>
-                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 border-t border-[var(--color-border)] px-3 py-2 sm:grid-cols-3">
-                    {dim.entries.map((e) => {
-                      const k = entryKey(dim.key, e.id);
-                      const checked = form.categoryFilterBlack.includes(k);
-                      return (
-                        <label
-                          key={k}
-                          className="flex min-w-0 items-center gap-1.5 text-[13px]"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => {
-                              const next = new Set(form.categoryFilterBlack);
-                              if (checked) next.delete(k);
-                              else next.add(k);
-                              patchForm({ categoryFilterBlack: Array.from(next) });
-                            }}
-                          />
-                          <span className="truncate" title={e.label}>
-                            {e.label}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </details>
-              );
-            })}
           </div>
         ) : null}
       </SettingSection>

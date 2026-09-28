@@ -546,6 +546,12 @@
                                             <label for="hideUnrecognizedActorsInList">隐藏无法识别演员的作品</label>
                                             <p class="input-description">仅在本地演员库可用时生效；本地演员库为空时不隐藏。默认关闭</p>
                                         </div>
+                                        <!-- 09-29：影片类别过滤自演员页迁入本卡（三态循环按钮；生产 DOM 由 React SettingCycleRow 渲染） -->
+                                        <div class="form-group-checkbox">
+                                            <button type="button" id="categoryFilterMode"></button>
+                                            <label for="categoryFilterMode">影片类别过滤</label>
+                                            <p class="input-description">空=不过滤；候选=仅保留所选类别；减去=命中隐藏（依赖演员穿透）</p>
+                                        </div>
                                     </div>
 
                                     <!-- 新：🖱️ 启用点击增强（独立区块，右侧通用开关） -->

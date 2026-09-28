@@ -4,6 +4,7 @@
  * @module features/listEnhancement
  */
 import type { PreviewSourceName } from '../../previews';
+import type { CategoryFilterMode } from '../../list-hiding';
 
 export interface ListDisplayControlConfig {
   enabled: boolean;
@@ -55,12 +56,15 @@ export interface ListEnhancementConfig {
   /** 演员穿透：在列表卡片显示女性演员名（默认关闭） */
   enableActorPenetration?: boolean;
   /**
-   * 影片类别过滤（黑名单）：依赖演员穿透（复用同一详情请求/缓存），
-   * 命中 categoryFilter.black 的卡片隐藏。默认关闭。
+   * 影片类别过滤（旧键，兼容）：09-29 起运行时以 categoryFilter.mode 为准
+   * （mode 缺失时按本键迁移：true→blacklist 否则 off）。保留字段供旧数据读取。
    */
   enableCategoryFilter?: boolean;
-  /** 类别黑名单（'c4=17' 形式 entryKey）；空数组=不过滤。 */
-  categoryFilter?: { black: string[] };
+  /**
+   * 类别过滤（09-29 三态）：mode=off/whitelist/blacklist；black='c4=17' 形式 entryKey
+   * （whitelist 态=所选保留集合）。依赖演员穿透（复用同一详情请求/缓存）。
+   */
+  categoryFilter?: { mode?: CategoryFilterMode; black: string[] };
   /** 演员名称标识：对穿透卡片演员名做收藏/订阅/黑名单着色与悬浮提示（默认开） */
   enableActorNameMarks?: boolean;
   listDisplayControl?: ListDisplayControlConfig;
@@ -107,7 +111,7 @@ export function createDefaultListEnhancementConfig(): ListEnhancementConfig {
     hideUnrecognizedActorsInList: false,
     enableActorPenetration: false,
     enableCategoryFilter: false,
-    categoryFilter: { black: [] },
+    categoryFilter: { mode: 'off', black: [] },
     enableActorNameMarks: true,
     listDisplayControl: {
       enabled: true,

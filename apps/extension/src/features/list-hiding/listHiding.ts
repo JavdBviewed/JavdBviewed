@@ -25,6 +25,26 @@ export const LIST_HIDE_DEFAULT_ATTR = 'data-hidden-by-default';
 /** 隐藏来源标识。 */
 export type ListHidingSource = 'viewed' | 'browsed' | 'want' | 'vr' | 'actor' | 'category';
 
+/** 影片类别过滤三态（09-29-contentfilter-category-merge）：off=不过滤 / whitelist=仅保留所选 / blacklist=命中隐藏。 */
+export type CategoryFilterMode = 'off' | 'whitelist' | 'blacklist';
+
+/**
+ * 解析类别过滤 mode（读时旧键迁移，09-29）：
+ * 显式合法 mode 优先；categoryFilter.mode 缺失时按旧键 enableCategoryFilter 迁移
+ * （true→blacklist，否则 off）。所有读取点（设置页模型 / 列表运行时 / 隐藏 backstop）共用此函数，
+ * 保证迁移口径单一；存量数据零回填。
+ */
+export function resolveCategoryFilterMode(
+  le: {
+    enableCategoryFilter?: unknown;
+    categoryFilter?: { mode?: unknown };
+  } | null | undefined,
+): CategoryFilterMode {
+  const mode = le?.categoryFilter?.mode;
+  if (mode === 'off' || mode === 'whitelist' || mode === 'blacklist') return mode;
+  return le?.enableCategoryFilter === true ? 'blacklist' : 'off';
+}
+
 /** 来源 → data-hide-reason 的取值（保持与旧标记一致）。 */
 export const LIST_HIDE_REASON_BY_SOURCE: Record<ListHidingSource, string> = {
   viewed: 'VIEWED',
@@ -46,7 +66,7 @@ export interface ListHidingEnablement {
   want: boolean;
   vr: boolean;
   actor: boolean;
-  /** 类别黑名单隐藏：enableCategoryFilter 且 black 非空。 */
+  /** 类别过滤隐藏：mode 非 off 且 black 非空且演员穿透开（09-29 三态共同前提）。 */
   category: boolean;
 }
 
@@ -122,8 +142,9 @@ export function readListHidingEnablement(settings: unknown): ListHidingEnablemen
       hideBlacklistedActorsInList?: boolean;
       hideNonFavoritedActorsInList?: boolean;
       hideUnrecognizedActorsInList?: boolean;
+      enableActorPenetration?: boolean;
       enableCategoryFilter?: boolean;
-      categoryFilter?: { black?: unknown };
+      categoryFilter?: { black?: unknown; mode?: unknown };
     };
   };
   const actor = !!(
@@ -134,8 +155,12 @@ export function readListHidingEnablement(settings: unknown): ListHidingEnablemen
   const categoryBlack = Array.isArray(s.listEnhancement?.categoryFilter?.black)
     ? s.listEnhancement!.categoryFilter!.black
     : [];
+  // 09-29 三态：mode 缺失时按旧键迁移；whitelist/blacklist 共同前提=演员穿透开
+  // （与 manager.isCategoryFilterActive 对齐，穿透关时 backstop 不再兜住残留类别标记）。
   const category =
-    s.listEnhancement?.enableCategoryFilter === true && categoryBlack.length > 0;
+    resolveCategoryFilterMode(s.listEnhancement) !== 'off' &&
+    categoryBlack.length > 0 &&
+    s.listEnhancement?.enableActorPenetration === true;
   return {
     viewed: !!s.display?.hideViewed,
     browsed: !!s.display?.hideBrowsed,
