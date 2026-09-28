@@ -480,7 +480,8 @@ class ListEnhancementManager {
         .x-ap-actor { display: inline-block; color: inherit; text-decoration: none; }
         .x-ap-actor:hover { text-decoration: underline; }
         .x-ap-actor-sub { display: inline-block; font-size: 11px; line-height: 1; vertical-align: middle; color: #f59e0b; margin-left: 2px; }
-        .x-ap-actor-more { display: inline-block; color: var(--color-fg-subtle, #8c959f); }
+        .x-ap-actor-more { display: inline-block; color: var(--color-fg-subtle, #8c959f); background: none; border: none; padding: 0; margin: 0; font: inherit; line-height: inherit; cursor: pointer; }
+        .x-ap-actor-more:hover { color: var(--color-fg, #1f2328); text-decoration: underline; }
       `;
       document.head.appendChild(style);
       this.actorRowStylesInjected = true;

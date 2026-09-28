@@ -223,6 +223,26 @@ describe('ActorPenetrationRuntime', () => {
     expect(item.querySelector('[data-x-ap-actor-row]')).toBeNull();
     item.remove();
   });
+
+  it('详情解析出 >3 位女演员时缓存保存全量（不截断），hasMore=true', async () => {
+    const sixFemaleHtml = `
+<html><body><div class="panel-block"><strong>演員</strong>
+<div class="value">${Array.from({ length: 6 }, (_, i) => `<a href="/actors/f${i + 1}">女演员${i + 1}</a>`).join('')}</div>
+</div></body></html>`;
+    const cache = makeCacheMock();
+    const fetchText = vi.fn(async () => ({ html: sixFemaleHtml, finalUrl: 'https://javdb.com/v/full' }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, bindQuickActions: noopBind });
+    const item = makeItem();
+    await runtime.process({ item, code: 'FULL-001', detailUrl: '/v/FULL-001' });
+    const writeArgs = (cache.writeSuccess as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const value = writeArgs[1] as { actors: DetailActor[]; hasMore: boolean };
+    expect(value.actors.length).toBe(6);
+    expect(value.hasMore).toBe(true);
+    // 行仍只常显前 3 + 「+3」控件（渲染层口径）
+    expect(item.querySelectorAll('a.x-ap-actor').length).toBe(3);
+    expect(item.querySelector('button.x-ap-actor-more')?.textContent).toBe('+3');
+    item.remove();
+  });
 });
 
 describe('detectLoginRequired', () => {

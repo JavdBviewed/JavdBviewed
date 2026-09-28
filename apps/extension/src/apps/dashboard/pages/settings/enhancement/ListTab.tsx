@@ -480,7 +480,7 @@ export function ListTab({
         <SettingToggleRow
           id="enableActorPenetration"
           label="启用演员穿透"
-          description="在卡片标题下方显示最多 3 位女性演员"
+          description="在卡片标题下方常显前 3 位女性演员，更多可点击展开"
           checked={form.enableActorPenetration}
           onChange={(v) => setToggle('enableActorPenetration', v)}
         />
