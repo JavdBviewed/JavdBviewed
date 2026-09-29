@@ -28,6 +28,7 @@ const ACTOR_LINK_1 = {
   nextText: null,
   symbolClass: 'symbol female',
   symbolText: '♀',
+  linkClass: null,
 };
 
 const CAT_PANEL_HIT: RawDetailPanel = {
@@ -335,7 +336,7 @@ describe('applyCategoryBlackFilter', () => {
       label: '演員:',
       tagHrefs: [],
       actorLinks: [
-        { href: `/actors/a${n}`, text: `女優${n}`, nextText: null, symbolClass: 'symbol female', symbolText: '♀' },
+        { href: `/actors/a${n}`, text: `女優${n}`, nextText: null, symbolClass: 'symbol female', symbolText: '♀', linkClass: null },
       ],
       hasAnyLink: true,
       valueText: null,

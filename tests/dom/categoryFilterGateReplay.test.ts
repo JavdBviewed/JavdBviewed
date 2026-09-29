@@ -52,7 +52,7 @@ const FIXTURE_DETAIL_HTML = `<!DOCTYPE html>
 <head><meta charset="utf-8"><title>AAA-001 测试作品</title></head>
 <body>
 <div class="movie-panel-info">
-  <div class="panel-block"><strong>演員:</strong><span class="value"><a href="/actors/B8gBr">宮西ひかる</a></span></div>
+  <div class="panel-block"><strong>演員:</strong><span class="value"><a class="actor-female" href="/actors/B8gBr">宮西ひかる</a></span></div>
   <div class="panel-block"><strong>類別:</strong><span class="value">
     <a href="/tags?c6=93">拘束</a>
     <a href="/tags?c2=20">OL</a>

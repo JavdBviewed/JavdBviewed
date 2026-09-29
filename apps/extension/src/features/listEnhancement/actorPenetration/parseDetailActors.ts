@@ -1,8 +1,13 @@
 /**
  * @file parseDetailActors.ts
  * @description 从影片详情页 HTML 解析女性演员（纯函数，可离线测试）。
- * 只在演员面板内读取链接，并检查链接附近的性别图标（.symbol.female / .symbol.male / ♀ / ♂）；
- * 只保留明确标记为女性的演员，保留原始顺序，携带演员页 URL。
+ * 只在演员面板内读取链接，按「面板级 legacy 标记预检」分两条链路判定性别：
+ *  - 面板内任一演员链接带旧标记（.symbol 图标 或 ♀/♂ 文本）→ 旧链路（图标/文本符号优先，
+ *    取不到则按面板标签默认：通用「演員」=female、「男優」=male），兼容旧标记镜像，行为零变化；
+ *  - 面板内全部链接都无旧标记（09-29 起源站去掉性别图标后的新标记）→ 新链路：
+ *    链接 class 含 actor-female → female，否则 → male（不再沿用「默认 female」兜底，
+ *    否则男演员会被全员误判为女演员）。
+ * 只保留判定为女性的演员，保留原始顺序，携带演员页 URL。
  * @module features/listEnhancement/actorPenetration
  */
 
@@ -30,6 +35,12 @@ export interface RawActorLink {
   symbolClass: string | null;
   /** 相邻 .symbol 图标文本；无 → null */
   symbolText: string | null;
+  /**
+   * 链接自身 class 属性原文；无 class 属性 → null。
+   * 09-29 起源站去掉 ♀/♂ 图标后，女演员链接带 class="actor-female"，男演员链接无任何 class
+   * （不存在 actor-male），故此字段是新标记下唯一的性别来源。
+   */
+  linkClass: string | null;
 }
 
 /** 演员面板原始数据（页内采集器产出；SW/无 DOM 环境可直接消费）。 */
@@ -61,7 +72,47 @@ function defaultGenderForLabel(label: string): ActorGender | null {
   return null;
 }
 
-/** 基于原始周边数据判定性别（纯数据，DOM/无 DOM 两条路径共享）。 */
+/** 新标记下女演员链接的 class 词元（男演员链接无 class，源站不存在 actor-male）。 */
+const ACTOR_FEMALE_CLASS = 'actor-female';
+
+/** 链接 class 是否含 actor-female 词元（按空白切词，容忍附加 class，不误命中 foo-actor-female 子串）。 */
+export function hasFemaleLinkClass(linkClass: string | null | undefined): boolean {
+  if (!linkClass) return false;
+  return linkClass.toLowerCase().split(/\s+/).some(token => token === ACTOR_FEMALE_CLASS);
+}
+
+/**
+ * 单个链接是否携带 legacy 性别标记（.symbol 图标的 class/文本非空，或链接文本/紧邻兄弟文本含 ♀/♂）。
+ * 纯函数，供面板级预检复用。
+ */
+export function hasLegacyGenderMarker(
+  data: Pick<RawActorLink, 'text' | 'nextText' | 'symbolClass' | 'symbolText'>,
+): boolean {
+  if ((data.symbolClass || '').trim() || (data.symbolText || '').trim()) return true;
+  const text = data.text || '';
+  const nextText = data.nextText || '';
+  return (
+    FEMALE_SYMBOL.test(text) || MALE_SYMBOL.test(text) ||
+    FEMALE_SYMBOL.test(nextText) || MALE_SYMBOL.test(nextText)
+  );
+}
+
+/**
+ * 面板级 legacy 标记预检：面板内任一演员链接带旧标记 → 整个面板走旧链路。
+ * 按面板独立判定（同页多面板互不影响），纯函数。
+ */
+export function panelHasLegacyGenderMarkers(
+  links: readonly Pick<RawActorLink, 'text' | 'nextText' | 'symbolClass' | 'symbolText'>[],
+): boolean {
+  return (links ?? []).some(hasLegacyGenderMarker);
+}
+
+/** 新标记判定：class 含 actor-female → female，否则一律 male（纯男面板 = 全链接无标记 → 全 male）。 */
+function detectGenderFromLinkClass(linkClass: string | null | undefined): ActorGender {
+  return hasFemaleLinkClass(linkClass) ? 'female' : 'male';
+}
+
+/** 基于原始周边数据判定性别（纯数据，DOM/无 DOM 两条路径共享；仅 legacy 链路使用）。 */
 function detectGenderFromData(
   data: Pick<RawActorLink, 'text' | 'nextText' | 'symbolClass' | 'symbolText'>,
   defaultGender: ActorGender,
@@ -115,6 +166,8 @@ export function actorsFromRawPanels(
     if (!defaultGender) continue; // 非演员面板
 
     const links = panel.actorLinks ?? [];
+    // 面板级 legacy 标记预检：有旧标记 → 旧链路（行为零变化）；全无旧标记 → 新链路（看 linkClass）
+    const legacyPresent = panelHasLegacyGenderMarkers(links);
     // 与原 DOM 路径同语义：面板内只要存在任意 <a> 就走链接分支（即使全被 /actors/ 过滤掉），
     // 仅完全无链接时才用 .value 兜底
     if (links.length > 0 || panel.hasAnyLink) {
@@ -123,7 +176,9 @@ export function actorsFromRawPanels(
         if (!/\/actors\//.test(href)) continue;
         const raw = link.text || '';
         if (!raw.trim()) continue;
-        const gender = detectGenderFromData(link, defaultGender);
+        const gender = legacyPresent
+          ? detectGenderFromData(link, defaultGender)
+          : detectGenderFromLinkClass(link.linkClass);
         const name = stripGenderSymbols(raw).trim();
         if (!name) continue;
         actors.push({ id: matchActorId(href), name, href: normalizeHrefRaw(href, baseUrl), gender });
@@ -151,8 +206,10 @@ export function actorsFromRawPanels(
  *  - 标签为「演員/演员/Actor(s)/Actress」(female 默认) 与
  *    「男優/男优/Male Actor(s)」(male 默认) 的面板（镜像按 Accept-Language
  *    返回不同语言页面，英文标签兼容见 09-26-display-settings-audit B7）；
- *  - 面板内含 `.symbol.female` / `.symbol.male` 图标紧邻演员链接。
- * 未识别性别标记的链接按 unknown 处理。
+ *  - 面板内含 `.symbol.female` / `.symbol.male` 图标紧邻演员链接（legacy 链路）。
+ * 09-29 起源站去掉演员性别图标：女演员链接带 `class="actor-female"`、男演员链接无任何 class，
+ * 面板内全无旧标记时改走 class 链路（含 actor-female → female，否则 → male）。
+ * 非演员面板（标签识别不出）整体跳过。
  */
 export function parseDetailActors(doc: Document): DetailActor[] {
   const panels = doc.querySelectorAll('.panel-block, .movie-panel-info .panel-block');
@@ -174,6 +231,7 @@ export function parseDetailActors(doc: Document): DetailActor[] {
         nextText: next ? (next.textContent || '') : null,
         symbolClass: symbol ? (symbol.getAttribute('class') || '') : null,
         symbolText: symbol ? (symbol.textContent || '') : null,
+        linkClass: link.getAttribute('class') || null,
       });
     });
 
