@@ -14,6 +14,7 @@ import {
   buildCommentQuickSearchUrl,
   computeCommentQuickSearchPosition,
   decideCommentQuickSearch,
+  isCommentQuickSearchActive,
   normalizeCommentQuickSearchQuery,
   type CommentQuickSearchRect,
 } from '../application/commentQuickSearch';
@@ -111,6 +112,24 @@ export class MagnetCommentQuickSearchManager {
     }
     if (!this.config.enabled && this.installed) {
       this.destroy();
+    }
+  }
+
+  /**
+   * 设置变更后的 live reapply（`settings-updated`）：**不刷新页面**也要即时生效。
+   *
+   * - 影片页 + 开关开 → 挂载监听（幂等）；
+   * - 开关关 / 非影片页 → 卸载监听、浮标与注入样式，回到零开销。
+   *
+   * 生效口径与 `bootstrap` 首屏初始化共用 `isCommentQuickSearchActive`，避免两处漂移。
+   * 缺失本方法时表现为「设置里开了开关，回到已打开的影片页选文却不出 🔎 浮标」
+   * （09-29 真机红绿取证）。
+   */
+  reapplyFromSettings(enabled: unknown, isVideoPage: boolean): void {
+    const active = isCommentQuickSearchActive({ enabled, isVideoPage });
+    this.updateConfig({ enabled: active });
+    if (active) {
+      this.initialize();
     }
   }
 

@@ -12,6 +12,7 @@ import {
   computeCommentQuickSearchPosition,
   countCommentQuickSearchChars,
   decideCommentQuickSearch,
+  isCommentQuickSearchActive,
   isCommentQuickSearchLengthAllowed,
   normalizeCommentQuickSearchQuery,
 } from './commentQuickSearch';
@@ -187,5 +188,26 @@ describe('computeCommentQuickSearchPosition', () => {
   it('reports not visible for a collapsed (zero-size) rect', () => {
     const collapsed = { top: 400, left: 100, right: 100, bottom: 400, width: 0, height: 0 };
     expect(computeCommentQuickSearchPosition(collapsed, viewport, metrics).visible).toBe(false);
+  });
+});
+
+describe('isCommentQuickSearchActive（生效口径唯一真源：开关 × 页面类型）', () => {
+  it('仅在「开关严格为 true 且影片详情页」时生效', () => {
+    expect(isCommentQuickSearchActive({ enabled: true, isVideoPage: true })).toBe(true);
+  });
+
+  it('非影片页（列表页/演员页）一律不生效：保持零开销', () => {
+    expect(isCommentQuickSearchActive({ enabled: true, isVideoPage: false })).toBe(false);
+  });
+
+  it('开关关闭时不生效（与页面类型无关）', () => {
+    expect(isCommentQuickSearchActive({ enabled: false, isVideoPage: true })).toBe(false);
+    expect(isCommentQuickSearchActive({ enabled: false, isVideoPage: false })).toBe(false);
+  });
+
+  it('容忍设置脏值：非严格 true 一律视为关闭（默认关，不误开）', () => {
+    for (const dirty of [undefined, null, 'yes', 1, 0, {}, [], NaN]) {
+      expect(isCommentQuickSearchActive({ enabled: dirty, isVideoPage: true }), String(typeof dirty)).toBe(false);
+    }
   });
 });

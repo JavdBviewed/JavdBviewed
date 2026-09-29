@@ -23,7 +23,7 @@ import { initDrive115Features } from '../../features/drive115/content';
 import { defaultDataAggregator } from '../../features/dataAggregator';
 import { contentFilterManager } from '../../features/contentFilter';
 import { keyboardShortcutsManager } from '../../features/keyboardShortcuts';
-import { magnetCommentQuickSearchManager, magnetSearchManager, normalizeMagnetSortMode } from '../../features/magnets';
+import { isCommentQuickSearchActive, magnetCommentQuickSearchManager, magnetSearchManager, normalizeMagnetSortMode } from '../../features/magnets';
 import { anchorOptimizationManager } from '../../features/anchorOptimization/content';
 import { listEnhancementManager } from '../../features/listEnhancement';
 import { resolveCategoryFilterMode } from '../../features/list-hiding';
@@ -265,7 +265,7 @@ async function initialize(): Promise<void> {
     if (settings.userExperience.enableMagnetSearch && isVideoPage) {
         preregisterBlueprints.push({ phase: 'idle', label: 'ux:magnet:autoSearch' });
     }
-    if (settings.userExperience.enableMagnetCommentQuickSearch && isVideoPage) {
+    if (isCommentQuickSearchActive({ enabled: settings.userExperience.enableMagnetCommentQuickSearch, isVideoPage })) {
         preregisterBlueprints.push({ phase: 'deferred', label: 'ux:magnetCommentQuickSearch:init' });
     }
     if (settings.userExperience.enableAnchorOptimization) {
@@ -497,7 +497,7 @@ async function initialize(): Promise<void> {
     }
 
     // 09-29 磁力区「短評」评论区选文快速搜索：开关关闭时完全不注册监听（零开销）
-    if (settings.userExperience.enableMagnetCommentQuickSearch && isVideoPage) {
+    if (isCommentQuickSearchActive({ enabled: settings.userExperience.enableMagnetCommentQuickSearch, isVideoPage })) {
         magnetCommentQuickSearchManager.updateConfig({ enabled: true });
         initOrchestrator.add('deferred', () => magnetCommentQuickSearchManager.initialize(), { label: 'ux:magnetCommentQuickSearch:init', delayMs: 0 });
     }
