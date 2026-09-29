@@ -7,7 +7,11 @@
 
 import { VIDEO_STATUS, isEmbyLibraryEnabled } from '../../../utils/config';
 import { STATE, SELECTORS, getContentRecord, log } from '../../contentState';
-import { loadContentRecordSummaries } from '../../contentState/recordCache';
+import {
+    loadContentRecordSummaries,
+    pickPendingContentRecordIds,
+    waitForContentRecordSummaries,
+} from '../../contentState/recordCache';
 import { ensureListTagContainer, renderLibraryStatusBadges } from '../../embyLibrary/content/statusBadges';
 import { renderDrive115LibraryStatusBadge } from '../../drive115/content/libraryStatusBadges';
 import { normalizeVideoCode } from '../../embyLibrary/domain/libraryIndex';
@@ -96,7 +100,17 @@ export function processListItems(items: readonly HTMLElement[], options: ListPro
         const missing = ids.filter(id => !STATE.records[id] && !STATE.recordSummaries[id]);
         if (missing.length > 0) {
             void loadContentRecordSummaries(missing)
-                .catch((error) => log('Failed to load list record summaries:', error))
+                .catch((error) => log('Failed to load list record summaries:', error));
+        }
+        // 09-29-liststatus-recompute-fix：占位摘要在途（本批刚触发，或并发批次已触发）时不能按 'untracked' 定型。
+        // 滚动补卡时 scrollPaging 的 processVisibleItems 与列表增强观察器的 processListItems 会并发：
+        // 后到的一次看到 missing=0（占位已写）就会把卡片判为“未看过/未想看”并打上 data-processed，
+        // 真实摘要落地后再无重算路径 ⇒ hideViewed/hideBrowsed/hideWant 对补卡批次永久漏网。
+        // 因此本批等占位落地后再复处理一次（仅本批 items，不带 force，不重置内容筛选标记）。
+        const pendingIds = pickPendingContentRecordIds(ids);
+        if (pendingIds.length > 0) {
+            void waitForContentRecordSummaries(pendingIds)
+                .catch((error) => log('Failed to await list record summaries:', error))
                 .finally(() => processListItems(items, options, true));
             return;
         }
