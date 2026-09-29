@@ -128,6 +128,8 @@ export function getFilterFieldsText(fields: string[]): string {
     actors: '演员',
     releaseDate: '发行日期',
     'release-date': '发行日期',
+    'video-code': '番号',
+    'video-id': '视频ID',
   };
   return fields.map(field => fieldMap[field] || field).join('、');
 }
@@ -323,7 +325,7 @@ export function saveFilterRuleFromModal(host: EnhancementFiltersHost, index?: nu
   if (!name) { showMessage('请输入规则名称', 'error'); return; }
   if (!action) { showMessage('请选择过滤动作', 'error'); return; }
 
-  const selectedFields = Array.from(fieldsSelect.selectedOptions).map(option => option.value) as ('title' | 'actor' | 'studio' | 'genre' | 'tag' | 'video-id' | 'release-date')[];
+  const selectedFields = Array.from(fieldsSelect.selectedOptions).map(option => option.value) as ('title' | 'actor' | 'studio' | 'genre' | 'tag' | 'video-id' | 'video-code' | 'release-date')[];
   if (selectedFields.length === 0) { showMessage('请至少选择一个过滤字段', 'error'); return; }
 
   const hasReleaseDate = selectedFields.includes('release-date');
