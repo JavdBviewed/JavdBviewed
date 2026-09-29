@@ -26,7 +26,7 @@ import { keyboardShortcutsManager } from '../../features/keyboardShortcuts';
 import { isCommentQuickSearchActive, magnetCommentQuickSearchManager, magnetSearchManager, normalizeMagnetSortMode } from '../../features/magnets';
 import { anchorOptimizationManager } from '../../features/anchorOptimization/content';
 import { listEnhancementManager } from '../../features/listEnhancement';
-import { resolveCategoryFilterMode } from '../../features/list-hiding';
+import { resolveCategoryFilterEnabled } from '../../features/list-hiding';
 import { actorEnhancementManager, actorQuickActionsManager } from '../../features/actorEnhancement';
 import { isActorEnhancementEnabled } from '../../features/actorEnhancement/actorEnhancementGate';
 import { normalizeActorDefaultTags } from '../../features/actorEnhancement/defaultTagsSelection';
@@ -557,9 +557,9 @@ async function initialize(): Promise<void> {
             hideUnrecognizedActorsInList: (settings.listEnhancement as any)?.hideUnrecognizedActorsInList === true, // 默认false（空演员库保护）
             enableActorPenetration: (settings.listEnhancement as any)?.enableActorPenetration === true,
             enableCategoryFilter: (settings.listEnhancement as any)?.enableCategoryFilter === true,
-            // 09-29 三态：mode 缺失时按旧键迁移（true→blacklist 否则 off）
+            // 09-29-cftabs：三态下线 → 总开关；enabled 缺失时按旧三态/旧键迁移（blacklist→开，whitelist/off→关）
             categoryFilter: {
-                mode: resolveCategoryFilterMode(settings.listEnhancement as any),
+                enabled: resolveCategoryFilterEnabled(settings.listEnhancement as any),
                 black: Array.isArray((settings.listEnhancement as any)?.categoryFilter?.black)
                     ? (settings.listEnhancement as any).categoryFilter.black.filter((k: unknown): k is string => typeof k === 'string')
                     : [],

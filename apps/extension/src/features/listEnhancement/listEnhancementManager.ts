@@ -83,7 +83,7 @@ import { createActorWorkQueue, type ActorWorkQueue } from './application/actorWo
 import { createActorPenetrationRuntime, resolveActorLinkMark, type DetailActor } from './actorPenetration';
 import { createActorVisibilityGate } from './application/actorVisibilityGate';
 import { countContentPerformanceEvent } from '../../platform/tasks';
-import { isCategoryFilterExemptPage, recomputeListHiding, readListHidingEnablement, resolveCategoryFilterMode } from '../list-hiding';
+import { isCategoryFilterExemptPage, recomputeListHiding, readListHidingEnablement } from '../list-hiding';
 import { STATE as _STATE } from '../contentState';
 
 export type { ListEnhancementConfig } from './domain/config';
@@ -260,7 +260,7 @@ class ListEnhancementManager {
     {
       name: 'categoryFilter',
       watch: (o, c) =>
-        resolveCategoryFilterMode(o as any) !== resolveCategoryFilterMode(c as any) ||
+        this.categoryFilterEnabledOf(o) !== this.categoryFilterEnabledOf(c) ||
         JSON.stringify(o.categoryFilter?.black ?? []) !== JSON.stringify(c.categoryFilter?.black ?? []),
       apply: () => {
         this.categoryBlackSet = new Set(
@@ -776,22 +776,29 @@ class ListEnhancementManager {
     );
   }
 
-  /** 当前类别过滤 mode（mode 缺失时按旧键 enableCategoryFilter 迁移，口径与设置页一致）。 */
-  private currentCategoryMode() {
-    return resolveCategoryFilterMode(this.config as {
-      enableCategoryFilter?: unknown;
-      categoryFilter?: { mode?: unknown };
-    });
+  /**
+   * 解析某份配置里类别过滤的启用态（09-29-cftabs）：显式 categoryFilter.enabled 优先，
+   * 缺失时回退旧键 enableCategoryFilter（部分更新路径/旧数据兜底，与读时迁移口径一致）。
+   */
+  private categoryFilterEnabledOf(cfg: ListEnhancementConfig): boolean {
+    const explicit = (cfg.categoryFilter as { enabled?: unknown } | undefined)?.enabled;
+    if (typeof explicit === 'boolean') return explicit;
+    return cfg.enableCategoryFilter === true;
+  }
+
+  /** 当前类别过滤总开关（enabled 缺失时按旧键 enableCategoryFilter 兜底，口径与设置页一致）。 */
+  private categoryFilterEnabled(): boolean {
+    return this.categoryFilterEnabledOf(this.config);
   }
 
   /**
-   * 类别过滤是否处于激活态（09-29 三态）：mode 非 off + 所选集合非空 + 演员穿透开。
-   * whitelist/blacklist 共同前提=穿透开（依赖穿透的详情请求/缓存，穿透关闭时整体不生效——
-   * UI 以「未生效」提示表达，不静默重置 mode）。
+   * 类别过滤是否处于激活态（09-29-cftabs）：总开关开 + 勾选集合非空 + 演员穿透开。
+   * 共同前提=穿透开（依赖穿透的详情请求/缓存，穿透关闭时整体不生效——
+   * UI 以「未生效」提示表达，不静默重置已勾选类别）。
    */
   private isCategoryFilterActive(): boolean {
     return (
-      this.currentCategoryMode() !== 'off' &&
+      this.categoryFilterEnabled() &&
       this.categoryBlackSet.size > 0 &&
       this.config.enableActorPenetration === true
     );
@@ -822,11 +829,7 @@ class ListEnhancementManager {
         clearListItemCategoryHiding(item);
         return;
       }
-      const hide = decideCategoryHide(
-        this.currentCategoryMode(),
-        categories,
-        this.categoryBlackSet,
-      );
+      const hide = decideCategoryHide(categories, this.categoryBlackSet);
       if (hide) {
         hideListItemByCategory(item);
       } else {

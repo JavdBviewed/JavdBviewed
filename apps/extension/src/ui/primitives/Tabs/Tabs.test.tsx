@@ -25,4 +25,37 @@ describe('Tabs primitive', () => {
     expect(html).toContain('乙');
     expect(html).toContain('aria-selected="true"');
   });
+
+  it('wires tab id / aria-controls for tabpanel association (09-29-cftabs)', () => {
+    const html = renderToStaticMarkup(
+      createElement(Tabs, {
+        items: [
+          { id: 'numeric', label: '番号' },
+          { id: 'rules', label: '规则' },
+        ],
+        value: 'numeric',
+        onChange: vi.fn(),
+      }),
+    );
+    expect(html).toContain('id="tab-numeric"');
+    expect(html).toContain('aria-controls="tabpanel-numeric"');
+    expect(html).toContain('id="tab-rules"');
+    expect(html).toContain('aria-controls="tabpanel-rules"');
+  });
+
+  it('idPrefix namespaces button id / aria-controls (09-29-cftabs 嵌套 tab 防重名)', () => {
+    const html = renderToStaticMarkup(
+      createElement(Tabs, {
+        items: [
+          { id: 'actor', label: '演员过滤' },
+        ],
+        value: 'actor',
+        onChange: vi.fn(),
+        idPrefix: 'cf-',
+      }),
+    );
+    expect(html).toContain('id="cf-tab-actor"');
+    expect(html).toContain('aria-controls="cf-tabpanel-actor"');
+    expect(html).not.toContain('id="tab-actor"');
+  });
 });

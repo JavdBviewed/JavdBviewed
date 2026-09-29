@@ -598,9 +598,10 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
         hideBlacklistedActorsInList: false,
         hideNonFavoritedActorsInList: false,
         hideUnrecognizedActorsInList: false, // 默认关闭：仅本地演员库可用时生效，空演员库不隐藏
-        // 新增：影片类别过滤（黑名单）默认配置（08-29-actor-passthrough-category-filter P1）
-        enableCategoryFilter: false, // 默认关闭；依赖演员穿透（复用详情请求/缓存）
+        // 新增：影片类别过滤默认配置（08-29 P1；09-29-cftabs 三态下线 → 总开关 + 勾选集合）
+        enableCategoryFilter: false, // 默认关闭；依赖演员穿透（复用详情请求/缓存）；保存路径仍同步写入（=总开关态）
         categoryFilter: {
+            enabled: false, // 总开关；勾选类别影片隐藏（09-29-cftabs）
             black: [] as string[], // 'c4=17' 形式 entryKey；空=不过滤
         },
         // 新增：列表页显示控制默认配置

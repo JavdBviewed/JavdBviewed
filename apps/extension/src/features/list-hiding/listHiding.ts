@@ -31,8 +31,10 @@ export type CategoryFilterMode = 'off' | 'whitelist' | 'blacklist';
 /**
  * 解析类别过滤 mode（读时旧键迁移，09-29）：
  * 显式合法 mode 优先；categoryFilter.mode 缺失时按旧键 enableCategoryFilter 迁移
- * （true→blacklist，否则 off）。所有读取点（设置页模型 / 列表运行时 / 隐藏 backstop）共用此函数，
- * 保证迁移口径单一；存量数据零回填。
+ * （true→blacklist，否则 off）。
+ * （09-29-cftabs：三态已下线，本函数仅保留迁移辅助角色——
+ * 新口径为 resolveCategoryFilterEnabled / migrateCategoryFilterState，
+ * 设置页模型与列表运行时统一走新函数。）
  */
 export function resolveCategoryFilterMode(
   le: {
@@ -43,6 +45,47 @@ export function resolveCategoryFilterMode(
   const mode = le?.categoryFilter?.mode;
   if (mode === 'off' || mode === 'whitelist' || mode === 'blacklist') return mode;
   return le?.enableCategoryFilter === true ? 'blacklist' : 'off';
+}
+
+/**
+ * 读时解析类别过滤启用态（09-29-cftabs：三态循环下线 → 普通总开关 + 每类别独立勾选）。
+ * 显式 categoryFilter.enabled 布尔优先；缺失时按旧三态 mode 迁移（blacklist→true，whitelist/off→false）。
+ * 所有读取点（设置页模型 / 列表运行时 / 隐藏 backstop）共用此口径；存量数据零回填。
+ */
+export function resolveCategoryFilterEnabled(
+  le: {
+    enableCategoryFilter?: unknown;
+    categoryFilter?: { enabled?: unknown; mode?: unknown };
+  } | null | undefined,
+): boolean {
+  return migrateCategoryFilterState(le).enabled;
+}
+
+/**
+ * 类别过滤读时旧数据迁移（09-29-cftabs）：返回 { enabled, black }（black=勾选要隐藏的类别集合）。
+ * - 显式 enabled 布尔 → 照用，black 原样保留；
+ * - 无 enabled，按 mode 迁移：
+ *   - blacklist → enabled=true，black 保留（语义一致：命中=隐藏）；
+ *   - whitelist → enabled=false，black 清空（「仅保留所选」语义无法无损映射到「命中隐藏」，
+ *     重置为关并需用户重新勾选——用户可见行为变化，09-29-cftabs 裁决）；
+ *   - off / 旧键 false / 缺失 → enabled=false，black 保留（与旧「mode off 集合保留」语义一致）。
+ * 零回填：本函数不改存储，读时迁移结果在下次保存落盘。
+ */
+export function migrateCategoryFilterState(
+  le: {
+    enableCategoryFilter?: unknown;
+    categoryFilter?: { enabled?: unknown; mode?: unknown; black?: unknown };
+  } | null | undefined,
+): { enabled: boolean; black: string[] } {
+  const cf = le?.categoryFilter;
+  const black = Array.isArray(cf?.black)
+    ? (cf!.black as unknown[]).filter((k): k is string => typeof k === 'string')
+    : [];
+  const explicit = cf?.enabled;
+  if (typeof explicit === 'boolean') return { enabled: explicit, black };
+  const mode = resolveCategoryFilterMode(le);
+  if (mode === 'whitelist') return { enabled: false, black: [] };
+  return { enabled: mode === 'blacklist', black };
 }
 
 /** 来源 → data-hide-reason 的取值（保持与旧标记一致）。 */
@@ -66,7 +109,7 @@ export interface ListHidingEnablement {
   want: boolean;
   vr: boolean;
   actor: boolean;
-  /** 类别过滤隐藏：mode 非 off 且 black 非空且演员穿透开（09-29 三态共同前提）。 */
+  /** 类别过滤隐藏：总开关开且勾选集合非空且演员穿透开（09-29-cftabs；三态共同前提语义不变）。 */
   category: boolean;
 }
 
@@ -144,7 +187,7 @@ export function readListHidingEnablement(settings: unknown): ListHidingEnablemen
       hideUnrecognizedActorsInList?: boolean;
       enableActorPenetration?: boolean;
       enableCategoryFilter?: boolean;
-      categoryFilter?: { black?: unknown; mode?: unknown };
+      categoryFilter?: { black?: unknown; enabled?: unknown; mode?: unknown };
     };
   };
   const actor = !!(
@@ -155,10 +198,11 @@ export function readListHidingEnablement(settings: unknown): ListHidingEnablemen
   const categoryBlack = Array.isArray(s.listEnhancement?.categoryFilter?.black)
     ? s.listEnhancement!.categoryFilter!.black
     : [];
-  // 09-29 三态：mode 缺失时按旧键迁移；whitelist/blacklist 共同前提=演员穿透开
-  // （与 manager.isCategoryFilterActive 对齐，穿透关时 backstop 不再兜住残留类别标记）。
+  // 09-29-cftabs：三态下线 → 总开关；enabled 缺失时按旧三态迁移（blacklist→开，whitelist/off→关）；
+  // 共同前提=演员穿透开（与 manager.isCategoryFilterActive 对齐，
+  // 穿透关时 backstop 不再兜住残留类别标记）。
   const category =
-    resolveCategoryFilterMode(s.listEnhancement) !== 'off' &&
+    resolveCategoryFilterEnabled(s.listEnhancement) &&
     categoryBlack.length > 0 &&
     s.listEnhancement?.enableActorPenetration === true;
   return {
