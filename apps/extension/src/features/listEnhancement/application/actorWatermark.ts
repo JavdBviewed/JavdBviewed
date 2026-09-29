@@ -151,6 +151,94 @@ export function createActorDataCache(deps: ActorDataCacheDependencies): ActorDat
   };
 }
 
+/**
+ * 演员名标记预热簇（线② Stage B 自 listEnhancementManager 外移，判定与副作用逐字保留）。
+ * 预热标记与订阅集合改由本模块私有持有；开关判定与穿透行重放经依赖注入，
+ * 禁止反向 import listEnhancementManager（循环依赖）。
+ */
+export interface ActorNameMarkPrepDependencies {
+  actorDataCache: ActorDataCache;
+  /** 是否允许重放已渲染的穿透行（原 manager 的 enableActorNameMarks + enableActorPenetration 双门）。 */
+  canReapplyRowMarks: () => boolean;
+  /** 重放已渲染的穿透行（manager 编排能力回调注入）。 */
+  reapplyRowMarks: () => void;
+}
+
+export interface ActorNameMarkPrep {
+  isPrepped: () => boolean;
+  markPrepped: () => void;
+  getSubscribedActorIds: () => Set<string>;
+  clearActorCaches: () => void;
+  warmActorNameMarkData: () => Promise<void>;
+  reapplyActorRowMarksIfReady: () => void;
+  invalidateActorNameMarkPrep: () => void;
+  resetActorNameMarkPrep: () => void;
+}
+
+export function createActorNameMarkPrep(
+  deps: ActorNameMarkPrepDependencies,
+): ActorNameMarkPrep {
+  // 名称标识数据是否已预热完成（索引 + 订阅）
+  let prepped = false;
+  let subscribedActorIds = new Set<string>();
+
+  const resetPrepState = (): void => {
+    prepped = false;
+    subscribedActorIds = new Set();
+  };
+
+  return {
+    isPrepped: () => prepped,
+    markPrepped: () => {
+      prepped = true;
+    },
+    getSubscribedActorIds: () => subscribedActorIds,
+    /**
+     * 清除演员相关缓存
+     * 在以下情况调用：
+     * 1. 翻页前
+     * 2. 配置变化时
+     * 3. 手动刷新时
+     */
+    clearActorCaches: () => {
+      deps.actorDataCache.clear();
+    },
+    /**
+     * 预热演员名称标识所需的本地数据（演员索引 + 订阅集合）。
+     * getActorMark 为同步读取，必须先完成异步加载；完成后重放已渲染的行，
+     * 使首帧渲染时标识缺失的卡片补上着色。
+     */
+    warmActorNameMarkData: async () => {
+      try {
+        await Promise.all([
+          deps.actorDataCache.ensureActorIndex(),
+          deps.actorDataCache.ensureSubscriptions(),
+        ]);
+      } catch {
+        subscribedActorIds = new Set();
+      }
+      try {
+        subscribedActorIds = new Set(await deps.actorDataCache.ensureSubscriptions());
+      } catch {
+        subscribedActorIds = new Set();
+      }
+    },
+    /** 名称标识预热完成/失效后，重放已渲染的穿透行以补全着色。 */
+    reapplyActorRowMarksIfReady: () => {
+      if (!deps.canReapplyRowMarks()) return;
+      deps.reapplyRowMarks();
+    },
+    /** 演员索引被清除（翻页/刷新）时，若已重放则重置预热标记。 */
+    invalidateActorNameMarkPrep: () => {
+      if (prepped) {
+        resetPrepState();
+      }
+    },
+    /** 名称标识开关翻转时重置预热状态（原 manager 内联的两行赋值）。 */
+    resetActorNameMarkPrep: resetPrepState,
+  };
+}
+
 export function buildActorIndex(actors: ActorIndexRecord[]): Map<string, ActorIndexRecord> {
   const index = new Map<string, ActorIndexRecord>();
   actors.forEach(actor => {
