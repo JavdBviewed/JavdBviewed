@@ -46,10 +46,10 @@ import {
   type ListScrollPagingController,
 } from './application/scrollPaging';
 import {
-  buildPopularityEffectAttributes,
-  parseRatingStatsText,
+  applyPopularityEffect,
+  ensurePopularityStyles,
+  reapplyPopularityEffects,
 } from './application/popularityEffects';
-import { buildPopularityStyles } from './ui/styles';
 import { ensureActorRowStyles, ensureWatermarkStyles } from './ui/styleInjection';
 import {
   applyListDisplayControl,
@@ -178,7 +178,6 @@ class ListEnhancementManager {
   private actorNameMarkPrepped = false;
   private readonly actorVisibilityGate = createActorVisibilityGate();
   private readonly forceActorHidingItems = new WeakSet<HTMLElement>();
-  private popularityStylesInjected = false;
 
   /**
    * 配置变化时的副作用注册表。
@@ -303,8 +302,8 @@ class ListEnhancementManager {
       watch: (o, c) =>
         JSON.stringify(o.popularityEffects || null) !== JSON.stringify(c.popularityEffects || null),
       apply: () => {
-        this.ensurePopularityStyles();
-        this.reapplyPopularityEffects();
+        ensurePopularityStyles(this.config.popularityEffects);
+        reapplyPopularityEffects(this.config.popularityEffects);
       },
     },
     {
@@ -325,59 +324,6 @@ class ListEnhancementManager {
         effect.apply();
       }
     }
-  }
-
-  private ensurePopularityStyles(): void {
-    const currentConfig = this.config.popularityEffects;
-    const existingStyle = document.getElementById('x-popularity-effects-style');
-
-    if (!currentConfig?.enabled) {
-      existingStyle?.remove();
-      this.popularityStylesInjected = false;
-      return;
-    }
-
-    if (existingStyle) {
-      existingStyle.remove();
-    }
-
-    const style = document.createElement('style');
-    style.id = 'x-popularity-effects-style';
-    style.textContent = buildPopularityStyles();
-    document.head.appendChild(style);
-    this.popularityStylesInjected = true;
-  }
-
-  private reapplyPopularityEffects(): void {
-    const items = document.querySelectorAll('.movie-list .item');
-    items.forEach(item => this.applyPopularityEffect(item as HTMLElement));
-  }
-
-  private extractRatingStats(item: HTMLElement): { score: number | null; count: number | null } {
-    const scoreText = item.querySelector('.score .value')?.textContent || item.querySelector('.score')?.textContent || '';
-    return parseRatingStatsText(scoreText);
-  }
-
-  private applyPopularityEffect(item: HTMLElement): void {
-    const config = this.config.popularityEffects;
-    item.removeAttribute('data-popularity-effect');
-    item.removeAttribute('data-popularity-level');
-    item.removeAttribute('data-popularity-count');
-    item.removeAttribute('data-popularity-score');
-
-    if (!config?.enabled) {
-      return;
-    }
-
-    const attrs = buildPopularityEffectAttributes(this.extractRatingStats(item), config);
-    if (!attrs) {
-      return;
-    }
-
-    item.setAttribute('data-popularity-count', attrs.count);
-    item.setAttribute('data-popularity-score', attrs.score);
-    if (attrs.effect) item.setAttribute('data-popularity-effect', attrs.effect);
-    if (attrs.level) item.setAttribute('data-popularity-level', attrs.level);
   }
 
   // 🆕 应用列表显示样式 - 分两步实现
@@ -531,8 +477,8 @@ class ListEnhancementManager {
       ensureWatermarkStyles();
     }
 
-    this.ensurePopularityStyles();
-    this.reapplyPopularityEffects();
+    ensurePopularityStyles(this.config.popularityEffects);
+    reapplyPopularityEffects(this.config.popularityEffects);
 
     log('List enhancement initialized successfully');
   }
@@ -603,7 +549,7 @@ class ListEnhancementManager {
       this.optimizeListItem(item, videoInfo);
     }
 
-    this.applyPopularityEffect(item);
+    applyPopularityEffect(item, this.config.popularityEffects);
 
     this.enqueueActorEnhancement(item, videoInfo);
     this.enqueueActorPenetration(item, videoInfo);

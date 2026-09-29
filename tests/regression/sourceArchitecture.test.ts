@@ -1526,7 +1526,7 @@ describe('source architecture cleanup', () => {
     expect(featureSource).toMatch(/\.\/ui\/listScrollState/);
     expect(featureSource).toMatch(/\.\/ui\/listDisplayControl/);
     expect(featureSource).toMatch(/\.\/ui\/previewHoverController/);
-    expect(featureSource).toMatch(/\.\/ui\/styles/);
+    expect(featureSource).toMatch(/\.\/ui\/styleInjection/);
     expect(featureSource).toMatch(/['"]\.\.\/previews['"]/);
     expect(featureSource).toMatch(/['"]\.\.\/rankings['"]/);
 
