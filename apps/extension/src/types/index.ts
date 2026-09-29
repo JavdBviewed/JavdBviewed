@@ -271,7 +271,7 @@ export interface KeywordFilterRule {
   enabled: boolean;
   /** 仅对 action==='hide' 生效：为 false 时规则匹配后不隐藏（保持原样）。默认 true。 */
   hideEnabled?: boolean;
-  fields: ('title' | 'actor' | 'studio' | 'genre' | 'tag' | 'video-id' | 'release-date')[];
+  fields: ('title' | 'actor' | 'studio' | 'genre' | 'tag' | 'video-id' | 'video-code' | 'release-date')[];
   style?: {
     backgroundColor?: string;
     color?: string;

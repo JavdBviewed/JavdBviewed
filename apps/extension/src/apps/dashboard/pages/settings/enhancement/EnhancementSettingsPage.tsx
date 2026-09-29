@@ -369,7 +369,8 @@ const FILTER_RULE_FIELDS: { value: KeywordFilterRule['fields'][number]; label: s
   { value: 'studio', label: '厂牌/片商' },
   { value: 'genre', label: '类型' },
   { value: 'tag', label: '标签' },
-  { value: 'video-id', label: '番号' },
+  { value: 'video-code', label: '番号' },
+  { value: 'video-id', label: '视频ID（/v/ 链接标识）' },
   { value: 'release-date', label: '发行日期' },
 ];
 
@@ -472,7 +473,7 @@ function FilterRuleEditor({
               >
                 {FILTER_RULE_FIELDS.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}
               </select>
-              <p>按住 Ctrl/Shift 可多选</p>
+              <p>按住 Ctrl/Shift 可多选。「番号」匹配卡片上的番号文本；「视频ID」匹配 /v/ 链接中的标识（非番号）</p>
             </div>
             <div className="enhancement-filter-rule-modal__field-box">
               {hasKeywordField ? (

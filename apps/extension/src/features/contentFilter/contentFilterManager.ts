@@ -497,16 +497,30 @@ export class ContentFilterManager {
         }
       }
 
+      // 提取番号（独立于标题提取，对全部卡片生效）
+      // 列表卡番号节点为 .video-title strong（真机 40/40 在位，探针同口径）；
+      // 其他页面结构回退 .code/.video-code。
+      // 注意：仅写入 data['video-code']，不并入 data.title —— 避免改变
+      // fields 仅含 title 等既有字段的规则命中行为。
+      const codeElement =
+        item.querySelector('.video-title strong') ||
+        item.querySelector('.code, .video-code');
+      if (codeElement) {
+        const codeText = codeElement.textContent?.trim();
+        if (codeText) {
+          data['video-code'] = codeText;
+        }
+      }
+
       // 如果仍然没有找到，至少记录番号作为标识
       if (!data.title) {
-        const codeElement = item.querySelector('.video-title strong:first-child, .code, .video-code');
-        if (codeElement) {
-          const code = codeElement.textContent?.trim();
-          if (code) {
-            data['video-code'] = code;
-            // 临时使用番号，但标记为需要改进
-            data.title = `[${code}] - 标题提取失败`;
-          }
+        const code = data['video-code'] ||
+          item.querySelector('.video-title strong:first-child, .code, .video-code')?.textContent?.trim() ||
+          '';
+        if (code) {
+          data['video-code'] = code;
+          // 临时使用番号，但标记为需要改进
+          data.title = `[${code}] - 标题提取失败`;
         }
       }
 
