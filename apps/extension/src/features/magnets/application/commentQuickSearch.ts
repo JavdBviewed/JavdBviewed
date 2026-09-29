@@ -199,3 +199,22 @@ export function computeCommentQuickSearchPosition(
 
   return { top, left, visible: inViewport, flipped };
 }
+
+/**
+ * 生效口径（开关 × 页面类型）——**唯一真源**。
+ *
+ * `bootstrap` 首屏初始化与 `contentMessageRouter` 的 `settings-updated` live reapply 必须共用本函数：
+ * 两处门控一旦漂移，就会出现「只有刷新才生效」或「关不掉」这类只在单侧复现的缺陷
+ * （09-29 真机红绿取证：live 开关不生效正是因为 router 侧完全缺失该维度）。
+ */
+export interface CommentQuickSearchActivationInput {
+  /** `settings.userExperience.enableMagnetCommentQuickSearch`（默认 false，需容忍脏值） */
+  enabled: unknown;
+  /** 当前页面是否影片详情页（`location.pathname.startsWith('/v/')`） */
+  isVideoPage: boolean;
+}
+
+/** 开关严格为 `true` 且当前为影片详情页时才生效（其余页面保持零开销）。 */
+export function isCommentQuickSearchActive(input: CommentQuickSearchActivationInput): boolean {
+  return input.enabled === true && input.isVideoPage === true;
+}

@@ -435,3 +435,95 @@ describe('磁力评论区选文快速搜索（运行时）', () => {
     expect(resolveCommentScope(null)).toBeNull();
   });
 });
+
+/**
+ * settings-updated live reapply 回归（09-29 真机红绿取证）。
+ *
+ * 缺陷：该开关此前只在 `bootstrap` 首屏读取一次，`contentMessageRouter` 的 live reapply
+ * 未覆盖本维度 → 已打开的影片页里开开关不出 🔎 浮标（必须刷新），关开关监听/样式残留。
+ * 修复后 router 调用 `reapplyFromSettings(enabled, isVideoPage)`，本组用例锁定其行为契约。
+ */
+describe('磁力评论区选文快速搜索（settings-updated live reapply）', () => {
+  let manager: MagnetCommentQuickSearchManager;
+
+  beforeEach(() => {
+    document.body.innerHTML = VIDEO_PAGE_HTML;
+    document.head.innerHTML = '';
+    document.documentElement.removeAttribute('data-theme');
+    rangeRects = [makeRect()];
+
+    (Range.prototype as unknown as Record<string, unknown>).getClientRects = function getClientRects() {
+      return rangeRects as unknown as DOMRectList;
+    };
+    (Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect = function getBoundingClientRect() {
+      return (rangeRects[rangeRects.length - 1] ?? makeRect({ width: 0, height: 0 })) as unknown as DOMRect;
+    };
+
+    manager = new MagnetCommentQuickSearchManager();
+  });
+
+  afterEach(() => {
+    manager.destroy();
+    document.body.innerHTML = '';
+    document.head.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('live-on：影片页收到开关开启后无需刷新即挂载，选文立刻出浮标', () => {
+    manager.reapplyFromSettings(true, true);
+
+    expect(document.getElementById(MAGNET_COMMENT_QUICK_SEARCH_STYLE_ID)).not.toBeNull();
+    expect(document.getElementById(MAGNET_COMMENT_QUICK_SEARCH_FLOAT_ID)).not.toBeNull();
+
+    selectTextIn('nativeReview', '劇情非常緊湊');
+
+    expect(manager.isFloatVisible()).toBe(true);
+    expect(manager.getPendingUrl()).toContain('/search?q=');
+  });
+
+  it('live-off：关闭后卸载监听/浮标/样式，再选文不出浮标（回到零开销）', () => {
+    manager.reapplyFromSettings(true, true);
+    selectTextIn('nativeReview', '劇情非常緊湊');
+    expect(manager.isFloatVisible()).toBe(true);
+
+    manager.reapplyFromSettings(false, true);
+
+    expect(document.getElementById(MAGNET_COMMENT_QUICK_SEARCH_STYLE_ID)).toBeNull();
+    expect(document.getElementById(MAGNET_COMMENT_QUICK_SEARCH_FLOAT_ID)).toBeNull();
+
+    selectTextIn('nativeReview', '演員表現也很到位');
+    expect(manager.isFloatVisible()).toBe(false);
+    expect(manager.getPendingUrl()).toBe('');
+  });
+
+  it('非影片页即使开关为 true 也不挂载（列表页/演员页零开销）', () => {
+    manager.reapplyFromSettings(true, false);
+
+    expect(document.getElementById(MAGNET_COMMENT_QUICK_SEARCH_STYLE_ID)).toBeNull();
+    selectTextIn('nativeReview', '劇情非常緊湊');
+    expect(manager.isFloatVisible()).toBe(false);
+  });
+
+  it('脏值容忍：开关非严格 true 时不挂载', () => {
+    for (const dirty of ['yes', 1, null, undefined, {}]) {
+      manager.reapplyFromSettings(dirty, true);
+      expect(
+        document.getElementById(MAGNET_COMMENT_QUICK_SEARCH_STYLE_ID),
+        `dirty=${String(typeof dirty)}`,
+      ).toBeNull();
+    }
+  });
+
+  it('幂等且可反复开关：重复 live-on 不重复注入；off→on 后功能恢复', () => {
+    manager.reapplyFromSettings(true, true);
+    manager.reapplyFromSettings(true, true);
+    expect(document.querySelectorAll(`#${MAGNET_COMMENT_QUICK_SEARCH_STYLE_ID}`)).toHaveLength(1);
+    expect(document.querySelectorAll(`#${MAGNET_COMMENT_QUICK_SEARCH_FLOAT_ID}`)).toHaveLength(1);
+
+    manager.reapplyFromSettings(false, true);
+    manager.reapplyFromSettings(true, true);
+
+    selectTextIn('jhsReview', '破解注入的長評');
+    expect(manager.isFloatVisible()).toBe(true);
+  });
+});

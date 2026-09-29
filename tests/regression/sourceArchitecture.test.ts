@@ -2255,4 +2255,28 @@ describe('source architecture cleanup', () => {
     expect(bootstrap, 'actor remarks must not use the raw own-toggle direct read')
       .not.toMatch(/videoEnhancement\??\.enableActorRemarks\s*===\s*true/);
   });
+
+  it('live-reapplies magnet comment quick search on settings-updated via the shared activation resolver', () => {
+    // 回归保护（09-29 真机红绿取证）：磁力评论区选文快速搜索开关此前只在 bootstrap 首屏读取一次，
+    // contentMessageRouter 的 settings-updated live reapply 缺失该维度 →
+    // 已打开的影片页里开开关不出 🔎 浮标（必须刷新页面），关开关则监听/注入样式残留。
+    const routerPath = 'apps/extension/src/apps/content/contentMessageRouter.ts';
+    const router = fs.readFileSync(path.resolve(root, routerPath), 'utf8');
+    expect(router, `${routerPath} should import the magnet comment quick search manager`)
+      .toMatch(/magnetCommentQuickSearchManager[\s\S]{0,120}?from '\.\.\/\.\.\/features\/magnets'/);
+    expect(router, `${routerPath} should live-reapply magnet comment quick search after settings update`)
+      .toMatch(/magnetCommentQuickSearchManager\.reapplyFromSettings\(/);
+
+    // 生效口径单一真源：首屏初始化与 live reapply 共用 isCommentQuickSearchActive，避免两处漂移
+    const bootstrap = fs.readFileSync(path.resolve(root, 'apps/extension/src/apps/content/bootstrap.ts'), 'utf8');
+    expect(bootstrap, 'bootstrap should gate magnet comment quick search via the shared activation resolver')
+      .toMatch(/isCommentQuickSearchActive\(\{\s*enabled: settings\.userExperience\.enableMagnetCommentQuickSearch,\s*isVideoPage\s*\}\)/);
+
+    const managerSource = fs.readFileSync(
+      path.resolve(root, 'apps/extension/src/features/magnets/ui/magnetCommentQuickSearch.ts'),
+      'utf8',
+    );
+    expect(managerSource, 'reapplyFromSettings should reuse the shared activation resolver')
+      .toMatch(/isCommentQuickSearchActive\(\{ enabled, isVideoPage \}\)/);
+  });
 });

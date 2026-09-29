@@ -83,8 +83,10 @@ export {
   buildCommentQuickSearchUrl,
   computeCommentQuickSearchPosition,
   decideCommentQuickSearch,
+  isCommentQuickSearchActive,
   isCommentQuickSearchLengthAllowed,
   normalizeCommentQuickSearchQuery,
+  type CommentQuickSearchActivationInput,
   type CommentQuickSearchDecision,
   type CommentQuickSearchRejectReason,
 } from './application/commentQuickSearch';

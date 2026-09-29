@@ -17,6 +17,7 @@ import { listEnhancementManager } from '../../features/listEnhancement';
 import { resolveCategoryFilterMode } from '../../features/list-hiding';
 import { actorEnhancementManager } from '../../features/actorEnhancement';
 import { embyEnhancementManager } from '../../features/embyEnhancement/content';
+import { magnetCommentQuickSearchManager } from '../../features/magnets';
 import { renderDetailLibraryStatus } from '../../features/embyLibrary/content/statusBadges';
 import type { EmbyLibraryState } from '../../features/embyLibrary/types';
 import { destroySuperRankingNav, initializeSuperRankingNav, isSuperRankingSupportedHost } from '../../features/rankings';
@@ -138,6 +139,18 @@ export function installContentMessageRouter(): void {
                     embyEnhancementManager.refresh?.();
                 } catch (e) {
                     log('Failed to refresh Emby enhancement after settings update:', e as any);
+                }
+
+                // 磁力区评论区选文快速搜索：live reapply（不刷新页面也要即时生效）。
+                // 该开关此前只在 bootstrap 首屏读取一次，导致「设置里开了开关 → 回到已打开的
+                // 影片页选文却不出 🔎 浮标」，且关闭后监听/样式残留（09-29 真机红绿取证）。
+                try {
+                    magnetCommentQuickSearchManager.reapplyFromSettings(
+                        (settings.userExperience as any)?.enableMagnetCommentQuickSearch,
+                        window.location.pathname.startsWith('/v/'),
+                    );
+                } catch (e) {
+                    log('Failed to reapply magnet comment quick search after settings update:', e as any);
                 }
 
                 try {
