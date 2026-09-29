@@ -261,24 +261,44 @@ describe('EnhancementSettingsPage layout', () => {
     }
   });
 
-  it('moves the category filter row into the content filter card as a tri-state cycle row (09-29)', () => {
+  it('renders the category filter as a switch + per-category checkboxes inside the 4-tab card (09-29-cftabs)', () => {
     const listTabSource = readFileSync(join(here, 'ListTab.tsx'), 'utf8');
     const legacySource = readFileSync(
       join(here, '..', '..', '..', '..', '..', 'dashboard', 'partials', 'tabs', 'settings-enhancement.html'),
       'utf8',
     );
 
-    // 通用 SettingCycleRow（零业务语义/零门控，门控留 ListTab）；旧 enableCategoryFilter 布尔行消失
-    expect(listTabSource).toContain("from '../../../../../ui/patterns/SettingCycleRow/SettingCycleRow'");
-    expect(listTabSource).toContain('id="categoryFilterMode"');
-    expect(listTabSource).not.toContain('id="enableCategoryFilter"');
+    // 卡内 4-tab（番号过滤 / 演员过滤 / 影片类别过滤 / 内容过滤）；三态 SettingCycleRow 已删除
+    expect(listTabSource).toContain("from '../../../../../ui/patterns/SettingTabs/SettingTabs'");
+    expect(listTabSource).not.toContain('SettingCycleRow');
+    for (const pane of [
+      "id: 'numeric'",
+      "label: '番号过滤'",
+      "id: 'actor'",
+      "label: '演员过滤'",
+      "id: 'category'",
+      "label: '影片类别过滤'",
+      "id: 'rules'",
+      "label: '内容过滤'",
+    ]) {
+      expect(listTabSource).toContain(pane);
+    }
+    expect(listTabSource).not.toContain('id="categoryFilterMode"');
     expect(listTabSource).not.toContain('影片类别过滤（黑名单）');
 
-    // 子序：演员（列表）组 → 三态行 → 确认块/未生效提示/选择区 → 关键词规则块
+    // 类别过滤行=普通总开关（旧三态 id 消失）+ 门控确认块/未生效提示/选择区；通用 Checkbox 勾选类别
+    expect(listTabSource).toContain('id="enableCategoryFilter"');
+    expect(listTabSource).toContain('label="启用影片类别过滤"');
+    expect(listTabSource).toContain('id="categoryFilterEnabledConfirm"');
+    expect(listTabSource).toContain('id="categoryFilterEnabledConfirmApply"');
+    expect(listTabSource).toContain('id="categoryFilterEnabledConfirmCancel"');
+    expect(listTabSource).toContain("from '../../../../../ui/primitives/Checkbox/Checkbox'");
+
+    // 子序：演员（列表）组 → 类别总开关 → 确认块/未生效提示/选择区 → 关键词规则块
     const order = [
       '>演员（列表）</div>',
-      'id="categoryFilterMode"',
-      'id="categoryFilterModeConfirm"',
+      'id="enableCategoryFilter"',
+      'id="categoryFilterEnabledConfirm"',
       'id="categoryFilterConfig"',
       'id="contentFilterConfig"',
     ];
@@ -289,21 +309,19 @@ describe('EnhancementSettingsPage layout', () => {
       cursor = at;
     }
 
-    // 三态选项（空→候选→减去 循环序）+ 门控确认块必含句 + 两路按钮
-    expect(listTabSource).toContain("{ value: 'off', label: '空' }");
-    expect(listTabSource).toContain("{ value: 'whitelist', label: '候选' }");
-    expect(listTabSource).toContain("{ value: 'blacklist', label: '减去' }");
+    // 门控确认块必含句 + 两路按钮 + 未生效提示 + 选择区语义
     expect(listTabSource).toContain('此功能会增加性能开销与源站的请求量');
+    expect(listTabSource).toContain('类别数据来自穿透详情请求，不另起请求');
     expect(listTabSource).toContain('启用演员穿透并开启');
     expect(listTabSource).toContain('未生效');
-
-    // 选择区 note 区分两态语义；⚠️ note 并入必含句
-    expect(listTabSource).toContain('勾选要保留的影片类别');
     expect(listTabSource).toContain('勾选要隐藏的影片类别');
+    expect(listTabSource).not.toContain('勾选要保留的影片类别');
 
-    // 搜索索引：内容过滤 h4 块新增 button#categoryFilterMode 条目；演员页旧条目（L1218 块）保留不动
-    expect(legacySource).toContain('<button type="button" id="categoryFilterMode"></button>');
-    expect(legacySource).toContain('<label for="categoryFilterMode">影片类别过滤</label>');
+    // 搜索索引：内容过滤 h4 块=checkbox#enableCategoryFilter（三态 button 条目消失）；
+    // 演员页旧条目（L1218 块）保留不动
+    expect(legacySource).toContain('<input type="checkbox" id="enableCategoryFilter">');
+    expect(legacySource).toContain('<label for="enableCategoryFilter">影片类别过滤</label>');
+    expect(legacySource).not.toContain('id="categoryFilterMode"');
     expect(legacySource).toContain('<h6 class="enhancement-feature-name">🎯 影片类别过滤</h6>');
   });
 

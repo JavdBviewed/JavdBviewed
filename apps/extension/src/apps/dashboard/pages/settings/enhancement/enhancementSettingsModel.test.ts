@@ -13,6 +13,7 @@ import {
   removeFilterRuleAt,
   setFilterRuleEnabled,
   toggleActorDefaultTag,
+  toggleCategoryBlackKey,
   toggleOnlineAvailabilitySite,
   validateEnhancementForm,
 } from './enhancementSettingsModel';
@@ -475,113 +476,146 @@ describe('list filter fields (migrated from display settings)', () => {
   });
 });
 
-describe('category filter tri-state mapping (09-29-contentfilter-category-merge)', () => {
-  it('defaults: mode off + pending null + black 空（存量用户零变化）', () => {
-    expect(DEFAULT_ENHANCEMENT_SETTINGS_FORM.categoryFilterMode).toBe('off');
-    expect(DEFAULT_ENHANCEMENT_SETTINGS_FORM.categoryFilterModePending).toBeNull();
+describe('category filter switch mapping (09-29-cftabs)', () => {
+  it('defaults: enabled false + pending null + black 空（存量用户零变化）', () => {
+    expect(DEFAULT_ENHANCEMENT_SETTINGS_FORM.categoryFilterEnabled).toBe(false);
+    expect(DEFAULT_ENHANCEMENT_SETTINGS_FORM.categoryFilterEnabledPending).toBeNull();
     expect(DEFAULT_ENHANCEMENT_SETTINGS_FORM.categoryFilterBlack).toEqual([]);
   });
 
-  it('map: 旧键迁移 enableCategoryFilter=true 且 mode 缺失 → blacklist', () => {
+  it('map: 旧键迁移 enableCategoryFilter=true 且 enabled/mode 缺失 → 开 + black 保留', () => {
     const form = mapSettingsToEnhancementForm({
       listEnhancement: {
         enableCategoryFilter: true,
         categoryFilter: { black: ['c4=17', 'c7=28'] },
       },
     } as any);
-    expect(form.categoryFilterMode).toBe('blacklist');
+    expect(form.categoryFilterEnabled).toBe(true);
     expect(form.categoryFilterBlack).toEqual(['c4=17', 'c7=28']);
   });
 
-  it('map: mode 缺失且旧键 false/缺省 → off（零回填）', () => {
+  it('map: 无 enabled，mode=off / 旧键 false / 缺失 → 关（black 保留，零回填）', () => {
     const legacyFalse = mapSettingsToEnhancementForm({
       listEnhancement: { enableCategoryFilter: false, categoryFilter: { black: ['c4=17'] } },
     } as any);
-    expect(legacyFalse.categoryFilterMode).toBe('off');
+    expect(legacyFalse.categoryFilterEnabled).toBe(false);
+    expect(legacyFalse.categoryFilterBlack).toEqual(['c4=17']);
+    const offMode = mapSettingsToEnhancementForm({
+      listEnhancement: { categoryFilter: { mode: 'off', black: ['c4=17'] } },
+    } as any);
+    expect(offMode.categoryFilterEnabled).toBe(false);
+    expect(offMode.categoryFilterBlack).toEqual(['c4=17']);
     const absent = mapSettingsToEnhancementForm({ listEnhancement: {} } as any);
-    expect(absent.categoryFilterMode).toBe('off');
+    expect(absent.categoryFilterEnabled).toBe(false);
     expect(absent.categoryFilterBlack).toEqual([]);
-    expect(absent.categoryFilterModePending).toBeNull();
+    expect(absent.categoryFilterEnabledPending).toBeNull();
   });
 
-  it('map: 显式合法 mode 优先于旧键（whitelist+旧键 true→whitelist；off+旧键 true→off）', () => {
-    const w = mapSettingsToEnhancementForm({
+  it('map: 显式 enabled 布尔优先于 mode（enabled=true + mode=off → 开）', () => {
+    const form = mapSettingsToEnhancementForm({
       listEnhancement: {
         enableCategoryFilter: true,
-        categoryFilter: { mode: 'whitelist', black: ['c1=157'] },
+        categoryFilter: { enabled: true, mode: 'off', black: ['c1=157'] },
       },
     } as any);
-    expect(w.categoryFilterMode).toBe('whitelist');
-    const o = mapSettingsToEnhancementForm({
+    expect(form.categoryFilterEnabled).toBe(true);
+    expect(form.categoryFilterBlack).toEqual(['c1=157']);
+  });
+
+  it('map: mode=whitelist（无 enabled）→ 关 + black 清空（「仅保留」无法无损映射，重置为关）', () => {
+    const form = mapSettingsToEnhancementForm({
       listEnhancement: {
         enableCategoryFilter: true,
-        categoryFilter: { mode: 'off', black: ['c1=157'] },
+        categoryFilter: { mode: 'whitelist', black: ['c1=157', 'c7=28'] },
       },
     } as any);
-    expect(o.categoryFilterMode).toBe('off');
+    expect(form.categoryFilterEnabled).toBe(false);
+    expect(form.categoryFilterBlack).toEqual([]);
   });
 
   it('map: black 丢弃非字符串脏项（口径不变）', () => {
     const form = mapSettingsToEnhancementForm({
       listEnhancement: {
-        categoryFilter: { mode: 'whitelist', black: ['c7=28', 42, 'x'] },
+        categoryFilter: { enabled: true, black: ['c7=28', 42, 'x'] },
       },
     } as any);
     expect(form.categoryFilterBlack).toEqual(['c7=28', 'x']);
   });
 
-  it('apply: 写 categoryFilter={mode,black}，旧键同步 blacklist→true / whitelist→false；兄弟键与 categoryFilter 内未知键保留', () => {
+  it('apply: 写 categoryFilter={enabled,black}，mode 键被删，legacyUnknown 保留，旧键同步=form.categoryFilterEnabled', () => {
     const current = {
       listEnhancement: {
         enableActorPenetration: true,
         another: 1,
-        categoryFilter: { black: ['c4=17'], legacyUnknown: 'keep' },
+        categoryFilter: { black: ['c4=17'], mode: 'whitelist', legacyUnknown: 'keep' },
       },
     } as any;
-    const blackForm = {
+    const onForm = {
       ...DEFAULT_ENHANCEMENT_SETTINGS_FORM,
-      categoryFilterMode: 'blacklist',
+      categoryFilterEnabled: true,
       categoryFilterBlack: ['c7=28'],
     };
-    const blackNext = applyEnhancementFormToSettings(current, blackForm);
-    expect(blackNext.listEnhancement.categoryFilter).toEqual({
+    const onNext = applyEnhancementFormToSettings(current, onForm);
+    expect(onNext.listEnhancement.categoryFilter).toEqual({
       legacyUnknown: 'keep',
-      mode: 'blacklist',
+      enabled: true,
       black: ['c7=28'],
     });
-    expect(blackNext.listEnhancement.enableCategoryFilter).toBe(true);
-    expect(blackNext.listEnhancement.another).toBe(1);
+    expect(onNext.listEnhancement.categoryFilter).not.toHaveProperty('mode');
+    expect(onNext.listEnhancement.enableCategoryFilter).toBe(true);
+    expect(onNext.listEnhancement.another).toBe(1);
 
-    const whiteForm = {
+    const offForm = {
       ...DEFAULT_ENHANCEMENT_SETTINGS_FORM,
-      categoryFilterMode: 'whitelist',
+      categoryFilterEnabled: false,
       categoryFilterBlack: ['c7=28'],
     };
-    const whiteNext = applyEnhancementFormToSettings(current, whiteForm);
-    expect(whiteNext.listEnhancement.categoryFilter.mode).toBe('whitelist');
-    expect(whiteNext.listEnhancement.enableCategoryFilter).toBe(false);
+    const offNext = applyEnhancementFormToSettings(current, offForm);
+    expect(offNext.listEnhancement.categoryFilter.enabled).toBe(false);
+    expect(offNext.listEnhancement.enableCategoryFilter).toBe(false);
   });
 
-  it('apply: pending 为 UI 瞬态，不持久化到 settings', () => {
+  it('apply: pending 为 UI 瞬态，不持久化到 settings（categoryFilter 无 mode 键）', () => {
     const form = {
       ...DEFAULT_ENHANCEMENT_SETTINGS_FORM,
-      categoryFilterMode: 'off',
-      categoryFilterModePending: 'whitelist',
+      categoryFilterEnabled: false,
+      categoryFilterEnabledPending: true,
     };
     const next = applyEnhancementFormToSettings({}, form);
-    expect(next.listEnhancement).not.toHaveProperty('categoryFilterModePending');
-    expect(next.listEnhancement.categoryFilter).toEqual({ mode: 'off', black: [] });
+    expect(next.listEnhancement).not.toHaveProperty('categoryFilterEnabledPending');
+    expect(next.listEnhancement.categoryFilter).toEqual({ enabled: false, black: [] });
   });
 
-  it('round-trip: whitelist 保存后读回 mode+black 一致（含 c9 时长码）', () => {
+  it('round-trip: enabled+black 保存后读回一致（含 c9 时长码）', () => {
     const form = {
       ...DEFAULT_ENHANCEMENT_SETTINGS_FORM,
-      categoryFilterMode: 'whitelist',
+      categoryFilterEnabled: true,
       categoryFilterBlack: ['c1=157', 'c9=gt-120'],
     };
     const saved = applyEnhancementFormToSettings({}, form);
     const reloaded = mapSettingsToEnhancementForm(saved);
-    expect(reloaded.categoryFilterMode).toBe('whitelist');
+    expect(reloaded.categoryFilterEnabled).toBe(true);
     expect(reloaded.categoryFilterBlack).toEqual(['c1=157', 'c9=gt-120']);
+  });
+});
+
+
+describe('toggleCategoryBlackKey（类别勾选切换回归锁）', () => {
+  it('checked=true → key 进入隐藏集合（幂等）', () => {
+    expect(toggleCategoryBlackKey([], 'c7=28', true)).toEqual(['c7=28']);
+    expect(toggleCategoryBlackKey(['c7=28'], 'c7=28', true)).toEqual(['c7=28']);
+    expect(toggleCategoryBlackKey(['c1=23'], 'c7=28', true)).toEqual(['c1=23', 'c7=28']);
+  });
+
+  it('checked=false → key 移出集合（幂等）', () => {
+    expect(toggleCategoryBlackKey(['c1=23', 'c7=28'], 'c7=28', false)).toEqual(['c1=23']);
+    expect(toggleCategoryBlackKey(['c1=23'], 'c7=28', false)).toEqual(['c1=23']);
+  });
+
+  it('不改动入参（返回新数组）', () => {
+    const input = ['c1=23'];
+    const out = toggleCategoryBlackKey(input, 'c7=28', true);
+    expect(out).toEqual(['c1=23', 'c7=28']);
+    expect(input).toEqual(['c1=23']);
   });
 });

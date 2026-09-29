@@ -12,6 +12,7 @@ import {
   getActiveHidingSources,
   isCategoryFilterExemptPage,
   isStatusAggregatePage,
+  migrateCategoryFilterState,
   recomputeListHiding,
   readListHidingEnablement,
   setHidingSource,
@@ -86,7 +87,7 @@ describe('category hiding source', () => {
   });
 });
 
-describe('readListHidingEnablement（category 分支，09-29 三态）', () => {
+describe('readListHidingEnablement（category 分支，09-29-cftabs 总开关口径）', () => {
   it('旧键迁移：enableCategoryFilter=true + black 非空 + 穿透开 → category=true', () => {
     const e = readListHidingEnablement({
       listEnhancement: {
@@ -98,28 +99,47 @@ describe('readListHidingEnablement（category 分支，09-29 三态）', () => {
     expect(e.category).toBe(true);
   });
 
-  it('whitelist mode + black 非空 + 穿透开 → category=true（backstop 覆盖两态）', () => {
+  it('显式 enabled=true + black 非空 + 穿透开 → category=true', () => {
     const e = readListHidingEnablement({
       listEnhancement: {
         enableActorPenetration: true,
-        categoryFilter: { mode: 'whitelist', black: ['c4=17'] },
+        categoryFilter: { enabled: true, black: ['c4=17'] },
       },
     });
     expect(e.category).toBe(true);
   });
 
-  it('显式 mode 优先于旧键：mode=whitelist + 旧键 false + 穿透开 → true', () => {
+  it('显式 enabled=false 优先于旧键 true → category=false', () => {
     const e = readListHidingEnablement({
       listEnhancement: {
         enableActorPenetration: true,
-        enableCategoryFilter: false,
-        categoryFilter: { mode: 'whitelist', black: ['c4=17'] },
+        enableCategoryFilter: true,
+        categoryFilter: { enabled: false, black: ['c4=17'] },
       },
     });
-    expect(e.category).toBe(true);
+    expect(e.category).toBe(false);
   });
 
-  it('mode 非 off 但演员穿透关 → category=false（09-29 两态共同前提）', () => {
+  it('mode 迁移（无 enabled）：mode=off / whitelist + 穿透开 → category=false', () => {
+    expect(
+      readListHidingEnablement({
+        listEnhancement: {
+          enableActorPenetration: true,
+          categoryFilter: { mode: 'off', black: ['c4=17'] },
+        },
+      }).category,
+    ).toBe(false);
+    expect(
+      readListHidingEnablement({
+        listEnhancement: {
+          enableActorPenetration: true,
+          categoryFilter: { mode: 'whitelist', black: ['c4=17'] },
+        },
+      }).category,
+    ).toBe(false);
+  });
+
+  it('演员穿透关 → category=false（共同前提，含旧键 true / 显式 enabled true）', () => {
     expect(
       readListHidingEnablement({
         listEnhancement: {
@@ -132,35 +152,23 @@ describe('readListHidingEnablement（category 分支，09-29 三态）', () => {
       readListHidingEnablement({
         listEnhancement: {
           enableActorPenetration: false,
-          categoryFilter: { mode: 'whitelist', black: ['c4=17'] },
+          categoryFilter: { enabled: true, black: ['c4=17'] },
         },
       }).category,
     ).toBe(false);
   });
 
-  it('显式 mode=off + 旧键 true + 穿透开 → category=false（显式 mode 优先）', () => {
+  it('black 为空 → category=false（未勾任何类别=无操作）', () => {
     const e = readListHidingEnablement({
       listEnhancement: {
         enableActorPenetration: true,
-        enableCategoryFilter: true,
-        categoryFilter: { mode: 'off', black: ['c4=17'] },
+        categoryFilter: { enabled: true, black: [] },
       },
     });
     expect(e.category).toBe(false);
   });
 
-  it('black 为空 → category=false（空=不过滤）', () => {
-    const e = readListHidingEnablement({
-      listEnhancement: {
-        enableActorPenetration: true,
-        enableCategoryFilter: true,
-        categoryFilter: { black: [] },
-      },
-    });
-    expect(e.category).toBe(false);
-  });
-
-  it('旧键缺失/关闭且 mode 缺失 → category=false（默认零变化）', () => {
+  it('旧键缺失/关闭且 enabled/mode 缺失 → category=false（默认零变化）', () => {
     expect(readListHidingEnablement({}).category).toBe(false);
     expect(
       readListHidingEnablement({
@@ -182,6 +190,42 @@ describe('readListHidingEnablement（category 分支，09-29 三态）', () => {
       },
     });
     expect(e.category).toBe(false);
+  });
+});
+
+describe('migrateCategoryFilterState（读时旧数据迁移，09-29-cftabs）', () => {
+  it('显式 enabled 布尔 → 照用，black 原样保留（含脏项过滤）', () => {
+    expect(migrateCategoryFilterState({
+      categoryFilter: { enabled: true, black: ['c4=17', 42, 'c7=28'] },
+    })).toEqual({ enabled: true, black: ['c4=17', 'c7=28'] });
+    expect(migrateCategoryFilterState({
+      enableCategoryFilter: true,
+      categoryFilter: { enabled: false, mode: 'whitelist', black: ['c4=17'] },
+    })).toEqual({ enabled: false, black: ['c4=17'] });
+  });
+
+  it('无 enabled：旧键 true（mode 缺失）→ 开 + black 保留（blacklist 语义等价）', () => {
+    expect(migrateCategoryFilterState({
+      enableCategoryFilter: true,
+      categoryFilter: { black: ['c4=17'] },
+    })).toEqual({ enabled: true, black: ['c4=17'] });
+  });
+
+  it('无 enabled：mode=whitelist → 关 + black 清空（无法无损映射，重置为关）', () => {
+    expect(migrateCategoryFilterState({
+      categoryFilter: { mode: 'whitelist', black: ['c1=157', 'c7=28'] },
+    })).toEqual({ enabled: false, black: [] });
+  });
+
+  it('无 enabled：mode=off / 旧键 false / 全缺失 → 关 + black 保留（零回填口径）', () => {
+    expect(migrateCategoryFilterState({
+      categoryFilter: { mode: 'off', black: ['c4=17'] },
+    })).toEqual({ enabled: false, black: ['c4=17'] });
+    expect(migrateCategoryFilterState({
+      enableCategoryFilter: false,
+      categoryFilter: { black: ['c4=17'] },
+    })).toEqual({ enabled: false, black: ['c4=17'] });
+    expect(migrateCategoryFilterState(null)).toEqual({ enabled: false, black: [] });
   });
 });
 

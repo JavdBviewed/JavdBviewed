@@ -314,13 +314,13 @@ export function EnhancementSettingsPage() {
             {saveError}
           </p>
         ) : null}
-        <div data-enhancement-subtab="list" hidden={subtab !== 'list'}>
+        <div id="tabpanel-list" data-enhancement-subtab="list" hidden={subtab !== 'list'}>
           <ListTab form={form} setToggle={setToggle} patchForm={patchForm} onOpenFilterRuleEditor={onOpenFilterRuleEditor} onToggleRule={onToggleRule} onToggleRuleHide={onToggleRuleHide} onDeleteRule={onDeleteRule} />
         </div>
-        <div data-enhancement-subtab="video" hidden={subtab !== 'video'}>
+        <div id="tabpanel-video" data-enhancement-subtab="video" hidden={subtab !== 'video'}>
           <VideoTab form={form} setToggle={setToggle} patchForm={patchForm} aiModel={aiModel} />
         </div>
-        <div data-enhancement-subtab="actor" hidden={subtab !== 'actor'}>
+        <div id="tabpanel-actor" data-enhancement-subtab="actor" hidden={subtab !== 'actor'}>
           <ActorTab
             form={form}
             setToggle={setToggle}
@@ -329,7 +329,7 @@ export function EnhancementSettingsPage() {
             onClearLastAppliedActorTags={onClearLastAppliedActorTags}
           />
         </div>
-        <div data-enhancement-subtab="other" hidden={subtab !== 'other'}>
+        <div id="tabpanel-other" data-enhancement-subtab="other" hidden={subtab !== 'other'}>
           <OtherTab form={form} setToggle={setToggle} patchForm={patchForm} />
         </div>
 

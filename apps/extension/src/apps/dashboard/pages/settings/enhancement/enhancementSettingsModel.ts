@@ -17,8 +17,7 @@ import {
   type VideoEnhancementSchedulingMode,
 } from '../../../../../features/videoDetail/schedulingMode';
 import {
-  resolveCategoryFilterMode,
-  type CategoryFilterMode,
+  migrateCategoryFilterState,
 } from '../../../../../features/list-hiding/listHiding';
 
 export type EnhancementSubtab = 'list' | 'video' | 'actor' | 'other';
@@ -68,14 +67,14 @@ export type EnhancementSettingsFormState = {
   /** 演员穿透：列表卡片显示女性演员名 */
   enableActorPenetration: boolean;
   /**
-   * 影片类别过滤三态（09-29）：off=不过滤 / whitelist=仅保留所选类别 / blacklist=命中隐藏；
-   * 两态共同前提 enableActorPenetration=true（依赖穿透详情请求解析类别）。
-   * 读时旧键迁移：categoryFilter.mode 缺失时 enableCategoryFilter=true→blacklist 否则 off（零回填）。
+   * 影片类别过滤总开关（09-29-cftabs：三态下线 → 普通开关 + 每类别独立勾选）。
+   * 勾选集合非空且 enableActorPenetration=true 时生效（命中=隐藏）；
+   * 读时旧数据迁移：categoryFilter.enabled 缺失时按旧三态 mode 迁移（blacklist→开，whitelist→关+集合清空，off→关）（零回填）。
    */
-  categoryFilterMode: CategoryFilterMode;
-  /** 确认块瞬态（UI 专用，不持久化）：off→非 off 且穿透关时挂起待确认的目标态 */
-  categoryFilterModePending: CategoryFilterMode | null;
-  /** listEnhancement.categoryFilter.black（'c4=17' 形式 entryKey 数组；whitelist 态=所选保留集合） */
+  categoryFilterEnabled: boolean;
+  /** 确认块瞬态（UI 专用，不持久化）：开关关 + 穿透关时试图开启，挂起待确认 */
+  categoryFilterEnabledPending: boolean | null;
+  /** listEnhancement.categoryFilter.black（'c4=17' 形式 entryKey 数组；勾选=该类别影片隐藏） */
   categoryFilterBlack: string[];
   enableActorWatermark: boolean;
   actorWatermarkPosition: WatermarkPosition;
@@ -312,8 +311,8 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   previewVolume: 0.2,
   preferredPreviewSource: 'auto',
   enableActorPenetration: false,
-  categoryFilterMode: 'off',
-  categoryFilterModePending: null,
+  categoryFilterEnabled: false,
+  categoryFilterEnabledPending: null,
   categoryFilterBlack: [],
   enableActorWatermark: false,
   actorWatermarkPosition: 'top-right',
@@ -507,6 +506,23 @@ function mapFilterRules(raw: unknown): KeywordFilterRule[] {
 }
 
 /**
+ * 类别勾选切换（09-29-cftabs 纯函数回归锁）：
+ *   checked=true → key 进入隐藏集合；checked=false → 移出（幂等）。
+ * 历史回归：ListTab 类别勾选曾把两分支写反（勾选=删除），受控组件回渲
+ * 表现为「点击勾选框状态永不变化」，本函数+单测锁死该语义。
+ */
+export function toggleCategoryBlackKey(
+  black: readonly string[],
+  key: string,
+  checked: boolean,
+): string[] {
+  const next = new Set(black);
+  if (checked) next.add(key);
+  else next.delete(key);
+  return Array.from(next);
+}
+
+/**
  * 从完整设置映射为增强设置表单
  */
 export function mapSettingsToEnhancementForm(
@@ -534,6 +550,8 @@ export function mapSettingsToEnhancementForm(
   const display = s.display || {};
   const siteAppearance = s.siteAppearance || {};
   const libraryMatchStatus = s.libraryMatchStatus ?? le.libraryMatchStatus ?? {};
+  // 09-29-cftabs：类别过滤读时旧三态迁移（enabled 缺失→blacklist 开 / whitelist 关+集合清空 / off 关）
+  const categoryFilterState = migrateCategoryFilterState(le);
 
   return {
     enableContentFilter: !!(ux.enableContentFilter ?? cf.enabled),
@@ -561,12 +579,10 @@ export function mapSettingsToEnhancementForm(
     ),
     preferredPreviewSource: normalizePreviewSource(le.preferredPreviewSource),
     enableActorPenetration: le.enableActorPenetration === true,
-    // 09-29 三态：mode 缺失时按旧键 enableCategoryFilter 迁移（true→blacklist，否则 off），存量用户零回填
-    categoryFilterMode: resolveCategoryFilterMode(le),
-    categoryFilterModePending: null,
-    categoryFilterBlack: Array.isArray(le.categoryFilter?.black)
-      ? le.categoryFilter.black.filter((k: unknown): k is string => typeof k === 'string')
-      : [],
+    // 09-29-cftabs：三态下线 → 总开关（读迁移见 categoryFilterState），存量用户零回填
+    categoryFilterEnabled: categoryFilterState.enabled,
+    categoryFilterEnabledPending: null,
+    categoryFilterBlack: categoryFilterState.black,
     enableActorWatermark: le.enableActorWatermark === true,
     actorWatermarkPosition: normalizeWatermarkPosition(le.actorWatermarkPosition),
     actorWatermarkOpacity: clamp(
@@ -895,15 +911,17 @@ export function applyEnhancementFormToSettings(
       enableRightClickBackground: true,
       preferredPreviewSource: form.preferredPreviewSource,
       enableActorPenetration: form.enableActorPenetration,
-      // 09-29 三态：写 mode + black（展开保留 categoryFilter 对象内未知键，零回填）；
-      // 同步写旧键 enableCategoryFilter = (mode === 'blacklist')：覆盖残留/未来旧键读取点的兼容兜底
-      // （whitelist 故意映射 false——旧读者无白名单语义，不过滤是最安全降级）。
-      enableCategoryFilter: form.categoryFilterMode === 'blacklist',
-      categoryFilter: {
-        ...existingList.categoryFilter,
-        mode: form.categoryFilterMode,
-        black: [...form.categoryFilterBlack],
-      },
+      // 09-29-cftabs：三态下线 → enabled + black（black=勾选手要隐藏的类别集合）；
+      // 同步写旧键 enableCategoryFilter = form.categoryFilterEnabled：布尔语义现与旧键完全一致，
+      // 保留供旧读取点（listEnhancementManager 旧键回退读 / 旧版本）兼容兜底。
+      enableCategoryFilter: form.categoryFilterEnabled,
+      categoryFilter: (() => {
+        const cf: Record<string, unknown> = { ...(existingList.categoryFilter || {}) };
+        delete cf.mode; // 三态键已下线：保存时删除（一次性迁移；读时以 enabled 为准）
+        cf.enabled = form.categoryFilterEnabled;
+        cf.black = [...form.categoryFilterBlack];
+        return cf;
+      })(),
       hideBlacklistedActorsInList: form.hideBlacklistedActorsInList,
       hideNonFavoritedActorsInList: form.hideNonFavoritedActorsInList,
       hideUnrecognizedActorsInList: form.hideUnrecognizedActorsInList,

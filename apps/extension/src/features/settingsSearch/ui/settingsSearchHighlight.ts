@@ -38,7 +38,18 @@ export async function revealStoredSettingsSearchTarget(options: RevealSettingsSe
   const highlightTarget = findHighlightContainer(element);
   await waitForEnhancementCardToRender(highlightTarget, waitMs);
   highlightTarget.dataset.enhancementReveal = '1';
-  highlightTarget.dispatchEvent(new CustomEvent('jdb:enhancement:reveal-card', { bubbles: true }));
+  // 09-29-cftabs：挂载兜底目标（与 EFC 的 data-enhancement-reveal 同机制）：
+  // 搜索 reveal 由 legacy init 在 React 挂载 effects 就位前派发，SettingTabs 的
+  // 监听可能尚未注册（事件丢失）；SettingTabs 挂载时读本属性重查目标控件切 pane，
+  // 消费后移除。
+  highlightTarget.dataset.enhancementRevealTarget = element.id
+    ? `#${element.id}`
+    : target.targetSelector;
+  // 09-29-cftabs：detail.target=命中控件（供卡内 SettingTabs 切到控件所在 pane；
+  // 旧监听者忽略 detail，向后兼容）。
+  highlightTarget.dispatchEvent(
+    new CustomEvent('jdb:enhancement:reveal-card', { bubbles: true, detail: { target: element } }),
+  );
   scrollElementIntoView(highlightTarget);
   highlightTarget.classList.add(HIGHLIGHT_CLASS);
 

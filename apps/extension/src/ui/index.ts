@@ -30,6 +30,9 @@ export type { TabItem, TabsProps } from './primitives/Tabs/Tabs';
 export { Toast } from './primitives/Toast/Toast';
 export type { ToastProps, ToastTone } from './primitives/Toast/Toast';
 
+export { Checkbox } from './primitives/Checkbox/Checkbox';
+export type { CheckboxProps } from './primitives/Checkbox/Checkbox';
+
 export { PageHeader } from './patterns/PageHeader/PageHeader';
 export type { PageHeaderAlign, PageHeaderProps } from './patterns/PageHeader/PageHeader';
 
@@ -44,6 +47,9 @@ export type { SettingSectionProps } from './patterns/SettingSection/SettingSecti
 
 export { SettingToggleRow } from './patterns/SettingToggleRow/SettingToggleRow';
 export type { SettingToggleRowProps } from './patterns/SettingToggleRow/SettingToggleRow';
+
+export { SettingTabs } from './patterns/SettingTabs/SettingTabs';
+export type { SettingTabsPane, SettingTabsProps } from './patterns/SettingTabs/SettingTabs';
 
 export { SettingField } from './patterns/SettingField/SettingField';
 export type { SettingFieldProps } from './patterns/SettingField/SettingField';
