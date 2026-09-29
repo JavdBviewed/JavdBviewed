@@ -16,6 +16,7 @@ import {
   syncDashboardState,
 } from '../shared/settingsPersist';
 import { getValue, setValue } from '../../../../../utils/storage';
+import { sendToJavdbSiteTabs } from '../../../../../utils/javdbSiteTabs';
 import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 
 export async function toast(
@@ -63,24 +64,8 @@ export async function clearLastAppliedActorTags(): Promise<void> {
  */
 export function broadcastEnhancementSettings(settings: ExtensionSettings): void {
   try {
-    chrome.tabs.query({ url: '*://javdb.com/*' }, (tabs) => {
-      tabs.forEach((tab) => {
-        if (!tab.id) return;
-        try {
-          chrome.tabs.sendMessage(
-            tab.id,
-            { type: 'settings-updated', settings },
-            () => {
-              if (chrome.runtime.lastError) {
-                /* ignore */
-              }
-            },
-          );
-        } catch {
-          /* ignore */
-        }
-      });
-    });
+    // 目标=manifest 站点主机集（主域+镜像）；带 settings payload，内容侧无需二次读存储
+    void sendToJavdbSiteTabs({ type: 'settings-updated', settings });
   } catch {
     /* ignore */
   }

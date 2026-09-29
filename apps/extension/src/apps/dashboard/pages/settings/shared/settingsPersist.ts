@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { ExtensionSettings } from '../../../../../types';
 import { getSettings, saveSettings } from '../../../../../utils/storage';
+import { sendToJavdbSiteTabs } from '../../../../../utils/javdbSiteTabs';
 
 export { getSettings, saveSettings };
 
@@ -52,21 +53,13 @@ export async function syncDashboardState(settings: ExtensionSettings): Promise<v
 }
 
 /**
- * 通知已打开的 JavDB 标签页设置已更新
+ * 通知已打开的站点标签页设置已更新。
+ * 目标=manifest content_scripts 站点主机集（主域+镜像，09-29-settings-broadcast-hosts）；
+ * 内容侧收到后自行读存储刷新（本消息不带 payload）。
  */
 export function notifyJavdbTabsSettingsUpdated(): void {
   try {
-    chrome.tabs.query({ url: '*://javdb.com/*' }, (tabs) => {
-      tabs.forEach((tab) => {
-        if (tab.id) {
-          chrome.tabs.sendMessage(tab.id, { type: 'settings-updated' }, () => {
-            if (chrome.runtime.lastError) {
-              /* 标签页未注入 content script 时忽略 */
-            }
-          });
-        }
-      });
-    });
+    void sendToJavdbSiteTabs({ type: 'settings-updated' });
   } catch {
     /* ignore */
   }

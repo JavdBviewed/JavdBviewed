@@ -7,6 +7,7 @@
 import { BaseSettingsPanel } from '../base/BaseSettingsPanel';
 import { STATE } from '../../../state';
 import { getValue } from '../../../../utils/storage';
+import { sendToJavdbSiteTabs } from '../../../../utils/javdbSiteTabs';
 import { showMessage } from '../../../ui/toast';
 import type { ExtensionSettings, KeywordFilterRule } from '../../../../types';
 import type { SettingsValidationResult, SettingsSaveResult } from '../types';
@@ -965,22 +966,11 @@ export class EnhancementSettings extends BaseSettingsPanel {
             });
             STATE.settings = newSettings;
 
-            // 通知所有JavDB标签页设置已更新：统一小写 settings-updated（带 payload，
-            // 内容主路由可识别；大写 SETTINGS_UPDATED 冗余双发已移除，2026-09-27 审计 B6）
-            chrome.tabs.query({ url: '*://javdb.com/*' }, (tabs) => {
-                tabs.forEach(tab => {
-                    if (tab.id) {
-                        try {
-                            console.log('[Enhancement] Broadcasting settings-updated to tab:', { tabId: tab.id, url: tab.url });
-                            chrome.tabs.sendMessage(tab.id, { type: 'settings-updated', settings: newSettings }, () => {
-                                if (chrome.runtime.lastError) {
-                                    console.debug('[Enhancement] settings-updated skipped:', { tabId: tab.id, error: chrome.runtime.lastError.message });
-                                }
-                            });
-                        } catch {}
-                    }
-                });
-            });
+            // 通知所有站点标签页（主域+镜像，主机集以 manifest content_scripts 为准）设置已更新：
+            // 统一小写 settings-updated（带 payload，内容主路由可识别；大写 SETTINGS_UPDATED
+            // 冗余双发已移除，2026-09-27 审计 B6）。原 *://javdb.com/* 单域查询漏镜像域 tab
+            // （javdb570/575），2026-09-29 broadcasthosts 线改走共享 helper。
+            void sendToJavdbSiteTabs({ type: 'settings-updated', settings: newSettings });
 
             return {
                 success: true,
