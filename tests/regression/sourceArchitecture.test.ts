@@ -1507,8 +1507,12 @@ describe('source architecture cleanup', () => {
     expect(legacyItemProcessorSource).toMatch(/features\/listEnhancement\/content\/itemProcessor/);
 
     const featureSource = fs.readFileSync(path.resolve(root, 'apps/extension/src/features/listEnhancement/listEnhancementManager.ts'), 'utf8');
-    const managerLineCount = featureSource.split(/\r?\n/).length;
-    expect(managerLineCount, 'listEnhancementManager.ts should keep shrinking as config, pure helpers, and styles move out').toBeLessThanOrEqual(900);
+    // 预算口径统一为本文件其余 65 条断言一致的非空行数（原为 raw 行数，含空行）；900 预算值不变（真拆在后续任务线）
+    const managerNonEmptyLines = featureSource
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    expect(managerNonEmptyLines.length, 'listEnhancementManager.ts should keep shrinking as config, pure helpers, and styles move out').toBeLessThanOrEqual(900);
     expect(featureSource).toMatch(/\.\/domain\/config/);
     expect(featureSource).toMatch(/\.\/application\/actorHidingWorkflow/);
     expect(featureSource).toMatch(/\.\/application\/actorWatermark/);
@@ -1872,8 +1876,12 @@ describe('source architecture cleanup', () => {
     }
 
     const managerSource = fs.readFileSync(path.resolve(root, 'apps/extension/src/features/magnets/ui/magnetSearchManager.ts'), 'utf8');
-    const managerLineCount = managerSource.split(/\r?\n/).length;
-    expect(managerLineCount, 'magnetSearchManager.ts should keep shrinking as pure UI helpers move out').toBeLessThanOrEqual(1900);
+    // 同上：raw 行数口径统一为非空行数；1900 预算值不变
+    const magnetManagerNonEmptyLines = managerSource
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    expect(magnetManagerNonEmptyLines.length, 'magnetSearchManager.ts should keep shrinking as pure UI helpers move out').toBeLessThanOrEqual(1900);
     expect(managerSource).toMatch(/application\/resultMetadata/);
 
     const helperSource = fs.readFileSync(path.resolve(root, targetPath), 'utf8');

@@ -5,14 +5,14 @@
  *   ② sendToJavdbSiteTabs 广播行为（tab.id 去重/单 tab 失败静默/恒 resolve）；
  *   ③ 广播点走 helper 的源码级锁定（legacy EnhancementSettings.ts 不再硬编码
  *      `*://javdb.com/*` tabs.query）。
- * @module utils
+ * @module tests/tests
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { getJavdbSiteTabUrlPatterns, sendToJavdbSiteTabs } from './javdbSiteTabs';
+import { getJavdbSiteTabUrlPatterns, sendToJavdbSiteTabs } from '../apps/extension/src/utils/javdbSiteTabs';
 
 /** 与 src/manifest.json content_scripts[0].matches 一致的站点主机集（09-29 基线）。 */
 const SITE_PATTERNS = [
@@ -218,7 +218,7 @@ const HARDCODED_QUERY = "tabs.query({ url: '*://javdb.com/*'";
 describe('广播点走 helper（源码级锁定）', () => {
   it('legacy EnhancementSettings.ts：运行时代码不再硬编码单域 tabs.query（块注释内死代码不计），改 import helper', () => {
     const file = readFileSync(
-      path.join(__dirname, '../dashboard/tabs/settings/enhancement/EnhancementSettings.ts'),
+      path.join(__dirname, '../apps/extension/src/dashboard/tabs/settings/enhancement/EnhancementSettings.ts'),
       'utf8',
     );
     expect(stripComments(file)).not.toContain(HARDCODED_QUERY);
@@ -228,7 +228,7 @@ describe('广播点走 helper（源码级锁定）', () => {
 
   it('settingsPersist.ts：notifyJavdbTabsSettingsUpdated 运行时代码不再硬编码单域 tabs.query', () => {
     const file = readFileSync(
-      path.join(__dirname, '../apps/dashboard/pages/settings/shared/settingsPersist.ts'),
+      path.join(__dirname, '../apps/extension/src/apps/dashboard/pages/settings/shared/settingsPersist.ts'),
       'utf8',
     );
     expect(stripComments(file)).not.toContain(HARDCODED_QUERY);
@@ -237,7 +237,7 @@ describe('广播点走 helper（源码级锁定）', () => {
 
   it('enhancementSettingsActions.ts：broadcastEnhancementSettings 运行时代码不再硬编码单域 tabs.query', () => {
     const file = readFileSync(
-      path.join(__dirname, '../apps/dashboard/pages/settings/enhancement/enhancementSettingsActions.ts'),
+      path.join(__dirname, '../apps/extension/src/apps/dashboard/pages/settings/enhancement/enhancementSettingsActions.ts'),
       'utf8',
     );
     expect(stripComments(file)).not.toContain(HARDCODED_QUERY);
@@ -250,7 +250,7 @@ describe('广播点走 helper（源码级锁定）', () => {
       out = execFileSync(
         'grep',
         ['-rln', HARDCODED_QUERY, 'apps/extension/src'],
-        { cwd: path.join(__dirname, '../../../..'), encoding: 'utf8' },
+        { cwd: path.join(__dirname, '..'), encoding: 'utf8' },
       );
     } catch (e: any) {
       if (e?.status === 1) return; // 无任何命中=通过
@@ -261,7 +261,7 @@ describe('广播点走 helper（源码级锁定）', () => {
       .map((l) => l.trim())
       .filter((l) => l && !l.endsWith('.test.ts'));
     for (const f of files) {
-      const codeOnly = stripComments(readFileSync(path.join(__dirname, '../../../..', f), 'utf8'));
+      const codeOnly = stripComments(readFileSync(path.join(__dirname, '..', f), 'utf8'));
       expect(codeOnly, f).not.toContain(HARDCODED_QUERY);
     }
   });
@@ -275,7 +275,7 @@ describe('settingsPersist.notifyJavdbTabsSettingsUpdated（运行时锁定）', 
   it('query 入参 url=manifest 站点主机集；消息体无 payload（内容侧自读存储）', async () => {
     const tabs = [{ id: 31, url: 'https://javdb570.com/?vst=0' }];
     const { query, sendMessage } = stubChromeWithManifest(SITE_PATTERNS, tabs);
-    const mod = await import('../apps/dashboard/pages/settings/shared/settingsPersist');
+    const mod = await import('../apps/extension/src/apps/dashboard/pages/settings/shared/settingsPersist');
     mod.notifyJavdbTabsSettingsUpdated();
     expect(query).toHaveBeenCalledWith({ url: SITE_PATTERNS }, expect.any(Function));
     expect(sendMessage).toHaveBeenCalledTimes(1);
