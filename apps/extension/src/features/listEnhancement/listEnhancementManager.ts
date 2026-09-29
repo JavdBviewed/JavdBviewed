@@ -29,8 +29,10 @@ import {
 } from './domain/config';
 import {
   createActorDataCache,
+  createActorNameMarkPrep,
   extractActorsFromListItem,
   renderActorWatermark,
+  type ActorNameMarkPrep,
 } from './application/actorWatermark';
 import { matchActorsFromTitle } from './application/actorMatching';
 import {
@@ -135,9 +137,9 @@ class ListEnhancementManager {
       return response.text();
     },
     processVisibleItems: () => processVisibleItems(),
-    clearActorCaches: () => this.clearActorCaches(),
+    clearActorCaches: () => this.actorNameMarkPrep.clearActorCaches(),
     onItemsAppended: event => this.listSortingController.handleItemsAppended(event),
-    onActorIndexCleared: () => this.invalidateActorNameMarkPrep(),
+    onActorIndexCleared: () => this.actorNameMarkPrep.invalidateActorNameMarkPrep(),
   });
   private readonly actorDataCache = createActorDataCache({
     getAllActors: () => actorManager.getAllActorsIndex(),
@@ -165,17 +167,21 @@ class ListEnhancementManager {
       this.scheduleCategoryFilterDecision(item, categories);
     },
     getActorMark: (actorId) => {
-      if (!this.config.enableActorNameMarks || !this.actorNameMarkPrepped) return undefined;
+      if (!this.config.enableActorNameMarks || !this.actorNameMarkPrep.isPrepped()) return undefined;
       return resolveActorLinkMark(
         actorId,
         this.actorDataCache.getActorByIdSync(actorId),
-        { subscribedActorIds: this.subscribedActorIds },
+        { subscribedActorIds: this.actorNameMarkPrep.getSubscribedActorIds() },
       );
     },
   });
-  private subscribedActorIds = new Set<string>();
-  // 名称标识数据是否已预热完成（索引 + 订阅）
-  private actorNameMarkPrepped = false;
+  // 名标记预热状态（预热标记 + 订阅集合）与相关成员自线② Stage B 外移至 application/actorWatermark。
+  private readonly actorNameMarkPrep: ActorNameMarkPrep = createActorNameMarkPrep({
+    actorDataCache: this.actorDataCache,
+    canReapplyRowMarks: () =>
+      !!this.config.enableActorNameMarks && this.config.enableActorPenetration === true,
+    reapplyRowMarks: () => this.reapplyActorRowMarks(),
+  });
   private readonly actorVisibilityGate = createActorVisibilityGate();
   private readonly forceActorHidingItems = new WeakSet<HTMLElement>();
 
@@ -220,10 +226,9 @@ class ListEnhancementManager {
       watch: (o, c) =>
         (o.enableActorNameMarks !== false) !== (c.enableActorNameMarks !== false),
       apply: () => {
-        this.actorNameMarkPrepped = false;
-        this.subscribedActorIds = new Set();
+        this.actorNameMarkPrep.resetActorNameMarkPrep();
         if (this.config.enableActorNameMarks !== false) {
-          void this.warmActorNameMarkData();
+          void this.actorNameMarkPrep.warmActorNameMarkData();
         }
       },
     },
@@ -268,7 +273,7 @@ class ListEnhancementManager {
       name: 'actorNameMarksReplay',
       watch: (o, c) =>
         (o.enableActorNameMarks !== false) !== (c.enableActorNameMarks !== false),
-      apply: () => this.reapplyActorRowMarksIfReady(),
+      apply: () => this.actorNameMarkPrep.reapplyActorRowMarksIfReady(),
     },
     {
       name: 'listDisplay',
@@ -336,52 +341,6 @@ class ListEnhancementManager {
     });
   }
   // ====== 演员水印相关 ======
-  /**
-   * 清除演员相关缓存
-   * 在以下情况调用：
-   * 1. 翻页前
-   * 2. 配置变化时
-   * 3. 手动刷新时
-   */
-  private clearActorCaches(): void {
-    this.actorDataCache.clear();
-  }
-
-  /**
-   * 预热演员名称标识所需的本地数据（演员索引 + 订阅集合）。
-   * getActorMark 为同步读取，必须先完成异步加载；完成后重放已渲染的行，
-   * 使首帧渲染时标识缺失的卡片补上着色。
-   */
-  private async warmActorNameMarkData(): Promise<void> {
-    try {
-      await Promise.all([
-        this.actorDataCache.ensureActorIndex(),
-        this.actorDataCache.ensureSubscriptions(),
-      ]);
-    } catch {
-      this.subscribedActorIds = new Set();
-    }
-    try {
-      this.subscribedActorIds = new Set(await this.actorDataCache.ensureSubscriptions());
-    } catch {
-      this.subscribedActorIds = new Set();
-    }
-  }
-
-  /** 名称标识预热完成/失效后，重放已渲染的穿透行以补全着色。 */
-  private reapplyActorRowMarksIfReady(): void {
-    if (!this.config.enableActorNameMarks) return;
-    if (this.config.enableActorPenetration !== true) return;
-    this.reapplyActorRowMarks();
-  }
-
-  /** 演员索引被清除（翻页/刷新）时，若已重放则重置预热标记。 */
-  private invalidateActorNameMarkPrep(): void {
-    if (this.actorNameMarkPrepped) {
-      this.actorNameMarkPrepped = false;
-      this.subscribedActorIds = new Set();
-    }
-  }
 
   private async applyActorWatermark(item: HTMLElement, videoInfo: { code: string; title: string; url: string }): Promise<void> {
     try {
@@ -633,13 +592,13 @@ class ListEnhancementManager {
     // 首次进入穿透时预热名称标识数据（演员索引 + 订阅），不阻塞入队；
     // 就绪后重放已渲染行，为标识缺失的卡片补全着色
     if (
-      !this.actorNameMarkPrepped &&
+      !this.actorNameMarkPrep.isPrepped() &&
       this.config.enableActorNameMarks !== false &&
       this.config.enableActorPenetration === true
     ) {
-      this.actorNameMarkPrepped = true;
-      void this.warmActorNameMarkData()
-        .then(() => this.reapplyActorRowMarksIfReady())
+      this.actorNameMarkPrep.markPrepped();
+      void this.actorNameMarkPrep.warmActorNameMarkData()
+        .then(() => this.actorNameMarkPrep.reapplyActorRowMarksIfReady())
         .catch(err => log('warmActorNameMarkData failed:', err));
     }
 

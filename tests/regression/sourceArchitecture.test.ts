@@ -1478,6 +1478,7 @@ describe('source architecture cleanup', () => {
       'apps/extension/src/features/listEnhancement/ui/listDisplayControl.ts',
       'apps/extension/src/features/listEnhancement/ui/listSortingControls.ts',
       'apps/extension/src/features/listEnhancement/ui/previewHoverController.ts',
+      'apps/extension/src/features/listEnhancement/ui/styleInjection.ts',
       'apps/extension/src/features/listEnhancement/ui/styles.ts',
       'apps/extension/src/features/previews/listPreviewLoader.ts',
     ];
@@ -1507,12 +1508,12 @@ describe('source architecture cleanup', () => {
     expect(legacyItemProcessorSource).toMatch(/features\/listEnhancement\/content\/itemProcessor/);
 
     const featureSource = fs.readFileSync(path.resolve(root, 'apps/extension/src/features/listEnhancement/listEnhancementManager.ts'), 'utf8');
-    // 预算口径统一为本文件其余 65 条断言一致的非空行数（原为 raw 行数，含空行）；900 预算值不变（真拆在后续任务线）
+    // 预算口径为本文件统一的非空行数（trim + filter(Boolean)）；线② manager 真拆三段（A1 样式注入 / A2 热度 / B 名标记）完成后，预算由 900 收紧至 860（现值 768）
     const managerNonEmptyLines = featureSource
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
-    expect(managerNonEmptyLines.length, 'listEnhancementManager.ts should keep shrinking as config, pure helpers, and styles move out').toBeLessThanOrEqual(900);
+    expect(managerNonEmptyLines.length, 'listEnhancementManager.ts should keep shrinking as config, pure helpers, and styles move out').toBeLessThanOrEqual(860);
     expect(featureSource).toMatch(/\.\/domain\/config/);
     expect(featureSource).toMatch(/\.\/application\/actorHidingWorkflow/);
     expect(featureSource).toMatch(/\.\/application\/actorWatermark/);
@@ -1844,8 +1845,12 @@ describe('source architecture cleanup', () => {
     }
 
     const indexedDbSource = fs.readFileSync(path.resolve(root, 'apps/extension/src/platform/storage/indexedDb.ts'), 'utf8');
-    const indexedDbLineCount = indexedDbSource.split(/\r?\n/).length;
-    expect(indexedDbLineCount, 'indexedDb.ts should keep shrinking as storage internals move out').toBeLessThanOrEqual(2100);
+    // 口径统一为非空行数（原为 raw 行数，含空行）；预算 2100 不变（现值非空 1784 / raw 1969，两口径皆绿）
+    const indexedDbNonEmptyLines = indexedDbSource
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    expect(indexedDbNonEmptyLines.length, 'indexedDb.ts should keep shrinking as storage internals move out').toBeLessThanOrEqual(2100);
     expect(indexedDbSource).toMatch(/\.\/indexedDbConnection/);
     expect(indexedDbSource).toMatch(/\.\/indexedDbSchema/);
     expect(indexedDbSource).toMatch(/\.\/indexedDbLogFields/);
