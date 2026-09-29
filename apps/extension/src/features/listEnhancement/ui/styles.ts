@@ -542,3 +542,29 @@ export const LIST_ENHANCEMENT_BASE_STYLES = `
     .x-actor-wm.pos-bottom-left { bottom: 6px; left: 6px; }
     .x-actor-wm.pos-bottom-right { bottom: 6px; right: 6px; }
   `;
+
+/** 演员水印样式（A1：原 listEnhancementManager.ensureWatermarkStyles 内联模板）。 */
+export const LIST_ENHANCEMENT_WATERMARK_STYLES = `
+        .x-actor-wm { position: absolute; display: inline-flex; flex-wrap: wrap; gap: 6px; padding: 8px; z-index: 4; pointer-events: auto; }
+        .x-actor-wm.pos-top-left { top: 6px; left: 6px; }
+        .x-actor-wm.pos-top-right { top: 6px; right: 6px; }
+        .x-actor-wm.pos-bottom-left { bottom: 6px; left: 6px; }
+        .x-actor-wm.pos-bottom-right { bottom: 6px; right: 6px; }
+        .x-actor-wm .x-actor-badge { height: 16px; line-height: 16px; padding: 0 6px; border-radius: 9999px; color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; box-shadow: 0 0 0 2px rgba(255,255,255,0.85), 0 1px 2px rgba(0,0,0,0.25); }
+        .x-actor-wm .badge-red { background: #ef4444; }
+        .x-actor-wm .badge-green { background: #22c55e; }
+        .x-actor-wm .badge-amber { background: #f59e0b; }
+        .x-actor-wm .x-actor-more { background: rgba(31,41,55,0.9); }
+`;
+
+/** 演员穿透行样式（A1：原 listEnhancementManager.ensureActorRowStyles 内联模板）。 */
+export const LIST_ENHANCEMENT_ACTOR_ROW_STYLES = `
+        .x-ap-actor-row-container { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 6px; vertical-align: middle; max-width: 100%; }
+        .x-ap-actor-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; line-height: 1.4; color: var(--color-fg-muted, #57606a); }
+        .x-ap-actor-row-label { display: inline-block; color: var(--color-fg-subtle, #8c959f); user-select: none; }
+        .x-ap-actor { display: inline-block; color: inherit; text-decoration: none; }
+        .x-ap-actor:hover { text-decoration: underline; }
+        .x-ap-actor-sub { display: inline-block; font-size: 11px; line-height: 1; vertical-align: middle; color: #f59e0b; margin-left: 2px; }
+        .x-ap-actor-more { display: inline-block; color: var(--color-fg-subtle, #8c959f); background: none; border: none; padding: 0; margin: 0; font: inherit; line-height: inherit; cursor: pointer; }
+        .x-ap-actor-more:hover { color: var(--color-fg, #1f2328); text-decoration: underline; }
+`;
