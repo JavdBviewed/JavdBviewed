@@ -30,12 +30,12 @@ function makeItem(): HTMLElement {
 
 const FEMALE_HTML = `
 <html><body><div class="panel-block"><strong>演員</strong>
-<div class="value"><a href="/actors/a1">演员一</a><a href="/actors/a2">演员二</a></div>
+<div class="value"><a class="actor-female" href="/actors/a1">演员一</a><a class="actor-female" href="/actors/a2">演员二</a></div>
 </div></body></html>`;
 
 const FEMALE_EN_HTML = `
 <html><body><div class="panel-block"><strong>Actor(s):</strong>
-<div class="value"><a href="/actors/e1">Actress One</a><a href="/actors/e2">Actress Two</a></div>
+<div class="value"><a class="actor-female" href="/actors/e1">Actress One</a><a class="actor-female" href="/actors/e2">Actress Two</a></div>
 </div>
 <div class="panel-block"><strong>Male Actor(s):</strong>
 <div class="value"><a href="/actors/m1">Male One</a></div>
@@ -227,7 +227,7 @@ describe('ActorPenetrationRuntime', () => {
   it('详情解析出 >3 位女演员时缓存保存全量（不截断），hasMore=true', async () => {
     const sixFemaleHtml = `
 <html><body><div class="panel-block"><strong>演員</strong>
-<div class="value">${Array.from({ length: 6 }, (_, i) => `<a href="/actors/f${i + 1}">女演员${i + 1}</a>`).join('')}</div>
+<div class="value">${Array.from({ length: 6 }, (_, i) => `<a class="actor-female" href="/actors/f${i + 1}">女演员${i + 1}</a>`).join('')}</div>
 </div></body></html>`;
     const cache = makeCacheMock();
     const fetchText = vi.fn(async () => ({ html: sixFemaleHtml, finalUrl: 'https://javdb.com/v/full' }));

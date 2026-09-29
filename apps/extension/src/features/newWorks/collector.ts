@@ -61,6 +61,7 @@ const extractDetailPanelsFunc = (targetUrl: string):
                     nextText: next ? (next.textContent || '') : null,
                     symbolClass: symbol ? (symbol.getAttribute('class') || '') : null,
                     symbolText: symbol ? (symbol.textContent || '') : null,
+                    linkClass: a.getAttribute('class') || null,
                 });
             });
             const value = panel.querySelector('.value');
