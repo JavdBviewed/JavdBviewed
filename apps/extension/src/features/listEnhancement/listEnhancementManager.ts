@@ -49,10 +49,8 @@ import {
   buildPopularityEffectAttributes,
   parseRatingStatsText,
 } from './application/popularityEffects';
-import {
-  buildPopularityStyles,
-  LIST_ENHANCEMENT_BASE_STYLES,
-} from './ui/styles';
+import { buildPopularityStyles } from './ui/styles';
+import { ensureActorRowStyles, ensureWatermarkStyles } from './ui/styleInjection';
 import {
   applyListDisplayControl,
   processListDisplayContainers,
@@ -180,10 +178,6 @@ class ListEnhancementManager {
   private actorNameMarkPrepped = false;
   private readonly actorVisibilityGate = createActorVisibilityGate();
   private readonly forceActorHidingItems = new WeakSet<HTMLElement>();
-  // 演员水印样式注入标记
-  private watermarkStylesInjected = false;
-  // 演员穿透行样式注入标记
-  private actorRowStylesInjected = false;
   private popularityStylesInjected = false;
 
   /**
@@ -396,30 +390,6 @@ class ListEnhancementManager {
     });
   }
   // ====== 演员水印相关 ======
-  private ensureWatermarkStyles(): void {
-    if (this.watermarkStylesInjected) return;
-    try {
-      const style = document.createElement('style');
-      style.id = 'x-actor-watermark-styles';
-      style.textContent = `
-        .x-actor-wm { position: absolute; display: inline-flex; flex-wrap: wrap; gap: 6px; padding: 8px; z-index: 4; pointer-events: auto; }
-        .x-actor-wm.pos-top-left { top: 6px; left: 6px; }
-        .x-actor-wm.pos-top-right { top: 6px; right: 6px; }
-        .x-actor-wm.pos-bottom-left { bottom: 6px; left: 6px; }
-        .x-actor-wm.pos-bottom-right { bottom: 6px; right: 6px; }
-        .x-actor-wm .x-actor-badge { height: 16px; line-height: 16px; padding: 0 6px; border-radius: 9999px; color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; box-shadow: 0 0 0 2px rgba(255,255,255,0.85), 0 1px 2px rgba(0,0,0,0.25); }
-        .x-actor-wm .badge-red { background: #ef4444; }
-        .x-actor-wm .badge-green { background: #22c55e; }
-        .x-actor-wm .badge-amber { background: #f59e0b; }
-        .x-actor-wm .x-actor-more { background: rgba(31,41,55,0.9); }
-      `;
-      document.head.appendChild(style);
-      this.watermarkStylesInjected = true;
-      log('Actor watermark styles injected');
-    } catch (e) {
-      log('Failed to inject actor watermark styles:', e);
-    }
-  }
   /**
    * 清除演员相关缓存
    * 在以下情况调用：
@@ -467,32 +437,9 @@ class ListEnhancementManager {
     }
   }
 
-  /** 注入演员穿透行样式（小字号、名字间距、日期同行对齐）。 */
-  private ensureActorRowStyles(): void {
-    if (this.actorRowStylesInjected) return;
-    try {
-      const style = document.createElement('style');
-      style.id = 'x-ap-actor-row-styles';
-      style.textContent = `
-        .x-ap-actor-row-container { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 6px; vertical-align: middle; max-width: 100%; }
-        .x-ap-actor-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; line-height: 1.4; color: var(--color-fg-muted, #57606a); }
-        .x-ap-actor-row-label { display: inline-block; color: var(--color-fg-subtle, #8c959f); user-select: none; }
-        .x-ap-actor { display: inline-block; color: inherit; text-decoration: none; }
-        .x-ap-actor:hover { text-decoration: underline; }
-        .x-ap-actor-sub { display: inline-block; font-size: 11px; line-height: 1; vertical-align: middle; color: #f59e0b; margin-left: 2px; }
-        .x-ap-actor-more { display: inline-block; color: var(--color-fg-subtle, #8c959f); background: none; border: none; padding: 0; margin: 0; font: inherit; line-height: inherit; cursor: pointer; }
-        .x-ap-actor-more:hover { color: var(--color-fg, #1f2328); text-decoration: underline; }
-      `;
-      document.head.appendChild(style);
-      this.actorRowStylesInjected = true;
-    } catch (e) {
-      log('Failed to inject actor row styles:', e);
-    }
-  }
-
   private async applyActorWatermark(item: HTMLElement, videoInfo: { code: string; title: string; url: string }): Promise<void> {
     try {
-      this.ensureWatermarkStyles();
+      ensureWatermarkStyles();
       const [actorIndex, subscribedActorIds] = await Promise.all([
         this.actorDataCache.ensureActorIndex(),
         this.actorDataCache.ensureSubscriptions(),
@@ -581,7 +528,7 @@ class ListEnhancementManager {
 
     // 若启用演员水印，初始化一次样式
     if (this.config.enableActorWatermark) {
-      this.ensureWatermarkStyles();
+      ensureWatermarkStyles();
     }
 
     this.ensurePopularityStyles();
@@ -736,7 +683,7 @@ class ListEnhancementManager {
     if (!this.config.enableActorPenetration) return;
     if (!videoInfo.code) return;
 
-    this.ensureActorRowStyles();
+    ensureActorRowStyles();
     // 首次进入穿透时预热名称标识数据（演员索引 + 订阅），不阻塞入队；
     // 就绪后重放已渲染行，为标识缺失的卡片补全着色
     if (
@@ -981,24 +928,3 @@ class ListEnhancementManager {
 }
 
 export const listEnhancementManager = new ListEnhancementManager();
-
-// 添加必要的CSS样式
-function injectStyles(): void {
-  const styleId = 'list-enhancement-styles';
-  if (document.getElementById(styleId)) return;
-
-  const style = document.createElement('style');
-  style.id = styleId;
-  style.textContent = LIST_ENHANCEMENT_BASE_STYLES;
-
-  document.head.appendChild(style);
-}
-
-// 自动注入样式
-if (typeof document !== 'undefined') {
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', injectStyles);
-  } else {
-    injectStyles();
-  }
-}
