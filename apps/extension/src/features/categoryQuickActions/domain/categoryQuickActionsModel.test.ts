@@ -15,6 +15,13 @@ import {
   buildNewWorksFiltersPatch,
   buttonView,
   categoryFilterEnabledOf,
+  categoryLinkMarkPlan,
+  CATEGORY_STATE_LIST_BLOCKED_COLOR,
+  CATEGORY_STATE_LIST_BLOCKED_TEXT_DECORATION,
+  CATEGORY_STATE_NEW_WORKS_ICON,
+  CATEGORY_STATE_TITLE_LIST_BLOCKED,
+  CATEGORY_STATE_TITLE_NEW_WORKS_BLOCKED,
+  CATEGORY_STATE_TITLE_SEPARATOR,
   containsEntryKey,
   isCategoryFilterActive,
   listBlockToastText,
@@ -327,5 +334,72 @@ describe('resolveActionIntent（点击意图极性）', () => {
       expect(second.enable).toBe(!first.enable);
       expect(second.nextActive).toBe(false);
     }
+  });
+});
+
+// ── 类别链接文字级状态标记计划（09-30-category-link-state） ──────────────────
+
+describe('categoryLinkMarkPlan（状态标记渲染计划：4 组合 + 共存 + title 拼接）', () => {
+  it('组合一：两集合皆未命中 → 全 false、titleText=null（调用方须还原原 title）', () => {
+    const plan = categoryLinkMarkPlan(KEY, [], []);
+    expect(plan).toEqual({
+      entryKey: KEY,
+      listBlocked: false,
+      newWorksBlocked: false,
+      needsStrike: false,
+      needsIcon: false,
+      titleText: null,
+    });
+  });
+
+  it('组合二：仅列表页屏蔽集命中 → 红+删除线、无图标、单段 title', () => {
+    const plan = categoryLinkMarkPlan(KEY, [KEY], []);
+    expect(plan.needsStrike).toBe(true);
+    expect(plan.needsIcon).toBe(false);
+    expect(plan.titleText).toBe(CATEGORY_STATE_TITLE_LIST_BLOCKED);
+    expect(plan.titleText).toBe('已屏蔽：列表页隐藏该类别');
+  });
+
+  it('组合三：仅新作品不入库集命中 → 禁止图标、无删除线、单段 title', () => {
+    const plan = categoryLinkMarkPlan(KEY, [], [KEY]);
+    expect(plan.needsStrike).toBe(false);
+    expect(plan.needsIcon).toBe(true);
+    expect(plan.titleText).toBe(CATEGORY_STATE_TITLE_NEW_WORKS_BLOCKED);
+    expect(plan.titleText).toBe('新作品不入库：该类别影片将不再入库');
+  });
+
+  it('组合四：两集合同命中 → 红删除线与图标共存，title 两段用中文分号拼接', () => {
+    const plan = categoryLinkMarkPlan(KEY, [OTHER, KEY], [KEY, OTHER]);
+    expect(plan.needsStrike).toBe(true);
+    expect(plan.needsIcon).toBe(true);
+    expect(plan.titleText).toBe(
+      `${CATEGORY_STATE_TITLE_LIST_BLOCKED}${CATEGORY_STATE_TITLE_SEPARATOR}${CATEGORY_STATE_TITLE_NEW_WORKS_BLOCKED}`,
+    );
+    expect(plan.titleText).toBe('已屏蔽：列表页隐藏该类别；新作品不入库：该类别影片将不再入库');
+  });
+
+  it('色值/线型/图标沿用 coord 裁决口径（与演员黑名单同色；图标=🚫）', () => {
+    expect(CATEGORY_STATE_LIST_BLOCKED_COLOR).toBe('#d32f2f');
+    expect(CATEGORY_STATE_LIST_BLOCKED_TEXT_DECORATION).toBe('line-through');
+    expect(CATEGORY_STATE_NEW_WORKS_ICON).toBe('🚫');
+  });
+
+  it('legacy 裸 id 形态同样命中（沿用 containsEntryKey 归一口径）', () => {
+    const bare = '17';
+    expect(categoryLinkMarkPlan('c4=17', [bare], []).listBlocked).toBe(true);
+    expect(categoryLinkMarkPlan('c4=17', [], [bare]).newWorksBlocked).toBe(true);
+  });
+
+  it('脏集合输入（null/undefined/非字符串元素）不抛错且按未命中处理', () => {
+    expect(categoryLinkMarkPlan(KEY, undefined, null).needsStrike).toBe(false);
+    expect(categoryLinkMarkPlan(KEY, [1 as any, null as any], ['']).needsIcon).toBe(false);
+  });
+
+  it('★纯函数：不触 DOM、不触 chrome（node 环境下两全局均不存在仍可调用），且返回可序列化计划', () => {
+    expect(typeof document).toBe('undefined');
+    expect(typeof (globalThis as any).chrome).toBe('undefined');
+    const plan = categoryLinkMarkPlan(KEY, [KEY], [KEY]);
+    expect(Object.keys(plan)).toEqual(['entryKey', 'listBlocked', 'newWorksBlocked', 'needsStrike', 'needsIcon', 'titleText']);
+    expect(JSON.parse(JSON.stringify(plan))).toEqual(plan);
   });
 });

@@ -34,9 +34,14 @@ import {
   listBlockToastText,
   resolveActionIntent,
   CATEGORY_QUICK_ACTION_SPECS,
+  categoryLinkMarkPlan,
+  CATEGORY_STATE_LIST_BLOCKED_COLOR,
+  CATEGORY_STATE_LIST_BLOCKED_TEXT_DECORATION,
+  CATEGORY_STATE_NEW_WORKS_ICON,
   type CategoryQuickActionId,
   type CategoryQuickActionContext,
   type CategoryQuickActionState,
+  type CategoryLinkMarkPlan,
 } from './domain/categoryQuickActionsModel';
 
 interface CategoryQuickActionsConfig {
@@ -53,6 +58,16 @@ interface CategoryActionStateSnapshot {
 
 const DEFAULT_SNAPSHOT: CategoryActionStateSnapshot = { listBlack: [], newWorksBlack: [] };
 
+// ── 类别链接文字级状态标记（09-30-category-link-state） ─────────────────────────
+// 与悬浮面板同子开关门控、同生灭：面板能出现的链接才可能被打标，destroy 时全清。
+
+/** 已绑定（=可标记）链接的选择器：标记重绘/回收都以绑定态为准。 */
+const BOUND_LINK_SELECTOR = 'a[data-x-category-quick-bound="true"]';
+
+/** 禁止图标类名（x-category-quick-* 命名空间内；幂等识别用）。 */
+const STATE_ICON_CLASS = 'x-category-quick-state-icon';
+const STATE_ICON_DATA_ATTR = 'data-x-category-quick-state-icon';
+
 class CategoryQuickActionsManager {
   private config: CategoryQuickActionsConfig = {
     enabled: true,
@@ -66,6 +81,19 @@ class CategoryQuickActionsManager {
   private stylesInjected = false;
   private observer: MutationObserver | null = null;
   private inited = false;
+  /**
+   * 链接被本功能改写前的原值（color/textDecoration/title）。
+   * ★ 用 WeakMap 而非 dataset：不把扩展自己的数据写进站点 DOM。
+   */
+  private readonly markOriginals = new WeakMap<HTMLAnchorElement, {
+    title: string | null;
+    color: string;
+    textDecoration: string;
+  }>();
+  /** 最近一次读到的两集合快照（新增绑定链接可据此同步补画，不等异步）。 */
+  private cachedSnapshot: CategoryActionStateSnapshot = DEFAULT_SNAPSHOT;
+  /** chrome.storage.onChanged 监听摘除句柄。 */
+  private disposeStorageWatcher: (() => void) | null = null;
 
   updateConfig(newConfig: Partial<CategoryQuickActionsConfig>): void {
     this.config = { ...this.config, ...newConfig };
@@ -240,6 +268,7 @@ class CategoryQuickActionsManager {
     } catch {
       snapshot.newWorksBlack = [];
     }
+    this.cachedSnapshot = snapshot;
     return snapshot;
   }
 
@@ -318,6 +347,8 @@ class CategoryQuickActionsManager {
         const toast = await onToggle(enable);
         applyView(nextActive);
         showToast(toast, 'success');
+        // ★ 写入成功后就地翻转链接状态标记（面板保持打开，便于连续撤销；不改变按钮任何语义）
+        void this.repaintLinkStates();
       } catch (err: any) {
         console.error('[CategoryQuickActions] 操作失败:', err);
         iconEl.textContent = originalIcon || '';
@@ -461,6 +492,10 @@ class CategoryQuickActionsManager {
     anchor.setAttribute('data-x-category-entry-key', candidate.entryKey);
     anchor.classList.add('x-category-hoverable');
 
+    // 状态标记：绑定即入标记集（重绘走 DOM 选择器，无需额外注册表）。
+    // 已有快照时同步补画，避免 MutationObserver 新增链接漏标（首绘在 ensureInit 里异步补一次）。
+    this.applyLinkState(anchor, candidate.entryKey, this.cachedSnapshot);
+
     anchor.addEventListener('mouseenter', () => {
       if (this.showTimer) clearTimeout(this.showTimer);
       this.showTimer = window.setTimeout(() => {
@@ -480,6 +515,135 @@ class CategoryQuickActionsManager {
     // 链接本身点击保持原跳转（与演员快捷操作同口径，不阻止默认行为）
   }
 
+  // ── 链接文字级状态标记（09-30-category-link-state） ──────────────────────────
+
+  /** 取当前文档中所有已绑定（=可标记）的类别链接。 */
+  private boundLinks(): Array<{ anchor: HTMLAnchorElement; entryKey: string }> {
+    const nodes = document.querySelectorAll<HTMLAnchorElement>(BOUND_LINK_SELECTOR);
+    const list: Array<{ anchor: HTMLAnchorElement; entryKey: string }> = [];
+    nodes.forEach((anchorEl) => {
+      const entryKey = anchorEl.getAttribute('data-x-category-entry-key') || '';
+      if (entryKey) list.push({ anchor: anchorEl, entryKey });
+    });
+    return list;
+  }
+
+  /** 找链接的禁止图标兄弟节点（只认本功能创建的、entryKey 相同的那个）。 */
+  private findStateIcon(anchor: HTMLAnchorElement, entryKey: string): HTMLElement | null {
+    const parent = anchor.parentElement;
+    if (!parent) return null;
+    const icons = parent.querySelectorAll<HTMLElement>(`.${STATE_ICON_CLASS}`);
+    for (let i = 0; i < icons.length; i += 1) {
+      if (icons[i].getAttribute(STATE_ICON_DATA_ATTR) === entryKey) return icons[i];
+    }
+    return null;
+  }
+
+  /** 创建禁止图标（★ 必须插在链接**外**做兄弟节点：放进链接内会污染 textContent，面板头部 name 会被带上图标）。 */
+  private createStateIcon(entryKey: string): HTMLSpanElement {
+    const icon = document.createElement('span');
+    icon.className = STATE_ICON_CLASS;
+    icon.setAttribute(STATE_ICON_DATA_ATTR, entryKey);
+    icon.setAttribute('aria-hidden', 'true');
+    icon.style.fontSize = '0.9em';
+    icon.style.marginRight = '4px';
+    icon.style.verticalAlign = 'text-top';
+    icon.textContent = CATEGORY_STATE_NEW_WORKS_ICON;
+    return icon;
+  }
+
+  /** 标记前保存站点原值（内联 color / textDecoration / title 属性），解除时按原值还原。 */
+  private rememberOriginals(anchor: HTMLAnchorElement): void {
+    if (this.markOriginals.has(anchor)) return;
+    this.markOriginals.set(anchor, {
+      title: anchor.getAttribute('title'),
+      color: anchor.style.color,
+      textDecoration: anchor.style.textDecoration,
+    });
+  }
+
+  /** 还原链接原值并摘图标（幂等；原 title 不存在则 removeAttribute）。 */
+  private restoreOriginals(anchor: HTMLAnchorElement, entryKey: string): void {
+    const original = this.markOriginals.get(anchor);
+    anchor.style.color = original?.color || '';
+    anchor.style.textDecoration = original?.textDecoration || '';
+    if (original?.title) anchor.setAttribute('title', original.title);
+    else anchor.removeAttribute('title');
+    this.findStateIcon(anchor, entryKey)?.remove();
+  }
+
+  /**
+   * 应用单链接状态标记（幂等：重复调用不重复插图标）。
+   * 屏蔽态=红 + 删除线（与演员黑名单同色同口径）；不入库态=链接前的 🚫 兄弟节点；两态可共存。
+   */
+  private applyLinkState(
+    anchor: HTMLAnchorElement,
+    entryKey: string,
+    snapshot: CategoryActionStateSnapshot,
+  ): void {
+    const plan: CategoryLinkMarkPlan = categoryLinkMarkPlan(entryKey, snapshot.listBlack, snapshot.newWorksBlack);
+    this.rememberOriginals(anchor);
+
+    if (plan.needsStrike) {
+      anchor.style.color = CATEGORY_STATE_LIST_BLOCKED_COLOR;
+      anchor.style.textDecoration = CATEGORY_STATE_LIST_BLOCKED_TEXT_DECORATION;
+    } else {
+      anchor.style.color = this.markOriginals.get(anchor)?.color || '';
+      anchor.style.textDecoration = this.markOriginals.get(anchor)?.textDecoration || '';
+    }
+
+    const existingIcon = this.findStateIcon(anchor, entryKey);
+    if (plan.needsIcon) {
+      // 重复插入先摘旧（幂等，且 entryKey 变化时不残留）
+      if (existingIcon) existingIcon.remove();
+      anchor.insertAdjacentElement('beforebegin', this.createStateIcon(entryKey));
+    } else {
+      existingIcon?.remove();
+    }
+
+    if (plan.titleText) {
+      anchor.setAttribute('title', plan.titleText);
+    } else {
+      const originalTitle = this.markOriginals.get(anchor)?.title;
+      if (originalTitle) anchor.setAttribute('title', originalTitle);
+      else anchor.removeAttribute('title');
+    }
+  }
+
+  /** 重读两集合并重画全部已绑定链接（子开关关/未初始化时不做事）。 */
+  private async repaintLinkStates(): Promise<void> {
+    if (!this.inited) return;
+    const snapshot = await this.readState();
+    this.boundLinks().forEach(({ anchor, entryKey }) => this.applyLinkState(anchor, entryKey, snapshot));
+  }
+
+  /** 清掉全部状态标记并还原站点原值（destroy / 可回收性验证用）。 */
+  private clearAllLinkStates(): void {
+    this.boundLinks().forEach(({ anchor, entryKey }) => this.restoreOriginals(anchor, entryKey));
+  }
+
+  /**
+   * 订阅两集合的存储变化：settings（列表页隐藏集）与 new_works_config（不入库集）。
+   * 只在这两键变化时重画；写侧（面板按钮/其他页设置变更）都经此同步，标记与集合始终一致。
+   */
+  private installStorageWatcher(): void {
+    if (this.disposeStorageWatcher) return;
+    if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return;
+    const onStorageChanged = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ): void => {
+      if (areaName !== 'local') return;
+      if (!changes[STORAGE_KEYS.SETTINGS] && !changes[STORAGE_KEYS.NEW_WORKS_CONFIG]) return;
+      void this.repaintLinkStates();
+    };
+    chrome.storage.onChanged.addListener(onStorageChanged);
+    this.disposeStorageWatcher = () => {
+      chrome.storage.onChanged.removeListener(onStorageChanged);
+      this.disposeStorageWatcher = null;
+    };
+  }
+
   /** 扫描当前文档的类别链接并绑定（幂等；不可用链接不返回=不绑定）。 */
   private scanAndBind(root: Document | HTMLElement = document): number {
     const base = currentBaseHref();
@@ -497,6 +661,10 @@ class CategoryQuickActionsManager {
     this.injectStyles();
     const count = this.scanAndBind(document);
     console.log(`🏷️ 类别快捷操作增强已启用（找到 ${count} 个可用类别链接）`);
+
+    // 状态标记首次渲染（绑定时的同步补画用的是空快照，这里读一次真实集合重画）
+    this.installStorageWatcher();
+    await this.repaintLinkStates();
 
     if (this.observer) return;
     this.observer = new MutationObserver((mutations) => {
@@ -528,6 +696,11 @@ class CategoryQuickActionsManager {
     }
     this.observer?.disconnect();
     this.observer = null;
+    // ★ 状态标记与面板同生灭：子开关关/卸载时全部清除并还原站点原值
+    this.clearAllLinkStates();
+    this.disposeStorageWatcher?.();
+    this.disposeStorageWatcher = null;
+    this.cachedSnapshot = DEFAULT_SNAPSHOT;
     this.inited = false;
     this.hideTooltip();
   }
