@@ -63,6 +63,7 @@ export function initializeElements(host: EnhancementInitHost): void {
     ['veActorRemarksTaskTimeout', 'veActorRemarksTaskTimeout'],
     ['enableVideoFavoriteRating', 'veEnableVideoFavoriteRating'],
     ['enableActorQuickActions', 'enableActorQuickActions'],
+    ['enableCategoryQuickActions', 'enableCategoryQuickActions'],
     ['veEnableWantSync', 'veEnableWantSync'],
     ['veAutoMarkWatchedAfter115', 'veAutoMarkWatchedAfter115'],
     ['veAutoMarkWatchedStars', 'veAutoMarkWatchedStars'],

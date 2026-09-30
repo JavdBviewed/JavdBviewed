@@ -123,6 +123,7 @@ export async function doLoadSettings(host: EnhancementLoadHost): Promise<void> {
   if (host.veActorRemarksTaskTimeout) host.veActorRemarksTaskTimeout.value = String((ve as any).actorRemarksTaskTimeoutSeconds ?? 10);
   if (host.veEnableVideoFavoriteRating) host.veEnableVideoFavoriteRating.checked = (ve as any).enableVideoFavoriteRating !== false;
   if (host.enableActorQuickActions) host.enableActorQuickActions.checked = (ve as any).enableActorQuickActions !== false;
+  if (host.enableCategoryQuickActions) host.enableCategoryQuickActions.checked = (ve as any).enableCategoryQuickActions !== false;
 
   if (host.previewVolume && typeof listEnhancement.previewVolume === 'number') host.previewVolume.value = String(listEnhancement.previewVolume);
   if (host.previewVolumeValue && typeof listEnhancement.previewVolume === 'number') host.previewVolumeValue.textContent = `${Math.round(listEnhancement.previewVolume * 100)}%`;

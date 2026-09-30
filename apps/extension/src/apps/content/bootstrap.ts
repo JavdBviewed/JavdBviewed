@@ -28,6 +28,7 @@ import { anchorOptimizationManager } from '../../features/anchorOptimization/con
 import { listEnhancementManager } from '../../features/listEnhancement';
 import { resolveCategoryFilterEnabled } from '../../features/list-hiding';
 import { actorEnhancementManager, actorQuickActionsManager } from '../../features/actorEnhancement';
+import { categoryQuickActionsManager } from '../../features/categoryQuickActions';
 import { isActorEnhancementEnabled } from '../../features/actorEnhancement/actorEnhancementGate';
 import { normalizeActorDefaultTags } from '../../features/actorEnhancement/defaultTagsSelection';
 import { isVideoEnhancementSubOn } from '../../features/videoDetail/videoEnhancementGate';
@@ -232,6 +233,9 @@ async function initialize(): Promise<void> {
         );
         if (isVideoEnhancementSubOn(settings, 'enableActorQuickActions')) {
             preregisterBlueprints.push({ phase: 'high', label: 'actorQuickActions:init', priority: 6, visibilityPolicy: 'background_allowed', dependsOn: ['videoStatus:initialSync'] });
+        }
+        if (isVideoEnhancementSubOn(settings, 'enableCategoryQuickActions')) {
+            preregisterBlueprints.push({ phase: 'high', label: 'categoryQuickActions:init', priority: 5, visibilityPolicy: 'background_allowed', dependsOn: ['videoStatus:initialSync'] });
         }
     }
 
@@ -619,6 +623,16 @@ async function initialize(): Promise<void> {
             hideDelay: 200,
         });
         initOrchestrator.add('high', () => actorQuickActionsManager.ensureInit('video'), { label: 'actorQuickActions:init', delayMs: 500, priority: 6, visibilityPolicy: 'background_allowed' });
+    }
+
+    // 初始化类别快捷操作（仅影片页 high；09-30-video-category-quick-actions）
+    if (isVideoEnhancementSubOn(settings, 'enableCategoryQuickActions') && isVideoPage) {
+        categoryQuickActionsManager.updateConfig({
+            enabled: true,
+            showDelay: 300,
+            hideDelay: 200,
+        });
+        initOrchestrator.add('high', () => categoryQuickActionsManager.ensureInit(), { label: 'categoryQuickActions:init', delayMs: 500, priority: 5, visibilityPolicy: 'background_allowed' });
     }
 
     // 初始化 Emby/Jellyfin 增强功能（延后执行）

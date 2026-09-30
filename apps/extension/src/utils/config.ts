@@ -553,6 +553,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
         // 演员名称标识 / 演员快捷操作（默认开；此前未在默认块声明，靠读侧 !== false 兜底）
         enableActorNameMarks: true,
         enableActorQuickActions: true,
+        enableCategoryQuickActions: true,
         // 新增：影片页收藏与评分
         enableVideoFavoriteRating: true, // 默认启用
         enableRelatedLists: true,
