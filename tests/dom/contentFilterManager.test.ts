@@ -100,7 +100,7 @@ describe('ContentFilterManager 生命周期与增量扫描', () => {
   });
 });
 
-describe('ContentFilterManager 隐藏开关（hideEnabled）', () => {
+describe('ContentFilterManager 隐藏动作（action=hide 由规则启用状态驱动）', () => {
   const hideRule = {
     id: 'rule-hide',
     name: '隐藏规则',
@@ -121,13 +121,26 @@ describe('ContentFilterManager 隐藏开关（hideEnabled）', () => {
     return card;
   }
 
+  /** 防抖 + 分片是异步的，轮询等待显隐落到目标状态，避免靠固定 sleep 猜时序 */
+  async function waitForDisplay(card: HTMLElement, hidden: boolean): Promise<void> {
+    const deadline = Date.now() + 4_000;
+    for (;;) {
+      const isHidden = card.style.display === 'none' && card.classList.contains('content-filter-hidden');
+      if (isHidden === hidden) return;
+      if (Date.now() > deadline) {
+        throw new Error('waitForDisplay timeout: expect hidden=' + hidden + ', display=' + card.style.display);
+      }
+      await new Promise<void>(resolve => window.setTimeout(resolve, 50));
+    }
+  }
+
   afterEach(() => {
     document.body.innerHTML = '';
     STATE.settings = null;
     vi.restoreAllMocks();
   });
 
-  it('默认（未提供 hideEnabled）时 hide 规则应隐藏匹配卡片', async () => {
+  it('hide 规则启用时应隐藏匹配卡片（09-30 起无独立隐藏子开关）', async () => {
     const card = setupCard('HIDEME-001');
     STATE.settings = {
       contentFilter: { keywordRules: [hideRule] },
@@ -137,57 +150,63 @@ describe('ContentFilterManager 隐藏开关（hideEnabled）', () => {
     await manager.initialize();
     expect(card.style.display).toBe('none');
     expect(card.classList.contains('content-filter-hidden')).toBe(true);
+    expect(card.getAttribute('data-filter-applied')).toBe('hide');
     manager.destroy();
   });
 
-  it('config.hideEnabled=false 时 hide 规则匹配但不隐藏', async () => {
+  it('规则 enabled=false 时 hide 规则匹配但不隐藏', async () => {
     const card = setupCard('HIDEME-001');
     STATE.settings = {
-      contentFilter: { keywordRules: [hideRule] },
+      contentFilter: { keywordRules: [{ ...hideRule, enabled: false }] },
       records: {},
     } as any;
-    const manager = new ContentFilterManager({ enabled: true, hideEnabled: false });
+    const manager = new ContentFilterManager({ enabled: true });
     await manager.initialize();
+    await waitForFilterDebounce();
     expect(card.style.display).not.toBe('none');
     expect(card.classList.contains('content-filter-hidden')).toBe(false);
     manager.destroy();
   });
 
-  it('updateConfig({hideEnabled:true}) 后先前未隐藏的匹配卡片被隐藏', async () => {
+  it('运行中关掉规则「启用」即时恢复卡片；重新启用需 rescan 才重判已处理卡片', async () => {
     const card = setupCard('HIDEME-001');
     STATE.settings = {
       contentFilter: { keywordRules: [hideRule] },
       records: {},
     } as any;
-    const manager = new ContentFilterManager({ enabled: true, hideEnabled: false });
+    const manager = new ContentFilterManager({ enabled: true });
     await manager.initialize();
+    expect(card.style.display).toBe('none');
+
+    // 等价于设置页关掉该规则「启用」后广播 settings-updated（router 走 updateKeywordRules）
+    manager.updateKeywordRules([{ ...hideRule, enabled: false }]);
+    await waitForDisplay(card, false);
+
+    // 已处理卡片不会被 applyFilters 重判（09-30 起唯一残留的重判入口是 rescan）：
+    // 重新打开「启用」后需 rescan 清除 data-filter-processed 才会再次隐藏。
+    manager.updateKeywordRules([hideRule]);
+    await waitForFilterDebounce();
     expect(card.style.display).not.toBe('none');
 
-    // 让出主线程，使 rescan 的 applyFilters 不被 50ms 重入保护跳过
-    await new Promise<void>(r => setTimeout(r, 120));
-    manager.updateConfig({ hideEnabled: true });
-    await waitForFilterDebounce();
-    // rescan 是异步的，多重等一个防抖窗口
-    await waitForFilterDebounce();
-    expect(card.style.display).toBe('none');
-    expect(card.classList.contains('content-filter-hidden')).toBe(true);
+    manager.rescan();
+    await waitForDisplay(card, true);
     manager.destroy();
   });
 
-  it('单规则 hideEnabled=false 时该规则不隐藏（其余 hide 规则不受影响）', async () => {
-    const cardA = setupCard('HIDEME-001');
-    const cardB = createMovieCard('HIDEME-002');
-    cardA.parentElement!.appendChild(cardB);
-    const perRuleOff = { ...hideRule, id: 'rule-a', keyword: 'HIDEME-001', hideEnabled: false };
-    const perRuleOn = { ...hideRule, id: 'rule-b', keyword: 'HIDEME-002' };
+  it('页面级 shouldSkipHideActions（想看/已看汇总页）命中也不隐藏', async () => {
+    const card = setupCard('HIDEME-001');
     STATE.settings = {
-      contentFilter: { keywordRules: [perRuleOff, perRuleOn] },
+      contentFilter: { keywordRules: [hideRule] },
       records: {},
     } as any;
     const manager = new ContentFilterManager({ enabled: true });
+    const internals = manager as unknown as { shouldSkipHideActionsOnCurrentPage(): boolean };
+    const skip = vi.spyOn(internals, 'shouldSkipHideActionsOnCurrentPage').mockReturnValue(true);
     await manager.initialize();
-    expect(cardA.style.display).not.toBe('none');
-    expect(cardB.style.display).toBe('none');
+    await waitForFilterDebounce();
+    expect(skip).toHaveBeenCalled();
+    expect(card.style.display).not.toBe('none');
+    expect(card.classList.contains('content-filter-hidden')).toBe(false);
     manager.destroy();
   });
 });

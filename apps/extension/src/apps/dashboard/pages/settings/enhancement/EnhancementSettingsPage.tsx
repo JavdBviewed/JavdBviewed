@@ -29,7 +29,6 @@ import {
   ENHANCEMENT_SUBTABS,
   removeFilterRuleAt,
   setFilterRuleEnabled,
-  setFilterRuleHideEnabled,
   type EnhancementSettingsFormState,
   type EnhancementSubtab,
 } from './enhancementSettingsModel';
@@ -204,10 +203,6 @@ export function EnhancementSettingsPage() {
     patchForm({ filterRules: setFilterRuleEnabled(form.filterRules, index, enabled) });
   };
 
-  const onToggleRuleHide = (index: number, hideEnabled: boolean) => {
-    patchForm({ filterRules: setFilterRuleHideEnabled(form.filterRules, index, hideEnabled) });
-  };
-
   const onDeleteRule = (index: number) => {
     patchForm({ filterRules: removeFilterRuleAt(form.filterRules, index) });
   };
@@ -315,7 +310,7 @@ export function EnhancementSettingsPage() {
           </p>
         ) : null}
         <div id="tabpanel-list" data-enhancement-subtab="list" hidden={subtab !== 'list'}>
-          <ListTab form={form} setToggle={setToggle} patchForm={patchForm} onOpenFilterRuleEditor={onOpenFilterRuleEditor} onToggleRule={onToggleRule} onToggleRuleHide={onToggleRuleHide} onDeleteRule={onDeleteRule} />
+          <ListTab form={form} setToggle={setToggle} patchForm={patchForm} onOpenFilterRuleEditor={onOpenFilterRuleEditor} onToggleRule={onToggleRule} onDeleteRule={onDeleteRule} />
         </div>
         <div id="tabpanel-video" data-enhancement-subtab="video" hidden={subtab !== 'video'}>
           <VideoTab form={form} setToggle={setToggle} patchForm={patchForm} aiModel={aiModel} />
@@ -443,11 +438,6 @@ function FilterRuleEditor({
                 <option value="blur">模糊</option>
                 <option value="mark">标记</option>
               </select>
-              {draft.action === 'hide' ? (
-                <label className="enhancement-filter-rule-modal__hide-enabled" title="关闭后该规则匹配时不再隐藏卡片">
-                  <input id="modalInlineRuleHideEnabled" type="checkbox" checked={draft.hideEnabled !== false} onChange={(event) => update({ hideEnabled: event.target.checked })} />隐藏
-                </label>
-              ) : null}
             </div>
             <div>
               <label htmlFor="modalInlineRuleFields">作用字段</label>

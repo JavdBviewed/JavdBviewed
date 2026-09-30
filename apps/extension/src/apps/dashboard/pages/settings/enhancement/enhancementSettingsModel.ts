@@ -37,8 +37,6 @@ export type EnhancementSettingsFormState = {
   // —— 子标签（仅 UI）——
   // 列表页
   enableContentFilter: boolean;
-  /** 内容过滤「隐藏」动作总开关：关闭后 hide 规则只匹配不隐藏 */
-  contentFilterHideEnabled: boolean;
   filterRules: KeywordFilterRule[];
   // —— 列表过滤（2026-09-27 IA 裁决：自「显示设置」页迁入，键命名空间不变：display.*/listEnhancement.*）——
   /** display.hideViewed */
@@ -292,7 +290,6 @@ function defaultOnlineAvailabilitySites(): OnlineAvailabilitySitesMap {
 
 export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   enableContentFilter: false,
-  contentFilterHideEnabled: true,
   filterRules: [],
   hideViewed: false,
   hideBrowsed: false,
@@ -495,7 +492,6 @@ function mapFilterRules(raw: unknown): KeywordFilterRule[] {
       caseSensitive: !!(r as KeywordFilterRule).caseSensitive,
       action: (r as KeywordFilterRule).action || 'hide',
       enabled: (r as KeywordFilterRule).enabled !== false,
-      hideEnabled: (r as KeywordFilterRule).hideEnabled !== false,
       fields: Array.isArray((r as KeywordFilterRule).fields)
         ? (r as KeywordFilterRule).fields
         : (['title'] as KeywordFilterRule['fields']),
@@ -555,7 +551,6 @@ export function mapSettingsToEnhancementForm(
 
   return {
     enableContentFilter: !!(ux.enableContentFilter ?? cf.enabled),
-    contentFilterHideEnabled: cf.hideEnabled !== false,
     filterRules: mapFilterRules(cf.keywordRules),
     // 列表过滤（自「显示设置」页迁入；display.*/listEnhancement.* 键命名空间不变，存量零回填）
     hideViewed: !!display.hideViewed,
@@ -962,10 +957,13 @@ export function applyEnhancementFormToSettings(
       enableTimeSegmentationDivider: form.aeEnableTimeSegmentationDivider,
       timeSegmentationMonths: form.aeTimeSegmentationMonths,
     },
+    // 09-30「隐藏」子开关概念移除：写侧按 ContentFilterConfig 声明的三键重建，
+    // 不再展开旧对象（废弃键因此停写，同 categoryFilter.mode 下线口径）；
+    // 读侧忽略旧键、不做主动迁移脚本（升级用户表现为 hide 规则直接按「启用」生效）。
+    // showFilteredCount 非本页表单字段，按存量值透传（缺省视为 true，与 manager 默认一致）。
     contentFilter: {
-      ...((current as any).contentFilter || {}),
       enabled: form.enableContentFilter,
-      hideEnabled: form.contentFilterHideEnabled,
+      showFilteredCount: (current as any).contentFilter?.showFilteredCount !== false,
       keywordRules: form.filterRules.map((r) => ({ ...r })),
     },
   };
@@ -1063,20 +1061,6 @@ export function setFilterRuleEnabled(
   if (index < 0 || index >= rules.length) return rules;
   const next = [...rules];
   next[index] = { ...next[index], enabled };
-  return next;
-}
-
-/**
- * 切换过滤规则 hideEnabled（仅对 action=hide 的规则生效）
- */
-export function setFilterRuleHideEnabled(
-  rules: KeywordFilterRule[],
-  index: number,
-  hideEnabled: boolean,
-): KeywordFilterRule[] {
-  if (index < 0 || index >= rules.length) return rules;
-  const next = [...rules];
-  next[index] = { ...next[index], hideEnabled };
   return next;
 }
 

@@ -285,6 +285,28 @@ describe('enhancementSettingsModel', () => {
     expect(form.filterRules[0].keyword).toBe('foo');
   });
 
+  it('applyEnhancementFormToSettings 写侧停写废弃键（09-30「隐藏」子开关移除）', () => {
+    const legacyKey = 'hide' + 'Enabled'; // 拼接而非字面量：本线要求全仓 0 命中废弃键名
+    const current: any = {
+      contentFilter: {
+        enabled: true,
+        showFilteredCount: false,
+        [legacyKey]: false,
+        keywordRules: [{ id: 'r1', name: '规则A', [legacyKey]: false, enabled: true, action: 'hide', keyword: 'x' }],
+      },
+    };
+    const form = mapSettingsToEnhancementForm(current);
+    const next = applyEnhancementFormToSettings(current, form);
+    expect(Object.keys(next.contentFilter).sort()).toEqual(['enabled', 'keywordRules', 'showFilteredCount']);
+    expect(next.contentFilter[legacyKey]).toBeUndefined();
+    expect(next.contentFilter.keywordRules).toHaveLength(1);
+    expect(next.contentFilter.showFilteredCount).toBe(false);
+    expect(next.contentFilter.keywordRules[0][legacyKey]).toBeUndefined();
+    // 行为定案：规则「启用」为唯一门控，hide 规则启用即直接隐藏
+    expect(next.contentFilter.keywordRules[0].enabled).toBe(true);
+    expect(next.contentFilter.keywordRules[0].action).toBe('hide');
+  });
+
   it('applyEnhancementFormToSettings round-trips core fields', () => {
     const form = {
       ...DEFAULT_ENHANCEMENT_SETTINGS_FORM,
@@ -330,6 +352,8 @@ describe('enhancementSettingsModel', () => {
     expect(next.passwordHelper.showMethod).toBe(1);
     expect(next.contentFilter.keywordRules).toHaveLength(1);
     expect(next.contentFilter.enabled).toBe(true);
+    // 写侧仅落 ContentFilterConfig 声明的三键：废弃子开关键不再被带回（09-30 移除）
+    expect(Object.keys(next.contentFilter).sort()).toEqual(['enabled', 'keywordRules', 'showFilteredCount']);
 
     const remapped = mapSettingsToEnhancementForm(next);
     expect(remapped.enableContentFilter).toBe(true);

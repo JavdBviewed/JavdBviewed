@@ -35,7 +35,6 @@ export class ContentFilterManager {
     this.config = {
       enabled: true,
       showFilteredCount: true,
-      hideEnabled: true,
       keywordRules: [],
       ...config,
     };
@@ -783,16 +782,13 @@ export class ContentFilterManager {
         if (shouldSkipHideActions) {
           break;
         }
-        // 隐藏动作受开关控制：全局“隐藏开关”(config.hideEnabled) 或单规则 hideEnabled。
-        // 任一为 false 时匹配后不隐藏，卡片保持原样。
-        const hideAllowed = this.config.hideEnabled !== false && rule.hideEnabled !== false;
-        if (hideAllowed) {
-          item.style.display = 'none';
-          item.classList.add('content-filter-hidden');
-          item.setAttribute('data-filter-applied', 'hide');
-          item.setAttribute('data-hidden-by-filter', 'true');
-          this.filterStats.hidden++;
-        }
+        // 09-30 子开关移除：action=hide 且规则启用即直接隐藏，无额外开关；
+        // 页面级 shouldSkipHideActions 早退保留在上方。
+        item.style.display = 'none';
+        item.classList.add('content-filter-hidden');
+        item.setAttribute('data-filter-applied', 'hide');
+        item.setAttribute('data-hidden-by-filter', 'true');
+        this.filterStats.hidden++;
         break;
 
       case 'highlight':
@@ -1089,7 +1085,7 @@ export class ContentFilterManager {
 
   /**
    * 强制重新扫描整个列表页：清除 data-filter-processed 标记后重跑过滤。
-   * 用于开关类配置变更（如 hideEnabled），此时已处理卡片的动作需要重新裁定。
+   * 用于让已处理卡片重新裁定动作的场景（例如规则集合整体替换后重跑）。
    */
   rescan(): void {
     if (!this.isInitialized) return;
@@ -1105,23 +1101,14 @@ export class ContentFilterManager {
    * 更新配置
    */
   updateConfig(newConfig: Partial<ContentFilterConfig>): void {
-    const previous = this.config;
     this.config = { ...this.config, ...newConfig };
 
     if (this.isInitialized) {
       // 重新应用过滤规则
       this.clearAllFilters();
-      // applyFilters 只处理未标记卡片；hideEnabled 变化或规则变化时需重扫已处理卡片
-      if (
-        newConfig.hideEnabled !== undefined &&
-        newConfig.hideEnabled !== previous.hideEnabled
-      ) {
-        this.rescan();
-      } else {
-        void this.applyFilters().catch(error => {
-          log('Error reapplying filters after config update:', error);
-        });
-      }
+      void this.applyFilters().catch(error => {
+        log('Error reapplying filters after config update:', error);
+      });
     }
   }
 

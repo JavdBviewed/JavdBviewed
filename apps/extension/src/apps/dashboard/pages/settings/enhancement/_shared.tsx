@@ -145,7 +145,6 @@ export {
   PREVIEW_SOURCE_OPTIONS,
   removeFilterRuleAt,
   setFilterRuleEnabled,
-  setFilterRuleHideEnabled,
   toggleActorDefaultTag,
   toggleOnlineAvailabilitySite,
   TRANSLATION_DISPLAY_MODE_OPTIONS,

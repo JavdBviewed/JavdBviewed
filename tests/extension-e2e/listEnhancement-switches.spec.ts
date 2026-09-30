@@ -61,7 +61,6 @@ function buildSettings(overrides: Record<string, unknown> = {}): Record<string, 
     contentFilter: {
       enabled: false,
       showFilteredCount: false,
-      hideEnabled: true,
       keywordRules: [],
     },
   };
