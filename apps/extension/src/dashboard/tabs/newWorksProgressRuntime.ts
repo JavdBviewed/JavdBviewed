@@ -2,7 +2,10 @@ export interface NewWorksProgressData {
   processed?: number;
   total?: number;
   identifiedTotal?: number;
+  /** 内部字段：含"已在新作品库"的生效条数，不进进度文案（与弹窗「可入库」口径易混淆） */
   effectiveTotal?: number;
+  /** 已收集的可入库条数：进度期与确认弹窗同一口径、同一个词 */
+  pendingTotal?: number;
   /** 最近完成/上报的单个演员（兼容旧字段） */
   actorName?: string;
   /** 当前并发批次中仍在检查的演员名单 */
@@ -110,7 +113,7 @@ export function updateNewWorksProgressUI(progressEl: HTMLElement | undefined, da
   const processed = typeof data.processed === 'number' ? data.processed : undefined;
   const total = typeof data.total === 'number' ? data.total : undefined;
   const identifiedTotal = typeof data.identifiedTotal === 'number' ? data.identifiedTotal : undefined;
-  const effectiveTotal = typeof data.effectiveTotal === 'number' ? data.effectiveTotal : undefined;
+  const pendingTotal = typeof data.pendingTotal === 'number' ? data.pendingTotal : undefined;
   const activeActorNames = normalizeActorNames(data.activeActorNames);
   const actor = formatActiveActorsLabel(activeActorNames, data.actorName);
 
@@ -120,8 +123,8 @@ export function updateNewWorksProgressUI(progressEl: HTMLElement | undefined, da
 
   const segmentProgress = processed !== undefined && total !== undefined ? `进度 ${processed}/${total}` : '进行中';
   const segmentIdentified = identifiedTotal !== undefined ? `，已识别 ${identifiedTotal}` : '';
-  const segmentEffective = effectiveTotal !== undefined ? `，有效 ${effectiveTotal}` : '';
-  text.textContent = `${segmentProgress}${segmentIdentified}${segmentEffective}${actor}`;
+  const segmentPending = pendingTotal !== undefined ? `，可入库 ${pendingTotal}` : '';
+  text.textContent = `${segmentProgress}${segmentIdentified}${segmentPending}${actor}`;
 
   if (activeLine) {
     if (activeActorNames.length > 0) {
@@ -165,6 +168,7 @@ export function attachNewWorksProgressListener(
           total: payload.total,
           identifiedTotal: payload.identifiedTotal,
           effectiveTotal: payload.effectiveTotal,
+          pendingTotal: payload.pendingTotal,
           actorName: payload.actorName,
           activeActorNames: normalizeActorNames(payload.activeActorNames),
           concurrency: typeof payload.concurrency === 'number' ? payload.concurrency : undefined,

@@ -341,6 +341,7 @@ export function registerMiscRouter(): void {
         case 'new-works-manual-check':
         case 'new-works-check-single-actor':
         case 'new-works-manual-cancel':
+        case 'new-works-manual-commit':
         case 'new-works-scheduler-restart':
         case 'new-works-scheduler-status':
           return handleNewWorksRuntimeMessage(message, sendResponse);

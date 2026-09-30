@@ -1,4 +1,9 @@
 import type { ActorSubscription } from '../../types';
+import type {
+  NewWorksManualBreakdown,
+  NewWorksManualConfirmSource,
+  NewWorksManualPendingWork,
+} from './newWorksManualConfirmViewModel';
 
 type MessageType = 'success' | 'error' | 'info' | 'warn' | 'warning';
 
@@ -10,6 +15,12 @@ export interface SingleSubscriptionCheckResult {
   saved?: number;
   /** 持久化失败的数量 */
   failed?: number;
+  /** 已在（或本来就在）新作品库的条数 */
+  existingCount?: number;
+  /** 新链（后台带 confirmRequired）返回：已收集但尚未入库的完整记录 */
+  pendingWorks?: NewWorksManualPendingWork[];
+  /** 新链返回：按规则剔除的六桶分项 */
+  breakdown?: NewWorksManualBreakdown;
 }
 
 export interface SingleSubscriptionCheckResponse {
@@ -23,6 +34,8 @@ export interface SingleSubscriptionCheckWorkflowDeps {
   render(): Promise<void>;
   showMessage(message: string, type: MessageType): void;
   logError(message: string, error: unknown): void;
+  /** 注入则走「收集-确认-入库」新链；缺省=旧当场直写语义（演员页等其它调用方不受影响） */
+  confirmAndCommit?(source: NewWorksManualConfirmSource): Promise<void>;
 }
 
 export interface RunSingleSubscriptionCheckWorkflowInput {
@@ -47,12 +60,24 @@ export async function runSingleSubscriptionCheckWorkflow(input: RunSingleSubscri
 
     const result = response.result || {};
     const discovered = result.discovered || 0;
+
+    // 新链：后台只收集未入库，是否落库由确认弹窗决定（列表渲染与 toast 也由其负责）
+    if (Array.isArray(result.pendingWorks) && deps.confirmAndCommit) {
+      await deps.confirmAndCommit({
+        identifiedTotal: result.identified,
+        existingCount: result.existingCount,
+        breakdown: result.breakdown,
+        pendingWorks: result.pendingWorks,
+      });
+      return;
+    }
+
     const statsParts: string[] = [];
     if (typeof result.identified === 'number') {
       statsParts.push(`识别 ${result.identified}`);
     }
     if (typeof result.effective === 'number') {
-      statsParts.push(`有效 ${result.effective}`);
+      statsParts.push(`可入库 ${result.effective}`);
     }
     statsParts.push(`新增 ${discovered}`);
 

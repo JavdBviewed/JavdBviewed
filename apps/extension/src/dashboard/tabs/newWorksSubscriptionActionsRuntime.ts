@@ -1,4 +1,5 @@
 import type { ActorRecord, ActorSubscription } from '../../types';
+import type { NewWorksManualConfirmSource } from './newWorksManualConfirmViewModel';
 import {
   runAddSubscriptionWorkflow,
 } from './newWorksAddSubscriptionWorkflow';
@@ -31,6 +32,8 @@ export interface NewWorksSubscriptionActionsRuntimeDeps {
   showMessage(message: string, type: MessageType): void;
   logInfo(message: string, data?: unknown): void;
   logError(message: string, error: unknown): void;
+  /** 透传给单演员检查流程：注入=走「收集-确认-入库」新链 */
+  confirmAndCommit?(source: NewWorksManualConfirmSource): Promise<void>;
 }
 
 export interface NewWorksSubscriptionActionsRuntime {
@@ -96,6 +99,7 @@ export function createNewWorksSubscriptionActionsRuntime(
           render: deps.render,
           showMessage: deps.showMessage,
           logError: deps.logError,
+          confirmAndCommit: deps.confirmAndCommit,
         },
       });
     },
