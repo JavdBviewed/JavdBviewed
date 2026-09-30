@@ -85,9 +85,11 @@ export function EnhancementSettingsPage() {
     const result = await persistEnhancementForm(nextForm);
     if (!result.ok) {
       setSaveError(result.error || '保存失败');
+      void toast(result.error || '保存失败', 'error');
       return;
     }
     setSaveError(null);
+    void toast('已保存', 'success');
   }, []);
 
   const { scheduleSave } = useDebouncedSettingsSave({
