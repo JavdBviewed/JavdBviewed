@@ -58,7 +58,7 @@ export const VIDEO_ENHANCEMENT_SUB_SWITCHES: Record<VideoEnhancementSubKey, Vide
     enableVideoFavoriteRating: { style: 'onByDefault', requiresMain: true },
     enableActorNameMarks: { style: 'onByDefault', requiresMain: true },
     enableActorQuickActions: { style: 'onByDefault', requiresMain: true },
-    // 09-30-video-category-quick-actions：影片页「類別」栏快捷操作（不登记遥测 featureCatalog）
+    // 09-30-video-category-quick-actions：影片页「类别」栏快捷操作（不登记遥测 featureCatalog）
     enableCategoryQuickActions: { style: 'onByDefault', requiresMain: true },
     showLoadingIndicator: { style: 'onByDefault', requiresMain: true },
     // —— 外部入口面板（面板主 + 3 子） ——

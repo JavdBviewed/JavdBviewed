@@ -1,6 +1,6 @@
 /**
  * @file categoryQuickActionsManager.ts
- * @description 影片页「類別」栏类别链接的悬浮快捷操作面板（09-30-video-category-quick-actions）。
+ * @description 影片页「类别」栏类别链接的悬浮快捷操作面板（09-30-video-category-quick-actions）。
  *
  * 需求（用户已定稿）：类别链接 hover 出面板，只含两个**排除类**动作：
  *  1. 屏蔽（列表页）= 写 settings.listEnhancement.categoryFilter.black；
