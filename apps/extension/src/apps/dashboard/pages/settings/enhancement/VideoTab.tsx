@@ -42,13 +42,20 @@ export function VideoTab({
         />
       </SettingSection>
 
-      <SettingSection title="演员名称标识">
+      <SettingSection title="演员名称增强" description="影片页演员名旁的状态标记与悬浮快捷操作">
         <SettingToggleRow
           id="veEnableActorNameMarks"
-          label="演员名称标识"
+          label="状态标记"
           description="影片页演员名显示收藏/订阅/黑名单状态"
           checked={form.veEnableActorNameMarks}
           onChange={(v) => setToggle('veEnableActorNameMarks', v)}
+        />
+        <SettingToggleRow
+          id="enableActorQuickActions"
+          label="悬浮快捷操作"
+          description="影片页演员名旁快捷收藏/拉黑/订阅新作等"
+          checked={form.enableActorQuickActions}
+          onChange={(v) => setToggle('enableActorQuickActions', v)}
         />
       </SettingSection>
 
@@ -249,16 +256,6 @@ export function VideoTab({
           label="在片源弹窗中显示本地清单"
           checked={form.veEnableLocalListInSourceModal}
           onChange={(v) => setToggle('veEnableLocalListInSourceModal', v)}
-        />
-      </SettingSection>
-
-      <SettingSection title="演员标记增强">
-        <SettingToggleRow
-          id="enableActorQuickActions"
-          label="演员标记增强"
-          description="影片页演员旁快捷拉黑/订阅等"
-          checked={form.enableActorQuickActions}
-          onChange={(v) => setToggle('enableActorQuickActions', v)}
         />
       </SettingSection>
 
