@@ -10,15 +10,12 @@ import {
   DEFAULT_UPDATE_SETTINGS_FORM,
   formatLastUpdateCheck,
   formatTelemetryPayloadJson,
-  formatTelemetryPreviewTime,
   mapSettingsToUpdateForm,
   mapTelemetryViewFromSettings,
   TELEMETRY_DATA_EXCLUDED_ITEMS,
   TELEMETRY_DATA_INCLUDED_ITEMS,
   TELEMETRY_DEVICE_ID_NOTE,
   TELEMETRY_PURPOSE_NOTE,
-  TELEMETRY_VIEWER_EVENTS,
-  TELEMETRY_VIEWER_EVENT_OPTIONS,
 } from './updateSettingsModel';
 
 describe('updateSettingsModel', () => {
@@ -57,19 +54,9 @@ describe('updateSettingsModel', () => {
 
 describe('updateSettingsModel 遥测数据查看器', () => {
   it('遥测总开关未配置视为启用，与上报侧同一口径', () => {
-    expect(mapTelemetryViewFromSettings({})).toEqual({ enabled: true, endpoint: '' });
-    expect(mapTelemetryViewFromSettings(null)).toEqual({ enabled: true, endpoint: '' });
-    expect(mapTelemetryViewFromSettings({ telemetry: { enabled: false } } as any))
-      .toEqual({ enabled: false, endpoint: '' });
-  });
-
-  it('上报地址做 trim，缺失回落空串', () => {
-    const view = mapTelemetryViewFromSettings({
-      telemetry: { enabled: true, endpoint: '  https://jbd-server.we-together.club/v1/telemetry/report  ' },
-    } as any);
-    expect(view.endpoint).toBe('https://jbd-server.we-together.club/v1/telemetry/report');
-    expect(view.enabled).toBe(true);
-    expect(mapTelemetryViewFromSettings({ telemetry: { endpoint: null } } as any).endpoint).toBe('');
+    expect(mapTelemetryViewFromSettings({})).toEqual({ enabled: true });
+    expect(mapTelemetryViewFromSettings(null)).toEqual({ enabled: true });
+    expect(mapTelemetryViewFromSettings({ telemetry: { enabled: false } } as any)).toEqual({ enabled: false });
   });
 
   it('请求体 JSON 用两空格缩进完整展示，序列化失败有兜底', () => {
@@ -88,25 +75,6 @@ describe('updateSettingsModel 遥测数据查看器', () => {
     expect(countTelemetryPayloadFields(undefined)).toBe(0);
     expect(countTelemetryPayloadFields('startup')).toBe(1);
     expect(countTelemetryPayloadFields({ a: 1, b: { c: 2, d: [3, 4] } })).toBe(4);
-  });
-
-  it('生成时间为本地可读串，空值显示未生成', () => {
-    expect(formatTelemetryPreviewTime('')).toBe('未生成');
-    expect(formatTelemetryPreviewTime(null)).toBe('未生成');
-    expect(formatTelemetryPreviewTime('not-a-date')).toBe('not-a-date');
-    expect(formatTelemetryPreviewTime('2026-09-30T02:30:00.000Z')).not.toBe('2026-09-30T02:30:00.000Z');
-  });
-
-  it('可查看事件恰为三类且都有触发时机说明', () => {
-    expect([...TELEMETRY_VIEWER_EVENTS]).toEqual(['startup', 'heartbeat', 'error_report']);
-    expect(TELEMETRY_VIEWER_EVENT_OPTIONS).toHaveLength(3);
-    for (const option of TELEMETRY_VIEWER_EVENT_OPTIONS) {
-      expect(TELEMETRY_VIEWER_EVENTS).toContain(option.value);
-      expect(option.label.trim().length).toBeGreaterThan(1);
-      expect(option.trigger).toContain('触发');
-    }
-    const optionValues = TELEMETRY_VIEWER_EVENT_OPTIONS.map((item) => item.value);
-    expect([...TELEMETRY_VIEWER_EVENTS].every((event) => optionValues.includes(event))).toBe(true);
   });
 
   it('包含/不包含清单锁住用户口径（番号、演员名、邮箱、磁盘路径、设备标识）', () => {
