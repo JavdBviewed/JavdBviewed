@@ -139,7 +139,6 @@ describe('关键字规则：video-code 命中与红线回归', () => {
     const item = makeCard();
     const manager = new ContentFilterManager({
       enabled: false,
-      hideEnabled: true,
       keywordRules: [makeRule({ fields: ['video-code'] })],
     });
     (manager as unknown as { applyFiltersToItem(el: HTMLElement): void }).applyFiltersToItem(item);

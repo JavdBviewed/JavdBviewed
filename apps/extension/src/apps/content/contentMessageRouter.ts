@@ -119,18 +119,8 @@ export function installContentMessageRouter(): void {
 
                 if (settings.userExperience.enableContentFilter) {
                     setTimeout(() => {
-                        // hideEnabled 为「隐藏」动作的总开关：关闭后 hide 规则只匹配不隐藏。
-                        const hideEnabled = settings.contentFilter?.hideEnabled !== false;
-                        const previousHideEnabled = (contentFilterManager as unknown as {
-                            config?: { hideEnabled?: boolean };
-                        }).config?.hideEnabled;
-                        contentFilterManager.updateConfig({ hideEnabled });
                         const keywordRules = settings.contentFilter?.keywordRules || [];
                         contentFilterManager.updateKeywordRules(keywordRules);
-                        // hide 开关变化后强制重扫，使已处理卡片按新开关重新裁定
-                        if (previousHideEnabled !== hideEnabled) {
-                            contentFilterManager.rescan();
-                        }
                         log('Content filter reapplied after settings update');
                     }, 100);
                 }
@@ -197,10 +187,6 @@ export function installContentMessageRouter(): void {
             if (message.keywordRules) {
                 processVisibleItems({ force: true });
                 setTimeout(() => {
-                    // hideEnabled 可选携带：仅在提供时更新，避免旧调用方意外重置开关。
-                    if (typeof message.hideEnabled === 'boolean') {
-                        contentFilterManager.updateConfig({ hideEnabled: message.hideEnabled });
-                    }
                     contentFilterManager.updateKeywordRules(message.keywordRules);
                     log(`Content filter rules updated: ${message.keywordRules.length} rules`);
                 }, 100);

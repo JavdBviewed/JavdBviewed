@@ -20,7 +20,6 @@ import {
   parseNum,
   removeFilterRuleAt,
   setFilterRuleEnabled,
-  setFilterRuleHideEnabled,
   ONLINE_AVAILABILITY_SITE_OPTIONS,
   toggleOnlineAvailabilitySite,
   PREVIEW_SOURCE_OPTIONS,
@@ -58,12 +57,10 @@ export function ListTab({
   patchForm,
   onOpenFilterRuleEditor,
   onToggleRule,
-  onToggleRuleHide,
   onDeleteRule,
 }: TabProps & {
   onOpenFilterRuleEditor: (index?: number) => void;
   onToggleRule: (i: number, enabled: boolean) => void;
-  onToggleRuleHide: (i: number, hideEnabled: boolean) => void;
   onDeleteRule: (i: number) => void;
 }) {
   return (
@@ -259,13 +256,6 @@ export function ListTab({
               render: () =>
                 form.enableContentFilter ? (
         <div id="contentFilterConfig" className="mt-2 flex flex-col gap-2 px-2">
-                    <SettingToggleRow
-                      id="contentFilterHideEnabled"
-                      label="隐藏开关"
-                      description="关闭后，「隐藏」动作的匹配不再隐藏卡片（仅高亮/模糊/标记等动作仍生效）"
-                      checked={form.contentFilterHideEnabled}
-                      onChange={(v) => setToggle('contentFilterHideEnabled', v)}
-                    />
                     <div className="filter-rules-header">
                       <span>过滤规则列表</span>
                       <Button id="addFilterRule" type="button" variant="secondary" size="sm" onClick={() => onOpenFilterRuleEditor()}>
@@ -297,15 +287,6 @@ export function ListTab({
                                 onChange={(v) => onToggleRule(index, v)}
                                 className="!py-1"
                               />
-                              {rule.action === 'hide' ? (
-                                <SettingToggleRow
-                                  id={`filterRuleHideEnabled-${index}`}
-                                  label="隐藏"
-                                  checked={rule.hideEnabled !== false}
-                                  onChange={(v) => onToggleRuleHide(index, v)}
-                                  className="!py-1"
-                                />
-                              ) : null}
                               <Button type="button" variant="ghost" size="sm" onClick={() => onOpenFilterRuleEditor(index)}>
                                 <i className="fas fa-edit" aria-hidden="true" /> 编辑
                               </Button>
@@ -321,7 +302,7 @@ export function ListTab({
                   </div>
                 ) : (
                   <p className="input-description" role="note">
-                    开启「启用内容过滤」后，在此配置隐藏总开关与关键字规则。
+                    开启「启用内容过滤」后，在此配置关键字过滤规则。
                   </p>
                 ),
             },
