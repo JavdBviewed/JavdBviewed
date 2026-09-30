@@ -86,6 +86,7 @@ export class EnhancementSettings extends BaseSettingsPanel {
     private veActorRemarksTaskTimeout!: HTMLInputElement;
     private veEnableVideoFavoriteRating!: HTMLInputElement; // 新增：影片页收藏与评分
     private enableActorQuickActions!: HTMLInputElement; // 新增：演员标记增强
+    private enableCategoryQuickActions!: HTMLInputElement; // 新增：類別快捷操作
     // 新增：状态标记增强子项
     private veEnableWantSync!: HTMLInputElement;
     private veAutoMarkWatchedAfter115!: HTMLInputElement;
@@ -896,6 +897,7 @@ export class EnhancementSettings extends BaseSettingsPanel {
                     enableVideoFavoriteRating: this.veEnableVideoFavoriteRating?.checked === true,
                     // 新增：演员标记增强
                     enableActorQuickActions: this.enableActorQuickActions?.checked === true,
+                    enableCategoryQuickActions: this.enableCategoryQuickActions?.checked === true,
                 } as any,
                 translation: {
                     provider: (this.translationProviderSel?.value as 'traditional' | 'ai') || 'traditional',

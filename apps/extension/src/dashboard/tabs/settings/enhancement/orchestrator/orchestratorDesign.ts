@@ -41,6 +41,10 @@ export function buildDesignTasks(doGetSettings: () => ExtensionSettings): Orches
     pushTask({ phase: 'high', label: 'actorQuickActions:init', priority: 6, visibilityPolicy: 'background_allowed', source: 'video', enabled: true });
   }
 
+  if (isVideoEnhancementSubOn(settings, 'enableCategoryQuickActions')) {
+    pushTask({ phase: 'high', label: 'categoryQuickActions:init', priority: 5, visibilityPolicy: 'background_allowed', source: 'video', enabled: true });
+  }
+
   if (settings.userExperience?.enableKeyboardShortcuts) {
     pushTask({ phase: 'high', label: 'ux:shortcuts:init', priority: 8, source: 'global', enabled: true });
   }

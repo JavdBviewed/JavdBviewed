@@ -121,6 +121,7 @@ export type EnhancementSettingsFormState = {
   veEnableRelatedLists: boolean;
   veEnableLocalListInSourceModal: boolean;
   enableActorQuickActions: boolean;
+  enableCategoryQuickActions: boolean;
   veEnableActorNameMarks: boolean;
   veEnableActorRemarks: boolean;
   veActorRemarksMode: ActorRemarksMode;
@@ -359,6 +360,7 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   veEnableRelatedLists: true,
   veEnableLocalListInSourceModal: true,
   enableActorQuickActions: true,
+  enableCategoryQuickActions: true,
   veEnableActorNameMarks: true,
   veEnableActorRemarks: false,
   veActorRemarksMode: 'panel',
@@ -660,6 +662,7 @@ export function mapSettingsToEnhancementForm(
     veEnableRelatedLists: ve.enableRelatedLists !== false,
     veEnableLocalListInSourceModal: ve.enableLocalListInSourceModal !== false,
     enableActorQuickActions: ve.enableActorQuickActions !== false,
+    enableCategoryQuickActions: ve.enableCategoryQuickActions !== false,
     veEnableActorNameMarks: ve.enableActorNameMarks !== false,
     veEnableActorRemarks: ve.enableActorRemarks === true,
     veActorRemarksMode: normalizeRemarksMode(ve.actorRemarksMode),
@@ -854,6 +857,7 @@ export function applyEnhancementFormToSettings(
       actorRemarksTaskTimeoutSeconds: form.veActorRemarksTaskTimeoutSeconds,
       enableVideoFavoriteRating: form.enableVideoFavoriteRating,
       enableActorQuickActions: form.enableActorQuickActions,
+      enableCategoryQuickActions: form.enableCategoryQuickActions,
     },
     translation: {
       ...((current as any).translation || {}),
