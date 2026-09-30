@@ -12,9 +12,8 @@ import {
 import { REPO_RELEASES_LATEST_URL, REPO_RELEASES_URL } from '../../../../../shared/repoIdentity';
 import type { ExtensionSettings } from '../../../../../types';
 import {
-  buildTelemetryPayloadPreviewWithSample,
+  buildTelemetryPayloadPreview,
   findTelemetryPayloadSensitiveValues,
-  type TelemetryErrorPayload,
   type TelemetryPayload,
   type TelemetryPreviewEvent,
   type TelemetrySensitiveFinding,
@@ -128,12 +127,9 @@ export async function loadUpdateSettingsForm(): Promise<UpdateSettingsFormState>
  * ------------------------------------------------------------------ */
 
 export interface TelemetryPreviewResult {
+  /** 本次预览采用的上报事件类型 */
   event: TelemetryPreviewEvent;
   payload: TelemetryPayload;
-  /** 请求体里的 sentAt，作为本次预览生成时间 */
-  generatedAt: string;
-  /** 仅错误事件预览有值，用于 UI 标注示例 */
-  errorSample?: TelemetryErrorPayload;
   /** 本地敏感字段自查结果，空数组=本次请求体没有任何疑似敏感形态 */
   sensitiveFindings: TelemetrySensitiveFinding[];
 }
@@ -144,31 +140,10 @@ export interface TelemetryPreviewResult {
  */
 export async function loadTelemetryPreview(event: TelemetryPreviewEvent): Promise<TelemetryPreviewResult> {
   const settings = await getSettings();
-  const preview = await buildTelemetryPayloadPreviewWithSample(event, { settings });
+  const payload = await buildTelemetryPayloadPreview(event, { settings });
   return {
     event,
-    payload: preview.payload,
-    generatedAt: preview.payload.sentAt,
-    errorSample: preview.errorSample,
-    sensitiveFindings: findTelemetryPayloadSensitiveValues(preview.payload),
+    payload,
+    sensitiveFindings: findTelemetryPayloadSensitiveValues(payload),
   };
-}
-
-/**
- * 复制请求体 JSON 到剪贴板
- */
-export async function copyTelemetryPayloadJson(json: string): Promise<boolean> {
-  if (!json) {
-    await toast('暂无可复制的数据', 'warning');
-    return false;
-  }
-  try {
-    await navigator.clipboard.writeText(json);
-    await toast('遥测请求体已复制到剪贴板', 'success');
-    return true;
-  } catch (error) {
-    console.error('[UpdateSettingsPage] copy telemetry payload failed', error);
-    await toast('复制失败，请手动选中复制', 'error');
-    return false;
-  }
 }

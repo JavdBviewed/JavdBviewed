@@ -3,7 +3,6 @@
  * @description 版本与关于页纯数据模型
  * @module apps/dashboard/pages/settings/update
  */
-import type { TelemetryPreviewEvent } from '../../../../../features/telemetry';
 import type { ExtensionSettings } from '../../../../../types';
 
 export type UpdateSettingsFormState = {
@@ -72,38 +71,6 @@ export function formatLastUpdateCheck(iso: string | null | undefined): string {
  * 遥测数据查看器（09-30）：纯数据与文案，页面只负责渲染
  * ------------------------------------------------------------------ */
 
-/** 可查看的上报事件，与遥测模块同一枚举（不另起一套定义） */
-export const TELEMETRY_VIEWER_EVENTS: readonly TelemetryPreviewEvent[] = [
-  'startup',
-  'heartbeat',
-  'error_report',
-];
-
-export type TelemetryViewerEventOption = {
-  value: TelemetryPreviewEvent;
-  label: string;
-  /** 该事件的实际触发时机 */
-  trigger: string;
-};
-
-export const TELEMETRY_VIEWER_EVENT_OPTIONS: TelemetryViewerEventOption[] = [
-  {
-    value: 'startup',
-    label: '启动上报',
-    trigger: '拓展启动或后台唤醒时触发，30 分钟内最多一次。',
-  },
-  {
-    value: 'heartbeat',
-    label: '心跳上报',
-    trigger: '每 6 小时定时触发，以及每次打开控制面板时触发一次。',
-  },
-  {
-    value: 'error_report',
-    label: '错误上报',
-    trigger: '出现未捕获异常时触发，同一类错误 15 分钟内最多一次。',
-  },
-];
-
 /** 上报包含的数据类别（与 buildTelemetryPayload 字段一一对应） */
 export const TELEMETRY_DATA_INCLUDED_ITEMS: string[] = [
   '环境与版本：拓展版本、构建号、发布渠道、浏览器与平台、语言与时区',
@@ -135,8 +102,6 @@ export const TELEMETRY_PURPOSE_NOTE = '上报只用于帮助程序的开发与�
 export type TelemetryViewerState = {
   /** 遥测总开关（未配置视为启用，与上报侧同一口径） */
   enabled: boolean;
-  /** 配置里的上报地址 */
-  endpoint: string;
 };
 
 /**
@@ -148,7 +113,6 @@ export function mapTelemetryViewFromSettings(
   const telemetry = (settings as any)?.telemetry || {};
   return {
     enabled: telemetry.enabled !== false,
-    endpoint: String(telemetry.endpoint || '').trim(),
   };
 }
 
@@ -176,18 +140,4 @@ export function countTelemetryPayloadFields(payload: unknown): number {
       .reduce<number>((total, item) => total + countTelemetryPayloadFields(item), 0);
   }
   return 1;
-}
-
-/**
- * 生成时间展示（失败时退回原始串，不抛异常）
- */
-export function formatTelemetryPreviewTime(value: string | null | undefined): string {
-  if (!value) return '未生成';
-  try {
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return value;
-    return parsed.toLocaleString('zh-CN');
-  } catch {
-    return value;
-  }
 }

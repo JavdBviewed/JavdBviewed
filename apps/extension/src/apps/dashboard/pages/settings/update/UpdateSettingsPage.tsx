@@ -11,7 +11,6 @@ import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/Se
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import type { SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import {
-  copyTelemetryPayloadJson,
   getCurrentVersion,
   loadTelemetryPreview,
   markLastUpdateCheckNow,
@@ -27,14 +26,12 @@ import {
   DEFAULT_UPDATE_SETTINGS_FORM,
   formatLastUpdateCheck,
   formatTelemetryPayloadJson,
-  formatTelemetryPreviewTime,
   mapSettingsToUpdateForm,
   mapTelemetryViewFromSettings,
   TELEMETRY_DATA_EXCLUDED_ITEMS,
   TELEMETRY_DATA_INCLUDED_ITEMS,
   TELEMETRY_DEVICE_ID_NOTE,
   TELEMETRY_PURPOSE_NOTE,
-  TELEMETRY_VIEWER_EVENT_OPTIONS,
   UPDATE_INTERVAL_OPTIONS,
   type TelemetryViewerState,
   type UpdateSettingsFormState,
@@ -80,11 +77,9 @@ export function UpdateSettingsPage() {
   const [hasUpdate, setHasUpdate] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const versionInfoRef = useRef<HTMLDivElement | null>(null);
-  const [telemetryView, setTelemetryView] = useState<TelemetryViewerState>({ enabled: true, endpoint: '' });
+  const [telemetryView, setTelemetryView] = useState<TelemetryViewerState>({ enabled: true });
   const [telemetryOpen, setTelemetryOpen] = useState(false);
-  const [telemetryEvent, setTelemetryEvent] = useState<TelemetryPreviewEvent>('startup');
   const [telemetryPayload, setTelemetryPayload] = useState<TelemetryPayload | null>(null);
-  const [telemetryGeneratedAt, setTelemetryGeneratedAt] = useState<string>('');
   const [telemetryFindings, setTelemetryFindings] = useState<TelemetrySensitiveFinding[]>([]);
   const [telemetryLoading, setTelemetryLoading] = useState(false);
   const [telemetryError, setTelemetryError] = useState<string | null>(null);
@@ -214,36 +209,27 @@ export function UpdateSettingsPage() {
       const result = await loadTelemetryPreview(event);
       if (telemetryRequestIdRef.current !== requestId) return;
       setTelemetryPayload(result.payload);
-      setTelemetryGeneratedAt(result.generatedAt);
       setTelemetryFindings(result.sensitiveFindings);
     } catch (err) {
       if (telemetryRequestIdRef.current !== requestId) return;
       setTelemetryPayload(null);
       setTelemetryFindings([]);
-      setTelemetryError(`生成预览失败：${err instanceof Error ? err.message : '未知错误'}`);
+      setTelemetryError(`示例加载失败：${err instanceof Error ? err.message : '未知错误'}`);
     } finally {
       if (telemetryRequestIdRef.current === requestId) setTelemetryLoading(false);
     }
   }, []);
 
-  const toggleTelemetryPayload = useCallback(() => {
-    const next = !telemetryOpen;
-    setTelemetryOpen(next);
-    if (next && !telemetryPayload && !telemetryLoading) {
-      void loadTelemetryPayload(telemetryEvent);
-    }
-  }, [loadTelemetryPayload, telemetryEvent, telemetryLoading, telemetryOpen, telemetryPayload]);
+  // 挂载时按 heartbeat（最高频的真实上报类型）本地组装一次示例请求体：不发请求、不回写遥测状态
+  useEffect(() => {
+    void loadTelemetryPayload('heartbeat');
+  }, [loadTelemetryPayload]);
 
-  const selectTelemetryEvent = useCallback(
-    (event: TelemetryPreviewEvent) => {
-      setTelemetryEvent(event);
-      void loadTelemetryPayload(event);
-    },
-    [loadTelemetryPayload],
-  );
+  const toggleTelemetryPayload = useCallback(() => {
+    setTelemetryOpen(!telemetryOpen);
+  }, [telemetryOpen]);
 
   const telemetryJson = telemetryPayload ? formatTelemetryPayloadJson(telemetryPayload) : '';
-  const telemetryEventOption = TELEMETRY_VIEWER_EVENT_OPTIONS.find((option) => option.value === telemetryEvent);
 
   return (
     <SettingsPageFrame
@@ -414,14 +400,7 @@ export function UpdateSettingsPage() {
                     {telemetryView.enabled ? '已启用上报' : '已停止上报'}
                   </strong>
                 </span>
-                <span>
-                  上报地址：
-                  <span id="telemetryViewerEndpoint" className="text-[var(--color-fg)]" title={telemetryView.endpoint}>
-                    {telemetryView.endpoint || '未配置（不会上报）'}
-                  </span>
-                </span>
                 <span>上报开关在「高级设置 · 使用情况统计」，关闭后即停止全部上报。</span>
-                <span>实际主机在服务端容灾切换时会随之变更。</span>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -442,51 +421,6 @@ export function UpdateSettingsPage() {
 
               {telemetryOpen ? (
                 <div id="telemetryPayloadPanel" className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {TELEMETRY_VIEWER_EVENT_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        id={`telemetryViewerEvent-${option.value}`}
-                        type="button"
-                        data-active={option.value === telemetryEvent ? '1' : '0'}
-                        onClick={() => void selectTelemetryEvent(option.value)}
-                        className={`rounded-[var(--radius-pill)] border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
-                          option.value === telemetryEvent
-                            ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-active)]'
-                            : 'border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong,var(--color-border))] hover:text-[var(--color-fg)]'
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                    <Button
-                      id="refreshTelemetryPayload"
-                      size="sm"
-                      variant="ghost"
-                      disabled={telemetryLoading}
-                      onClick={() => void loadTelemetryPayload(telemetryEvent)}
-                    >
-                      <i className="fas fa-sync-alt" aria-hidden="true" /> 重新生成
-                    </Button>
-                    <Button
-                      id="copyTelemetryPayload"
-                      size="sm"
-                      variant="secondary"
-                      disabled={!telemetryJson}
-                      onClick={() => void copyTelemetryPayloadJson(telemetryJson)}
-                    >
-                      <i className="fas fa-copy" aria-hidden="true" /> 复制 JSON
-                    </Button>
-                  </div>
-
-                  <p id="telemetryEventHint" className="m-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
-                    {telemetryEventOption ? `${telemetryEventOption.label}：${telemetryEventOption.trigger}` : ''}
-                    {' '}eventId、sessionId 与各时间戳在每次真实上报时都会新生成，本预览同样是即时生成。
-                    {telemetryEvent === 'error_report'
-                      ? ' error 字段是一个示例异常经同一套脱敏规则处理后的结果，真实上报时替换为实际错误。'
-                      : ' 真实上报时 error 字段不会出现，只有发生未捕获异常的那一次才会带上。'}
-                  </p>
-
                   {telemetryLoading ? (
                     <p id="telemetryPayloadStatus" className="m-0 text-[12px] text-[var(--color-fg-muted)]">
                       正在按当前配置生成请求体…
@@ -510,7 +444,7 @@ export function UpdateSettingsPage() {
                   </pre>
 
                   <p id="telemetryPayloadMeta" className="m-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
-                    事件 {telemetryEvent} · 生成于 {formatTelemetryPreviewTime(telemetryGeneratedAt)} · 共{' '}
+                    共{' '}
                     {countTelemetryPayloadFields(telemetryPayload)} 个字段 · 本地敏感字段自查：
                     {describeTelemetrySensitiveFindings(telemetryFindings)}
                   </p>

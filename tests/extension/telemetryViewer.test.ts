@@ -1,6 +1,6 @@
 /**
  * @file telemetryViewer.test.ts
- * @description 遥测数据查看器：预览 body 必须与真实上报 body 同构、不回写状态、不含库内容
+ * @description 遥测数据查看器：示例 body（heartbeat 口径）必须与真实上报 body 同构、不回写状态、不含库内容
  * @module tests/extension
  */
 import { describe, expect, it } from 'vitest';
@@ -26,52 +26,34 @@ async function loadViewer() {
 }
 
 describe('telemetry payload preview', () => {
-  it('预览 body 的字段集合与真实构造器完全一致（不另起一套定义）', async () => {
+  it('示例 body 的字段集合与真实构造器 heartbeat 输出完全一致（不另起一套定义）', async () => {
     const {
       buildTelemetryPayload,
-      buildTelemetryPayloadPreviewWithSample,
+      buildTelemetryPayloadPreview,
       peekTelemetryClientState,
       TELEMETRY_PREVIEW_EVENTS,
     } = await loadViewer();
 
     expect([...TELEMETRY_PREVIEW_EVENTS]).toEqual(['startup', 'heartbeat', 'error_report']);
 
-    for (const event of TELEMETRY_PREVIEW_EVENTS) {
-      const preview = await buildTelemetryPayloadPreviewWithSample(event, {
-        settings: PREVIEW_SETTINGS,
-        now: PREVIEW_NOW,
-      });
-      const state = await peekTelemetryClientState(PREVIEW_SETTINGS, PREVIEW_NOW);
-      const real = await buildTelemetryPayload({
-        event,
-        settings: PREVIEW_SETTINGS,
-        state,
-        now: PREVIEW_NOW,
-        ...(event === 'error_report' ? { error: preview.errorSample } : {}),
-      });
+    // 查看器简化后固定取 heartbeat（最高频的真实上报类型）作为示例 body 口径
+    const event = 'heartbeat' as const;
+    const payload = await buildTelemetryPayloadPreview(event, {
+      settings: PREVIEW_SETTINGS,
+      now: PREVIEW_NOW,
+    });
+    const state = await peekTelemetryClientState(PREVIEW_SETTINGS, PREVIEW_NOW);
+    const real = await buildTelemetryPayload({ event, settings: PREVIEW_SETTINGS, state, now: PREVIEW_NOW });
 
-      expect(Object.keys(preview.payload)).toEqual(Object.keys(real));
-      expect(Object.keys(preview.payload.client)).toEqual(Object.keys(real.client));
-      expect(Object.keys(preview.payload.activity)).toEqual(Object.keys(real.activity));
-      expect(Object.keys(preview.payload.metrics)).toEqual(Object.keys(real.metrics));
-      expect(preview.payload.event).toBe(event);
-      expect(preview.payload.schemaVersion).toBe(1);
-      expect(preview.payload.anonymous).toBe(true);
-      expect((preview.payload as any).client.channel).toBe('beta');
-
-      if (event === 'error_report') {
-        const error = (preview.payload as any).error;
-        expect(error).toBeTruthy();
-        expect(error.component).toBe('background');
-        expect(error.code).toBe('BACKGROUND_UNHANDLED_ERROR');
-        expect(error.message).toBe('TypeError');
-        expect(error.stackHash).toMatch(/^sha256-[a-f0-9]{64}$/);
-        expect(error.fatal).toBe(false);
-        expect(preview.errorSample).toEqual(error);
-      } else {
-        expect((preview.payload as any).error).toBeUndefined();
-      }
-    }
+    expect(Object.keys(payload)).toEqual(Object.keys(real));
+    expect(Object.keys(payload.client)).toEqual(Object.keys(real.client));
+    expect(Object.keys(payload.activity)).toEqual(Object.keys(real.activity));
+    expect(Object.keys(payload.metrics)).toEqual(Object.keys(real.metrics));
+    expect(payload.event).toBe(event);
+    expect(payload.schemaVersion).toBe(1);
+    expect(payload.anonymous).toBe(true);
+    expect((payload as any).client.channel).toBe('beta');
+    expect((payload as any).error).toBeUndefined();
   });
 
   it('预览只读：绝不回写 telemetry_client_state，也不发送请求', async () => {

@@ -43,7 +43,7 @@ describe('UpdateSettingsPage 产品入口', () => {
     expect(source).toContain('https://docs.we-together.club/');
   });
 
-  it('遥测数据区块：可展开查看上报 body 与说明文案齐备', () => {
+  it('遥测数据区块：只展示示例 body 与说明文案，无事件分类/地址/重新生成/复制', () => {
     expect(source).toContain('遥测数据');
     expect(source).toContain('update-section-telemetry');
     expect(source).toContain("label: '遥测数据'");
@@ -53,9 +53,6 @@ describe('UpdateSettingsPage 产品入口', () => {
     expect(source).toContain('telemetryPayloadPanel');
     expect(source).toContain('aria-expanded');
     expect(source).toContain('展开查看上报数据');
-    expect(source).toContain('复制 JSON');
-    expect(source).toContain('重新生成');
-    expect(source).toContain('telemetryViewerEvent-');
     expect(source).toContain('telemetryPurposeNote');
     expect(source).toContain('telemetryDeviceIdNote');
     expect(source).toContain('telemetryPayloadStatus');
@@ -66,12 +63,22 @@ describe('UpdateSettingsPage 产品入口', () => {
     expect(source).toContain('TELEMETRY_DATA_EXCLUDED_ITEMS');
     expect(source).toContain('mapTelemetryViewFromSettings');
     expect(source).toContain('loadTelemetryPreview');
-    expect(source).toContain('copyTelemetryPayloadJson');
+    expect(source).toContain("loadTelemetryPayload('heartbeat')");
     // 展开前不渲染 body 内容，展开后等宽完整展示
     expect(source).toContain('font-mono');
+    // 简化：前端不写上报地址、不区分上报事件类别、不提供重新生成与复制
+    expect(source).not.toContain('复制 JSON');
+    expect(source).not.toContain('重新生成');
+    expect(source).not.toContain('copyTelemetryPayloadJson');
+    expect(source).not.toContain('telemetryViewerEvent');
+    expect(source).not.toContain('telemetryViewerEndpoint');
+    expect(source).not.toContain('formatTelemetryPreviewTime');
+    expect(source).not.toContain('上报地址');
+    expect(source).toMatch(/共\{' '\}/);
+    expect(source).not.toMatch(/启动上报|心跳上报|错误上报/);
   });
 
-  it('遥测区块不出现误导性的关闭承诺，也不展示上报地址以外的隐藏字段策略', () => {
+  it('遥测区块不出现误导性的关闭承诺，也不触碰真实上报与状态写入', () => {
     // 查看器只读展示：不得在页面里发送遥测或写客户端状态
     expect(source).not.toContain('sendTelemetry');
     expect(source).not.toContain('getTelemetryClientState');
