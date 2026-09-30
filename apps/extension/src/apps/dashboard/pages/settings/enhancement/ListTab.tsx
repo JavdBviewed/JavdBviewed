@@ -94,6 +94,7 @@ export function ListTab({
                       key={field.id}
                       id={field.id}
                       label={field.label}
+                      description={field.description}
                       checked={form[field.key] as boolean}
                       onChange={(checked) => setToggle(field.key, checked)}
                     />

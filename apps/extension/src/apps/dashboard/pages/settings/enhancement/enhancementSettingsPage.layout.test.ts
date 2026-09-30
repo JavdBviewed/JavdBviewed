@@ -253,6 +253,8 @@ describe('EnhancementSettingsPage layout', () => {
       'hideBrowsed',
       'hideVR',
       'hideWant',
+      'hideInMediaLibrary',
+      'hideRealWatched',
       'hideBlacklistedActorsInList',
       'hideNonFavoritedActorsInList',
       'hideUnrecognizedActorsInList',

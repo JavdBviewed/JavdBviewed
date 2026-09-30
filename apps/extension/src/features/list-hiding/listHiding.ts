@@ -23,7 +23,15 @@ export const LIST_HIDE_SRC_ATTR = 'data-hide-src';
 export const LIST_HIDE_DEFAULT_ATTR = 'data-hidden-by-default';
 
 /** 隐藏来源标识。 */
-export type ListHidingSource = 'viewed' | 'browsed' | 'want' | 'vr' | 'actor' | 'category';
+export type ListHidingSource =
+  | 'viewed'
+  | 'browsed'
+  | 'want'
+  | 'vr'
+  | 'actor'
+  | 'category'
+  | 'mediaLibrary'
+  | 'realWatched';
 
 /** 影片类别过滤三态（09-29-contentfilter-category-merge）：off=不过滤 / whitelist=仅保留所选 / blacklist=命中隐藏。 */
 export type CategoryFilterMode = 'off' | 'whitelist' | 'blacklist';
@@ -96,6 +104,8 @@ export const LIST_HIDE_REASON_BY_SOURCE: Record<ListHidingSource, string> = {
   vr: 'VR',
   actor: 'ACTOR',
   category: 'CATEGORY_BLACKLIST',
+  mediaLibrary: 'MEDIA_LIBRARY',
+  realWatched: 'REAL_WATCHED',
 };
 
 /**
@@ -111,12 +121,16 @@ export interface ListHidingEnablement {
   actor: boolean;
   /** 类别过滤隐藏：总开关开且勾选集合非空且演员穿透开（09-29-cftabs；三态共同前提语义不变）。 */
   category: boolean;
+  /** 媒体库已入库隐藏（display.hideInMediaLibrary：Emby/JF 索引或 115 网盘索引任一命中，09-30-media-library-hide-filter）。 */
+  mediaLibrary: boolean;
+  /** 真实已看隐藏（display.hideRealWatched：Emby/JF 进度达阈值或已标记看完；与 mediaLibrary 共用索引数据）。 */
+  realWatched: boolean;
 }
 
 /** 返回某卡片当前所有隐藏来源标记。 */
 export function getActiveHidingSources(item: HTMLElement): ListHidingSource[] {
   const found: ListHidingSource[] = [];
-  for (const source of ['viewed', 'browsed', 'want', 'vr', 'actor', 'category'] as ListHidingSource[]) {
+  for (const source of ['viewed', 'browsed', 'want', 'vr', 'actor', 'category', 'mediaLibrary', 'realWatched'] as ListHidingSource[]) {
     if (item.hasAttribute(`${LIST_HIDE_SRC_ATTR}-${source}`)) {
       found.push(source);
     }
@@ -169,7 +183,7 @@ export function recomputeListHiding(
 
 /** 清除某卡片上所有隐藏来源标记（不改变显隐，由调用方决定是否重算）。 */
 export function clearHidingSources(item: HTMLElement): void {
-  for (const source of ['viewed', 'browsed', 'want', 'vr', 'actor', 'category'] as ListHidingSource[]) {
+  for (const source of ['viewed', 'browsed', 'want', 'vr', 'actor', 'category', 'mediaLibrary', 'realWatched'] as ListHidingSource[]) {
     item.removeAttribute(`${LIST_HIDE_SRC_ATTR}-${source}`);
   }
 }
@@ -180,7 +194,14 @@ export function clearHidingSources(item: HTMLElement): void {
  */
 export function readListHidingEnablement(settings: unknown): ListHidingEnablement {
   const s = (settings || {}) as {
-    display?: { hideViewed?: boolean; hideBrowsed?: boolean; hideWant?: boolean; hideVR?: boolean };
+    display?: {
+      hideViewed?: boolean;
+      hideBrowsed?: boolean;
+      hideWant?: boolean;
+      hideVR?: boolean;
+      hideInMediaLibrary?: boolean;
+      hideRealWatched?: boolean;
+    };
     listEnhancement?: {
       hideBlacklistedActorsInList?: boolean;
       hideNonFavoritedActorsInList?: boolean;
@@ -212,6 +233,9 @@ export function readListHidingEnablement(settings: unknown): ListHidingEnablemen
     vr: !!s.display?.hideVR,
     actor,
     category,
+    // 09-30-media-library-hide-filter：媒体库来源读 display.*（零回填，缺省 false）
+    mediaLibrary: !!s.display?.hideInMediaLibrary,
+    realWatched: !!s.display?.hideRealWatched,
   };
 }
 

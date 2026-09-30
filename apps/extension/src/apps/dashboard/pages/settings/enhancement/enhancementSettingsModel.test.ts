@@ -432,12 +432,14 @@ describe('enhancementSettingsModel', () => {
 });
 
 describe('list filter fields (migrated from display settings)', () => {
-  it('defaults the 7 list filter toggles to false', () => {
+  it('defaults the 9 list filter toggles to false', () => {
     const d = DEFAULT_ENHANCEMENT_SETTINGS_FORM;
     expect(d.hideViewed).toBe(false);
     expect(d.hideBrowsed).toBe(false);
     expect(d.hideVR).toBe(false);
     expect(d.hideWant).toBe(false);
+    expect(d.hideInMediaLibrary).toBe(false);
+    expect(d.hideRealWatched).toBe(false);
     expect(d.hideBlacklistedActorsInList).toBe(false);
     expect(d.hideNonFavoritedActorsInList).toBe(false);
     expect(d.hideUnrecognizedActorsInList).toBe(false);
@@ -456,7 +458,7 @@ describe('list filter fields (migrated from display settings)', () => {
 
   it('reads display.* and listEnhancement.* filter keys without changing namespaces', () => {
     const form = mapSettingsToEnhancementForm({
-      display: { hideViewed: true, hideVR: true },
+      display: { hideViewed: true, hideVR: true, hideInMediaLibrary: true, hideRealWatched: true },
       listEnhancement: {
         hideBlacklistedActorsInList: true,
         hideUnrecognizedActorsInList: true,
@@ -466,9 +468,17 @@ describe('list filter fields (migrated from display settings)', () => {
     expect(form.hideBrowsed).toBe(false);
     expect(form.hideVR).toBe(true);
     expect(form.hideWant).toBe(false);
+    expect(form.hideInMediaLibrary).toBe(true);
+    expect(form.hideRealWatched).toBe(true);
     expect(form.hideBlacklistedActorsInList).toBe(true);
     expect(form.hideNonFavoritedActorsInList).toBe(false);
     expect(form.hideUnrecognizedActorsInList).toBe(true);
+  });
+
+  it('reads media-library hide keys as false for empty/legacy settings (zero backfill)', () => {
+    const form = mapSettingsToEnhancementForm(undefined);
+    expect(form.hideInMediaLibrary).toBe(false);
+    expect(form.hideRealWatched).toBe(false);
   });
 
   it('writes display.* and listEnhancement.* namespaces and preserves unknown keys', () => {
@@ -481,6 +491,8 @@ describe('list filter fields (migrated from display settings)', () => {
       hideViewed: true,
       hideBrowsed: true,
       hideWant: true,
+      hideInMediaLibrary: true,
+      hideRealWatched: true,
       enableActorPenetration: true,
       hideNonFavoritedActorsInList: true,
       hideUnrecognizedActorsInList: true,
@@ -491,6 +503,8 @@ describe('list filter fields (migrated from display settings)', () => {
     // form 为权威写入：current.display.hideVR=true 被 form 默认 false 覆盖
     expect(next.display.hideVR).toBe(false);
     expect(next.display.hideWant).toBe(true);
+    expect(next.display.hideInMediaLibrary).toBe(true);
+    expect(next.display.hideRealWatched).toBe(true);
     expect(next.display.customLegacy).toBe('keep');
     expect(next.listEnhancement.enableActorPenetration).toBe(true);
     expect(next.listEnhancement.another).toBe(42);

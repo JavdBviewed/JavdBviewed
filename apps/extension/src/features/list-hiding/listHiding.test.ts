@@ -26,6 +26,8 @@ const FULL_ON: ListHidingEnablement = {
   vr: false,
   actor: false,
   category: true,
+  mediaLibrary: false,
+  realWatched: false,
 };
 
 function makeItem(): HTMLElement {
@@ -241,5 +243,92 @@ describe('页面豁免', () => {
     expect(isCategoryFilterExemptPage('/search?q=x', true)).toBe(true);
     expect(isCategoryFilterExemptPage('/users/want_watch_videos', false)).toBe(true);
     expect(isCategoryFilterExemptPage('/list', false)).toBe(false);
+  });
+});
+
+
+describe('mediaLibrary / realWatched 隐藏来源（09-30-media-library-hide-filter）', () => {
+  it('mediaLibrary 标记 + 开关开启 → 隐藏且 data-hide-reason=MEDIA_LIBRARY', () => {
+    const item = makeItem();
+    setHidingSource(item, 'mediaLibrary', true);
+    const effective = recomputeListHiding(item, { ...FULL_ON, mediaLibrary: true });
+    expect(effective).toEqual(['mediaLibrary']);
+    expect(item.style.display).toBe('none');
+    expect(item.getAttribute('data-hide-reason')).toBe('MEDIA_LIBRARY');
+    document.body.innerHTML = '';
+  });
+
+  it('realWatched 标记 + 开关开启 → 隐藏且 data-hide-reason=REAL_WATCHED', () => {
+    const item = makeItem();
+    setHidingSource(item, 'realWatched', true);
+    const effective = recomputeListHiding(item, { ...FULL_ON, realWatched: true });
+    expect(effective).toEqual(['realWatched']);
+    expect(item.style.display).toBe('none');
+    expect(item.getAttribute('data-hide-reason')).toBe('REAL_WATCHED');
+    document.body.innerHTML = '';
+  });
+
+  it('mediaLibrary+realWatched 同时命中 → reason 合并；标记在、开关关 → 恢复显隐', () => {
+    const item = makeItem();
+    setHidingSource(item, 'mediaLibrary', true);
+    setHidingSource(item, 'realWatched', true);
+    const effective = recomputeListHiding(item, {
+      ...FULL_ON,
+      mediaLibrary: true,
+      realWatched: true,
+    });
+    expect(effective.sort()).toEqual(['mediaLibrary', 'realWatched']);
+    expect(item.getAttribute('data-hide-reason').split(',').sort()).toEqual(['MEDIA_LIBRARY', 'REAL_WATCHED']);
+    const restored = recomputeListHiding(item, {
+      ...FULL_ON,
+      mediaLibrary: false,
+      realWatched: false,
+    });
+    expect(restored).toEqual([]);
+    expect(item.style.display).not.toBe('none');
+    expect(item.hasAttribute('data-hide-reason')).toBe(false);
+    document.body.innerHTML = '';
+  });
+
+  it('getActiveHidingSources / clearHidingSources 覆盖新来源', () => {
+    const item = makeItem();
+    setHidingSource(item, 'mediaLibrary', true);
+    setHidingSource(item, 'realWatched', true);
+    setHidingSource(item, 'viewed', true);
+    expect(getActiveHidingSources(item).sort()).toEqual(['mediaLibrary', 'realWatched', 'viewed']);
+    clearHidingSources(item);
+    expect(getActiveHidingSources(item)).toEqual([]);
+    document.body.innerHTML = '';
+  });
+});
+
+describe('readListHidingEnablement（display 媒体库两开关，09-30-media-library-hide-filter）', () => {
+  it('读 display.hideInMediaLibrary / display.hideRealWatched（零回填，缺省 false）', () => {
+    const e = readListHidingEnablement({
+      display: { hideInMediaLibrary: true, hideRealWatched: true },
+    });
+    expect(e.mediaLibrary).toBe(true);
+    expect(e.realWatched).toBe(true);
+  });
+
+  it('缺省 → false（存量设置零变化）；非布尔与既有 viewed 字段同 !! 强转口径', () => {
+    expect(readListHidingEnablement({}).mediaLibrary).toBe(false);
+    expect(readListHidingEnablement({}).realWatched).toBe(false);
+    // 与既有 7 字段同一 !! 强转（零漂移一致性），不单独收紧新字段的布尔口径
+    const legacy = readListHidingEnablement({ display: { hideViewed: 'yes' } } as any).viewed;
+    const fresh = readListHidingEnablement({ display: { hideInMediaLibrary: 'yes' } } as any).mediaLibrary;
+    expect(fresh).toBe(legacy);
+  });
+
+  it('媒体库开关与既有来源互不影响', () => {
+    const e = readListHidingEnablement({
+      display: { hideViewed: true, hideInMediaLibrary: true },
+      listEnhancement: { hideBlacklistedActorsInList: true },
+    });
+    expect(e.viewed).toBe(true);
+    expect(e.actor).toBe(true);
+    expect(e.mediaLibrary).toBe(true);
+    expect(e.realWatched).toBe(false);
+    expect(e.category).toBe(false);
   });
 });

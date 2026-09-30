@@ -4,3 +4,4 @@
  * @module features/list-hiding
  */
 export * from './listHiding';
+export * from './mediaLibraryHiding';
