@@ -26,8 +26,25 @@ export {
   TELEMETRY_CLIENT_STATE_KEY,
   createTelemetryEventId,
   getTelemetryClientState,
+  peekTelemetryClientState,
   writeTelemetryClientState,
 } from './application/clientState';
+export {
+  TELEMETRY_ERROR_SAMPLE_INPUT,
+  TELEMETRY_PREVIEW_EVENTS,
+  buildTelemetryPayloadPreview,
+  buildTelemetryPayloadPreviewWithSample,
+  createTelemetryErrorSample,
+  type BuildTelemetryPayloadPreviewOptions,
+  type TelemetryPayloadPreview,
+  type TelemetryPreviewEvent,
+} from './application/payloadPreview';
+export {
+  describeTelemetrySensitiveFindings,
+  findTelemetryPayloadSensitiveValues,
+  type TelemetrySensitiveFinding,
+  type TelemetrySensitivePatternId,
+} from './domain/payloadHygiene';
 export { getTelemetryRuntimeInfo } from './application/runtimeInfo';
 export { buildTelemetryPayload } from './application/buildTelemetryPayload';
 export {
