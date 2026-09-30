@@ -497,6 +497,20 @@ export function UpdateSettingsPage() {
                 </span>
                 <span className="shrink-0 rounded-[5px] bg-[var(--color-surface)] px-2 py-1 text-[10px] font-extrabold text-[var(--color-fg-muted)]">开发中</span>
               </div>
+              <a
+                data-product="javscribe"
+                className="flex min-h-[74px] items-center gap-3 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-3 no-underline hover:border-[var(--color-primary)]"
+                href="https://github.com/JavdBviewed/JavScribe"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-2)] bg-[var(--color-primary)] text-[10px] font-extrabold text-white">SUB</span>
+                <span className="min-w-0 flex-1">
+                  <strong className="block text-[13px] text-[var(--color-fg)]">JavScribe</strong>
+                  <span className="block truncate text-[11px] text-[var(--color-fg-muted)]">JAV 视频字幕自动生成（ja→zh，.zh.srt 原位落位）</span>
+                </span>
+                <span className="shrink-0 rounded-[5px] bg-[var(--color-primary-soft)] px-2 py-1 text-[10px] font-extrabold text-[var(--color-primary-active)]">已上线</span>
+              </a>
             </div>
             <a
               data-product-support="star"

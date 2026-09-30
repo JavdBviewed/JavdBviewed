@@ -18,6 +18,28 @@ describe('UpdateSettingsPage 产品入口', () => {
     expect(source).toContain('开发中');
   });
 
+  it('展示 JavScribe 已上线产品入口（系列产品第 5 张卡，指向 GitHub 仓库）', () => {
+    const productsSection = source.slice(
+      source.indexOf('id={UPDATE_SECTION_IDS.products}'),
+      source.indexOf('id={UPDATE_SECTION_IDS.community}'),
+    );
+    expect(productsSection).toContain('JavScribe');
+    expect(productsSection).toContain('data-product="javscribe"');
+    expect(productsSection).toContain('href="https://github.com/JavdBviewed/JavScribe"');
+    expect(productsSection).toContain('target="_blank"');
+    expect(productsSection).toContain('rel="noopener noreferrer"');
+    expect(productsSection).toContain('JAV 视频字幕自动生成（ja→zh，.zh.srt 原位落位）');
+    expect(productsSection).toContain('已上线');
+    // 卡片总数 5 张，既有 4 卡顺序与文案零改动
+    expect((productsSection.match(/className="flex min-h-\[74px\]/g) ?? [])).toHaveLength(5);
+    const order = ['浏览器扩展', 'JavdBviewed Cloud', '桌面端', 'Android', 'JavScribe'];
+    const positions = order.map((name) => productsSection.indexOf(name));
+    expect(positions.every((pos) => pos >= 0)).toBe(true);
+    expect([...positions]).toEqual([...positions].sort((a, b) => a - b));
+    // 新卡是唯一带 data-product 标记的产品卡（其余 4 卡未被顺手改造）
+    expect((productsSection.match(/data-product="/g) ?? [])).toHaveLength(1);
+  });
+
   it('为项目提供 GitHub Star 支持入口', () => {
     expect(source).toContain('喜欢这个项目？欢迎在 GitHub 点个 Star 支持我们');
     expect(source).toContain('data-product-support="star"');
