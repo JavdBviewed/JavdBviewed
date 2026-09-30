@@ -77,12 +77,12 @@ describe('new works progress runtime', () => {
       processed: 2,
       total: 4,
       identifiedTotal: 8,
-      effectiveTotal: 3,
+      pendingTotal: 3,
       activeActorNames: ['Alice', 'Bob'],
       actorName: 'Alice',
     });
 
-    expect(progressEl.querySelector('.text')?.textContent).toBe('进度 2/4，已识别 8，有效 3，正在检查（2）：Alice、Bob');
+    expect(progressEl.querySelector('.text')?.textContent).toBe('进度 2/4，已识别 8，可入库 3，正在检查（2）：Alice、Bob');
     expect((progressEl.querySelector('.progress-bar-fill') as HTMLElement).style.width).toBe('50%');
     expect(progressEl.querySelector('.progress-active-actors')?.textContent).toBe('并发进行中（2）：Alice、Bob');
     expect((progressEl.querySelector('.progress-active-actors') as HTMLElement).style.display).toBe('block');
@@ -132,6 +132,7 @@ describe('new works progress runtime', () => {
       total: 3,
       identifiedTotal: undefined,
       effectiveTotal: undefined,
+      pendingTotal: undefined,
       actorName: 'Alice',
       activeActorNames: ['Alice', 'Bob'],
       concurrency: 3,
