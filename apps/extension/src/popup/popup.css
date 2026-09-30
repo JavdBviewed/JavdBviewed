@@ -356,7 +356,8 @@ button {
 
 .main-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    /* 09-30-popup-media-library-toggles：双列左宽右窄（番号过滤 6 卡 2x3 / 演员过滤 4 卡单列） */
+    grid-template-columns: 1.2fr 1fr;
     gap: 12px;
     align-items: start;
     margin-top: 12px;
@@ -389,6 +390,28 @@ button {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+/* 09-30-popup-media-library-toggles：左列（番号过滤）改 2 列 x 3 行网格，标题独占一行。
+   必须后置在 .main-controls 之后：同为单类选择器，靠源码顺序覆盖 flex 布局。 */
+.filters-left {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.filters-left .section-title {
+    grid-column: 1 / -1;
+}
+
+/* 左列卡变窄，短文案允许 2 行；右列 4 张演员卡零改动（仍 12px + nowrap）。
+   padding 左右 9px -> 7px：卡内可用文字宽 30.5px -> 34.5px，11px 下每行 2 字 -> 3 字，
+   使「媒体库已入库」6 字按 3+3 两行排下（真机实测：不缩 padding 时 3 行、卡高 44 -> 58）。 */
+.filters-left .toggle-button {
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: normal;
+    padding: 8px 7px;
 }
 
 .section-title,
