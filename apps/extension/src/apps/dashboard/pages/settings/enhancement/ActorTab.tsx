@@ -48,6 +48,7 @@ export function ActorTab({
         <SettingToggleRow
           id="enableActorEnhancement"
           label="启用影片类别过滤"
+          description="启用后在演员页按勾选的类别与条件过滤影片，切换演员时自动应用"
           checked={form.enableActorEnhancement}
           onChange={(v) => setToggle('enableActorEnhancement', v)}
         />
@@ -111,7 +112,7 @@ export function ActorTab({
               {/* 类别白名单（字典维度分组；appliesToUrl=false 维度仅记录、不拼 URL） */}
               <div id="actorDefaultCategoriesGroup" className="flex flex-col gap-1">
                 <p className="m-0 text-xs font-semibold text-[var(--color-fg-muted)]">
-                  默认类别过滤（白名单；自动应用时随 t 码一起拼入演员页 URL）
+                  默认类别过滤：勾选 = 演员页只显示该类别的影片；全部不勾 = 不限制。自动应用时与上方过滤条件一起生效
                 </p>
                 {ACTOR_CATEGORY_DIMENSIONS.map((dim) => {
                   const dimKeys = dim.entries.map((e) => entryKey(dim.key, e.id));

@@ -130,7 +130,7 @@ export function ListTab({
                   <SettingToggleRow
                     id="enableCategoryFilter"
                     label="启用影片类别过滤"
-                    description="勾选要隐藏的影片类别（依赖演员穿透）"
+                    description="勾选 = 从列表隐藏该类别的影片；类别由「演员穿透」解析影片详情获得，未开启穿透时本过滤不生效"
                     checked={form.categoryFilterEnabled}
                     onChange={(v) => {
                       if (v && !form.enableActorPenetration && !form.categoryFilterEnabled) {
@@ -148,7 +148,7 @@ export function ListTab({
                     >
                       <p className="m-0 text-[12.5px] leading-relaxed text-[var(--color-fg)]">
                         「影片类别过滤」依赖「演员穿透」：启用后列表卡片会发起详情页请求解析类别
-                        （类别数据来自穿透详情请求，不另起请求）。此功能会增加性能开销与源站的请求量。
+                        （类别数据来自穿透详情请求，不另起请求），勾选了类别的卡片将被隐藏。此功能会增加性能开销与源站的请求量。
                       </p>
                       <div className="flex items-center gap-2">
                         <Button
@@ -187,8 +187,8 @@ export function ListTab({
                   {form.categoryFilterEnabled && form.enableActorPenetration ? (
                     <div id="categoryFilterConfig" className="mt-1 flex flex-col gap-2 px-2">
                       <p className="input-description" role="note">
-                        勾选要隐藏的影片类别（命中=隐藏，取消勾选即时恢复）。
-                        选项来自内置类别字典（311 项），按维度分组。
+                        勾选 = 从列表隐藏该类别的影片；取消勾选即时恢复。
+                        选项为站点内置类别清单（311 项），按「主題/角色/服裝」等分组，便于挑选。
                       </p>
                       <p className="input-description" role="note">
                         ⚠️ 类别随「演员穿透」的详情页请求解析（同一请求，不另起），此功能会增加性能开销与源站的请求量。

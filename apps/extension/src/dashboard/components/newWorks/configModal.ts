@@ -284,7 +284,7 @@ export class NewWorksConfigModal {
                                         <div class="category-panel-header">
                                             <div>
                                                 <h5>类别白名单（只扫这些）</h5>
-                                                <p class="category-panel-desc">勾选后演员作品页 URL 只扫这些类别；留空 = 不限制。标注「不拼 URL」的维度为未实测维度，勾选仅记录、不参与 URL 筛选。</p>
+                                                <p class="category-panel-desc">勾选后，扫描新作品时只抓取这些类别的影片；全部不勾 = 不限制。标注「不拼 URL」的维度为未实测维度，勾选仅记录、不参与筛选。</p>
                                             </div>
                                             <div class="category-panel-meta">已选 <strong id="categoryWhitelistCount">${whitelistCount}</strong> 项</div>
                                         </div>
@@ -295,7 +295,7 @@ export class NewWorksConfigModal {
                                         <div class="category-panel-header">
                                             <div>
                                                 <h5>类别黑名单（入库前剔除）</h5>
-                                                <p class="category-panel-desc">命中类别的作品在入库前剔除（先读演员穿透缓存，未命中才请求详情并限速；解析失败保守保留不丢片）。</p>
+                                                <p class="category-panel-desc">命中勾选类别的影片不会保存（类别取自影片详情解析；解析失败时保留不丢片）。</p>
                                             </div>
                                             <div class="category-panel-meta">已选 <strong id="categoryBlacklistCount">${blacklistCount}</strong> 项</div>
                                         </div>
