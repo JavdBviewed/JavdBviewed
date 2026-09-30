@@ -1,4 +1,9 @@
 import type { NewWorksProgressData } from './newWorksProgressRuntime';
+import type {
+  NewWorksManualBreakdown,
+  NewWorksManualConfirmSource,
+  NewWorksManualPendingWork,
+} from './newWorksManualConfirmViewModel';
 
 type MessageType = 'success' | 'error' | 'info' | 'warn' | 'warning';
 
@@ -16,6 +21,12 @@ export interface NewWorksManualCheckResult {
   savedTotal?: number;
   /** 持久化失败的数量 */
   failedTotal?: number;
+  /** 新链（后台带 confirmRequired）返回：已收集但尚未入库的完整记录 */
+  pendingWorks?: NewWorksManualPendingWork[];
+  /** 新链返回：按规则剔除的六桶分项 */
+  breakdown?: NewWorksManualBreakdown;
+  /** 新链返回：已在（或本来就在）新作品库的条数 */
+  existingCount?: number;
 }
 
 export interface NewWorksManualCheckResponse {
@@ -37,6 +48,8 @@ export interface NewWorksManualCheckWorkflowDeps {
   showMessage(message: string, type: MessageType): void;
   logWarn(message: string, error: unknown): void;
   logError(message: string, error: unknown): void;
+  /** 注入则走「收集-确认-入库」新链；缺省=旧当场直写语义（其它调用方不受影响） */
+  confirmAndCommit?(source: NewWorksManualConfirmSource): Promise<void>;
 }
 
 export interface RunNewWorksManualCheckWorkflowInput {
@@ -70,10 +83,18 @@ export async function runNewWorksManualCheckWorkflow(input: RunNewWorksManualChe
       throw new Error(response.error || '检查失败');
     }
 
-    await deps.render();
-
     const result = response.result || {};
     const errors = Array.isArray(result.errors) ? result.errors : [];
+
+    // 后台回收了 pendingWorks 且页面接入了确认流程 = 新链；否则逐字保留旧提示语义
+    if (Array.isArray(result.pendingWorks) && deps.confirmAndCommit) {
+      await commitAfterConfirm(deps, result, errors);
+      deps.updateProgressUI({ done: true });
+      return;
+    }
+
+    await deps.render();
+
     const discovered = typeof result.discovered === 'number' ? result.discovered : 0;
     const failedTotal = typeof result.failedTotal === 'number' ? result.failedTotal : 0;
     const statsTail = buildManualCheckStatsTail(result, discovered);
@@ -107,13 +128,43 @@ export async function runNewWorksManualCheckWorkflow(input: RunNewWorksManualChe
   }
 }
 
+/**
+ * 新链收尾：检查错误先单独 toast（避免混进弹窗的分项口径），再交给确认弹窗决定是否入库。
+ * 列表渲染由确认流程负责，这里不重复 render。
+ */
+async function commitAfterConfirm(
+  deps: NewWorksManualCheckWorkflowDeps,
+  result: NewWorksManualCheckResult,
+  errors: string[],
+): Promise<void> {
+  if (errors.length > 0) {
+    deps.logWarn('新作品检查错误详情:', errors);
+    deps.showMessage(buildManualCheckErrorsMessage(errors), 'warn');
+  }
+  await deps.confirmAndCommit?.({
+    cancelled: result.cancelled === true,
+    identifiedTotal: result.identifiedTotal,
+    existingCount: result.existingCount,
+    breakdown: result.breakdown,
+    pendingWorks: result.pendingWorks,
+  });
+}
+
+function buildManualCheckErrorsMessage(errors: string[]): string {
+  const firstError = errors[0];
+  if (errors.length === 1) {
+    return `部分演员检查失败：${firstError}，详情见控制台`;
+  }
+  return `部分演员检查失败：${firstError}（共 ${errors.length} 个错误，详情见控制台）`;
+}
+
 function buildManualCheckStatsTail(result: NewWorksManualCheckResult, discovered: number): string {
   const parts: string[] = [];
   if (typeof result.identifiedTotal === 'number') {
     parts.push(`已识别 ${result.identifiedTotal}`);
   }
   if (typeof result.effectiveTotal === 'number') {
-    parts.push(`有效 ${result.effectiveTotal}`);
+    parts.push(`可入库 ${result.effectiveTotal}`);
   }
   parts.push(`新增 ${discovered}`);
   if (typeof result.savedTotal === 'number' && result.savedTotal < discovered) {

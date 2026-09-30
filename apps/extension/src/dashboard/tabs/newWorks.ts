@@ -21,6 +21,14 @@ import {
     syncNewWorksBatchOperations,
 } from './newWorksListRuntime';
 import { runNewWorksManualCheckWorkflow } from './newWorksManualCheckWorkflow';
+import {
+    runNewWorksManualConfirmWorkflow,
+    type NewWorksManualCommitResponse,
+} from './newWorksManualConfirmWorkflow';
+import type {
+    NewWorksManualConfirmSource,
+    NewWorksManualPendingWork,
+} from './newWorksManualConfirmViewModel';
 import { runNewWorksStatusSyncWorkflow } from './newWorksStatusSyncWorkflow';
 import { runNewWorksAutoStatusSyncWorkflow } from './newWorksAutoStatusSyncWorkflow';
 import {
@@ -87,10 +95,13 @@ export class NewWorksTab {
                     type: 'new-works-check-single-actor',
                     actorId: subscription.actorId,
                     actorName: subscription.actorName,
+                    // 新作品页订阅行的「扫描」= 手动检查路径：后台只收集，确认后入库
+                    confirmRequired: true,
                 },
                 resolve,
             );
         }),
+        confirmAndCommit: source => this.confirmAndCommitNewWorksManualResults(source),
         render: () => this.render(),
         showMessage,
         logInfo: (message, data) => data === undefined ? console.log(message) : console.log(message, data),
@@ -705,8 +716,10 @@ export class NewWorksTab {
                 detachProgressListener: () => this.detachProgressListener(),
                 hideProgressUIAfter: ms => this.hideProgressUIAfter(ms),
                 sendManualCheck: () => new Promise<any>((resolve) => {
-                    chrome.runtime.sendMessage({ type: 'new-works-manual-check' }, resolve);
+                    // confirmRequired = 后台只收集不入库，弹窗确认后才写（无标记仍是旧直写）
+                    chrome.runtime.sendMessage({ type: 'new-works-manual-check', confirmRequired: true }, resolve);
                 }),
+                confirmAndCommit: source => this.confirmAndCommitNewWorksManualResults(source),
                 render: () => this.render(),
                 showMessage,
                 logWarn: (message, error) => console.warn(message, error),
@@ -717,6 +730,43 @@ export class NewWorksTab {
 
     private setCheckNowButtonLoading(loading: boolean): void {
         setCheckNowButtonLoadingState(loading);
+    }
+
+    /**
+     * 手动检查结果的「确认后才入库」流程。
+     * 适用范围 = 新作品页两条手动检查路径（立刻检查 / 订阅行单演员扫描）；
+     * 演员选择器与演员页扫描按钮未接此流程，仍是当场扫描即入库。
+     */
+    private async confirmAndCommitNewWorksManualResults(source: NewWorksManualConfirmSource): Promise<void> {
+        await runNewWorksManualConfirmWorkflow({
+            deps: {
+                showConfirmModal: ({ title, html, confirmLabel, cancelLabel }) => showConfirm({
+                    title,
+                    message: html,
+                    isHtml: true,
+                    confirmText: confirmLabel,
+                    cancelText: cancelLabel,
+                    type: 'info',
+                    className: 'newworks-confirm-modal',
+                }),
+                sendManualCommit: (works: NewWorksManualPendingWork[]) => new Promise<NewWorksManualCommitResponse>((resolve) => {
+                    chrome.runtime.sendMessage(
+                        { type: 'new-works-manual-commit', works },
+                        (response?: NewWorksManualCommitResponse) => {
+                            if (chrome.runtime.lastError) {
+                                resolve({ success: false, error: chrome.runtime.lastError.message });
+                                return;
+                            }
+                            resolve(response || { success: false, error: '后台无响应' });
+                        },
+                    );
+                }),
+                render: () => this.render(),
+                showMessage,
+                logError: (message, error) => console.error(message, error),
+            },
+            source,
+        });
     }
 
     /**
