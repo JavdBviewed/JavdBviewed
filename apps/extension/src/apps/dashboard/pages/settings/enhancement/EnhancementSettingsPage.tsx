@@ -90,7 +90,7 @@ export function EnhancementSettingsPage() {
     setSaveError(null);
   }, []);
 
-  const { scheduleSave, flush } = useDebouncedSettingsSave({
+  const { scheduleSave } = useDebouncedSettingsSave({
     delayMs: AUTO_SAVE_MS,
     persist,
   });
@@ -326,20 +326,6 @@ export function EnhancementSettingsPage() {
         </div>
         <div id="tabpanel-other" data-enhancement-subtab="other" hidden={subtab !== 'other'}>
           <OtherTab form={form} setToggle={setToggle} patchForm={patchForm} />
-        </div>
-
-        <div className="flex justify-end pt-2">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              void flush(form).then(() => toast('已保存', 'success'));
-            }}
-          >
-            <i className="fas fa-save" aria-hidden="true" />{' '}
-            立即保存
-          </Button>
         </div>
       </div>
       {filterRuleEditor ? (
