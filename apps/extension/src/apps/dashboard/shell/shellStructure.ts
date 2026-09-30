@@ -9,6 +9,7 @@ export type ShellStructure = {
   mainTabsId: string;
   sectionNavId: string;
   userMenuRootId: string;
+  starBtnId: string;
   tabContentIds: readonly string[];
   hasTopbar: boolean;
   hasBrandText: boolean;
@@ -22,6 +23,7 @@ export function getDashboardShellStructure(): ShellStructure {
     mainTabsId: 'dashboard-main-tabs',
     sectionNavId: 'dashboard-section-nav',
     userMenuRootId: 'dashboard-user-menu-root',
+    starBtnId: 'topbar-star-btn',
     tabContentIds: DASHBOARD_TAB_CONTENT_IDS,
     hasTopbar: true,
     hasBrandText: true,
@@ -41,6 +43,7 @@ export function assertShellHostsPresent(doc: ParentNode): string[] {
     structure.mainTabsId,
     structure.sectionNavId,
     structure.userMenuRootId,
+    structure.starBtnId,
     ...structure.tabContentIds,
   ];
   for (const id of required) {

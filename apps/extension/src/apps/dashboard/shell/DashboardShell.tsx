@@ -6,6 +6,7 @@
  * 导航按钮仍由 initTabs() 写入稳定 DOM id，业务页 partial/init 链路保持不变。
  */
 import { DASHBOARD_TAB_CONTENT_IDS } from '../../../dashboard/tabs/tabContentIds';
+import { openProjectStarPage, TOPBAR_STAR_BTN_ID } from '../../../dashboard/topbar/starButton';
 
 /**
  * React 托管的 Dashboard 布局壳（少双轨：默认替代 skeleton HTML partial）
@@ -40,6 +41,17 @@ export function DashboardShell() {
             <i className="fas fa-lock" />
             <span id="privacy-timer-text">--:--</span>
           </div>
+          {/* 星星胶囊按钮：主题切换器（运行时 insertBefore 到 user-menu-root 前）左侧 */}
+          <button
+            id={TOPBAR_STAR_BTN_ID}
+            className="topbar-star-btn"
+            type="button"
+            title="给项目一个 star"
+            aria-label="给项目一个 star"
+            onClick={openProjectStarPage}
+          >
+            <i className="fas fa-star" aria-hidden="true" />
+          </button>
           <div id="dashboard-user-menu-root" className="dashboard-user-menu-root" />
         </div>
       </div>
