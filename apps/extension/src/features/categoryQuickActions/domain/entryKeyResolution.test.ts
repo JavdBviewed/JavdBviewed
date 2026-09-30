@@ -1,6 +1,6 @@
 /**
  * @file entryKeyResolution.test.ts
- * @description 影片页「類別」栏逐链接 entryKey 解析单测（09-30-video-category-quick-actions）。
+ * @description 影片页「类别」栏逐链接 entryKey 解析单测（09-30-video-category-quick-actions）。
  * 覆盖派单验收四项：真实形态 /tags?cN=ID 命中、未知 id 不可用、非类别链接跳过、同 entryKey 去重。
  */
 import { describe, expect, it } from 'vitest';

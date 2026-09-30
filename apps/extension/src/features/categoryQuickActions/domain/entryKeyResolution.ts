@@ -1,6 +1,6 @@
 /**
  * @file entryKeyResolution.ts
- * @description 影片页「類別」栏链接 → 类别 entryKey 的逐链接解析（09-30-video-category-quick-actions）。
+ * @description 影片页「类别」栏链接 → 类别 entryKey 的逐链接解析（09-30-video-category-quick-actions）。
  *
  * 口径来源：packages/video-category-dict/src/parse.ts 的私有 extractDimPair + parseDetailCategories
  * 规则（同一套判定，per-link 粒度复用）。该函数为模块私有未导出，本文件按仓内既有实现复刻，
@@ -157,7 +157,7 @@ export function isCategoryPanelTitle(text: string | null | undefined): boolean {
 }
 
 /**
- * DOM 侧：在给定根（document 或面板容器）内收集「類別」面板里的可用类别链接。
+ * DOM 侧：在给定根（document 或面板容器）内收集「类别」面板里的可用类别链接。
  * 结构口径照 parseDetailCategories：.panel-block → strong 文本为类别面板标题 → 面板内 a[href*="/tags?c"]。
  * 返回元素与候选一一对应（同一链接只保留一次）。
  */

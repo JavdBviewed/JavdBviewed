@@ -59,11 +59,11 @@ export function VideoTab({
         />
       </SettingSection>
 
-      <SettingSection title="類別快捷操作" description="影片页類別欄的悬浮排除类快捷操作">
+      <SettingSection title="类别快捷操作" description="影片页类别栏的悬浮排除类快捷操作">
         <SettingToggleRow
           id="enableCategoryQuickActions"
-          label="類別快捷操作"
-          description="影片页類別欄悬浮显示快捷屏蔽/新作品不入库操作"
+          label="类别快捷操作"
+          description="影片页类别栏悬浮显示快捷屏蔽/新作品不入库操作"
           checked={form.enableCategoryQuickActions}
           onChange={(v) => setToggle('enableCategoryQuickActions', v)}
         />
