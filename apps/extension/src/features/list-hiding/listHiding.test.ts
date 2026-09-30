@@ -320,6 +320,26 @@ describe('readListHidingEnablement（display 媒体库两开关，09-30-media-li
     expect(fresh).toBe(legacy);
   });
 
+  it('仅 hideSubscribedActorsInList 开 → actor 来源生效；新键缺省（零回填）→ actor 关（09-30-popup-actorfilter-subscribed）', () => {
+    const on = readListHidingEnablement({
+      listEnhancement: { hideSubscribedActorsInList: true },
+    });
+    expect(on.actor).toBe(true);
+
+    const absent = readListHidingEnablement({ listEnhancement: {} });
+    expect(absent.actor).toBe(false);
+
+    const off = readListHidingEnablement({
+      listEnhancement: {
+        hideBlacklistedActorsInList: false,
+        hideNonFavoritedActorsInList: false,
+        hideUnrecognizedActorsInList: false,
+        hideSubscribedActorsInList: false,
+      },
+    });
+    expect(off.actor).toBe(false);
+  });
+
   it('媒体库开关与既有来源互不影响', () => {
     const e = readListHidingEnablement({
       display: { hideViewed: true, hideInMediaLibrary: true },

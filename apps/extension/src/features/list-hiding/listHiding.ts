@@ -206,6 +206,7 @@ export function readListHidingEnablement(settings: unknown): ListHidingEnablemen
       hideBlacklistedActorsInList?: boolean;
       hideNonFavoritedActorsInList?: boolean;
       hideUnrecognizedActorsInList?: boolean;
+      hideSubscribedActorsInList?: boolean;
       enableActorPenetration?: boolean;
       enableCategoryFilter?: boolean;
       categoryFilter?: { black?: unknown; enabled?: unknown; mode?: unknown };
@@ -214,7 +215,8 @@ export function readListHidingEnablement(settings: unknown): ListHidingEnablemen
   const actor = !!(
     s.listEnhancement?.hideBlacklistedActorsInList ||
     s.listEnhancement?.hideNonFavoritedActorsInList ||
-    s.listEnhancement?.hideUnrecognizedActorsInList
+    s.listEnhancement?.hideUnrecognizedActorsInList ||
+    s.listEnhancement?.hideSubscribedActorsInList
   );
   const categoryBlack = Array.isArray(s.listEnhancement?.categoryFilter?.black)
     ? s.listEnhancement!.categoryFilter!.black

@@ -609,7 +609,7 @@ button {
 .toggle-button {
     display: inline-flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     width: 100%;
     min-height: 40px;
     padding: 8px 9px;
@@ -650,33 +650,12 @@ button {
     gap: 7px;
 }
 
-.toggle-icon {
-    display: inline-grid;
-    place-items: center;
-    width: 16px;
-    min-width: 16px;
-    height: 16px;
-    border-radius: 6px;
-    color: var(--text-muted);
-    background: rgba(148, 163, 184, 0.16);
-    font-size: 10px;
-    font-weight: 950;
-    line-height: 1;
-    opacity: 0.55;
-}
-
-.toggle-button.active .toggle-icon {
-    color: var(--text-inverse);
-    background: linear-gradient(135deg, var(--primary), var(--cyan));
-    opacity: 1;
-}
-
 .toggle-switch {
     position: relative;
     width: 30px;
     min-width: 30px;
     height: 18px;
-    margin-left: 8px;
+    margin-right: 8px;
     border-radius: 999px;
     background: #cbd5e1;
     box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.28);

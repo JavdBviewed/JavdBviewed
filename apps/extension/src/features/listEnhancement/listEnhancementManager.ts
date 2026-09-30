@@ -6,6 +6,7 @@
 // src/features/listEnhancement/listEnhancementManager.ts
 
 import { log } from '../contentState';
+import { STORAGE_KEYS } from '../../utils/config';
 import { showToast } from '../../platform/browser/toast';
 import { actorManager } from '../actors';
 import { actorQuickActionsManager } from '../actorEnhancement/actorQuickActionsManager';
@@ -80,6 +81,7 @@ import {
   type ListSortingController,
 } from './ui/listSortingControls';
 import { createActorWorkQueue, type ActorWorkQueue } from './application/actorWorkQueue';
+import { subscribedActorIdsSource } from './application/subscribedActorIds';
 import { createActorPenetrationRuntime, resolveActorLinkMark, type DetailActor } from './actorPenetration';
 import { createActorVisibilityGate } from './application/actorVisibilityGate';
 import { countContentPerformanceEvent } from '../../platform/tasks';
@@ -150,6 +152,8 @@ class ListEnhancementManager {
     concurrency: 2,
     logger: error => log('Actor enhancement task failed:', error),
   });
+  /** new_works_subscriptions 的 storage.onChanged 只接一次。 */
+  private subscriptionsListenerAttached = false;
   // 类别黑名单隐藏队列（P1）：与 actorWorkQueue 分离，并发 2，按 item 键去重。
   // 决策纯本地（类别来自穿透运行时同一 fetch 的解析结果），无独立请求。
   private readonly categoryWorkQueue: ActorWorkQueue = createActorWorkQueue({
@@ -214,7 +218,8 @@ class ListEnhancementManager {
       watch: (o, c) =>
         o.hideBlacklistedActorsInList !== c.hideBlacklistedActorsInList ||
         o.hideNonFavoritedActorsInList !== c.hideNonFavoritedActorsInList ||
-        o.hideUnrecognizedActorsInList !== c.hideUnrecognizedActorsInList,
+        o.hideUnrecognizedActorsInList !== c.hideUnrecognizedActorsInList ||
+        o.hideSubscribedActorsInList !== c.hideSubscribedActorsInList,
       apply: () => {
         log('Actor filter config changed, reapplying filters...');
         this.recomputeAllListHiding();
@@ -392,6 +397,36 @@ class ListEnhancementManager {
     }
   }
 
+  /**
+   * 订阅数据变化（new_works_subscriptions）→ 失效订阅缓存；
+   * 仅当「隐藏已订阅演员的作品」开着才重放演员隐藏（关时零成本，存量行为不变）。
+   * 模式参照 features/list-hiding/mediaLibraryHiding.ts 的 storage.onChanged 失效。
+   */
+  private attachSubscriptionsStorageListener(): void {
+    if (this.subscriptionsListenerAttached) return;
+    if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return;
+    this.subscriptionsListenerAttached = true;
+
+    const handler = (
+      changes: { [key: string]: chrome.storage.StorageChange | undefined },
+      areaName: string,
+    ): void => {
+      if (areaName !== 'local') return;
+      if (!changes[STORAGE_KEYS.NEW_WORKS_SUBSCRIPTIONS]) return;
+      subscribedActorIdsSource.invalidate();
+      if (this.config.hideSubscribedActorsInList === true) {
+        log('Subscriptions changed, reapplying actor hiding...');
+        this.reapplyActorHidingForAll();
+      }
+    };
+
+    try {
+      chrome.storage.onChanged.addListener(handler);
+    } catch {
+      this.subscriptionsListenerAttached = false;
+    }
+  }
+
   initialize(): void {
     if (!this.config.enabled) {
       return;
@@ -400,6 +435,7 @@ class ListEnhancementManager {
     log('Initializing list enhancement features...');
     this.hasInitialized = true;
     this.initListPageActorQuickActions();
+    this.attachSubscriptionsStorageListener();
 
     // 初始化滚动监听（防止滚动时触发预览）
     this.scrollStateController.init();
@@ -624,7 +660,8 @@ class ListEnhancementManager {
     return (
       !!this.config.hideBlacklistedActorsInList ||
       !!this.config.hideNonFavoritedActorsInList ||
-      this.config.hideUnrecognizedActorsInList === true
+      this.config.hideUnrecognizedActorsInList === true ||
+      this.config.hideSubscribedActorsInList === true
     );
   }
 
@@ -753,6 +790,9 @@ class ListEnhancementManager {
       hideByBlacklist: !!this.config.hideBlacklistedActorsInList,
       hideByNonFavorited: !!this.config.hideNonFavoritedActorsInList,
       hideUnrecognized: this.config.hideUnrecognizedActorsInList === true,
+      // 09-30-popup-actorfilter-subscribed：只计 enabled===true 的订阅（数据源自带惰性读/缓存/失效）
+      hideBySubscribed: this.config.hideSubscribedActorsInList === true,
+      getSubscribedActorIds: () => subscribedActorIdsSource.get(),
       ensureActorIndex: () => this.actorDataCache.ensureActorIndex(),
       getActorById: id => this.actorDataCache.getActorById(id),
       hideItemByActor: hideListItemByActor,

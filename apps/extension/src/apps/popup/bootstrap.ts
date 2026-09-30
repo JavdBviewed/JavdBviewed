@@ -179,6 +179,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const toggleHideBlacklistedActorsContainer = document.getElementById('toggleHideBlacklistedActorsContainer') as HTMLDivElement;
     const toggleHideNonFavoritedActorsContainer = document.getElementById('toggleHideNonFavoritedActorsContainer') as HTMLDivElement;
     const toggleHideUnrecognizedActorsContainer = document.getElementById('toggleHideUnrecognizedActorsContainer') as HTMLDivElement;
+    const toggleHideSubscribedActorsContainer = document.getElementById('toggleHideSubscribedActorsContainer') as HTMLDivElement;
     const volumeSlider = document.getElementById('volumeSlider') as HTMLInputElement;
     const volumeValue = document.getElementById('volumeValue') as HTMLSpanElement;
     const muteBtn = document.getElementById('muteBtn') as HTMLButtonElement;
@@ -341,16 +342,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         button.className = 'toggle-button';
         const labelSpan = document.createElement('span');
         labelSpan.className = 'toggle-label';
-        const iconSpan = document.createElement('span');
-        iconSpan.className = 'toggle-icon';
-        iconSpan.textContent = '✓';
         const textSpan = document.createElement('span');
         textSpan.textContent = displayLabel;
-        labelSpan.append(iconSpan, textSpan);
+        labelSpan.append(textSpan);
         const switchSpan = document.createElement('span');
         switchSpan.className = 'toggle-switch';
         switchSpan.setAttribute('aria-hidden', 'true');
-        button.replaceChildren(labelSpan, switchSpan);
+        // 09-30-popup-actorfilter-subscribed Item1：勾选框图标（.toggle-icon ✓）已删，
+        // DOM 顺序改为「滑块在前、文字在后」（用户裁决：已有滑块就不必再有勾选框）。
+        button.replaceChildren(switchSpan, labelSpan);
         let settings: ExtensionSettings | null;
 
         const updateState = (isHiding: boolean) => {
@@ -408,16 +408,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         button.className = 'toggle-button';
         const labelSpan = document.createElement('span');
         labelSpan.className = 'toggle-label';
-        const iconSpan = document.createElement('span');
-        iconSpan.className = 'toggle-icon';
-        iconSpan.textContent = '✓';
         const textSpan = document.createElement('span');
         textSpan.textContent = displayLabel;
-        labelSpan.append(iconSpan, textSpan);
+        labelSpan.append(textSpan);
         const switchSpan = document.createElement('span');
         switchSpan.className = 'toggle-switch';
         switchSpan.setAttribute('aria-hidden', 'true');
-        button.replaceChildren(labelSpan, switchSpan);
+        // 09-30-popup-actorfilter-subscribed Item1：勾选框图标（.toggle-icon ✓）已删，
+        // DOM 顺序改为「滑块在前、文字在后」（用户裁决：已有滑块就不必再有勾选框）。
+        button.replaceChildren(switchSpan, labelSpan);
 
         const updateState = (flag: boolean) => {
             const stateText = flag ? textTrue : textFalse;
@@ -919,6 +918,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await createListEnhancementToggle('hideBlacklistedActorsInList', toggleHideBlacklistedActorsContainer, '隐藏含黑名单演员', '显示含黑名单演员', '黑名单演员');
         await createListEnhancementToggle('hideNonFavoritedActorsInList', toggleHideNonFavoritedActorsContainer, '隐藏未收藏演员的作品', '显示未收藏演员的作品', '未收藏演员');
         await createListEnhancementToggle('hideUnrecognizedActorsInList', toggleHideUnrecognizedActorsContainer, '隐藏无法识别演员的作品', '显示无法识别演员的作品', '无法识别');
+        await createListEnhancementToggle('hideSubscribedActorsInList', toggleHideSubscribedActorsContainer, '隐藏已订阅演员的作品', '显示已订阅演员的作品', '已订阅演员');
 
         await setupVolumeControl();
         await setupListDisplayControl();

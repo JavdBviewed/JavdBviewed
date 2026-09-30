@@ -154,6 +154,78 @@ describe('decideActorHiding B2 空演员库保护（空库 → 不隐藏）', ()
 });
 
 
+describe('decideActorHiding 已订阅演员命中（09-30-popup-actorfilter-subscribed）', () => {
+  it('不传 hideBySubscribed（存量调用）→ 即便订阅集合命中也不隐藏（零行为漂移）', () => {
+    const d = decideActorHiding(input({
+      hideByNonFavorited: false,
+      subscribedActorIds: new Set(['a1']),
+      domActorIds: new Set(['a1']),
+    }));
+    expect(d.matchedSubscribed).toBe(false);
+    expect(d.reason).toBeNull();
+  });
+
+  it('hideBySubscribed=true + DOM 演员 ID 命中 → ACTOR_SUBSCRIBED', () => {
+    const d = decideActorHiding(input({
+      hideByNonFavorited: false,
+      hideBySubscribed: true,
+      subscribedActorIds: new Set(['a1']),
+      domActorIds: new Set(['a1']),
+    }));
+    expect(d.matchedSubscribed).toBe(true);
+    expect(d.reason).toBe('ACTOR_SUBSCRIBED');
+  });
+
+  it('hideBySubscribed=true + 本地匹配演员 ID 命中 → ACTOR_SUBSCRIBED', () => {
+    const d = decideActorHiding(input({
+      hideByNonFavorited: false,
+      hideBySubscribed: true,
+      subscribedActorIds: new Set(['a2']),
+      actors: [actor('a2')],
+      actorIndexSize: 10,
+    }));
+    expect(d.matchedSubscribed).toBe(true);
+    expect(d.reason).toBe('ACTOR_SUBSCRIBED');
+  });
+
+  it('hideBySubscribed=true + 订阅集合为空/未命中 → 不隐藏（匹配不到演员不受影响）', () => {
+    const empty = decideActorHiding(input({
+      hideByNonFavorited: false,
+      hideBySubscribed: true,
+      subscribedActorIds: new Set(),
+      domActorIds: new Set(['a1']),
+    }));
+    expect(empty.matchedSubscribed).toBe(false);
+    expect(empty.reason).toBeNull();
+
+    const miss = decideActorHiding(input({
+      hideByNonFavorited: false,
+      hideBySubscribed: true,
+      subscribedActorIds: new Set(['other']),
+      domActorIds: new Set(['a1']),
+      actors: [actor('a1')],
+      actorIndexSize: 10,
+    }));
+    expect(miss.matchedSubscribed).toBe(false);
+    expect(miss.reason).toBeNull();
+  });
+
+  it('既有 reason 优先（订阅命中排末位）：黑名单+订阅同时命中 → ACTOR_BLACKLIST', () => {
+    const d = decideActorHiding(input({
+      hideByBlacklist: true,
+      hideByNonFavorited: false,
+      hideBySubscribed: true,
+      subscribedActorIds: new Set(['a1']),
+      domActorIds: new Set(['a1']),
+      actors: [actor('a1', { blacklisted: true })],
+      actorIndexSize: 10,
+    }));
+    expect(d.reason).toBe('ACTOR_BLACKLIST');
+    expect(d.matchedSubscribed).toBe(true);
+  });
+});
+
+
 describe('decideCategoryHide（命中隐藏纯判定，09-29-cftabs）', () => {
   const sel = (keys: string[]) => new Set(keys);
 
