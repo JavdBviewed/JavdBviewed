@@ -89,6 +89,12 @@ describe('list-hiding 来源标记与重算', () => {
     });
     expect(enablement).toEqual({ viewed: true, browsed: false, want: true, vr: true, actor: true, category: false, mediaLibrary: false, realWatched: false });
 
+    // 09-30-popup-actorfilter-subscribed：第 4 个演员过滤键并入 actor 来源 OR
+    const subscribedOnly = readListHidingEnablement({
+      listEnhancement: { hideSubscribedActorsInList: true },
+    });
+    expect(subscribedOnly.actor).toBe(true);
+
     const missing = readListHidingEnablement(null);
     expect(missing).toEqual({ viewed: false, browsed: false, want: false, vr: false, actor: false, category: false, mediaLibrary: false, realWatched: false });
   });

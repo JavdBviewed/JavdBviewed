@@ -256,6 +256,7 @@ describe('EnhancementSettingsPage layout', () => {
       'hideBlacklistedActorsInList',
       'hideNonFavoritedActorsInList',
       'hideUnrecognizedActorsInList',
+      'hideSubscribedActorsInList',
     ]) {
       expect(fieldsSource).toContain(`id: '${id}'`);
     }
@@ -349,5 +350,42 @@ describe('EnhancementSettingsPage layout', () => {
       'utf8',
     );
     expect(popupSource).toContain(`'${expectedLabel}'`);
+  });
+
+  it('keeps the hideSubscribedActorsInList copy aligned across dashboard / legacy shell / popup (09-30-popup-actorfilter-subscribed)', () => {
+    const expectedLabel = '隐藏已订阅演员的作品';
+    const fieldsSource = readFileSync(join(here, 'listFilterFields.ts'), 'utf8');
+    // dashboard 第 4 条演员过滤字段（ListTab actor pane 泛化 map 自动渲染）
+    expect(fieldsSource).toContain(`label: '${expectedLabel}'`);
+    // 描述必须含两条口径：仅统计启用中的订阅 / 订阅管理在新作品页
+    expect(fieldsSource).toContain('仅统计启用中的订阅');
+    expect(fieldsSource).toContain('订阅管理在新作品页');
+    // legacy 静态壳同步（双壳一致性；搜索锚点不漂移）
+    const legacySource = readFileSync(
+      join(here, '..', '..', '..', '..', '..', 'dashboard', 'partials', 'tabs', 'settings-enhancement.html'),
+      'utf8',
+    );
+    expect(legacySource).toContain(`<input type="checkbox" id="hideSubscribedActorsInList">`);
+    expect(legacySource).toContain(`<label for="hideSubscribedActorsInList">${expectedLabel}</label>`);
+    // popup 第 8 张卡同文案 + 短标签
+    const popupSource = readFileSync(
+      join(here, '..', '..', '..', '..', '..', 'apps', 'popup', 'bootstrap.ts'),
+      'utf8',
+    );
+    expect(popupSource).toContain(`'${expectedLabel}'`);
+    expect(popupSource).toContain("'已订阅演员'");
+    expect(popupSource).toContain("getElementById('toggleHideSubscribedActorsContainer')");
+    // Item1：勾选框图标（✓ / .toggle-icon）已从 popup 侧移除
+    expect(popupSource).not.toContain("className = 'toggle-icon'");
+    const popupCss = readFileSync(join(here, '..', '..', '..', '..', '..', 'popup', 'popup.css'), 'utf8');
+    expect(popupCss).not.toContain('.toggle-icon');
+    expect(popupCss).toContain('margin-right: 8px;');
+    // Item1 视觉裁决（coord 09-30 批复加一行）：.toggle-button 由 space-between 改 flex-start，
+    // 使滑块与文字相邻贴齐，margin-right: 8px 真正生效（原真机 gap 57-74px 应消失）。
+    // 锚定在 .toggle-button 本体规则内断言，避免全仓 flex-start 宽松匹配造成假绿。
+    const toggleButtonRule = popupCss.match(/^\.toggle-button \{[^}]*\}/m)?.[0] ?? '';
+    expect(toggleButtonRule.length).toBeGreaterThan(0);
+    expect(toggleButtonRule).toContain('justify-content: flex-start;');
+    expect(toggleButtonRule).not.toContain('justify-content: space-between;');
   });
 });

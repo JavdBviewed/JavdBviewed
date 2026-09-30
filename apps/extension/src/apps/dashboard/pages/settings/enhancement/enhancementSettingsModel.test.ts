@@ -443,6 +443,7 @@ describe('list filter fields (migrated from display settings)', () => {
     expect(d.hideBlacklistedActorsInList).toBe(false);
     expect(d.hideNonFavoritedActorsInList).toBe(false);
     expect(d.hideUnrecognizedActorsInList).toBe(false);
+    expect(d.hideSubscribedActorsInList).toBe(false);
   });
 
   it('maps empty settings to list filter defaults (zero backfill)', () => {
@@ -454,6 +455,7 @@ describe('list filter fields (migrated from display settings)', () => {
     expect(form.hideBlacklistedActorsInList).toBe(false);
     expect(form.hideNonFavoritedActorsInList).toBe(false);
     expect(form.hideUnrecognizedActorsInList).toBe(false);
+    expect(form.hideSubscribedActorsInList).toBe(false);
   });
 
   it('reads display.* and listEnhancement.* filter keys without changing namespaces', () => {
@@ -462,6 +464,7 @@ describe('list filter fields (migrated from display settings)', () => {
       listEnhancement: {
         hideBlacklistedActorsInList: true,
         hideUnrecognizedActorsInList: true,
+        hideSubscribedActorsInList: true,
       },
     } as any);
     expect(form.hideViewed).toBe(true);
@@ -473,6 +476,7 @@ describe('list filter fields (migrated from display settings)', () => {
     expect(form.hideBlacklistedActorsInList).toBe(true);
     expect(form.hideNonFavoritedActorsInList).toBe(false);
     expect(form.hideUnrecognizedActorsInList).toBe(true);
+    expect(form.hideSubscribedActorsInList).toBe(true);
   });
 
   it('reads media-library hide keys as false for empty/legacy settings (zero backfill)', () => {
@@ -496,6 +500,7 @@ describe('list filter fields (migrated from display settings)', () => {
       enableActorPenetration: true,
       hideNonFavoritedActorsInList: true,
       hideUnrecognizedActorsInList: true,
+      hideSubscribedActorsInList: true,
     };
     const next = applyEnhancementFormToSettings(current, form);
     expect(next.display.hideViewed).toBe(true);
@@ -511,6 +516,7 @@ describe('list filter fields (migrated from display settings)', () => {
     expect(next.listEnhancement.hideBlacklistedActorsInList).toBe(false);
     expect(next.listEnhancement.hideNonFavoritedActorsInList).toBe(true);
     expect(next.listEnhancement.hideUnrecognizedActorsInList).toBe(true);
+    expect(next.listEnhancement.hideSubscribedActorsInList).toBe(true);
   });
 });
 

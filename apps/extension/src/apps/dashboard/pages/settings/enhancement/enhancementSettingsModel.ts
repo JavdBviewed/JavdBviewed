@@ -57,6 +57,8 @@ export type EnhancementSettingsFormState = {
   hideNonFavoritedActorsInList: boolean;
   /** listEnhancement.hideUnrecognizedActorsInList（空演员库保护：库为空时不隐藏） */
   hideUnrecognizedActorsInList: boolean;
+  /** listEnhancement.hideSubscribedActorsInList（09-30：只计 enabled===true 的订阅） */
+  hideSubscribedActorsInList: boolean;
   enableClickEnhancement: boolean;
   enableClickEnhancementList: boolean;
   enableClickEnhancementDetail: boolean;
@@ -304,6 +306,7 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   hideBlacklistedActorsInList: false,
   hideNonFavoritedActorsInList: false,
   hideUnrecognizedActorsInList: false,
+  hideSubscribedActorsInList: false,
   enableClickEnhancement: true,
   enableClickEnhancementList: true,
   enableClickEnhancementDetail: true,
@@ -568,6 +571,7 @@ export function mapSettingsToEnhancementForm(
     hideBlacklistedActorsInList: !!le.hideBlacklistedActorsInList,
     hideNonFavoritedActorsInList: !!le.hideNonFavoritedActorsInList,
     hideUnrecognizedActorsInList: le.hideUnrecognizedActorsInList === true,
+    hideSubscribedActorsInList: le.hideSubscribedActorsInList === true,
     enableClickEnhancement: le.enableClickEnhancement !== false,
     enableClickEnhancementList: le.enableClickEnhancementList !== false,
     enableClickEnhancementDetail: le.enableClickEnhancementDetail !== false,
@@ -930,6 +934,7 @@ export function applyEnhancementFormToSettings(
       hideBlacklistedActorsInList: form.hideBlacklistedActorsInList,
       hideNonFavoritedActorsInList: form.hideNonFavoritedActorsInList,
       hideUnrecognizedActorsInList: form.hideUnrecognizedActorsInList,
+      hideSubscribedActorsInList: form.hideSubscribedActorsInList,
       enableActorWatermark: form.enableActorWatermark,
       actorWatermarkPosition: form.actorWatermarkPosition,
       actorWatermarkOpacity: form.actorWatermarkOpacity,

@@ -555,6 +555,7 @@ async function initialize(): Promise<void> {
             hideBlacklistedActorsInList: (settings.listEnhancement as any)?.hideBlacklistedActorsInList === true,
             hideNonFavoritedActorsInList: (settings.listEnhancement as any)?.hideNonFavoritedActorsInList === true,
             hideUnrecognizedActorsInList: (settings.listEnhancement as any)?.hideUnrecognizedActorsInList === true, // 默认false（空演员库保护）
+            hideSubscribedActorsInList: (settings.listEnhancement as any)?.hideSubscribedActorsInList === true, // 默认false（09-30 只计启用中的订阅）
             enableActorPenetration: (settings.listEnhancement as any)?.enableActorPenetration === true,
             enableCategoryFilter: (settings.listEnhancement as any)?.enableCategoryFilter === true,
             // 09-29-cftabs：三态下线 → 总开关；enabled 缺失时按旧三态/旧键迁移（blacklist→开，whitelist/off→关）

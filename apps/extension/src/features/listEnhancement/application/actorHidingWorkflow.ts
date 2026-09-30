@@ -22,6 +22,8 @@ import {
 } from '../../list-hiding';
 import { STATE } from '../../contentState';
 
+const EMPTY_SUBSCRIBED_IDS: ReadonlySet<string> = new Set<string>();
+
 export interface ActorHidingWorkflowVideoInfo {
   code: string;
   title: string;
@@ -34,6 +36,13 @@ export interface ApplyActorBasedHidingOptions {
   hideByBlacklist: boolean;
   hideByNonFavorited: boolean;
   hideUnrecognized: boolean;
+  /**
+   * 命中「启用中订阅」演员即隐藏（09-30-popup-actorfilter-subscribed）。
+   * 可选、默认 false：不带该旗的存量调用（含单测）行为逐字节不变。
+   */
+  hideBySubscribed?: boolean;
+  /** 启用中的订阅演员 ID 集合来源（仅 hideBySubscribed 为真时调用；异步读 storage，失败按空集合） */
+  getSubscribedActorIds?: () => Promise<ReadonlySet<string>> | ReadonlySet<string>;
   ensureActorIndex: () => Promise<Map<string, ActorIndexRecord>>;
   getActorById: (id: string) => Promise<ActorIndexRecord | null | undefined>;
   hideItemByActor: (item: HTMLElement, reason: ActorHidingReason) => void;
@@ -52,14 +61,15 @@ export async function applyActorBasedHiding(options: ApplyActorBasedHidingOption
     logger,
     verbose = false,
   } = options;
+  const hideBySubscribed = options.hideBySubscribed === true;
   const debugLog = (...args: any[]): void => {
     if (verbose) logger?.(...args);
   };
 
   try {
-    debugLog(`[ActorHiding] ${videoInfo.code}: hideByBlacklist=${hideByBlacklist}, hideByNonFavorited=${hideByNonFavorited}, hideUnrecognized=${hideUnrecognized}`);
+    debugLog(`[ActorHiding] ${videoInfo.code}: hideByBlacklist=${hideByBlacklist}, hideByNonFavorited=${hideByNonFavorited}, hideUnrecognized=${hideUnrecognized}, hideBySubscribed=${hideBySubscribed}`);
 
-    if (!hideByBlacklist && !hideByNonFavorited && !hideUnrecognized) {
+    if (!hideByBlacklist && !hideByNonFavorited && !hideUnrecognized && !hideBySubscribed) {
       options.clearActorOnlyHiding(item);
       return;
     }
@@ -87,10 +97,22 @@ export async function applyActorBasedHiding(options: ApplyActorBasedHidingOption
       debugLog(`[ActorHiding] ${videoInfo.code}: Extracted ${actors.length} actors from title`);
     }
 
+    // 订阅集合只在旗标为真时读取（旗标关 = 零额外 storage 读，存量路径零成本）
+    let subscribedActorIds: ReadonlySet<string> = EMPTY_SUBSCRIBED_IDS;
+    if (hideBySubscribed && options.getSubscribedActorIds) {
+      try {
+        subscribedActorIds = await options.getSubscribedActorIds() ?? EMPTY_SUBSCRIBED_IDS;
+      } catch (error) {
+        logger?.(`[ActorHiding] ${videoInfo.code}: Failed to load subscriptions:`, error);
+      }
+    }
+
     const decision = decideActorHiding({
       hideByBlacklist,
       hideByNonFavorited,
       hideUnrecognized,
+      hideBySubscribed,
+      subscribedActorIds,
       domActorIds: allActorIds,
       actors,
       actorIndexSize: actorIndex.size,

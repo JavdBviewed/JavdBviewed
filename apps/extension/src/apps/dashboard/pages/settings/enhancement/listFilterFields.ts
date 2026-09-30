@@ -55,4 +55,10 @@ export const ACTOR_LIST_FILTER_FIELDS: ListFilterField[] = [
     label: '隐藏无法识别演员的作品',
     description: '仅在本地演员库可用时生效；本地演员库为空时不隐藏。默认关闭',
   },
+  {
+    key: 'hideSubscribedActorsInList',
+    id: 'hideSubscribedActorsInList',
+    label: '隐藏已订阅演员的作品',
+    description: '隐藏匹配演员任一为已订阅演员的列表页作品（仅统计启用中的订阅；订阅管理在新作品页）。无法匹配到演员的作品不受影响。',
+  },
 ];

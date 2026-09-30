@@ -5,12 +5,20 @@
  */
 import type { ActorIndexRecord } from '../../../types';
 
-export type ActorHidingReason = 'ACTOR_BLACKLIST' | 'ACTOR_NOT_FAVORITED' | 'ACTOR_UNRECOGNIZED';
+export type ActorHidingReason =
+  | 'ACTOR_BLACKLIST'
+  | 'ACTOR_NOT_FAVORITED'
+  | 'ACTOR_UNRECOGNIZED'
+  | 'ACTOR_SUBSCRIBED';
 
 export interface ActorHidingDecisionInput {
   hideByBlacklist: boolean;
   hideByNonFavorited: boolean;
   hideUnrecognized: boolean;
+  /** 命中「启用中订阅」演员即隐藏（09-30-popup-actorfilter-subscribed；可选，默认 false=存量语义零变化） */
+  hideBySubscribed?: boolean;
+  /** 启用中的订阅演员 ID 集合（仅 hideBySubscribed 为真时参与判定） */
+  subscribedActorIds?: ReadonlySet<string>;
   domActorIds: Set<string>;
   actors: ActorIndexRecord[];
   actorIndexSize: number;
@@ -21,6 +29,7 @@ export interface ActorHidingDecision {
   matchedBlack: boolean;
   matchedNonFavorited: boolean;
   matchedUnrecognized: boolean;
+  matchedSubscribed: boolean;
   hasAnyFavoritedActor: boolean | null;
 }
 
@@ -36,6 +45,11 @@ export function decideActorHiding(input: ActorHidingDecisionInput): ActorHidingD
     input.actors.length === 0 &&
     input.domActorIds.size === 0 &&
     input.actorIndexSize > 0;
+  // 订阅命中（09-30-popup-actorfilter-subscribed）：DOM 演员 ID 或本地匹配演员 ID
+  // 命中「启用中的订阅」集合即算命中；匹配不到演员（两者皆空）不受影响（同族语义）。
+  const matchedSubscribed =
+    input.hideBySubscribed === true &&
+    hasSubscribedMatch(input.domActorIds, input.actors, input.subscribedActorIds);
 
   return {
     reason: matchedBlack
@@ -44,14 +58,29 @@ export function decideActorHiding(input: ActorHidingDecisionInput): ActorHidingD
         ? 'ACTOR_NOT_FAVORITED'
         : matchedUnrecognized
           ? 'ACTOR_UNRECOGNIZED'
-          : null,
+          : matchedSubscribed
+            ? 'ACTOR_SUBSCRIBED'
+            : null,
     matchedBlack,
     matchedNonFavorited,
     matchedUnrecognized,
+    matchedSubscribed,
     hasAnyFavoritedActor: input.hideByNonFavorited && input.actors.length > 0
       ? hasAnyFavoritedActor(input.actors)
       : null,
   };
+}
+
+function hasSubscribedMatch(
+  domActorIds: ReadonlySet<string>,
+  actors: ActorIndexRecord[],
+  subscribedActorIds: ReadonlySet<string> | undefined,
+): boolean {
+  if (!subscribedActorIds || subscribedActorIds.size === 0) return false;
+  for (const id of domActorIds) {
+    if (subscribedActorIds.has(id)) return true;
+  }
+  return actors.some(actor => typeof actor.id === 'string' && subscribedActorIds.has(actor.id));
 }
 
 function isNonFavoritedMatch(input: ActorHidingDecisionInput): boolean {

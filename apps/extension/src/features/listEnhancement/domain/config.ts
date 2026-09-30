@@ -52,6 +52,8 @@ export interface ListEnhancementConfig {
   hideBlacklistedActorsInList?: boolean;
   hideNonFavoritedActorsInList?: boolean;
   hideUnrecognizedActorsInList?: boolean;
+  /** 命中「启用中订阅」演员的作品在列表页隐藏（09-30-popup-actorfilter-subscribed，默认关） */
+  hideSubscribedActorsInList?: boolean;
   /** 演员穿透：在列表卡片显示女性演员名（默认关闭） */
   enableActorPenetration?: boolean;
   /**
@@ -109,6 +111,7 @@ export function createDefaultListEnhancementConfig(): ListEnhancementConfig {
     hideBlacklistedActorsInList: false,
     hideNonFavoritedActorsInList: false,
     hideUnrecognizedActorsInList: false,
+    hideSubscribedActorsInList: false,
     enableActorPenetration: false,
     enableCategoryFilter: false,
     categoryFilter: { enabled: false, black: [] },
