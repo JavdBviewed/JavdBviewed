@@ -550,16 +550,21 @@ class ActorQuickActionsManager {
 
   /**
    * 隐藏提示框
+   *
+   * ★ 回收目标绑定到「发起隐藏时的那个面板」，不在定时器里回读 this.currentTooltip。
+   *   旧写法在 hideDelay(200) < showDelay(300) 的节奏下会这样翻车：
+   *   指针从面板单跳回链接 → mouseleave 先排定旧面板回收(+200ms) → mouseenter 弹新面板(+300ms)
+   *   → 到点时 this.currentTooltip 已指向**新面板** → 新面板被误删，表现为「面板移开再移回就
+   *   打不开 / 一闪即没」（09-30-video-category-quick-actions 真机探针 E 段 openPanelE=false、
+   *   tooltipTotal=0 的同型根因；E 线在 categoryQuickActions 内已按此修法修复，本处逐字对齐）。
    */
   private hideTooltip(): void {
-    if (!this.currentTooltip) return;
-
-    this.currentTooltip.classList.remove('show');
+    const target = this.currentTooltip;
+    if (!target) return;
+    this.currentTooltip = null;
+    target.classList.remove('show');
     setTimeout(() => {
-      if (this.currentTooltip) {
-        this.currentTooltip.remove();
-        this.currentTooltip = null;
-      }
+      if (target.isConnected) target.remove();
     }, 200);
   }
 
