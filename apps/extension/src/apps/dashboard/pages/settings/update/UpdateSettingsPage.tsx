@@ -11,7 +11,9 @@ import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/Se
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import type { SettingsSectionNavItem } from '../shared/SettingsSectionNav';
 import {
+  copyTelemetryPayloadJson,
   getCurrentVersion,
+  loadTelemetryPreview,
   markLastUpdateCheckNow,
   openChangelog,
   openDownload,
@@ -21,17 +23,34 @@ import {
   toast,
 } from './updateSettingsActions';
 import {
+  countTelemetryPayloadFields,
   DEFAULT_UPDATE_SETTINGS_FORM,
   formatLastUpdateCheck,
+  formatTelemetryPayloadJson,
+  formatTelemetryPreviewTime,
   mapSettingsToUpdateForm,
+  mapTelemetryViewFromSettings,
+  TELEMETRY_DATA_EXCLUDED_ITEMS,
+  TELEMETRY_DATA_INCLUDED_ITEMS,
+  TELEMETRY_DEVICE_ID_NOTE,
+  TELEMETRY_PURPOSE_NOTE,
+  TELEMETRY_VIEWER_EVENT_OPTIONS,
   UPDATE_INTERVAL_OPTIONS,
+  type TelemetryViewerState,
   type UpdateSettingsFormState,
 } from './updateSettingsModel';
+import {
+  describeTelemetrySensitiveFindings,
+  type TelemetryPayload,
+  type TelemetryPreviewEvent,
+  type TelemetrySensitiveFinding,
+} from '../../../../../features/telemetry';
 import { getSettings } from '../shared/settingsPersist';
 
 const UPDATE_SECTION_IDS = {
   version: 'update-section-version',
   automatic: 'update-section-automatic',
+  telemetry: 'update-section-telemetry',
   products: 'update-section-products',
   community: 'update-section-community',
   details: 'update-section-details',
@@ -40,6 +59,7 @@ const UPDATE_SECTION_IDS = {
 const UPDATE_SECTION_NAV_ITEMS: SettingsSectionNavItem[] = [
   { id: UPDATE_SECTION_IDS.version, label: '版本检查', shortLabel: '版本' },
   { id: UPDATE_SECTION_IDS.automatic, label: '自动检查设置', shortLabel: '自动检查' },
+  { id: UPDATE_SECTION_IDS.telemetry, label: '遥测数据', shortLabel: '遥测' },
   { id: UPDATE_SECTION_IDS.products, label: '系列产品', shortLabel: '产品' },
   { id: UPDATE_SECTION_IDS.community, label: '社区与文档', shortLabel: '社区' },
   { id: UPDATE_SECTION_IDS.details, label: '版本详情', shortLabel: '详情' },
@@ -60,6 +80,15 @@ export function UpdateSettingsPage() {
   const [hasUpdate, setHasUpdate] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const versionInfoRef = useRef<HTMLDivElement | null>(null);
+  const [telemetryView, setTelemetryView] = useState<TelemetryViewerState>({ enabled: true, endpoint: '' });
+  const [telemetryOpen, setTelemetryOpen] = useState(false);
+  const [telemetryEvent, setTelemetryEvent] = useState<TelemetryPreviewEvent>('startup');
+  const [telemetryPayload, setTelemetryPayload] = useState<TelemetryPayload | null>(null);
+  const [telemetryGeneratedAt, setTelemetryGeneratedAt] = useState<string>('');
+  const [telemetryFindings, setTelemetryFindings] = useState<TelemetrySensitiveFinding[]>([]);
+  const [telemetryLoading, setTelemetryLoading] = useState(false);
+  const [telemetryError, setTelemetryError] = useState<string | null>(null);
+  const telemetryRequestIdRef = useRef(0);
 
   const refreshLastCheck = useCallback(() => {
     setLastCheckLabel(formatLastUpdateCheck(readLastUpdateCheck()));
@@ -72,6 +101,7 @@ export function UpdateSettingsPage() {
         const settings = await getSettings();
         if (cancelled) return;
         setForm(mapSettingsToUpdateForm(settings));
+        setTelemetryView(mapTelemetryViewFromSettings(settings));
         setCurrentVersion(getCurrentVersion());
         refreshLastCheck();
       } catch (err) {
@@ -174,6 +204,46 @@ export function UpdateSettingsPage() {
     },
     [form],
   );
+
+  const loadTelemetryPayload = useCallback(async (event: TelemetryPreviewEvent) => {
+    const requestId = telemetryRequestIdRef.current + 1;
+    telemetryRequestIdRef.current = requestId;
+    setTelemetryLoading(true);
+    setTelemetryError(null);
+    try {
+      const result = await loadTelemetryPreview(event);
+      if (telemetryRequestIdRef.current !== requestId) return;
+      setTelemetryPayload(result.payload);
+      setTelemetryGeneratedAt(result.generatedAt);
+      setTelemetryFindings(result.sensitiveFindings);
+    } catch (err) {
+      if (telemetryRequestIdRef.current !== requestId) return;
+      setTelemetryPayload(null);
+      setTelemetryFindings([]);
+      setTelemetryError(`生成预览失败：${err instanceof Error ? err.message : '未知错误'}`);
+    } finally {
+      if (telemetryRequestIdRef.current === requestId) setTelemetryLoading(false);
+    }
+  }, []);
+
+  const toggleTelemetryPayload = useCallback(() => {
+    const next = !telemetryOpen;
+    setTelemetryOpen(next);
+    if (next && !telemetryPayload && !telemetryLoading) {
+      void loadTelemetryPayload(telemetryEvent);
+    }
+  }, [loadTelemetryPayload, telemetryEvent, telemetryLoading, telemetryOpen, telemetryPayload]);
+
+  const selectTelemetryEvent = useCallback(
+    (event: TelemetryPreviewEvent) => {
+      setTelemetryEvent(event);
+      void loadTelemetryPayload(event);
+    },
+    [loadTelemetryPayload],
+  );
+
+  const telemetryJson = telemetryPayload ? formatTelemetryPayloadJson(telemetryPayload) : '';
+  const telemetryEventOption = TELEMETRY_VIEWER_EVENT_OPTIONS.find((option) => option.value === telemetryEvent);
 
   return (
     <SettingsPageFrame
@@ -302,6 +372,151 @@ export function UpdateSettingsPage() {
               checked={form.includePrerelease}
               onChange={(v) => void updateField('includePrerelease', v)}
             />
+          </SettingSection>
+
+          <SettingSection
+            id={UPDATE_SECTION_IDS.telemetry}
+            title="遥测数据"
+            icon={<i className="fas fa-chart-pie" />}
+            description="看清每一次上报到底发了什么，确认里面没有你的敏感信息。"
+          >
+            <div className="flex flex-col gap-2 px-2 py-2">
+              <p id="telemetryPurposeNote" className="m-0 text-[13px] leading-relaxed text-[var(--color-fg)]">
+                {TELEMETRY_PURPOSE_NOTE}
+              </p>
+              <p id="telemetryDeviceIdNote" className="m-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
+                {TELEMETRY_DEVICE_ID_NOTE}
+              </p>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2">
+                  <div className="text-[12px] font-bold text-[var(--color-fg)]">上报内容包含</div>
+                  <ul className="m-0 mt-1 list-disc px-4 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
+                    {TELEMETRY_DATA_INCLUDED_ITEMS.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2">
+                  <div className="text-[12px] font-bold text-[var(--color-fg)]">上报内容不包含</div>
+                  <ul className="m-0 mt-1 list-disc px-4 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
+                    {TELEMETRY_DATA_EXCLUDED_ITEMS.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[12px] text-[var(--color-fg-muted)]">
+                <span>
+                  当前状态：
+                  <strong id="telemetryViewerState" className="font-bold text-[var(--color-fg)]">
+                    {telemetryView.enabled ? '已启用上报' : '已停止上报'}
+                  </strong>
+                </span>
+                <span>
+                  上报地址：
+                  <span id="telemetryViewerEndpoint" className="text-[var(--color-fg)]" title={telemetryView.endpoint}>
+                    {telemetryView.endpoint || '未配置（不会上报）'}
+                  </span>
+                </span>
+                <span>上报开关在「高级设置 · 使用情况统计」，关闭后即停止全部上报。</span>
+                <span>实际主机在服务端容灾切换时会随之变更。</span>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  id="toggleTelemetryPayload"
+                  variant="secondary"
+                  onClick={() => void toggleTelemetryPayload()}
+                  aria-expanded={telemetryOpen}
+                  aria-controls="telemetryPayloadBody"
+                >
+                  <i
+                    className={`fas ${telemetryOpen ? 'fa-chevron-up' : 'fa-chevron-down'}`}
+                    aria-hidden="true"
+                  />{' '}
+                  {telemetryOpen ? '收起上报数据' : '展开查看上报数据'}
+                </Button>
+              </div>
+
+              {telemetryOpen ? (
+                <div id="telemetryPayloadPanel" className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {TELEMETRY_VIEWER_EVENT_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        id={`telemetryViewerEvent-${option.value}`}
+                        type="button"
+                        data-active={option.value === telemetryEvent ? '1' : '0'}
+                        onClick={() => void selectTelemetryEvent(option.value)}
+                        className={`rounded-[var(--radius-pill)] border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                          option.value === telemetryEvent
+                            ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)] text-[var(--color-primary-active)]'
+                            : 'border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-fg-muted)] hover:border-[var(--color-border-strong,var(--color-border))] hover:text-[var(--color-fg)]'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                    <Button
+                      id="refreshTelemetryPayload"
+                      size="sm"
+                      variant="ghost"
+                      disabled={telemetryLoading}
+                      onClick={() => void loadTelemetryPayload(telemetryEvent)}
+                    >
+                      <i className="fas fa-sync-alt" aria-hidden="true" /> 重新生成
+                    </Button>
+                    <Button
+                      id="copyTelemetryPayload"
+                      size="sm"
+                      variant="secondary"
+                      disabled={!telemetryJson}
+                      onClick={() => void copyTelemetryPayloadJson(telemetryJson)}
+                    >
+                      <i className="fas fa-copy" aria-hidden="true" /> 复制 JSON
+                    </Button>
+                  </div>
+
+                  <p id="telemetryEventHint" className="m-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
+                    {telemetryEventOption ? `${telemetryEventOption.label}：${telemetryEventOption.trigger}` : ''}
+                    {' '}eventId、sessionId 与各时间戳在每次真实上报时都会新生成，本预览同样是即时生成。
+                    {telemetryEvent === 'error_report'
+                      ? ' error 字段是一个示例异常经同一套脱敏规则处理后的结果，真实上报时替换为实际错误。'
+                      : ' 真实上报时 error 字段不会出现，只有发生未捕获异常的那一次才会带上。'}
+                  </p>
+
+                  {telemetryLoading ? (
+                    <p id="telemetryPayloadStatus" className="m-0 text-[12px] text-[var(--color-fg-muted)]">
+                      正在按当前配置生成请求体…
+                    </p>
+                  ) : null}
+                  {telemetryError ? (
+                    <p
+                      id="telemetryPayloadStatus"
+                      className="m-0 text-[12px] text-[var(--color-danger,#c0392b)]"
+                      role="alert"
+                    >
+                      {telemetryError}
+                    </p>
+                  ) : null}
+
+                  <pre
+                    id="telemetryPayloadBody"
+                    className="m-0 max-h-[420px] overflow-auto whitespace-pre rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 font-mono text-[11.5px] leading-[1.55] text-[var(--color-fg)]"
+                  >
+                    {telemetryPayload ? telemetryJson : '（暂无数据）'}
+                  </pre>
+
+                  <p id="telemetryPayloadMeta" className="m-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
+                    事件 {telemetryEvent} · 生成于 {formatTelemetryPreviewTime(telemetryGeneratedAt)} · 共{' '}
+                    {countTelemetryPayloadFields(telemetryPayload)} 个字段 · 本地敏感字段自查：
+                    {describeTelemetrySensitiveFindings(telemetryFindings)}
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </SettingSection>
 
           <SettingSection

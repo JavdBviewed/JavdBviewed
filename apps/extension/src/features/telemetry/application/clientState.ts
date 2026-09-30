@@ -8,11 +8,22 @@ import type { TelemetryClientState } from '../domain/types';
 export const TELEMETRY_CLIENT_STATE_KEY = 'telemetry_client_state';
 
 export async function getTelemetryClientState(settings?: any, now = new Date()): Promise<TelemetryClientState> {
+  const state = await peekTelemetryClientState(settings, now);
+  await writeTelemetryClientState(state);
+  return state;
+}
+
+/**
+ * 只读窥视客户端状态：与 getTelemetryClientState 同源，但不回写 storage。
+ * 供「遥测数据查看器」等预览路径使用，保证查看动作本身不改变会话/安装标识。
+ */
+export async function peekTelemetryClientState(settings?: any, now = new Date()): Promise<TelemetryClientState> {
   const raw = await chrome.storage.local
     .get(TELEMETRY_CLIENT_STATE_KEY)
     .catch(() => ({} as Record<string, unknown>));
   const stored = normalizeClientState((raw as Record<string, unknown>)[TELEMETRY_CLIENT_STATE_KEY]);
-  const state: TelemetryClientState = {
+
+  return {
     installId: stored.installId || resolveInitialInstallId(settings),
     sessionId: stored.sessionId || createId('session'),
     sessionStartedAt: stored.sessionStartedAt || now.toISOString(),
@@ -20,9 +31,6 @@ export async function getTelemetryClientState(settings?: any, now = new Date()):
     lastHeartbeatAt: stored.lastHeartbeatAt,
     lastSuccessAt: stored.lastSuccessAt,
   };
-
-  await writeTelemetryClientState(state);
-  return state;
 }
 
 export async function writeTelemetryClientState(state: TelemetryClientState): Promise<void> {

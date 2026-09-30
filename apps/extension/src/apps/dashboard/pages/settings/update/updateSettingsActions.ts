@@ -12,6 +12,14 @@ import {
 import { REPO_RELEASES_LATEST_URL, REPO_RELEASES_URL } from '../../../../../shared/repoIdentity';
 import type { ExtensionSettings } from '../../../../../types';
 import {
+  buildTelemetryPayloadPreviewWithSample,
+  findTelemetryPayloadSensitiveValues,
+  type TelemetryErrorPayload,
+  type TelemetryPayload,
+  type TelemetryPreviewEvent,
+  type TelemetrySensitiveFinding,
+} from '../../../../../features/telemetry';
+import {
   getSettings,
   saveSettings,
   syncDashboardState,
@@ -112,4 +120,55 @@ export async function loadUpdateSettingsForm(): Promise<UpdateSettingsFormState>
   const settings = await getSettings();
   const { mapSettingsToUpdateForm } = await import('./updateSettingsModel');
   return mapSettingsToUpdateForm(settings as ExtensionSettings);
+}
+
+
+/* ------------------------------------------------------------------ *
+ * 遥测数据查看器（09-30）：只读预览，绝不发送、绝不改配置
+ * ------------------------------------------------------------------ */
+
+export interface TelemetryPreviewResult {
+  event: TelemetryPreviewEvent;
+  payload: TelemetryPayload;
+  /** 请求体里的 sentAt，作为本次预览生成时间 */
+  generatedAt: string;
+  /** 仅错误事件预览有值，用于 UI 标注示例 */
+  errorSample?: TelemetryErrorPayload;
+  /** 本地敏感字段自查结果，空数组=本次请求体没有任何疑似敏感形态 */
+  sensitiveFindings: TelemetrySensitiveFinding[];
+}
+
+/**
+ * 用当前配置组装「此刻若上报就会发出的请求体」。
+ * 复用上报侧同一构造器，因此字段与真实上报一致；不发网络请求、不回写遥测状态。
+ */
+export async function loadTelemetryPreview(event: TelemetryPreviewEvent): Promise<TelemetryPreviewResult> {
+  const settings = await getSettings();
+  const preview = await buildTelemetryPayloadPreviewWithSample(event, { settings });
+  return {
+    event,
+    payload: preview.payload,
+    generatedAt: preview.payload.sentAt,
+    errorSample: preview.errorSample,
+    sensitiveFindings: findTelemetryPayloadSensitiveValues(preview.payload),
+  };
+}
+
+/**
+ * 复制请求体 JSON 到剪贴板
+ */
+export async function copyTelemetryPayloadJson(json: string): Promise<boolean> {
+  if (!json) {
+    await toast('暂无可复制的数据', 'warning');
+    return false;
+  }
+  try {
+    await navigator.clipboard.writeText(json);
+    await toast('遥测请求体已复制到剪贴板', 'success');
+    return true;
+  } catch (error) {
+    console.error('[UpdateSettingsPage] copy telemetry payload failed', error);
+    await toast('复制失败，请手动选中复制', 'error');
+    return false;
+  }
 }
