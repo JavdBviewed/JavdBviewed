@@ -25,6 +25,7 @@ import { initDashboardLastPageResume } from '../../dashboard/lastPage';
 import { ensureMounted } from '../../dashboard/loaders/partialsLoader';
 import { bindInsightsListeners } from '../../dashboard/listeners/insights';
 import { initTopbarIcons } from '../../dashboard/topbar/icons';
+import { bindTopbarStarButton } from '../../dashboard/topbar/starButton';
 import { initVersionBadge } from '../../dashboard/topbar/versionChecker';
 import { updateSyncStatus as updateSyncStatusModule } from '../../dashboard/backup/syncStatus';
 import { runQASelfCheck as runQASelfCheckModule } from '../../dashboard/qa/selfCheck';
@@ -118,6 +119,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             await ensureMounted('#app-root', 'layout/skeleton.html');
             await ensureMounted('#layout-topbar-root', 'layout/topbar.html');
             await ensureMounted('#layout-tabs-nav-root', 'layout/tabs-nav.html');
+            // React 壳失败走 legacy partial：星星按钮为静态 HTML，此处补一次点击绑定（幂等）
+            bindTopbarStarButton();
         } catch {}
     }
 

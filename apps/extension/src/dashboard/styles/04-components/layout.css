@@ -303,6 +303,64 @@
     gap: 10px;
 }
 
+/* "给项目一个 star" 顶栏胶囊按钮（视觉对齐 .theme-switcher） */
+.topbar-star-btn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--border-primary);
+    background: var(--surface-primary);
+    color: #fbbf24;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    padding: 0;
+    box-shadow: var(--shadow-sm);
+}
+
+.topbar-star-btn:hover {
+    background: var(--surface-secondary);
+    border-color: var(--primary);
+    transform: scale(1.05);
+    box-shadow: var(--shadow-md);
+}
+
+.topbar-star-btn:active {
+    transform: scale(0.95);
+    box-shadow: var(--shadow-sm);
+}
+
+.topbar-star-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+}
+
+.topbar-star-btn i {
+    font-size: 18px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+@media (max-width: 768px) {
+    .topbar-star-btn {
+        width: 32px;
+        height: 32px;
+        min-width: 32px;
+        min-height: 32px;
+    }
+
+    .topbar-star-btn i {
+        font-size: 16px;
+    }
+}
+
 /* 手动锁定按钮 */
 .manual-lock-btn {
     width: 24px;

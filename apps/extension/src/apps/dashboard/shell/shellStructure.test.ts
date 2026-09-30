@@ -13,6 +13,7 @@ describe('dashboard shell structure contract', () => {
     expect(s.mainTabsId).toBe('dashboard-main-tabs');
     expect(s.sectionNavId).toBe('dashboard-section-nav');
     expect(s.userMenuRootId).toBe('dashboard-user-menu-root');
+    expect(s.starBtnId).toBe('topbar-star-btn');
     expect(s.tabContentIds).toEqual([...DASHBOARD_TAB_CONTENT_IDS]);
     expect(s.tabContentIds).toContain('tab-media');
     expect(s.tabContentIds).toContain('tab-settings');
