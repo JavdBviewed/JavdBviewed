@@ -314,7 +314,7 @@ describe('EnhancementSettingsPage layout', () => {
     expect(listTabSource).toContain('类别数据来自穿透详情请求，不另起请求');
     expect(listTabSource).toContain('启用演员穿透并开启');
     expect(listTabSource).toContain('未生效');
-    expect(listTabSource).toContain('勾选要隐藏的影片类别');
+    expect(listTabSource).toContain('从列表隐藏该类别的影片');
     expect(listTabSource).not.toContain('勾选要保留的影片类别');
 
     // 搜索索引：内容过滤 h4 块=checkbox#enableCategoryFilter（三态 button 条目消失）；

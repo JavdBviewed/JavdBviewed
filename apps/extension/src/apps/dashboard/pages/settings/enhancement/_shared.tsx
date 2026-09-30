@@ -76,7 +76,7 @@ const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
   '锚点优化': { icon: '⚓', status: '可用', tone: 'available', effect: '在详情页提供稳定的预览和内容定位入口。', usage: '按钮顺序为：预览图、磁链下载、TOP。' },
   '磁力资源搜索': { icon: '🧲', status: '可用', tone: 'available', effect: '聚合多个磁力来源并支持排序和并发控制。', usage: '支持 Sukebei、BTdig、BTSOW、Torrentz2 和 JAVBUS；并发与限流参数会影响请求压力。' },
   '演员操作按钮': { icon: '👤', status: '可用', tone: 'available', effect: '为演员名称提供收藏、拉黑和订阅等快捷操作。' },
-  '影片类别过滤': { icon: '🏷️', status: '可用', tone: 'available', effect: '按演员页标签过滤作品，并可自动复用条件。' },
+  '影片类别过滤': { icon: '🏷️', status: '可用', tone: 'available', effect: '浏览演员页时只显示勾选类别的影片，切换演员自动应用条件' },
   '影片分段显示': { icon: '🗓️', status: '可用', tone: 'available', effect: '按时间阈值在演员作品列表中插入分隔线。' },
   'JavDB 页面外观包': { icon: '🎨', status: '测试中', tone: 'beta', effect: '仅增强页面阅读层次，不改变原有业务交互。' },
   '排序增强': { icon: '↕️', status: '可用', tone: 'available', effect: '提供列表排序控制和追加结果时的排序策略。' },
