@@ -87,9 +87,9 @@ describe('list-hiding 来源标记与重算', () => {
       display: { hideViewed: true, hideBrowsed: false, hideWant: true, hideVR: true },
       listEnhancement: { hideBlacklistedActorsInList: true },
     });
-    expect(enablement).toEqual({ viewed: true, browsed: false, want: true, vr: true, actor: true, category: false });
+    expect(enablement).toEqual({ viewed: true, browsed: false, want: true, vr: true, actor: true, category: false, mediaLibrary: false, realWatched: false });
 
     const missing = readListHidingEnablement(null);
-    expect(missing).toEqual({ viewed: false, browsed: false, want: false, vr: false, actor: false, category: false });
+    expect(missing).toEqual({ viewed: false, browsed: false, want: false, vr: false, actor: false, category: false, mediaLibrary: false, realWatched: false });
   });
 });

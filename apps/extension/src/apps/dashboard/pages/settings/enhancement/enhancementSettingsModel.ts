@@ -47,6 +47,10 @@ export type EnhancementSettingsFormState = {
   hideVR: boolean;
   /** display.hideWant */
   hideWant: boolean;
+  /** display.hideInMediaLibrary（09-30-media-library-hide-filter：隐藏媒体库已入库影片，Emby/JF/115 任一命中） */
+  hideInMediaLibrary: boolean;
+  /** display.hideRealWatched（09-30-media-library-hide-filter：隐藏真实已看影片，Emby/JF 进度达阈值或已标记看完） */
+  hideRealWatched: boolean;
   /** listEnhancement.hideBlacklistedActorsInList */
   hideBlacklistedActorsInList: boolean;
   /** listEnhancement.hideNonFavoritedActorsInList（真白名单语义：匹配演员全部未收藏时隐藏；favorited 缺省 = 已收藏） */
@@ -295,6 +299,8 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   hideBrowsed: false,
   hideVR: false,
   hideWant: false,
+  hideInMediaLibrary: false,
+  hideRealWatched: false,
   hideBlacklistedActorsInList: false,
   hideNonFavoritedActorsInList: false,
   hideUnrecognizedActorsInList: false,
@@ -557,6 +563,8 @@ export function mapSettingsToEnhancementForm(
     hideBrowsed: !!display.hideBrowsed,
     hideVR: !!display.hideVR,
     hideWant: !!display.hideWant,
+    hideInMediaLibrary: !!display.hideInMediaLibrary,
+    hideRealWatched: !!display.hideRealWatched,
     hideBlacklistedActorsInList: !!le.hideBlacklistedActorsInList,
     hideNonFavoritedActorsInList: !!le.hideNonFavoritedActorsInList,
     hideUnrecognizedActorsInList: le.hideUnrecognizedActorsInList === true,
@@ -768,6 +776,8 @@ export function applyEnhancementFormToSettings(
       hideBrowsed: form.hideBrowsed,
       hideVR: form.hideVR,
       hideWant: form.hideWant,
+      hideInMediaLibrary: form.hideInMediaLibrary,
+      hideRealWatched: form.hideRealWatched,
     },
     libraryMatchStatus: {
       ...((current as any).libraryMatchStatus || {}),

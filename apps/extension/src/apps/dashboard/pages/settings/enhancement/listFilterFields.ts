@@ -22,6 +22,18 @@ export const DISPLAY_FILTER_FIELDS: ListFilterField[] = [
   { key: 'hideBrowsed', id: 'hideBrowsed', label: '隐藏已浏览详情页的影片' },
   { key: 'hideVR', id: 'hideVR', label: '隐藏所有VR影片' },
   { key: 'hideWant', id: 'hideWant', label: '隐藏想看的影片' },
+  {
+    key: 'hideInMediaLibrary',
+    id: 'hideInMediaLibrary',
+    label: '隐藏媒体库已入库的影片',
+    description: '按番号匹配：影片已存在于 Emby/Jellyfin 媒体库索引或 115 网盘扫描索引时隐藏（与原站「已看」标记无关）。需媒体库同步/扫描完成后生效；索引为空时本开关不生效。',
+  },
+  {
+    key: 'hideRealWatched',
+    id: 'hideRealWatched',
+    label: '隐藏真实已看的影片',
+    description: '影片在 Emby/Jellyfin 播放进度达到 90% 或已标记看完时判为「真实已看」并隐藏（与原站「已看」标记无关）。需媒体库同步完成后生效。',
+  },
 ];
 
 /** 演员过滤（列表，listEnhancement.*，默认全 false；空演员库保护） */

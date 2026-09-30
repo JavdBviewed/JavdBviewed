@@ -31,6 +31,8 @@ import {
     setHidingSource,
     readListHidingEnablement,
     isStatusAggregatePage,
+    markMediaLibraryHiding,
+    markDrive115LibraryHiding,
 } from '../../list-hiding';
 import {
     DEFAULT_EXISTING_ITEMS_CHUNK_SIZE,
@@ -351,6 +353,9 @@ function processItem(item: HTMLElement): string | null {
             setHidingSource(item, statusSource, true);
             log(`Marked status source ${statusSource} for: ${videoId}`);
         }
+        // 09-30-media-library-hide-filter：媒体库来源同步侧（Emby/JF 索引内存判定；
+        // 两开关全关时内部直接返回，零成本；搜索页/聚合页豁免在函数内复核）
+        markMediaLibraryHiding(item, videoId, STATE.settings);
     }
 
     // 依据开关统一重算显隐（整合 VR / 状态 / 演员 所有来源）。
@@ -361,6 +366,10 @@ function processItem(item: HTMLElement): string | null {
     } else {
         recomputeListHiding(item, enablement);
     }
+
+    // 09-30-media-library-hide-filter：115 网盘索引异步侧——resolve 后打标记 + 重算，
+    // 不阻塞首屏；hideInMediaLibrary 关闭时内部直接返回（无 storage 读）。
+    void markDrive115LibraryHiding(item, videoId, STATE.settings);
 
     return videoId;
 }

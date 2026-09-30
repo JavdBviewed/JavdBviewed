@@ -533,6 +533,17 @@
                                             <input type="checkbox" id="hideWant">
                                             <label for="hideWant">隐藏想看的影片</label>
                                         </div>
+                                        <!-- 09-30-media-library-hide-filter：媒体库隐藏两开关（生产 DOM 由 React ListTab 渲染） -->
+                                        <div class="form-group-checkbox">
+                                            <input type="checkbox" id="hideInMediaLibrary">
+                                            <label for="hideInMediaLibrary">隐藏媒体库已入库的影片</label>
+                                            <p class="input-description">按番号匹配：影片已存在于 Emby/Jellyfin 媒体库索引或 115 网盘扫描索引时隐藏（与原站「已看」标记无关）。需媒体库同步/扫描完成后生效；索引为空时本开关不生效。</p>
+                                        </div>
+                                        <div class="form-group-checkbox">
+                                            <input type="checkbox" id="hideRealWatched">
+                                            <label for="hideRealWatched">隐藏真实已看的影片</label>
+                                            <p class="input-description">影片在 Emby/Jellyfin 播放进度达到 90% 或已标记看完时判为「真实已看」并隐藏（与原站「已看」标记无关）。需媒体库同步完成后生效。</p>
+                                        </div>
                                         <div class="form-group-checkbox">
                                             <input type="checkbox" id="hideBlacklistedActorsInList">
                                             <label for="hideBlacklistedActorsInList">隐藏含黑名单演员的作品</label>

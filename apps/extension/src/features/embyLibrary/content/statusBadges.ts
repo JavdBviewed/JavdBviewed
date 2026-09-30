@@ -4,11 +4,8 @@
  * @module features/embyLibrary
  */
 import { STATE } from '../../contentState';
-import {
-  buildMediaItemUrl,
-  findLibraryMatches,
-  normalizeServerUrl,
-} from '../domain/libraryIndex';
+import { buildMediaItemUrl } from '../domain/libraryIndex';
+import { findConfiguredLibraryMatches } from '../domain/configuredMatches';
 import {
   computeWatchState,
   formatWatchPercent,
@@ -63,25 +60,6 @@ function hasLibraryIndex(): boolean {
   return Object.keys(state.entries || {}).length > 0;
 }
 
-function getConfiguredServerKeys(): Set<string> {
-  const servers = (STATE.settings as any)?.emby?.mediaServers;
-  if (!Array.isArray(servers)) return new Set();
-
-  return new Set(servers
-    .filter((server) => server && server.enabled !== false && server.url)
-    .map((server) => `${server.type === 'jellyfin' ? 'jellyfin' : 'emby'}:${normalizeServerUrl(String(server.url || ''))}`));
-}
-
-function getConfiguredMatches(videoId: string): EmbyLibraryIndexEntry[] {
-  const configuredServerKeys = getConfiguredServerKeys();
-  if (configuredServerKeys.size === 0) return [];
-
-  return findLibraryMatches(STATE.embyLibraryState, videoId).filter((entry) => {
-    const entryKey = `${entry.serverType}:${normalizeServerUrl(entry.serverUrl)}`;
-    return configuredServerKeys.has(entryKey);
-  });
-}
-
 /**
  * 为容器追加入库 + 真实观看徽章（可点击跳转服务器）
  */
@@ -90,7 +68,7 @@ export function renderLibraryStatusBadges(container: HTMLElement, videoId: strin
 
   if (!isLibraryStatusEnabled(context)) return;
 
-  const matches = getConfiguredMatches(videoId);
+  const matches = findConfiguredLibraryMatches(STATE.embyLibraryState, videoId, (STATE.settings as any)?.emby?.mediaServers);
   if (matches.length === 0) return;
 
   for (const entry of matches) {
@@ -205,7 +183,7 @@ export function renderDetailLibraryStatus(videoId: string): void {
     return;
   }
 
-  const matches = getConfiguredMatches(videoId);
+  const matches = findConfiguredLibraryMatches(STATE.embyLibraryState, videoId, (STATE.settings as any)?.emby?.mediaServers);
   if (matches.length === 0) return;
 
   const wrapper = document.createElement('span');
