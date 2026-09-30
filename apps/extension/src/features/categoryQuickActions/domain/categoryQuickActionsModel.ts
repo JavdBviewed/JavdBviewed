@@ -245,3 +245,63 @@ export function buildNewWorksFiltersPatch(
   };
   return { filters };
 }
+
+// ── 类别链接文字级状态标记（09-30-category-link-state；纯函数，不触 DOM/不触 chrome） ──
+
+/**
+ * 屏蔽（列表页）态的链接颜色与线型。
+ * ★ 与演员黑名单同色同口径（features/videoDetail/pageHandler.ts L948 colorBlacklisted /
+ *   L989 textDecoration='line-through'，features/listEnhancement/actorPenetration/
+ *   renderActorRow.ts L242 同色），coord 裁决复用，不另立色值。
+ */
+export const CATEGORY_STATE_LIST_BLOCKED_COLOR = '#d32f2f';
+export const CATEGORY_STATE_LIST_BLOCKED_TEXT_DECORATION = 'line-through';
+
+/** 不入库态图标（coord 批复=直接用 emoji；必须落在链接**外**的兄弟节点，见 manager）。 */
+export const CATEGORY_STATE_NEW_WORKS_ICON = '🚫';
+
+/** 三条 title 口径（coord 定稿，全简体中文）。 */
+export const CATEGORY_STATE_TITLE_LIST_BLOCKED = '已屏蔽：列表页隐藏该类别';
+export const CATEGORY_STATE_TITLE_NEW_WORKS_BLOCKED = '新作品不入库：该类别影片将不再入库';
+/** 双态共存时的 title 拼接符（中文分号）。 */
+export const CATEGORY_STATE_TITLE_SEPARATOR = '；';
+
+/** 单链接状态标记渲染计划。 */
+export interface CategoryLinkMarkPlan {
+  entryKey: string;
+  /** 命中列表页隐藏集 */
+  listBlocked: boolean;
+  /** 命中新作品不入库集 */
+  newWorksBlocked: boolean;
+  /** 需要红 + 删除线（= listBlocked，两态互不干扰可共存） */
+  needsStrike: boolean;
+  /** 需要链接前的禁止图标兄弟节点（= newWorksBlocked） */
+  needsIcon: boolean;
+  /** 需要写入的 title；null = 无状态，调用方须还原链接原 title */
+  titleText: string | null;
+}
+
+/**
+ * 状态标记计划：entryKey + 两个集合 → 渲染字段。
+ * 两态共存时 title 用中文分号拼接；两集合同未命中 → titleText=null（还原原值）。
+ * ★ 纯函数：只读入参、只返回计划，不触 DOM、不触 chrome API（单测直接断言）。
+ */
+export function categoryLinkMarkPlan(
+  entryKey: string,
+  listBlack: readonly string[] | null | undefined,
+  newWorksBlack: readonly string[] | null | undefined,
+): CategoryLinkMarkPlan {
+  const listBlocked = containsEntryKey(listBlack, entryKey);
+  const newWorksBlocked = containsEntryKey(newWorksBlack, entryKey);
+  const segments: string[] = [];
+  if (listBlocked) segments.push(CATEGORY_STATE_TITLE_LIST_BLOCKED);
+  if (newWorksBlocked) segments.push(CATEGORY_STATE_TITLE_NEW_WORKS_BLOCKED);
+  return {
+    entryKey,
+    listBlocked,
+    newWorksBlocked,
+    needsStrike: listBlocked,
+    needsIcon: newWorksBlocked,
+    titleText: segments.length > 0 ? segments.join(CATEGORY_STATE_TITLE_SEPARATOR) : null,
+  };
+}
