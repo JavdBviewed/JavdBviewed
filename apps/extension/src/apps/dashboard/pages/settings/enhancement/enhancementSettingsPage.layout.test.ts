@@ -393,7 +393,7 @@ describe('EnhancementSettingsPage layout', () => {
     // popup「番号过滤」列新增 2 张媒体库卡。键为存量（display.hideInMediaLibrary / hideRealWatched，
     // 由 09-30-media-library-hide-filter 全量落盘），本线只补 popup UI：
     // 1) 两容器 popup.html 存在 + bootstrap.ts getElementById 接线（coord 要求的交叉锁）
-    // 2) 卡上短文案（媒体库已入库 / 真实已看）
+    // 2) 卡上短文案（已入媒体库 / 真实已看）— 10-01-popup-filter-labels 短标签去「隐藏」二字
     // 3) aria-label 全句与 dashboard listFilterFields 的 label 逐字一致（走 createToggleButton 的
     //    displayLabel + stateText 组装，与既有 4 张番号卡同构，helper 零改动）
     const popupBootstrap = readFileSync(
@@ -409,7 +409,7 @@ describe('EnhancementSettingsPage layout', () => {
       expect(popupHtml, `popup.html has #${container}`).toContain(`id="${container}"`);
       expect(popupBootstrap, `bootstrap wires #${container}`).toContain(`getElementById('${container}')`);
     }
-    expect(popupBootstrap).toContain("'媒体库已入库'");
+    expect(popupBootstrap).toContain("'已入媒体库'");
     expect(popupBootstrap).toContain("'真实已看'");
     for (const label of ['隐藏媒体库已入库的影片', '隐藏真实已看的影片']) {
       expect(fieldsSource).toContain(`label: '${label}'`);
