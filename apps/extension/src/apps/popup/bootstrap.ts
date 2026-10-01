@@ -180,7 +180,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const toggleHideRealWatchedContainer = document.getElementById('toggleHideRealWatchedContainer') as HTMLDivElement;
     const toggleHideBlacklistedActorsContainer = document.getElementById('toggleHideBlacklistedActorsContainer') as HTMLDivElement;
     const toggleHideNonFavoritedActorsContainer = document.getElementById('toggleHideNonFavoritedActorsContainer') as HTMLDivElement;
-    const toggleHideUnrecognizedActorsContainer = document.getElementById('toggleHideUnrecognizedActorsContainer') as HTMLDivElement;
     const toggleHideSubscribedActorsContainer = document.getElementById('toggleHideSubscribedActorsContainer') as HTMLDivElement;
     const volumeSlider = document.getElementById('volumeSlider') as HTMLInputElement;
     const volumeValue = document.getElementById('volumeValue') as HTMLSpanElement;
@@ -190,6 +189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const containerWidthSlider = document.getElementById('containerWidthSlider') as HTMLInputElement;
     const containerWidthValue = document.getElementById('containerWidthValue') as HTMLSpanElement;
     const resetListDisplayBtn = document.getElementById('resetListDisplayBtn') as HTMLButtonElement;
+    const moreFiltersLink = document.getElementById('moreFiltersLink') as HTMLAnchorElement | null;
 
     // 检测当前网站可用性
     async function checkSiteAvailability() {
@@ -318,6 +318,28 @@ document.addEventListener('DOMContentLoaded', async () => {
                 windows: chrome.windows,
             }).catch((error) => {
                 console.warn('[Popup] Failed to focus Dashboard tab, falling back to options page:', error);
+                if (chrome.runtime.openOptionsPage) {
+                    void chrome.runtime.openOptionsPage();
+                } else {
+                    window.open(chrome.runtime.getURL('dashboard/dashboard.html'));
+                }
+            });
+        });
+    }
+
+    // 10-01-popup-more-filter：「更多过滤」→ dashboard 内容过滤卡（enhancement-settings 的 list 子页）深链。
+    // 已有 dashboard tab：focus + tabs.sendMessage 由 dashboard 监听器设 hash（接收端未就绪时 url+hash 重载兜底，再失败仅 focus）；无 tab：create 带 hash。
+    if (moreFiltersLink) {
+        moreFiltersLink.addEventListener('click', (event) => {
+            event.preventDefault();
+            void openOrFocusDashboardTab({
+                dashboardUrl: chrome.runtime.getURL('dashboard/dashboard.html'),
+                hash: '#tab-settings/enhancement-settings/list',
+                tabs: chrome.tabs,
+                windows: chrome.windows,
+                sendMessage: (tabId, message) => chrome.tabs.sendMessage(tabId, message),
+            }).catch((error) => {
+                console.warn('[Popup] Failed to open dashboard with more-filters hash, falling back to options page:', error);
                 if (chrome.runtime.openOptionsPage) {
                     void chrome.runtime.openOptionsPage();
                 } else {
@@ -923,7 +945,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 演员过滤开关（列表）
         await createListEnhancementToggle('hideBlacklistedActorsInList', toggleHideBlacklistedActorsContainer, '隐藏含黑名单演员', '显示含黑名单演员', '黑名单演员');
         await createListEnhancementToggle('hideNonFavoritedActorsInList', toggleHideNonFavoritedActorsContainer, '隐藏未收藏演员的作品', '显示未收藏演员的作品', '未收藏演员');
-        await createListEnhancementToggle('hideUnrecognizedActorsInList', toggleHideUnrecognizedActorsContainer, '隐藏无法识别演员的作品', '显示无法识别演员的作品', '无法识别');
         await createListEnhancementToggle('hideSubscribedActorsInList', toggleHideSubscribedActorsContainer, '隐藏已订阅演员的作品', '显示已订阅演员的作品', '已订阅演员');
 
         await setupVolumeControl();

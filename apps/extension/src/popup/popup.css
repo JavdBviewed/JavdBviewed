@@ -419,6 +419,32 @@ button {
     min-height: 44px;
 }
 
+/* 10-01-popup-more-filter：右列（演员过滤）3 卡卡高统一到 44，与左列 6 卡底边齐平（mock V2）。 */
+.filters-right .toggle-button {
+    min-height: 44px;
+}
+
+/* 10-01-popup-more-filter：「更多过滤」整行右对齐文字链接（视觉基准 = /tmp/popupmock V3 方案 B）。 */
+.more-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    min-height: 22px;
+}
+
+.more-link {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-decoration: none;
+    cursor: pointer;
+    letter-spacing: .01em;
+}
+
+.more-link:hover {
+    color: var(--primary-active);
+}
+
 .section-title,
 .volume-label,
 .control-label {

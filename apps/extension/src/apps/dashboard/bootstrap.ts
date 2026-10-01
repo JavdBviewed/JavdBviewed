@@ -68,8 +68,18 @@ bindInsightsListeners();
 // 监听 UI 级消息（toast等）
 bindUiListeners();
 
-// 监听来自 background 的 Cloudflare 验证请求
+// 监听来自 background 的 Cloudflare 验证请求 + popup「更多过滤」深链（接收端与 apps/popup/dashboardTab.ts 的
+// DASHBOARD_DEEP_LINK_MESSAGE_TYPE='dashboard-deep-link' 字面量保持一致，改字面量需两侧同步）
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'dashboard-deep-link') {
+        const hash = typeof message.hash === 'string' ? message.hash : '';
+        if (hash) {
+            // 直接修改 location.hash，会自动触发 hashchange 事件（initTabs 全局监听接管路由）
+            window.location.hash = hash;
+        }
+        sendResponse({ ok: Boolean(hash) });
+        return;
+    }
     if (message.type === 'cloudflare-verification-request') {
         const url = message.url;
         

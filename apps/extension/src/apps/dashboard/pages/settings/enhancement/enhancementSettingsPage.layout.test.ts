@@ -418,4 +418,28 @@ describe('EnhancementSettingsPage layout', () => {
     expect(popupBootstrap).toContain("'显示媒体库已入库的影片'");
     expect(popupBootstrap).toContain("'显示真实已看的影片'");
   });
+
+  it('drops the unrecognized-actor toggle from the popup and adds the more-filters link (10-01-popup-more-filter)', () => {
+    // 删「无法识别」开关仅 popup 侧（3 处：容器/getElementById/createListEnhancementToggle 调用）；
+    // dashboard 侧全部落点（listFilterFields / settings-enhancement.html / model / content）键与行为零改动
+    const popupBootstrap = readFileSync(
+      join(here, '..', '..', '..', '..', '..', 'apps', 'popup', 'bootstrap.ts'),
+      'utf8',
+    );
+    const popupHtml = readFileSync(
+      join(here, '..', '..', '..', '..', '..', 'popup', 'popup.html'),
+      'utf8',
+    );
+    // 1) 负锁：无法识别容器消失、接线消失
+    expect(popupHtml).not.toContain('id="toggleHideUnrecognizedActorsContainer"');
+    expect(popupBootstrap).not.toContain("getElementById('toggleHideUnrecognizedActorsContainer')");
+    expect(popupBootstrap).not.toContain("'hideUnrecognizedActorsInList'");
+    // 2) 「更多过滤」整行链接：存在 + 文案（mock V3 方案 B：整行右对齐文字链接）
+    expect(popupHtml).toContain('id="moreFiltersLink"');
+    expect(popupHtml).toContain('class="full-row more-row"');
+    expect(popupHtml).toContain('更多过滤 →');
+    expect(popupBootstrap).toContain("getElementById('moreFiltersLink')");
+    // 3) 深链目标 = enhancement-settings 的 list 子页 hash（内容过滤卡 ListTab）
+    expect(popupBootstrap).toContain("'#tab-settings/enhancement-settings/list'");
+  });
 });
