@@ -6,6 +6,8 @@ import type { NewWorksGlobalConfig } from '../../../types';
 import { ACTOR_FILTER_TAGS } from '../../config/actorFilterTags';
 import { BUILTIN_CATEGORY_DICTIONARY, entryKey, type DimKey } from '@javdb/video-category-dict';
 import {
+    ACTOR_SCAN_UNION_MAX_CATEGORIES,
+    deriveActorScanInputs,
     normalizeCategoryBlackValues,
     splitNewWorksFilterValues,
 } from '../../../features/newWorks/categoryFilter';
@@ -50,7 +52,8 @@ export class NewWorksConfigModal {
     }
 
     /**
-     * 生成类别白名单复选框HTML（t 码 6 项 + 字典维度分组；appliesToUrl=false 维度标注不拼 URL）
+     * 生成类别白名单复选框HTML（单一白名单组件 = 多属性：基础过滤 t 码 6 项 +
+     * 字典数字类别 307 项；两者扫描时一律走 ?t=，数字类别按并集一类别一请求）
      */
     private generateWhitelistCheckboxes(selectedValues: string[]): string {
         const selectedSet = new Set(selectedValues);
@@ -76,7 +79,7 @@ export class NewWorksConfigModal {
             return `
                 <details class="category-dim-details" id="nwCatDimWhitelist-${dim.key}">
                     <summary class="category-dim-summary">
-                        ${dim.label}${dim.appliesToUrl ? '' : '（不拼 URL）'}
+                        ${dim.label}
                         <span class="category-dim-hint">已选 ${dim.entries.filter(e => selectedSet.has(entryKey(dim.key, e.id))).length}/${dim.entries.length}</span>
                     </summary>
                     <div class="category-filter-grid category-filter-grid-compact">${boxes}</div>
@@ -84,6 +87,7 @@ export class NewWorksConfigModal {
         }).join('');
 
         return `
+            <div class="category-filter-group-title">基础过滤（作品须同时满足这些）</div>
             <div class="category-filter-grid">${tBoxes}</div>
             <div class="category-dim-list">${dimBlocks}</div>
         `;
@@ -127,6 +131,10 @@ export class NewWorksConfigModal {
         const whitelistCount = whitelistSplit.t.length + whitelistSplit.categoryKeys.length;
         const blacklistNorm = normalizeCategoryBlackValues(config.filters.categoryBlackFilters || []);
         const blacklistCount = blacklistNorm.keys.size;
+        // 数字类别（演员扫描按并集一类别一请求）勾选数超上限 → 降级交集，初始即给出警示
+        const whitelistScanInputs = deriveActorScanInputs(config.filters.categoryFilters || []);
+        const whitelistDegraded = whitelistScanInputs.nums.length > ACTOR_SCAN_UNION_MAX_CATEGORIES;
+        const whitelistWarnText = this.categoryWhitelistWarnText(whitelistScanInputs.nums.length);
 
         this.modal = document.createElement('div');
         this.modal.className = 'new-works-config-modal';
@@ -283,10 +291,10 @@ export class NewWorksConfigModal {
                                     <div class="category-panel">
                                         <div class="category-panel-header">
                                             <div>
-                                                <h5>类别白名单（只扫这些）</h5>
-                                                <p class="category-panel-desc">勾选后，扫描新作品时只抓取这些类别的影片；全部不勾 = 不限制。标注「不拼 URL」的维度为未实测维度，勾选仅记录、不参与筛选。</p>
+                                                <h5>白名单（只扫这些）</h5>
+                                                <p class="category-panel-desc">勾选后只抓取属于任一已勾选类别的作品（并集）；基础过滤是每部作品都必须同时满足的条件。数字类别勾选超过 ${ACTOR_SCAN_UNION_MAX_CATEGORIES} 项时降级为「同时满足全部（交集）」，抓取范围会明显收窄。全部不勾 = 不限制。</p>
                                             </div>
-                                            <div class="category-panel-meta">已选 <strong id="categoryWhitelistCount">${whitelistCount}</strong> 项</div>
+                                            <div class="category-panel-meta">已选 <strong id="categoryWhitelistCount">${whitelistCount}</strong> 项<span id="categoryWhitelistWarn" class="category-panel-warn"${whitelistDegraded ? '' : ' hidden'}>${whitelistWarnText}</span></div>
                                         </div>
                                         ${this.generateWhitelistCheckboxes([...whitelistSplit.t, ...whitelistSplit.categoryKeys])}
                                     </div>
@@ -437,10 +445,27 @@ export class NewWorksConfigModal {
             const blacklistCount = this.modal!.querySelectorAll('.category-blacklist-checkbox:checked').length;
             const blacklistEl = this.modal!.querySelector('#categoryBlacklistCount') as HTMLElement | null;
             if (blacklistEl) blacklistEl.textContent = String(blacklistCount);
+            const checked = Array.from(this.modal!.querySelectorAll('.category-whitelist-checkbox:checked'))
+                .map((cb) => (cb as HTMLInputElement).value);
+            this.updateCategoryWhitelistWarn(deriveActorScanInputs(checked).nums.length);
         };
         this.modal.querySelectorAll('.category-whitelist-checkbox, .category-blacklist-checkbox').forEach(cb => {
             cb.addEventListener('change', update);
         });
+    }
+
+    /** N>上限 时的降级警示文案（并集 → 交集）。 */
+    private categoryWhitelistWarnText(numsCount: number): string {
+        return `已选 ${numsCount} 个类别，超过 ${ACTOR_SCAN_UNION_MAX_CATEGORIES} 个将降级为「同时满足全部（交集）」`;
+    }
+
+    /** 动态开关白名单降级警示（数字类别勾选数 > 上限时显示）。 */
+    private updateCategoryWhitelistWarn(numsCount: number): void {
+        const warn = this.modal?.querySelector('#categoryWhitelistWarn') as HTMLElement | null;
+        if (!warn) return;
+        const degraded = numsCount > ACTOR_SCAN_UNION_MAX_CATEGORIES;
+        warn.hidden = !degraded;
+        warn.textContent = degraded ? this.categoryWhitelistWarnText(numsCount) : '';
     }
 
     /**
