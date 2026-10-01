@@ -125,6 +125,7 @@ describe('release announcement state', () => {
 
   it('ships user-facing release notes for recent versions', () => {
     expect(RELEASE_NOTES.map(note => note.version)).toEqual([
+      '2.1.0',
       '2.0.1',
       '2.0.0',
       '1.21.4',
@@ -138,6 +139,11 @@ describe('release announcement state', () => {
     ]);
     const highlightsFor = (version: string) => RELEASE_NOTES.find(note => note.version === version)?.highlights;
 
+    expect(highlightsFor('2.1.0')).toEqual(expect.arrayContaining([
+      '影片页类别链接悬浮出快捷操作面板，一键屏蔽或设置新作品不入库。',
+      '新增隐藏媒体库已入库影片与隐藏真实已看的影片两个条件。',
+      '新作品手动检查改为「收集 → 确认 → 入库」三步，避免误入库。',
+    ]));
     expect(highlightsFor('2.0.1')).toEqual(expect.arrayContaining([
       '详情页与列表页的增强任务改为更平稳的智能调度，浏览时减少卡顿。',
       'Cloud 同步修复并发刷新导致的偶发登录失效，并显示真实同步阶段和耗时。',
