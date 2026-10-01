@@ -146,12 +146,13 @@ test.describe('settings React pages in Chromium', () => {
       expect(new URL(page.url()).hash).toBe('#tab-settings/media-library-settings');
 
       // 索引卡不再出现两张退役卡，且只剩一张新卡
+      // 252 线新增 new-works-settings 卡：14→15
       await gotoExtensionPage(
         page,
         extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings'),
         page.locator('.si-grid'),
       );
-      await expect(page.locator('.si-card')).toHaveCount(14);
+      await expect(page.locator('.si-card')).toHaveCount(15);
       await expect(page.locator('a[href="#tab-settings/global-actions"]')).toHaveCount(0);
       await expect(page.locator('a[href="#tab-settings/emby-settings"]')).toHaveCount(0);
       await expect(page.locator('a[href="#tab-settings/media-library-settings"]')).toHaveCount(1);

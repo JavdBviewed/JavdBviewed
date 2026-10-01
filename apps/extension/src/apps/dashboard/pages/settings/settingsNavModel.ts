@@ -76,6 +76,12 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     beta: true,
   },
   {
+    id: 'new-works-settings',
+    title: '新作品',
+    description: '新作品扫描、入口与过滤',
+    icon: 'fa-rss',
+  },
+  {
     id: 'insights-settings',
     title: '报告',
     description: '统计报告配置',

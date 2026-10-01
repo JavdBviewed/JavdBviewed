@@ -76,6 +76,12 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
               console.debug('[mount] 设置子页：React 全页 media-library-settings');
               return;
             }
+            if (subSection === 'new-works-settings') {
+              const { mountNewWorksSettingsPage } = await import('../../apps/dashboard/pages/settings/newWorks/mountNewWorksSettingsPage');
+              mountNewWorksSettingsPage('#tab-settings');
+              console.debug('[mount] 设置子页：React 全页 new-works-settings');
+              return;
+            }
             if (subSection === 'update-settings') {
               const { mountUpdateSettingsPage } = await import('../../apps/dashboard/pages/settings/update/mountUpdateSettingsPage');
               mountUpdateSettingsPage('#tab-settings');

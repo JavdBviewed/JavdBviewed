@@ -20,7 +20,8 @@ describe('settingsNavModel', () => {
 
   it('drops the global-actions card after merging it into advanced settings', () => {
     // 2026-10-03 IA 裁决：全局操作三区块并入高级配置页，设置索引少一张卡
-    expect(SETTINGS_NAV_ITEMS).toHaveLength(14);
+    // 2026-10-03 252 线新增 new-works-settings 卡：14→15
+    expect(SETTINGS_NAV_ITEMS).toHaveLength(15);
     expect(SETTINGS_NAV_ITEMS.some((i) => i.id === 'global-actions')).toBe(false);
     const advanced = SETTINGS_NAV_ITEMS.find((i) => i.id === 'advanced-settings');
     expect(advanced?.title).toBe('高级配置');

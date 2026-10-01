@@ -8,7 +8,6 @@ import { attachNewWorksButtonEvents } from '../../apps/extension/src/dashboard/t
 
 function renderButtons() {
   document.body.innerHTML = `
-    <button id="newWorksGlobalConfigBtn"></button>
     <button id="checkNowBtn"></button>
     <button id="syncStatusBtn"></button>
     <button id="addSubscriptionBtn"></button>
@@ -24,7 +23,6 @@ function renderButtons() {
 
 function handlers(overrides: Partial<Parameters<typeof attachNewWorksButtonEvents>[0]> = {}) {
   return {
-    openGlobalConfig: vi.fn(),
     checkNow: vi.fn(),
     syncStatus: vi.fn(async () => undefined),
     setupSyncHelp: vi.fn(),
@@ -66,7 +64,6 @@ describe('new works button events runtime', () => {
 
     attachNewWorksButtonEvents(runtime);
 
-    document.getElementById('newWorksGlobalConfigBtn')?.click();
     document.getElementById('checkNowBtn')?.click();
     document.getElementById('syncStatusBtn')?.click();
     document.getElementById('addSubscriptionBtn')?.click();
@@ -78,7 +75,6 @@ describe('new works button events runtime', () => {
     document.getElementById('batchDeleteSelectedBtn')?.click();
     await flushAsyncClick();
 
-    expect(runtime.openGlobalConfig).toHaveBeenCalledTimes(1);
     expect(runtime.checkNow).toHaveBeenCalledTimes(1);
     expect(runtime.syncStatus).toHaveBeenCalledTimes(1);
     expect(runtime.setupSyncHelp).toHaveBeenCalledTimes(1);

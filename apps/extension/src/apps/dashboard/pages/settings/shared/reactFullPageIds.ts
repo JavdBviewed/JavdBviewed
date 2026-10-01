@@ -19,6 +19,8 @@ export const REACT_FULL_SETTINGS_PAGE_IDS = new Set<string>([
   // 媒体服务器配置已迁移为摘要列表 + 弹窗编辑
   // （2026-10-03 IA 裁决：emby-settings 改名 media-library-settings，旧 hash 先经路由别名归一化）
   'media-library-settings',
+  // 新作品设置：原弹窗 4 区块迁移为 React 全页（存储键与逻辑层零改动）
+  'new-works-settings',
   // 版本与关于页面包含系列产品入口，使用 React 内容页
   'update-settings',
   // 功能增强设置使用 React 页面，保留原功能卡片的视觉与交互语义
