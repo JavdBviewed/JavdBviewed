@@ -356,8 +356,9 @@ button {
 
 .main-grid {
     display: grid;
-    /* 09-30-popup-media-library-toggles：双列左宽右窄（番号过滤 6 卡 2x3 / 演员过滤 4 卡单列） */
-    grid-template-columns: 1.2fr 1fr;
+    /* 10-01-popup-actor-col-minwidth：右列=内容不换行最小宽度（max-content），左列 1fr 吃余量
+       （番号过滤 6 卡 2x3 / 演员过滤 4 卡单列；右列卡内 white-space: nowrap 保证文本仍单行） */
+    grid-template-columns: 1fr max-content;
     gap: 12px;
     align-items: start;
     margin-top: 12px;
@@ -406,12 +407,16 @@ button {
 
 /* 左列卡变窄，短文案允许 2 行；右列 4 张演员卡零改动（仍 12px + nowrap）。
    padding 左右 9px -> 7px：卡内可用文字宽 30.5px -> 34.5px，11px 下每行 2 字 -> 3 字，
-   使「媒体库已入库」6 字按 3+3 两行排下（真机实测：不缩 padding 时 3 行、卡高 44 -> 58）。 */
+   使「媒体库已入库」6 字按 3+3 两行排下（真机实测：不缩 padding 时 3 行、卡高 44 -> 58）。
+   10-01-popup-actor-col-minwidth：min-height 44px = 左列卡高统一 44，与改前视觉一致。
+   右列取 max-content 后左列由 213px 增至 244px，4/6 张短文案卡回到单行（.toggle-button 本体
+   min-height 40px 兜底），同排会出现 40 与 44 的 4px 底边错位；此处抬到 44 消除该视觉变化。 */
 .filters-left .toggle-button {
     font-size: 11px;
     line-height: 1.2;
     white-space: normal;
     padding: 8px 7px;
+    min-height: 44px;
 }
 
 .section-title,
