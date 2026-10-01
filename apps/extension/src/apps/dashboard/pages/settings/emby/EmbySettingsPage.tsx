@@ -46,6 +46,7 @@ import {
   updateMatchUrlAt,
   updateMediaServerAt,
   validateMediaServerInput,
+  validateMediaServerForSave,
   type EmbySettingsFormState,
 } from './embySettingsModel';
 
@@ -154,8 +155,9 @@ export function EmbySettingsPage() {
       focusCreateUrl();
       return;
     }
+    // 首次打开的焦点由弹窗内 useDialogInitialFocus 落到第一个字段（类型），
+    // 不再在此抢焦到地址框；仅在弹窗已打开时把焦点补到地址框。
     setServerDraft(createEmptyMediaServerDraft());
-    focusCreateUrl();
   };
 
   const onCancelCreate = () => {
@@ -705,8 +707,13 @@ type MediaServerRowProps = {
   server: EmbyMediaServer;
   index: number;
   disabled?: boolean;
+  /** 关闭门禁红字（编辑弹窗专用，由弹窗持有状态） */
+  gateError?: ServerGateError;
+  /** 地址回车=等同点「完成」（走关闭门禁） */
+  onRequestClose?: () => void;
   onChange: (patch: Partial<EmbyMediaServer>) => void;
-  onRemove: () => void;
+  /** 删除按钮已移至编辑弹窗 footer；保留字段兼容既有挂载点 */
+  onRemove?: () => void;
   onLoginSuccess: (patch: Partial<EmbyMediaServer>) => Promise<SettingsPersistResult>;
   onLogout: () => void;
 };
@@ -854,19 +861,296 @@ function MediaServerDeleteConfirmDialog({
   );
 }
 
-function MediaServerCreateDialog({
+/** 弹窗关闭门禁红字归属字段（url / credentials），null=无红字 */
+type ServerGateError = { field: 'url' | 'credentials'; message: string } | null;
+
+/** 关闭门禁红字的出路提示：停用或删除都能绕过校验，避免用户被弹窗卡住 */
+const GATE_EXIT_HINT = '可先关闭「启用」或删除该服务器';
+
+function ServerGateErrorText({
+  field,
+  message,
+}: {
+  field: 'url' | 'credentials';
+  message: string;
+}) {
+  return (
+    <p
+      className="emby-server-gate-error m-0 mt-1 leading-5"
+      data-field={field}
+      role="alert"
+      style={{ fontSize: '12px', color: 'var(--danger)' }}
+    >
+      {message}
+    </p>
+  );
+}
+
+/**
+ * Modal 基元不接遮罩点击与 Esc（基元交互语义不动），弹窗本地补 Esc：
+ * 新增=放弃草稿，编辑=走关闭门禁。
+ */
+function useDialogEscapeKey(active: boolean, onEscape: () => void) {
+  useEffect(() => {
+    if (!active) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onEscape();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [active, onEscape]);
+}
+
+/** 打开弹窗聚焦第一个字段（类型选择器） */
+function useDialogInitialFocus(active: boolean, firstFieldId: string | null) {
+  useEffect(() => {
+    if (!active || !firstFieldId) return;
+    document.getElementById(firstFieldId)?.focus();
+  }, [active, firstFieldId]);
+}
+
+type MediaServerFormAuth = {
+  userLoggedIn: boolean;
+  sessionLabel: string;
+  loggingIn: boolean;
+  onLogin: () => void;
+  onLogout: () => void;
+};
+
+type MediaServerFormBodyProps = {
+  /** create=新增草稿表单，edit=编辑表单；两态共用同一字段顺序/label/placeholder */
+  mode: 'create' | 'edit';
+  server: EmbyMediaServer;
+  disabled?: boolean;
+  /** DOM id 前缀：新增 emby-create-server-*，编辑 emby-server-<id>-*（保持既有锚点） */
+  idBase: string;
+  onChange: (patch: Partial<EmbyMediaServer>) => void;
+  /** 类型切换的特殊联动（新增态需要同步默认名称），缺省只写 type */
+  onTypeChange?: (type: EmbyServerType) => void;
+  usernameValue: string;
+  onUsernameChange: (value: string) => void;
+  capability: { apiKey: string; username: string; password: string; loggedIn?: boolean };
+  /** 关闭门禁红字（编辑态专用） */
+  gateError?: ServerGateError;
+  /** 编辑态额外的会话状态与登录入口；新增态为 null */
+  auth?: MediaServerFormAuth | null;
+  /** 地址输入框回车：新增=确认，编辑=等同点「完成」（走关闭门禁） */
+  onSubmit?: () => void;
+};
+
+/**
+ * 媒体服务器表单本体（新增/编辑共用）：
+ * 单列字段顺序 = 类型 → 名称 → 服务器地址 → API Key → 用户登录盒（用户名/密码两列）→ 启用；
+ * 确认/取消/删除/完成一律在弹窗 footer，不落滚动区。
+ */
+function MediaServerFormBody({
+  mode,
+  server,
+  disabled,
+  idBase,
+  onChange,
+  onTypeChange,
+  usernameValue,
+  onUsernameChange,
+  capability,
+  gateError = null,
+  auth = null,
+  onSubmit,
+}: MediaServerFormBodyProps) {
+  return (
+    <div className="emby-server-form-body grid grid-cols-1 gap-2">
+      <SettingField id={`${idBase}-type`} label="类型">
+        <SettingSelect
+          id={`${idBase}-type`}
+          disabled={disabled}
+          value={server.type}
+          options={[...SERVER_TYPE_OPTIONS]}
+          onChange={(v) => {
+            const type: EmbyServerType = v === 'jellyfin' ? 'jellyfin' : 'emby';
+            if (onTypeChange) {
+              onTypeChange(type);
+              return;
+            }
+            onChange({ type });
+          }}
+        />
+      </SettingField>
+
+      <SettingField id={`${idBase}-name`} label="名称">
+        <Input
+          id={`${idBase}-name`}
+          className="emby-server-name"
+          disabled={disabled}
+          placeholder="主服务器"
+          value={server.name}
+          onChange={(e) => onChange({ name: e.currentTarget.value })}
+        />
+      </SettingField>
+
+      <SettingField id={`${idBase}-url`} label="服务器地址">
+        <Input
+          id={`${idBase}-url`}
+          className="emby-server-url"
+          disabled={disabled}
+          placeholder="http://192.168.1.10:8096"
+          value={server.url}
+          onChange={(e) => onChange({ url: e.currentTarget.value })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && onSubmit) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
+        />
+        {gateError?.field === 'url' ? (
+          <ServerGateErrorText field="url" message={gateError.message} />
+        ) : null}
+      </SettingField>
+
+      <SecretField
+        id={`${idBase}-api-key`}
+        label="API Key"
+        disabled={disabled}
+        placeholder="扫库/只读用 API Key"
+        autoComplete="off"
+        value={server.apiKey}
+        onChange={(value) => onChange({ apiKey: value })}
+      />
+
+      <div className="emby-server-user-auth rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[13px] font-semibold text-[var(--color-fg)]">
+            用户登录（写回观看状态 / 更完整 UserData）
+          </span>
+          {auth ? (
+            <span
+              className={
+                auth.userLoggedIn
+                  ? 'text-[12px] font-medium text-[var(--color-success, #16a34a)]'
+                  : 'text-[12px] text-[var(--color-fg-muted)]'
+              }
+            >
+              {auth.sessionLabel}
+            </span>
+          ) : null}
+        </div>
+        <div className="grid gap-2 md:grid-cols-2">
+          <SettingField id={`${idBase}-username`} label="用户名">
+            <Input
+              id={`${idBase}-username`}
+              className="emby-server-username"
+              disabled={disabled || Boolean(auth?.loggingIn)}
+              placeholder="媒体服务器用户名"
+              autoComplete="username"
+              value={usernameValue}
+              onChange={(e) => onUsernameChange(e.currentTarget.value)}
+            />
+          </SettingField>
+          <SecretField
+            id={`${idBase}-password`}
+            label="密码"
+            disabled={disabled || Boolean(auth?.loggingIn)}
+            placeholder="用于登录并保存到此来源"
+            autoComplete="current-password"
+            value={server.password || ''}
+            onChange={(value) => onChange({ password: value })}
+          />
+        </div>
+        {gateError?.field === 'credentials' ? (
+          <ServerGateErrorText field="credentials" message={gateError.message} />
+        ) : null}
+        {auth ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              variant="primary"
+              className="emby-user-login-btn"
+              disabled={disabled || auth.loggingIn}
+              onClick={auth.onLogin}
+            >
+              <i className="fas fa-sign-in-alt" aria-hidden="true" />{' '}
+              {auth.loggingIn ? '登录中…' : '登录并保存令牌'}
+            </Button>
+            <Button
+              variant="secondary"
+              className="emby-user-logout-btn"
+              disabled={disabled || !auth.userLoggedIn || auth.loggingIn}
+              onClick={auth.onLogout}
+            >
+              <i className="fas fa-sign-out-alt" aria-hidden="true" /> 退出登录
+            </Button>
+          </div>
+        ) : null}
+        <p className="m-0 mt-2 text-[12px] leading-5 text-[var(--color-fg-muted)]">
+          API Key 负责扫库；用户登录后的 AccessToken 用于标记真实已看。用户名和密码会随来源配置保存，用于重新登录和同步观看状态。
+        </p>
+        <div
+          className={`${
+            mode === 'create'
+              ? 'emby-create-server-credential-hint'
+              : 'emby-server-credential-hint'
+          } mt-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[12px] leading-5 text-[var(--color-fg-muted)]`}
+          aria-live="polite"
+        >
+          {serverCredentialCapabilityLines(capability).map((line) => (
+            <p key={line} className="m-0">
+              {line}
+            </p>
+          ))}
+        </div>
+      </div>
+
+      <SettingToggleRow
+        id={`${idBase}-enabled`}
+        label="启用"
+        checked={server.enabled}
+        disabled={disabled}
+        onChange={(v) => onChange({ enabled: v })}
+      />
+    </div>
+  );
+}
+
+export function MediaServerCreateDialog({
   draft,
   disabled,
   onChange,
   onConfirm,
   onCancel,
 }: MediaServerCreateDialogProps) {
+  const open = Boolean(draft);
+  useDialogEscapeKey(open, onCancel);
+  useDialogInitialFocus(open, 'emby-create-server-type');
+
   return (
     <Modal
-      open={Boolean(draft)}
+      open={open}
       title="添加媒体服务器"
       onClose={onCancel}
-      className="emby-server-create-modal max-h-[calc(100vh-2rem)] !max-w-[96rem] overflow-y-auto"
+      className="emby-server-create-modal max-h-[calc(100vh-2rem)] !max-w-[30rem] overflow-y-auto"
+      footer={
+        <>
+          <Button
+            variant="secondary"
+            className="create-emby-media-server-cancel"
+            disabled={disabled}
+            title="取消"
+            onClick={onCancel}
+          >
+            <i className="fas fa-times" aria-hidden="true" /> 取消
+          </Button>
+          <Button
+            variant="primary"
+            className="create-emby-media-server-confirm"
+            disabled={disabled}
+            title="确认"
+            onClick={onConfirm}
+          >
+            <i className="fas fa-check" aria-hidden="true" /> 确认
+          </Button>
+        </>
+      }
     >
       {draft ? (
         <MediaServerCreateRow
@@ -874,14 +1158,13 @@ function MediaServerCreateDialog({
           disabled={disabled}
           onChange={onChange}
           onConfirm={onConfirm}
-          onCancel={onCancel}
         />
       ) : null}
     </Modal>
   );
 }
 
-function MediaServerEditDialog({
+export function MediaServerEditDialog({
   server,
   index,
   disabled,
@@ -894,31 +1177,85 @@ function MediaServerEditDialog({
   const title = server
     ? '编辑 ' + (server.name || (server.type === 'jellyfin' ? 'Jellyfin' : 'Emby'))
     : '编辑媒体服务器';
+  const open = Boolean(server) && index != null;
+  const [gateError, setGateError] = useState<ServerGateError>(null);
+  // 任一相关字段变化即清红字（地址非法与缺凭据两种都算），避免旧报错粘在弹窗里
+  const fieldSignature = server
+    ? [
+        server.url,
+        server.apiKey,
+        server.accessToken,
+        server.username,
+        server.password,
+        String(server.enabled),
+      ].join('\u0001')
+    : '';
+  useEffect(() => {
+    setGateError(null);
+  }, [fieldSignature]);
+
+  const attemptClose = useCallback(() => {
+    if (!server || index == null) {
+      onClose();
+      return;
+    }
+    const result = validateMediaServerForSave(server, index);
+    if (!result.ok && result.field) {
+      // 两种报错都给出路：停用或删除都能绕过保存校验，避免用户被弹窗卡住
+      const message = `${result.message || '该服务器配置不完整'}，${GATE_EXIT_HINT}`;
+      setGateError({ field: result.field, message });
+      return;
+    }
+    setGateError(null);
+    onClose();
+  }, [server, index, onClose]);
+
+  useDialogEscapeKey(open, attemptClose);
+  useDialogInitialFocus(open, server ? `emby-server-${server.id || index}-type` : null);
 
   return (
     <Modal
       dialogId="embyEditModal"
-      open={Boolean(server) && index != null}
+      open={open}
       title={title}
-      onClose={onClose}
-      className="emby-server-edit-modal max-h-[calc(100vh-2rem)] !max-w-[96rem] overflow-y-auto"
+      onClose={attemptClose}
+      className="emby-server-edit-modal max-h-[calc(100vh-2rem)] !max-w-[30rem] overflow-y-auto"
+      footer={
+        <>
+          <Button
+            variant="secondary"
+            className="remove-emby-media-server mr-auto"
+            disabled={disabled}
+            title="删除服务器"
+            onClick={() => {
+              if (index != null) onRemove(index);
+            }}
+          >
+            <i className="fas fa-trash" aria-hidden="true" /> 删除
+          </Button>
+          <Button
+            variant="primary"
+            className="emby-server-edit-done"
+            disabled={disabled}
+            onClick={attemptClose}
+          >
+            <i className="fas fa-check" aria-hidden="true" /> 完成
+          </Button>
+        </>
+      }
     >
       {server && index != null ? (
         <MediaServerRow
           server={server}
           index={index}
           disabled={disabled}
+          gateError={gateError}
+          onRequestClose={attemptClose}
           onChange={(patch) => onChange(index, patch)}
-          onRemove={() => onRemove(index)}
           onLoginSuccess={(patch) => onLoginSuccess(index, patch)}
           onLogout={() => onLogout(index)}
         />
       ) : null}
-      <div className="mt-3 flex justify-end">
-        <Button variant="primary" onClick={onClose}>
-          <i className="fas fa-check" aria-hidden="true" /> 完成
-        </Button>
-      </div>
     </Modal>
   );
 }
@@ -958,11 +1295,14 @@ function SecretField({
           value={value}
           onChange={(e) => onChange(e.currentTarget.value)}
         />
+        {/* 小眼睛：垂直居中不依赖 transform（top-0/bottom-0/my-auto），
+            否则 button.css 全局 hover/active 的 transform 会整体覆盖 -translate-y-1/2 造成下跳；
+            几何与 hover/active 态锁定见 dashboard/styles/05-pages/settings/emby.css 的 .emby-secret-eye */}
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="absolute right-1 top-1/2 w-8 -translate-y-1/2 px-0"
+          className="emby-secret-eye absolute right-1 top-0 bottom-0 my-auto h-8 w-8 px-0"
           disabled={disabled}
           aria-label={visible ? `隐藏${label}` : `显示${label}`}
           title={visible ? `隐藏${label}` : `显示${label}`}
@@ -976,12 +1316,13 @@ function SecretField({
   );
 }
 
-function MediaServerRow({
+export function MediaServerRow({
   server,
   index,
   disabled,
+  gateError = null,
+  onRequestClose,
   onChange,
-  onRemove,
   onLoginSuccess,
   onLogout,
 }: MediaServerRowProps) {
@@ -1029,149 +1370,33 @@ function MediaServerRow({
   };
 
   return (
-    <div
-      className="emby-media-server-item grid gap-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 md:grid-cols-2"
-      data-index={String(index)}
-    >
-      <SettingField id={`${idBase}-type`} label="类型">
-        <SettingSelect
-          id={`${idBase}-type`}
-          disabled={disabled}
-          value={server.type}
-          options={[...SERVER_TYPE_OPTIONS]}
-          onChange={(v) =>
-            onChange({ type: v === 'jellyfin' ? 'jellyfin' : ('emby' as EmbyServerType) })
-          }
-        />
-      </SettingField>
-      <SettingField id={`${idBase}-name`} label="名称">
-        <Input
-          id={`${idBase}-name`}
-          className="emby-server-name"
-          disabled={disabled}
-          placeholder="主服务器"
-          value={server.name}
-          onChange={(e) => onChange({ name: e.currentTarget.value })}
-        />
-      </SettingField>
-      <SettingField id={`${idBase}-url`} label="服务器地址">
-        <Input
-          id={`${idBase}-url`}
-          className="emby-server-url"
-          disabled={disabled}
-          placeholder="http://192.168.1.10:8096"
-          value={server.url}
-          onChange={(e) => onChange({ url: e.currentTarget.value })}
-        />
-      </SettingField>
-      <SecretField
-        id={`${idBase}-api-key`}
-        label="API Key"
-        disabled={disabled}
-        placeholder="扫库/只读用 API Key"
-        autoComplete="off"
-        value={server.apiKey}
-        onChange={(value) => onChange({ apiKey: value })}
-      />
-      <div className="flex flex-wrap items-center justify-between gap-2 md:col-span-2">
-        <SettingToggleRow
-          id={`${idBase}-enabled`}
-          label="启用"
-          checked={server.enabled}
-          disabled={disabled}
-          onChange={(v) => onChange({ enabled: v })}
-        />
-        <Button
-          variant="secondary"
-          className="remove-emby-media-server"
-          disabled={disabled}
-          title="删除服务器"
-          onClick={onRemove}
-        >
-          <i className="fas fa-trash" aria-hidden="true" /> 删除
-        </Button>
-      </div>
-
-      <div className="emby-server-user-auth md:col-span-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[13px] font-semibold text-[var(--color-fg)]">
-            用户登录（写回观看状态 / 更完整 UserData）
-          </span>
-          <span
-            className={
-              userLoggedIn
-                ? 'text-[12px] font-medium text-[var(--color-success, #16a34a)]'
-                : 'text-[12px] text-[var(--color-fg-muted)]'
-            }
-          >
-            {sessionLabel}
-          </span>
-        </div>
-        <div className="grid gap-2 md:grid-cols-2">
-          <SettingField id={`${idBase}-username`} label="用户名">
-            <Input
-              id={`${idBase}-username`}
-              className="emby-server-username"
-              disabled={disabled || loggingIn}
-              placeholder="媒体服务器用户名"
-              autoComplete="username"
-              value={loginUsername}
-              onChange={(e) => {
-                const value = e.currentTarget.value;
-                setLoginUsername(value);
-                onChange({ username: value });
-              }}
-            />
-          </SettingField>
-          <SecretField
-            id={`${idBase}-password`}
-            label="密码"
-            disabled={disabled || loggingIn}
-            placeholder="用于登录并保存到此来源"
-            autoComplete="current-password"
-            value={server.password || ''}
-            onChange={(value) => onChange({ password: value })}
-          />
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button
-            variant="primary"
-            className="emby-user-login-btn"
-            disabled={disabled || loggingIn}
-            onClick={() => void onLogin()}
-          >
-            <i className="fas fa-sign-in-alt" aria-hidden="true" />{' '}
-            {loggingIn ? '登录中…' : '登录并保存令牌'}
-          </Button>
-          <Button
-            variant="secondary"
-            className="emby-user-logout-btn"
-            disabled={disabled || !userLoggedIn || loggingIn}
-            onClick={onLogout}
-          >
-            <i className="fas fa-sign-out-alt" aria-hidden="true" /> 退出登录
-          </Button>
-        </div>
-        <p className="m-0 mt-2 text-[12px] leading-5 text-[var(--color-fg-muted)]">
-          API Key 负责扫库；用户登录后的 AccessToken 用于标记真实已看。用户名和密码会随来源配置保存，用于重新登录和同步观看状态。
-        </p>
-        <div
-          className="emby-server-credential-hint mt-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[12px] leading-5 text-[var(--color-fg-muted)]"
-          aria-live="polite"
-        >
-          {serverCredentialCapabilityLines({
-            apiKey: server.apiKey,
-            username: loginUsername,
-            password: server.password || '',
-            loggedIn: userLoggedIn,
-          }).map((line) => (
-            <p key={line} className="m-0">
-              {line}
-            </p>
-          ))}
-        </div>
-      </div>
-    </div>
+    <MediaServerFormBody
+      mode="edit"
+      server={server}
+      disabled={disabled}
+      idBase={idBase}
+      gateError={gateError}
+      onChange={onChange}
+      usernameValue={loginUsername}
+      onUsernameChange={(value) => {
+        setLoginUsername(value);
+        onChange({ username: value });
+      }}
+      capability={{
+        apiKey: server.apiKey,
+        username: loginUsername,
+        password: server.password || '',
+        loggedIn: userLoggedIn,
+      }}
+      auth={{
+        userLoggedIn,
+        sessionLabel,
+        loggingIn,
+        onLogin: () => void onLogin(),
+        onLogout,
+      }}
+      onSubmit={onRequestClose}
+    />
   );
 }
 
@@ -1180,7 +1405,8 @@ type MediaServerCreateRowProps = {
   disabled?: boolean;
   onChange: (draft: EmbyMediaServer) => void;
   onConfirm: () => void;
-  onCancel: () => void;
+  /** 取消按钮已移至弹窗 footer；保留字段兼容既有挂载点 */
+  onCancel?: () => void;
 };
 
 export function MediaServerCreateRow({
@@ -1188,128 +1414,35 @@ export function MediaServerCreateRow({
   disabled,
   onChange,
   onConfirm,
-  onCancel,
 }: MediaServerCreateRowProps) {
   return (
-    <div className="emby-media-server-create-item grid gap-2 rounded-[var(--radius-2)] border border-dashed border-[var(--color-primary)] bg-[var(--color-surface-2)] p-3 md:grid-cols-2">
-      <SettingField id="emby-create-server-type" label="类型">
-        <SettingSelect
-          id="emby-create-server-type"
-          disabled={disabled}
-          value={draft.type}
-          options={[...SERVER_TYPE_OPTIONS]}
-          onChange={(v) =>
-            onChange({
-              ...draft,
-              type: v === 'jellyfin' ? 'jellyfin' : 'emby',
-              name:
-                draft.name === 'Emby' || draft.name === 'Jellyfin'
-                  ? v === 'jellyfin'
-                    ? 'Jellyfin'
-                    : 'Emby'
-                  : draft.name,
-            })
-          }
-        />
-      </SettingField>
-      <SettingField id="emby-create-server-name" label="名称">
-        <Input
-          id="emby-create-server-name"
-          className="emby-create-server-name"
-          disabled={disabled}
-          placeholder="主服务器"
-          value={draft.name}
-          onChange={(e) => onChange({ ...draft, name: e.currentTarget.value })}
-        />
-      </SettingField>
-      <SettingField id="emby-create-server-url" label="服务器地址">
-        <Input
-          id="emby-create-server-url"
-          className="emby-create-server-url"
-          disabled={disabled}
-          placeholder="http://192.168.1.10:8096"
-          value={draft.url}
-          onChange={(e) => onChange({ ...draft, url: e.currentTarget.value })}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              onConfirm();
-            } else if (e.key === 'Escape') {
-              e.preventDefault();
-              onCancel();
-            }
-          }}
-        />
-      </SettingField>
-      <SecretField
-        id="emby-create-server-api-key"
-        label="API Key"
-        disabled={disabled}
-        placeholder="媒体服务器 API Key"
-        autoComplete="off"
-        value={draft.apiKey}
-        onChange={(value) => onChange({ ...draft, apiKey: value })}
-      />
-      <SettingField id="emby-create-server-username" label="用户名">
-        <Input
-          id="emby-create-server-username"
-          className="emby-create-server-username"
-          disabled={disabled}
-          placeholder="用于登录并写回观看状态（可选）"
-          autoComplete="username"
-          value={draft.username || ''}
-          onChange={(e) => onChange({ ...draft, username: e.currentTarget.value })}
-        />
-      </SettingField>
-      <SecretField
-        id="emby-create-server-password"
-        label="密码"
-        disabled={disabled}
-        placeholder="与用户名配套（可选）"
-        autoComplete="current-password"
-        value={draft.password || ''}
-        onChange={(value) => onChange({ ...draft, password: value })}
-      />
-      <div className="flex flex-wrap items-center justify-between gap-2 md:col-span-2">
-        <SettingToggleRow
-          id="emby-create-server-enabled"
-          label="启用"
-          checked={draft.enabled}
-          disabled={disabled}
-          onChange={(v) => onChange({ ...draft, enabled: v })}
-        />
-        <div className="flex gap-2">
-          <Button
-            variant="primary"
-            className="create-emby-media-server-confirm"
-            disabled={disabled}
-            title="确认"
-            onClick={onConfirm}
-          >
-            <i className="fas fa-check" aria-hidden="true" /> 确认
-          </Button>
-          <Button
-            variant="secondary"
-            className="create-emby-media-server-cancel"
-            disabled={disabled}
-            title="取消"
-            onClick={onCancel}
-          >
-            <i className="fas fa-times" aria-hidden="true" /> 取消
-          </Button>
-        </div>
-      </div>
-      <div
-        className="emby-create-server-credential-hint md:col-span-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[12px] leading-5 text-[var(--color-fg-muted)]"
-        aria-live="polite"
-      >
-        {serverCredentialCapabilityLines(draft).map((line) => (
-          <p key={line} className="m-0">
-            {line}
-          </p>
-        ))}
-      </div>
-    </div>
+    <MediaServerFormBody
+      mode="create"
+      server={draft}
+      disabled={disabled}
+      idBase="emby-create-server"
+      onChange={(patch) => onChange({ ...draft, ...patch })}
+      onTypeChange={(type) =>
+        onChange({
+          ...draft,
+          type,
+          name:
+            draft.name === 'Emby' || draft.name === 'Jellyfin'
+              ? type === 'jellyfin'
+                ? 'Jellyfin'
+                : 'Emby'
+              : draft.name,
+        })
+      }
+      usernameValue={draft.username || ''}
+      onUsernameChange={(value) => onChange({ ...draft, username: value })}
+      capability={{
+        apiKey: draft.apiKey,
+        username: draft.username || '',
+        password: draft.password || '',
+      }}
+      onSubmit={onConfirm}
+    />
   );
 }
 

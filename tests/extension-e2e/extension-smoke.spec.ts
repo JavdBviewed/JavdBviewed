@@ -577,7 +577,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
     }
   });
 
-  test('uses configured media source channels and wide secret editor', async ({}, testInfo) => {
+  test('uses configured media source channels and the 480px secret editor', async ({}, testInfo) => {
     const harnessOptions = resolveTestHarnessOptions(testInfo.outputPath('profile'));
     const context = await launchExtensionContext(harnessOptions, {
       headless: false,
@@ -697,7 +697,8 @@ test.describe('JavdBviewed extension browser smoke', () => {
       const dialog = page.locator('#embyEditModal [role="dialog"]');
       await expect(dialog).toBeVisible();
       const dialogBox = await dialog.boundingBox();
-      expect(dialogBox?.width || 0).toBeGreaterThan(1000);
+      // 媒体服务器弹窗统一 480px（!max-w-[30rem]），不再是 96rem 宽壳
+      expect(Math.abs((dialogBox?.width || 0) - 480)).toBeLessThanOrEqual(2);
       const apiKeyInput = dialog.locator('input[id$="-api-key"]');
       await expect(apiKeyInput).toHaveAttribute('type', 'password');
       await dialog.getByRole('button', { name: '显示API Key' }).click();
