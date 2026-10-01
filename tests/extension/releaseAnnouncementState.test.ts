@@ -139,10 +139,12 @@ describe('release announcement state', () => {
     ]);
     const highlightsFor = (version: string) => RELEASE_NOTES.find(note => note.version === version)?.highlights;
 
+    // 10-01-popup-more-filter：2.1.0 公告数据裁成最终 7 条（数据锁随数据；排版锁/版本清单锁不动）
+    expect(highlightsFor('2.1.0')?.length).toBe(7);
     expect(highlightsFor('2.1.0')).toEqual(expect.arrayContaining([
-      '影片页类别链接悬浮出快捷操作面板，一键屏蔽或设置新作品不入库。',
-      '新增隐藏媒体库已入库影片与隐藏真实已看的影片两个条件。',
-      '新作品手动检查改为「收集 → 确认 → 入库」三步，避免误入库。',
+      '影片页类别链接悬浮出快捷面板：一键屏蔽（红字删除线）或设置不入库（带禁止标）。',
+      'popup 新增隐藏媒体库已入库与真实已看影片两个开关，更多过滤一键跳转详细设置。',
+      '新作品手动检查改为三步：收集 → 确认 → 入库，避免误入库；会话失效明示登录墙。',
     ]));
     expect(highlightsFor('2.0.1')).toEqual(expect.arrayContaining([
       '详情页与列表页的增强任务改为更平稳的智能调度，浏览时减少卡顿。',
