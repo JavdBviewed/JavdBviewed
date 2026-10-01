@@ -533,3 +533,113 @@ describe('embySettingsModel: capability split (recognition/library)', () => {
   });
 });
 
+
+describe('embySettingsModel: disabled servers are excluded from save validation', () => {
+  // 用户报障：某台服务器停用且未配凭据时，整表单保存被「需要至少一种凭据」阻断
+  it('skips url and credential checks for disabled servers', () => {
+    const result = validateEmbyForm({
+      ...DEFAULT_EMBY_SETTINGS_FORM,
+      mediaServers: [
+        {
+          id: 's1',
+          type: 'emby',
+          name: '主服务器',
+          url: 'http://192.168.1.10:8096',
+          apiKey: 'key-1',
+          enabled: true,
+        },
+        {
+          id: 's4',
+          type: 'jellyfin',
+          name: '备用（暂停）',
+          url: '',
+          apiKey: '',
+          enabled: false,
+        },
+      ],
+    });
+    expect(result.errors).toEqual([]);
+    expect(result.isValid).toBe(true);
+  });
+
+  it('still rejects a disabled server with a malformed url when it is enabled again', () => {
+    const result = validateEmbyForm({
+      ...DEFAULT_EMBY_SETTINGS_FORM,
+      mediaServers: [
+        {
+          id: 's4',
+          type: 'emby',
+          name: '备用',
+          url: 'ftp://bad',
+          apiKey: 'key-1',
+          enabled: true,
+        },
+      ],
+    });
+    expect(result.isValid).toBe(false);
+    expect(result.errors.some((e) => e.includes('地址需要使用 http 或 https'))).toBe(true);
+  });
+
+  it('names the offending server (index + name + url) in credential errors', () => {
+    const result = validateEmbyForm({
+      ...DEFAULT_EMBY_SETTINGS_FORM,
+      mediaServers: [
+        {
+          id: 's1',
+          type: 'emby',
+          name: '主服务器',
+          url: 'http://192.168.1.10:8096',
+          apiKey: 'key-1',
+          enabled: true,
+        },
+        {
+          id: 's2',
+          type: 'emby',
+          name: '家庭库',
+          url: 'http://192.168.1.5:8096',
+          apiKey: '',
+          enabled: true,
+        },
+      ],
+    });
+    expect(result.isValid).toBe(false);
+    expect(
+      result.errors.some(
+        (e) =>
+          e ===
+          '媒体服务器 2「家庭库」（http://192.168.1.5:8096）需要至少一种凭据（API Key / 访问令牌 / 用户名+密码）',
+      ),
+    ).toBe(true);
+  });
+
+  it('names the offending server in url errors too', () => {
+    const result = validateEmbyForm({
+      ...DEFAULT_EMBY_SETTINGS_FORM,
+      mediaServers: [
+        {
+          id: 's1',
+          type: 'jellyfin',
+          name: '',
+          url: 'ftp://bad',
+          apiKey: 'key-1',
+          enabled: true,
+        },
+      ],
+    });
+    expect(
+      result.errors.some((e) => e.startsWith('媒体服务器 1「Jellyfin」（ftp://bad）地址需要使用')),
+    ).toBe(true);
+  });
+
+  it('validateMediaServerInput credential message lists the access token option', () => {
+    const v = validateMediaServerInput({
+      url: 'http://a.local',
+      apiKey: '',
+      username: '',
+      password: '',
+    });
+    expect(v.ok).toBe(false);
+    expect(v.field).toBe('credentials');
+    expect(v.message).toContain('API Key / 访问令牌 / 用户名+密码');
+  });
+});

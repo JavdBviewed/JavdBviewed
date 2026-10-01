@@ -1010,3 +1010,41 @@ div.url-item input.url-input:disabled {
   color: #059669;
   font-weight: 700;
 }
+
+/* ===== 媒体服务器新增/编辑弹窗（React 全页，10-02-emby-server-form-fix） ===== */
+
+/* 登录盒在弹窗单列表单体内回归普通卡片：去掉 legacy 的虚线分隔与额外上边距 */
+.emby-server-form-body .emby-server-user-auth {
+  margin-top: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border, var(--border-primary));
+}
+
+/*
+ * 密码「小眼睛」零位移。根因：全局 button.css 的
+ * button:hover:not(:disabled){transform:translateY(-1px)} 与 button:active{translateY(0)}
+ * 会整体替换（transform 是整体覆盖而非叠加）图标按钮的定位/居中 transform，
+ * hover 时按钮连同图标向下跳半个高度。
+ * 本域把几何与 transform/box-shadow 锁死，hover/active 只变背景色；
+ * 不锁 :focus-visible，键盘焦点环（基元与 button.css 的 ring）原样保留。
+ * 垂直居中改由 top-0/bottom-0/my-auto 承担，不依赖 transform。
+ */
+.emby-server-create-modal button.emby-secret-eye,
+.emby-server-edit-modal button.emby-secret-eye {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  width: 32px;
+  padding: 0;
+  line-height: 1;
+  transform: none;
+  box-shadow: none;
+}
+.emby-server-create-modal button.emby-secret-eye:hover:not(:disabled),
+.emby-server-edit-modal button.emby-secret-eye:hover:not(:disabled),
+.emby-server-create-modal button.emby-secret-eye:active:not(:disabled),
+.emby-server-edit-modal button.emby-secret-eye:active:not(:disabled) {
+  transform: none;
+  box-shadow: none;
+}

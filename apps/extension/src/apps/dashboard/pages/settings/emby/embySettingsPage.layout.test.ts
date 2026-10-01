@@ -41,11 +41,16 @@ describe('EmbySettingsPage media server layout', () => {
     expect(pageSource).toContain('emby-server-edit-modal');
   });
 
-  it('uses a wide server dialog and icon-only secret visibility controls', () => {
-    expect(pageSource).toContain('max-w-[96rem]');
+  it('uses a 480px server dialog and icon-only secret visibility controls', () => {
+    // 新增/编辑弹窗统一 480px（!max-w-[30rem]），不再用 96rem 宽壳
+    expect(pageSource).toContain('!max-w-[30rem]');
+    expect(pageSource).not.toContain('max-w-[96rem]');
     expect(pageSource).toContain("visible ? 'fas fa-eye-slash' : 'fas fa-eye'");
     expect(pageSource).toContain('aria-pressed={visible}');
-    expect(pageSource).toContain('absolute right-1 top-1/2');
+    // 小眼睛垂直居中不依赖 transform（全局 button.css 的 hover/active transform 会整体覆盖）
+    expect(pageSource).toContain('absolute right-1 top-0 bottom-0 my-auto');
+    expect(pageSource).toContain('emby-secret-eye');
+    expect(pageSource).not.toContain('absolute right-1 top-1/2');
     expect(pageSource).not.toContain("{visible ? '隐藏' : '显示'}");
   });
 

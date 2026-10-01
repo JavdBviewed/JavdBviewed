@@ -367,6 +367,52 @@ export function hasUsableServerCredentials(
 }
 
 /**
+ * 服务器标识文案：`媒体服务器 N「名称」（地址）`。
+ * - name 为空/全空白 → 回退类型名（Jellyfin / Emby）；
+ * - url 为空 → 不拼括号；url 两侧空白先 trim；
+ * 用于整表单保存报错与编辑弹窗关闭门禁红字，让用户直接看出是哪一台。
+ */
+export function mediaServerIdentityLabel(
+  server: Pick<EmbyMediaServer, 'name' | 'url' | 'type'>,
+  index: number,
+): string {
+  const name = String(server?.name ?? '').trim()
+    || (server?.type === 'jellyfin' ? 'Jellyfin' : 'Emby');
+  const url = String(server?.url ?? '').trim();
+  const head = `媒体服务器 ${index + 1}「${name}」`;
+  return url ? `${head}（${url}）` : head;
+}
+
+/**
+ * 单台媒体服务器的保存校验（编辑弹窗关闭门禁共用口径）。
+ *
+ * 停用（enabled === false）的来源不参与保存校验：地址与凭据都可留空。
+ * 报错顺序 = 先地址后凭据；返回首个失败项，供弹窗把红字挂到对应字段。
+ */
+export function validateMediaServerForSave(
+  server: EmbyMediaServer,
+  index: number,
+): {
+  ok: boolean;
+  message?: string;
+  field?: 'url' | 'credentials';
+} {
+  if (server?.enabled === false) return { ok: true };
+  const identity = mediaServerIdentityLabel(server, index);
+  if (!isValidServerUrl(String(server?.url ?? '').trim())) {
+    return { ok: false, message: `${identity}地址需要使用 http 或 https`, field: 'url' };
+  }
+  if (!hasUsableServerCredentials(server)) {
+    return {
+      ok: false,
+      message: `${identity}需要至少一种凭据（API Key / 访问令牌 / 用户名+密码）`,
+      field: 'credentials',
+    };
+  }
+  return { ok: true };
+}
+
+/**
  * 校验 Emby 表单（对齐遗留 doValidateSettings）
  */
 export function validateEmbyForm(form: EmbySettingsFormState): {
@@ -388,11 +434,14 @@ export function validateEmbyForm(form: EmbySettingsFormState): {
   }
 
   form.mediaServers.forEach((server, index) => {
+    // 停用来源不参与保存校验（用户报障：某台停用且未配凭据时整表单保存被阻断）
+    if (server?.enabled === false) return;
+    const identity = mediaServerIdentityLabel(server, index);
     if (!isValidServerUrl(server.url)) {
-      errors.push(`媒体服务器 ${index + 1} 地址需要使用 http 或 https`);
+      errors.push(`${identity}地址需要使用 http 或 https`);
     }
     if (!hasUsableServerCredentials(server)) {
-      errors.push(`媒体服务器 ${index + 1} 需要至少一种凭据（API Key / 访问令牌 / 用户名+密码）`);
+      errors.push(`${identity}需要至少一种凭据（API Key / 访问令牌 / 用户名+密码）`);
     }
   });
 
@@ -492,7 +541,7 @@ export function validateMediaServerInput(
   if (serverCredentialMode(server) === 'none') {
     return {
       ok: false,
-      message: '媒体服务器需要至少一种凭据（API Key / 用户名+密码）',
+      message: '媒体服务器需要至少一种凭据（API Key / 访问令牌 / 用户名+密码）',
       field: 'credentials',
     };
   }

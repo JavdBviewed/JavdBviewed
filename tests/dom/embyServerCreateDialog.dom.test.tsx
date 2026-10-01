@@ -1,14 +1,15 @@
 /**
  * @file embyServerCreateDialog.dom.test.tsx
- * @description Emby 设置「添加媒体服务器」弹窗行（MediaServerCreateRow）：
+ * @description Emby 设置「添加媒体服务器」弹窗（MediaServerCreateDialog）：
  * 账号/密码字段在位、凭据形态切换时功能可用性提示同步更新、确认/取消入口存在。
+ * 弹窗壳（Modal Portal 到 document.body）一并挂载，确认/取消在 footer 而非滚动区。
  * @module tests/dom
  */
 import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MediaServerCreateRow } from '../../apps/extension/src/apps/dashboard/pages/settings/emby/EmbySettingsPage';
+import { MediaServerCreateDialog } from '../../apps/extension/src/apps/dashboard/pages/settings/emby/EmbySettingsPage';
 import { createEmptyMediaServerDraft } from '../../apps/extension/src/apps/dashboard/pages/settings/emby/embySettingsModel';
 import type { EmbyMediaServer } from '../../apps/extension/src/features/embyLibrary/types';
 
@@ -23,10 +24,12 @@ function TestHarness({ initial, onConfirm, onCancel }: {
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState(initial);
-  return createElement(
-    MediaServerCreateRow,
-    { draft, onChange: setDraft, onConfirm, onCancel },
-  );
+  return createElement(MediaServerCreateDialog, {
+    draft,
+    onChange: setDraft,
+    onConfirm,
+    onCancel,
+  });
 }
 
 function mountRow(initial: EmbyMediaServer): void {
@@ -38,7 +41,7 @@ function mountRow(initial: EmbyMediaServer): void {
 }
 
 function setInput(id: string, value: string): void {
-  const el = host.querySelector(`#${id}`) as HTMLInputElement;
+  const el = document.querySelector(`#${id}`) as HTMLInputElement;
   expect(el).not.toBeNull();
   const setter = Object.getOwnPropertyDescriptor(
     window.HTMLInputElement.prototype,
@@ -51,7 +54,7 @@ function setInput(id: string, value: string): void {
 }
 
 function hintLines(): string[] {
-  const box = host.querySelector('.emby-create-server-credential-hint');
+  const box = document.querySelector('.emby-create-server-credential-hint');
   expect(box).not.toBeNull();
   return Array.from(box!.querySelectorAll('p')).map((p) => p.textContent || '');
 }
@@ -80,10 +83,10 @@ describe('Emby 添加媒体服务器弹窗（MediaServerCreateRow）', () => {
       'emby-create-server-password',
       'emby-create-server-enabled',
     ]) {
-      expect(host.querySelector(`#${id}`), id).not.toBeNull();
+      expect(document.querySelector(`#${id}`), id).not.toBeNull();
     }
-    expect(host.querySelector('.create-emby-media-server-confirm')).not.toBeNull();
-    expect(host.querySelector('.create-emby-media-server-cancel')).not.toBeNull();
+    expect(document.querySelector('.create-emby-media-server-confirm')).not.toBeNull();
+    expect(document.querySelector('.create-emby-media-server-cancel')).not.toBeNull();
   });
 
   it('凭据为空时提示需至少配置一种凭据', () => {
