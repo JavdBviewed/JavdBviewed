@@ -911,13 +911,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initializer Function
     async function initialize() {
-        createToggleButton('hideViewed', toggleWatchedContainer, '显示已看的作品', '隐藏已看的作品', '隐藏已看');
-        createToggleButton('hideBrowsed', toggleViewedContainer, '显示已浏览的作品', '隐藏已浏览的作品', '隐藏已浏览');
-        createToggleButton('hideVR', toggleVRContainer, '显示VR作品', '隐藏VR作品', '隐藏 VR');
-        createToggleButton('hideWant', toggleWantContainer, '显示想看的作品', '隐藏想看的作品', '隐藏想看');
+        createToggleButton('hideViewed', toggleWatchedContainer, '显示已看的作品', '隐藏已看的作品', '已看');
+        createToggleButton('hideBrowsed', toggleViewedContainer, '显示已浏览的作品', '隐藏已浏览的作品', '已浏览');
+        createToggleButton('hideVR', toggleVRContainer, '显示VR作品', '隐藏VR作品', 'VR');
+        createToggleButton('hideWant', toggleWantContainer, '显示想看的作品', '隐藏想看的作品', '想看');
         // 09-30-popup-media-library-toggles：媒体库两开关（键为存量 display.hideInMediaLibrary / hideRealWatched，
         // 读写/广播/刷新全走 createToggleButton 既有路径；aria-label 全句与 dashboard listFilterFields label 逐字一致）
-        createToggleButton('hideInMediaLibrary', toggleHideInMediaLibraryContainer, '显示媒体库已入库的影片', '隐藏媒体库已入库的影片', '媒体库已入库');
+        createToggleButton('hideInMediaLibrary', toggleHideInMediaLibraryContainer, '显示媒体库已入库的影片', '隐藏媒体库已入库的影片', '已入媒体库');
         createToggleButton('hideRealWatched', toggleHideRealWatchedContainer, '显示真实已看的影片', '隐藏真实已看的影片', '真实已看');
 
         // 演员过滤开关（列表）
