@@ -4,7 +4,6 @@
 import { newWorksManager } from '../../features/newWorks';
 // 移除未使用的 actorManager 与 newWorksCollector 引用
 import { actorSelector } from '../components/actorSelector';
-import { newWorksConfigModal } from '../components/newWorks/configModal';
 import { showMessage } from '../ui/toast';
 import { showConfirm, showDanger } from '../components/confirmModal';
 import {
@@ -39,7 +38,6 @@ import {
 import { attachNewWorksHelpTooltip } from './newWorksHelpTooltipRuntime';
 import { updateNewWorksLastCheckTimeDisplay } from './newWorksLastCheckTimeRuntime';
 import { openSubscriptionManagementModal } from './newWorksSubscriptionModalRuntime';
-import { runNewWorksGlobalConfigWorkflow } from './newWorksGlobalConfigWorkflow';
 import { createNewWorksSubscriptionActionsRuntime } from './newWorksSubscriptionActionsRuntime';
 import {
     attachNewWorksProgressListener,
@@ -262,7 +260,6 @@ export class NewWorksTab {
 
         const ready = await waitForDomReady(() => {
                 const newWorksTab = document.getElementById('tab-new-works');
-                const configBtn = document.getElementById('newWorksGlobalConfigBtn');
                 const checkNowBtn = document.getElementById('checkNowBtn');
                 const syncStatusBtn = document.getElementById('syncStatusBtn');
                 const cleanupReadBtn = document.getElementById('cleanupReadWorksBtn');
@@ -273,7 +270,7 @@ export class NewWorksTab {
                 const clearSelectionBtn = document.getElementById('clearSelectionBtn');
                 const batchOpenSelectedBtn = document.getElementById('batchOpenSelectedBtn');
 
-                return Boolean(newWorksTab && configBtn && checkNowBtn && syncStatusBtn && cleanupReadBtn && addSubscriptionBtn && manageSubscriptionsBtn && batchOpenUnreadBtn && selectAllCurrentPageBtn && clearSelectionBtn && batchOpenSelectedBtn);
+                return Boolean(newWorksTab && checkNowBtn && syncStatusBtn && cleanupReadBtn && addSubscriptionBtn && manageSubscriptionsBtn && batchOpenUnreadBtn && selectAllCurrentPageBtn && clearSelectionBtn && batchOpenSelectedBtn);
         }, { signal: controller.signal });
 
         if (this.domReadyController === controller) {
@@ -299,7 +296,6 @@ export class NewWorksTab {
      */
     private bindButtonEvents(): void {
         attachNewWorksButtonEvents({
-            openGlobalConfig: () => this.showGlobalConfigModal(),
             checkNow: () => this.checkNewWorksNow(),
             syncStatus: () => this.syncNewWorksStatus(),
             setupSyncHelp: () => this.setupHelpIcon(),
@@ -670,28 +666,6 @@ export class NewWorksTab {
         setBatchDeleteSelectedButtonLoadingState({
             loading,
             selectedCount,
-        });
-    }
-
-    /**
-     * 显示全局配置弹窗
-     */
-    private async showGlobalConfigModal(): Promise<void> {
-        await runNewWorksGlobalConfigWorkflow({
-            deps: {
-                initialize: () => newWorksManager.initialize(),
-                getGlobalConfig: () => newWorksManager.getGlobalConfig(),
-                showConfigModal: config => newWorksConfigModal.show(config),
-                updateGlobalConfig: config => newWorksManager.updateGlobalConfig(config),
-                restartScheduler: () => new Promise<void>((resolve) => {
-                    chrome.runtime.sendMessage({ type: 'new-works-scheduler-restart' }, () => resolve());
-                }),
-                render: () => this.render(),
-                showMessage,
-                logInfo: (message, data) => data === undefined ? console.log(message) : console.log(message, data),
-                logWarn: (message, error) => console.warn(message, error),
-                logError: (message, error) => console.error(message, error),
-            },
         });
     }
 

@@ -2,7 +2,6 @@ type MaybePromise<T> = T | Promise<T>;
 type MessageType = 'success' | 'error' | 'info' | 'warn' | 'warning';
 
 export interface NewWorksButtonEventHandlers {
-  openGlobalConfig(): MaybePromise<void>;
   checkNow(): MaybePromise<void>;
   syncStatus(): MaybePromise<void>;
   setupSyncHelp(): void;
@@ -32,7 +31,6 @@ export function attachNewWorksButtonEvents(
 ): void {
   const doc = deps.doc || document;
 
-  bindClick(doc, 'newWorksGlobalConfigBtn', handlers.openGlobalConfig);
   bindClick(doc, 'checkNowBtn', handlers.checkNow, () => handlers.setupCheckNowHelp());
   bindClick(doc, 'syncStatusBtn', handlers.syncStatus, () => handlers.setupSyncHelp());
   bindClick(doc, 'addSubscriptionBtn', handlers.addSubscription);
