@@ -12,10 +12,32 @@ import {
 } from './settingsNavModel';
 
 describe('settingsNavModel', () => {
-  it('has a stable non-empty catalog including emby and update', () => {
+  it('has a stable non-empty catalog including the media library and update entries', () => {
     expect(SETTINGS_NAV_ITEMS.length).toBeGreaterThanOrEqual(10);
-    expect(SETTINGS_NAV_ITEMS.some((i) => i.id === 'emby-settings')).toBe(true);
+    expect(SETTINGS_NAV_ITEMS.some((i) => i.id === 'media-library-settings')).toBe(true);
     expect(SETTINGS_NAV_ITEMS.some((i) => i.id === 'update-settings')).toBe(true);
+  });
+
+  it('drops the global-actions card after merging it into advanced settings', () => {
+    // 2026-10-03 IA 裁决：全局操作三区块并入高级配置页，设置索引少一张卡
+    expect(SETTINGS_NAV_ITEMS).toHaveLength(14);
+    expect(SETTINGS_NAV_ITEMS.some((i) => i.id === 'global-actions')).toBe(false);
+    const advanced = SETTINGS_NAV_ITEMS.find((i) => i.id === 'advanced-settings');
+    expect(advanced?.title).toBe('高级配置');
+    expect(advanced?.description).toBe('原始配置编辑与全局数据操作');
+    expect(
+      filterSettingsNavItems(SETTINGS_NAV_ITEMS, '全局').some((i) => i.id === 'advanced-settings'),
+    ).toBe(true);
+  });
+
+  it('renames the emby card to media-library-settings with the media library copy', () => {
+    // 2026-10-03 IA 裁决：emby-settings → media-library-settings，零数据迁移
+    expect(SETTINGS_NAV_ITEMS.some((i) => i.id === 'emby-settings')).toBe(false);
+    const card = SETTINGS_NAV_ITEMS.find((i) => i.id === 'media-library-settings');
+    expect(card?.title).toBe('媒体库设置');
+    expect(card?.description).toBe('Emby/Jellyfin 媒体服务器配置');
+    expect(card?.icon).toBe('fa-film');
+    expect(card?.beta).toBe(true);
   });
 
   it('builds settings hash', () => {

@@ -148,8 +148,20 @@ describe('Dashboard 9C navigation runtime', () => {
   it('keeps a settings path for media server configuration from the media empty state', async () => {
     const { getDashboardShellStructure } = await import('../../apps/extension/src/apps/dashboard/shell/shellStructure');
     expect(getDashboardShellStructure().tabContentIds).toContain('tab-media');
-    // 空态跳转目标仍为设置子页 hash（由 React 页 Button 触发）
-    expect('#tab-settings/emby-settings').toContain('emby-settings');
+    // 空态跳转目标仍为设置子页 hash（由 React 页 Button 触发）；
+    // 2026-10-03 IA 裁决后指向改名后的 media-library-settings
+    const mediaHtml = readFileSync(
+      resolve(process.cwd(), 'apps/extension/src/dashboard/partials/tabs/media.html'),
+      'utf8',
+    );
+    expect(mediaHtml).toContain('#tab-settings/media-library-settings');
+    expect(mediaHtml).not.toContain('#tab-settings/emby-settings');
+    const mediaPageSource = readFileSync(
+      resolve(process.cwd(), 'apps/extension/src/apps/dashboard/pages/media/MediaLibraryPage.tsx'),
+      'utf8',
+    );
+    expect(mediaPageSource).toContain("'#tab-settings/media-library-settings'");
+    expect(mediaPageSource).not.toContain("'#tab-settings/emby-settings'");
   });
 
   it('opens data sync as the default task group page with backup placed last', async () => {

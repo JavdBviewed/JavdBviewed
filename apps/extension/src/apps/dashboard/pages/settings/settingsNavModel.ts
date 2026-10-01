@@ -68,9 +68,10 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     icon: 'fa-cloud-download-alt',
   },
   {
-    id: 'emby-settings',
-    title: 'Emby/Jellyfin 增强',
-    description: '媒体服务器增强',
+    // 2026-10-03 IA 裁决：emby-settings 改名 media-library-settings（旧 hash 在路由层归一化）
+    id: 'media-library-settings',
+    title: '媒体库设置',
+    description: 'Emby/Jellyfin 媒体服务器配置',
     icon: 'fa-film',
     beta: true,
   },
@@ -89,7 +90,8 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   {
     id: 'advanced-settings',
     title: '高级配置',
-    description: '原始配置数据编辑',
+    // 描述保住「全局」关键词：全局操作已并入本页，设置索引只剩一张卡
+    description: '原始配置编辑与全局数据操作',
     icon: 'fa-cogs',
   },
   {
@@ -97,12 +99,6 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     title: '网络配置',
     description: '线路管理与连通性测试',
     icon: 'fa-network-wired',
-  },
-  {
-    id: 'global-actions',
-    title: '全局操作',
-    description: '数据管理操作',
-    icon: 'fa-tools',
   },
   {
     id: 'update-settings',

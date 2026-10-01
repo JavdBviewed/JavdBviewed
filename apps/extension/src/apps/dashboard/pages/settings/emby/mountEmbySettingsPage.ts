@@ -11,8 +11,8 @@ export async function mountEmbySettingsPage(hostSelector = '#tab-settings'): Pro
     hostSelector,
     kind: 'subpage',
     element: EmbySettingsPage,
-    markerAttr: 'data-emby-settings-react',
-    mountDataset: { embySettingsReact: '1' },
+    markerAttr: 'data-media-library-settings-react',
+    mountDataset: { mediaLibrarySettingsReact: '1' },
   });
 }
 

@@ -80,7 +80,7 @@ describe('SettingsPageFrame auto section quick-nav', () => {
           SettingsPageFrame,
           {
             title: 'Emby',
-            pageId: 'emby-settings',
+            pageId: 'media-library-settings',
             sectionNavItems: [{ id: 'emby-a', label: '显式导航' }],
           },
           section('分组一'),

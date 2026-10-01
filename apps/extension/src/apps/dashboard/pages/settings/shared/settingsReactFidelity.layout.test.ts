@@ -36,10 +36,9 @@ describe('React settings shared fidelity', () => {
       '[data-network-test-settings-react=\'1\']',
       '[data-insights-settings-react=\'1\']',
       '[data-log-settings-react=\'1\']',
-      '[data-global-actions-react=\'1\']',
       '[data-update-settings-react=\'1\']',
       '[data-cloud-settings-react=\'1\']',
-      '[data-emby-settings-react=\'1\']',
+      '[data-media-library-settings-react=\'1\']',
       '[data-enhancement-settings-react=\'1\']',
     ]) {
       expect(styleSource).toContain(`:has(${marker}) [data-ui-pattern='page-header'] h2::before`);
@@ -58,10 +57,10 @@ describe('React settings shared fidelity', () => {
       ['#log-settings', '📘'],
       ['#advanced-settings', '⚙️'],
       ['#network-test-settings', '🌐'],
-      ['#global-actions', '⚡'],
+      // （#global-actions '⚡' 已随 2026-10-03 IA 合并移除：不再是独立 React 全页）
       ['#update-settings', '🔄'],
       ['#cloud-settings', '☁'],
-      ['#emby-settings', '📺'],
+      ['#media-library-settings', '📺'],
       ['#enhancement-settings', '🚀'],
     ] as const) {
       expect(styleSource).toContain(`content: '${emoji}'`);

@@ -183,11 +183,11 @@ async function openCloudSettings(context: BrowserContext, extensionId: string): 
 async function openEmbySettings(context: BrowserContext, extensionId: string): Promise<Page> {
   const page = await context.newPage();
   await page.goto(
-    extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/emby-settings'),
+    extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/media-library-settings'),
     { waitUntil: 'domcontentloaded' },
   );
   await dismissReleaseAnnouncementIfPresent(page);
-  await expect(page.locator('[data-emby-settings-react="1"]').last()).toBeVisible();
+  await expect(page.locator('[data-media-library-settings-react="1"]').last()).toBeVisible();
   await expect(page.locator('#emby-media-server-list')).toBeVisible();
   return page;
 }

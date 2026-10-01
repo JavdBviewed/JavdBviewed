@@ -53,7 +53,7 @@
 .ssp-page[data-settings-stack='react-full'] #global-actions,
 .ssp-page[data-settings-stack='react-full'] #update-settings,
 .ssp-page[data-settings-stack='react-full'] #cloud-settings,
-.ssp-page[data-settings-stack='react-full'] #emby-settings,
+.ssp-page[data-settings-stack='react-full'] #media-library-settings,
 .ssp-page[data-settings-stack='react-full'] #enhancement-settings {
   gap: 24px;
 }
@@ -251,9 +251,8 @@
   content: '📘';
 }
 
-.ssp-page[data-settings-stack='react-full']:has([data-global-actions-react='1']) [data-ui-pattern='page-header'] h2::before {
-  content: '⚡';
-}
+/* 2026-10-03 IA 裁决：全局操作并入高级配置页，不再是独立 React 全页；
+ * 其 '⚡' 标题标记随 mount 文件一并移除（advanced-settings 保留 '⚙️'）。 */
 
 .ssp-page[data-settings-stack='react-full']:has([data-update-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '🔄';
@@ -263,7 +262,7 @@
   content: '☁';
 }
 
-.ssp-page[data-settings-stack='react-full']:has([data-emby-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
+.ssp-page[data-settings-stack='react-full']:has([data-media-library-settings-react='1']) [data-ui-pattern='page-header'] h2::before {
   content: '📺';
 }
 

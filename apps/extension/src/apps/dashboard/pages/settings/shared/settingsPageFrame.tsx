@@ -19,7 +19,7 @@ export type SettingsPageFrameProps = {
   description?: string;
   children: ReactNode;
   className?: string;
-  /** 根节点额外 data 属性（如 data-emby-settings-react） */
+  /** 根节点额外 data 属性（如 data-media-library-settings-react） */
   rootDataAttrs?: Record<string, string>;
   /** 页面内分组快捷导航；显式提供时优先使用 */
   sectionNavItems?: SettingsSectionNavItem[];

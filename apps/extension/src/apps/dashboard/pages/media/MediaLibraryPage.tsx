@@ -1773,7 +1773,7 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
                   <Button
                     size="sm"
                     onClick={() => {
-                      window.location.hash = '#tab-settings/emby-settings';
+                      window.location.hash = '#tab-settings/media-library-settings';
                     }}
                   >
                     配置 Emby / Jellyfin
@@ -1795,7 +1795,7 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
                     window.location.hash =
                       filter === '115'
                         ? '#tab-settings/drive115-settings'
-                        : '#tab-settings/emby-settings';
+                        : '#tab-settings/media-library-settings';
                   }}
                 >
                   {filter === '115' ? '前往 115 设置' : '前往 Emby / Jellyfin 设置'}

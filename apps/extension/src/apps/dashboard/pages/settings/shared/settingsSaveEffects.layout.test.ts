@@ -21,7 +21,7 @@ const pageFiles = [
   'log/LogSettingsPage.tsx',
   'advanced/AdvancedSettingsPage.tsx',
   'networkTest/NetworkTestSettingsPage.tsx',
-  'globalActions/GlobalActionsPage.tsx',
+  // globalActions/GlobalActionsPage.tsx 已随 2026-10-03 IA 裁决并入 advanced/AdvancedSettingsPage.tsx
   'enhancement/EnhancementSettingsPage.tsx',
   'emby/EmbySettingsPage.tsx',
   'drive115/Drive115SettingsPage.tsx',

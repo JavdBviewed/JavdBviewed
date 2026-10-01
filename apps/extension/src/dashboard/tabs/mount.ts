@@ -4,6 +4,7 @@
 import { ensureMounted, loadPartial, injectPartial } from '../loaders/partialsLoader';
 import { ensureStylesLoaded } from '../loaders/stylesLoader';
 import { TAB_PARTIALS } from './resources';
+import { normalizeSettingsSubSectionId } from '../../apps/dashboard/pages/settings/shared/settingsRouteAliases';
 
 function getTabPartial(tabId: string) {
   return TAB_PARTIALS[tabId] ?? null;
@@ -14,7 +15,16 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
     // 处理设置页面的子路径（tab-settings/xxx-settings）
     if (tabId === 'tab-settings') {
       const hash = window.location.hash.substring(1);
-      const [mainTab, subSection] = hash.split('/');
+      const [mainTab, rawSubSection] = hash.split('/');
+      // 2026-10-03 IA 裁决：退役路由 id 归一化（global-actions → advanced-settings、
+      // emby-settings → media-library-settings）。必须早于 display-settings 分支 /
+      // isReactFullSettingsPage 判定 / 遗留 init，两处判断都只能看到新 id。
+      const subSection = normalizeSettingsSubSectionId(rawSubSection);
+      if (mainTab === 'tab-settings' && rawSubSection && subSection !== rawSubSection) {
+        // 旧书签/深链打开即规范 hash（replaceState 不触发 hashchange，无二次激活竞态）
+        history.replaceState(null, '', `#tab-settings/${subSection}`);
+        console.debug('[mount] 设置子页：退役路由 id 已归一化 →', subSection);
+      }
       
       // 如果有子路径，直接加载对应的子页面
       if (mainTab === 'tab-settings' && subSection) {
@@ -60,10 +70,10 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
               console.debug('[mount] 设置子页：React 全页 drive115-settings');
               return;
             }
-            if (subSection === 'emby-settings') {
+            if (subSection === 'media-library-settings') {
               const { mountEmbySettingsPage } = await import('../../apps/dashboard/pages/settings/emby/mountEmbySettingsPage');
               mountEmbySettingsPage('#tab-settings');
-              console.debug('[mount] 设置子页：React 全页 emby-settings');
+              console.debug('[mount] 设置子页：React 全页 media-library-settings');
               return;
             }
             if (subSection === 'update-settings') {
@@ -130,12 +140,6 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
               const { mountNetworkTestSettingsPage } = await import('../../apps/dashboard/pages/settings/networkTest/mountNetworkTestSettingsPage');
               mountNetworkTestSettingsPage('#tab-settings');
               console.debug('[mount] 设置子页：React 全页 network-test-settings');
-              return;
-            }
-            if (subSection === 'global-actions') {
-              const { mountGlobalActionsPage } = await import('../../apps/dashboard/pages/settings/globalActions/mountGlobalActionsPage');
-              mountGlobalActionsPage('#tab-settings');
-              console.debug('[mount] 设置子页：React 全页 global-actions');
               return;
             }
           }
