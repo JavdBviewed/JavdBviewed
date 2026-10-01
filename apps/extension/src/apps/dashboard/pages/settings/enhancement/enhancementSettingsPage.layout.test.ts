@@ -34,7 +34,7 @@ describe('EnhancementSettingsPage layout', () => {
     expect(reactFullPageIdsSource).toContain("'enhancement-settings'");
     expect(settingsMountSource).toContain('mountEnhancementSettingsPage');
     expect(legacySettingsSource).toContain('isReactFullSettingsPage');
-    for (const pageId of ['cloud-settings', 'drive115-settings', 'emby-settings', 'enhancement-settings']) {
+    for (const pageId of ['cloud-settings', 'drive115-settings', 'media-library-settings', 'enhancement-settings']) {
       expect(reactFullPageIdsSource).toContain(`'${pageId}'`);
     }
   });

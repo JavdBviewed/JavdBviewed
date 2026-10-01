@@ -366,12 +366,12 @@ export function EmbySettingsPage() {
       title="Emby/Jellyfin 增强设置"
       description="两个独立能力：番号识别/转 JavDB 链接（无需 API Key），以及媒体库同步/入库状态（需已启用服务器）。"
       sectionNavItems={sectionNavItems}
-      rootDataAttrs={{ 'data-emby-settings-react': '1' }}
+      rootDataAttrs={{ 'data-media-library-settings-react': '1' }}
     >
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>
       ) : (
-        <div className="flex flex-col gap-4" id="emby-settings">
+        <div className="flex flex-col gap-4" id="media-library-settings">
           <SettingsHighlightNotice title="Emby/Jellyfin 功能仍在测试中">
             影音增强、媒体库同步和播放状态写回仍在持续打磨。遇到识别、同步或播放异常，可以到{' '}
             <a

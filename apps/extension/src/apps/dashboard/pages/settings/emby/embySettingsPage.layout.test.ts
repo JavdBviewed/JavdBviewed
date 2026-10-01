@@ -17,15 +17,41 @@ const legacyEmbySource = readFileSync(
   join(here, '..', '..', '..', '..', '..', 'dashboard', 'tabs', 'settings', 'emby', 'EmbySettings.ts'),
   'utf8',
 );
+const mountPageSource = readFileSync(join(here, 'mountEmbySettingsPage.ts'), 'utf8');
+const embyCssSource = readFileSync(
+  join(here, '..', '..', '..', '..', '..', 'dashboard', 'styles', '05-pages', 'settings', 'emby.css'),
+  'utf8',
+);
+
+const countOf = (source: string, needle: string): number => source.split(needle).length - 1;
 
 describe('EmbySettingsPage media server layout', () => {
-  it('routes emby settings to the React full page so summary rows are actually used', () => {
-    expect(reactFullSource).toContain("'emby-settings'");
+  it('routes media library settings to the React full page so summary rows are actually used', () => {
+    // 2026-10-03 IA 裁决：emby-settings 改名 media-library-settings（零数据迁移）
+    expect(reactFullSource).toContain("'media-library-settings'");
+    expect(reactFullSource).not.toContain("'emby-settings'");
     expect(mountSource).toContain('mountEmbySettingsPage');
+    expect(mountSource).toContain("subSection === 'media-library-settings'");
     expect(legacySettingsSource).toContain('isReactFullSettingsPage');
-    for (const pageId of ['cloud-settings', 'drive115-settings', 'emby-settings']) {
+    for (const pageId of ['cloud-settings', 'drive115-settings', 'media-library-settings']) {
       expect(reactFullSource).toContain(`'${pageId}'`);
     }
+  });
+
+  it('renames the page root id and mount marker without touching emby-* dom ids', () => {
+    expect(pageSource).toContain("rootDataAttrs={{ 'data-media-library-settings-react': '1' }}");
+    expect(pageSource).toContain('id="media-library-settings"');
+    expect(pageSource).not.toContain('emby-settings');
+    expect(mountPageSource).toContain("markerAttr: 'data-media-library-settings-react'");
+    expect(mountPageSource).not.toContain('data-emby-settings-react');
+    // 组件/文件/目录与 DOM id 前缀一律不改名（缩小影响面）
+    expect(pageSource).toContain('emby-media-server-summary');
+    expect(pageSource).toContain('emby-server-edit-modal');
+  });
+
+  it('re-points every emby.css page-scoped selector to the new root id', () => {
+    expect(countOf(embyCssSource, '#media-library-settings'), '#media-library-settings 计数').toBe(29);
+    expect(countOf(embyCssSource, '#emby-settings'), '#emby-settings 残留计数').toBe(0);
   });
 
   it('renders media servers as compact summary rows', () => {

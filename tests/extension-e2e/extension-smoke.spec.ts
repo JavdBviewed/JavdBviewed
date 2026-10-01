@@ -686,9 +686,12 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await expect(page.locator('.ml-card')).toHaveCount(1);
       await expect(page.locator('.ml-card[data-code="E2E-EMBY-SOURCE"]')).toBeVisible();
 
+      // 2026-10-03 IA 裁决回归锁：旧 hash #tab-settings/emby-settings 必须落「媒体库设置」页并规范 hash
       await page.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/emby-settings'), {
         waitUntil: 'domcontentloaded',
       });
+      await expect(page).toHaveURL(/#tab-settings\/media-library-settings$/);
+      await expect(page.locator('[data-media-library-settings-react="1"]').last()).toBeVisible();
       const summary = page.locator('.emby-media-server-summary').filter({ hasText: '主服务器' });
       await expect(summary).toBeVisible();
       await expect(page.locator('.settings-section-nav')).toBeVisible();
@@ -729,7 +732,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
       });
       await expect(page.locator('.cloud-connection-summary')).toBeVisible();
       await page.evaluate(() => {
-        window.location.hash = '#tab-settings/emby-settings';
+        window.location.hash = '#tab-settings/media-library-settings';
       });
       await expect(summary).toBeVisible();
       await summary.getByRole('button', { name: '编辑' }).click();

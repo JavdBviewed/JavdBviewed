@@ -19,7 +19,6 @@ const SETTINGS_REACT_PAGES = [
   { id: 'log-settings', marker: 'data-log-settings-react' },
   { id: 'advanced-settings', marker: 'data-advanced-settings-react' },
   { id: 'network-test-settings', marker: 'data-network-test-settings-react' },
-  { id: 'global-actions', marker: 'data-global-actions-react' },
   { id: 'update-settings', marker: 'data-update-settings-react' },
 ] as const;
 
@@ -107,6 +106,63 @@ test.describe('settings React pages in Chromium', () => {
     }
   });
 
+  test('redirects the retired settings route ids onto their surviving pages', async ({}, testInfo) => {
+    const harnessOptions = resolveExtensionHarnessOptions({
+      ...process.env,
+      JAVDB_EXTENSION_USE_CHROME_DATA: '0',
+      JAVDB_EXTENSION_PROFILE: testInfo.outputPath('retired-route-alias-profile'),
+    }, process.cwd());
+    const context = await launchExtensionContext(harnessOptions, {
+      headless: process.env.JAVDB_EXTENSION_HEADLESS !== '0',
+      channel: process.env.JAVDB_EXTENSION_CHANNEL ?? 'chromium',
+    });
+
+    try {
+      const extensionId = await readExtensionId(context);
+      await suppressReleaseAnnouncementForTest(context);
+      const page = await context.newPage();
+
+      // global-actions 并入 advanced-settings：旧 hash 落合并页且 hash 当场规范
+      await gotoExtensionPage(
+        page,
+        extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/global-actions'),
+        page.locator('[data-advanced-settings-react="1"]').last(),
+      );
+      expect(new URL(page.url()).hash).toBe('#tab-settings/advanced-settings');
+      for (const title of ['原始配置工作台', '原始日志', '使用情况统计', '使用建议']) {
+        await expect(page.locator('[data-ui-pattern="setting-section"]').filter({ hasText: title })).not.toHaveCount(0);
+      }
+      for (const id of ['clearAllBtn', 'clearCacheBtn', 'clearTempDataBtn', 'resetSettingsBtn', 'reloadExtensionBtn']) {
+        await expect(page.locator(`[id="${id}"]`)).toHaveCount(1);
+      }
+      await expect(page.locator('[data-global-actions-react="1"]')).toHaveCount(0);
+
+      // emby-settings 改名 media-library-settings：旧 hash 同样重定向
+      await gotoExtensionPage(
+        page,
+        extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/emby-settings'),
+        page.locator('[data-media-library-settings-react="1"]').last(),
+      );
+      expect(new URL(page.url()).hash).toBe('#tab-settings/media-library-settings');
+
+      // 索引卡不再出现两张退役卡，且只剩一张新卡
+      await gotoExtensionPage(
+        page,
+        extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings'),
+        page.locator('.si-grid'),
+      );
+      await expect(page.locator('.si-card')).toHaveCount(14);
+      await expect(page.locator('a[href="#tab-settings/global-actions"]')).toHaveCount(0);
+      await expect(page.locator('a[href="#tab-settings/emby-settings"]')).toHaveCount(0);
+      await expect(page.locator('a[href="#tab-settings/media-library-settings"]')).toHaveCount(1);
+      await expect(page.locator('a[href="#tab-settings/advanced-settings"]')).toHaveCount(1);
+      await expect(page.locator('.si-card').filter({ hasText: '媒体库设置' })).toHaveCount(1);
+      await expect(page.locator('.si-card').filter({ hasText: '原始配置编辑与全局数据操作' })).toHaveCount(1);
+    } finally {
+      await context.close();
+    }
+  });
+
   test('keeps the settings shell within a narrow viewport', async ({}, testInfo) => {
     const harnessOptions = resolveExtensionHarnessOptions({
       ...process.env,
@@ -163,7 +219,7 @@ test.describe('settings React pages in Chromium', () => {
       await suppressReleaseAnnouncementForTest(context);
       const page = await context.newPage();
       // 8 legacy pages keep the per-page colour wash; the remaining React pages
-      // (insights/log/global-actions/update/cloud/emby/enhancement) reuse the
+      // (insights/log/update/cloud/emby/enhancement) reuse the
       // shared shell without a wash, so the wash assertion only applies here.
       const washCues = [
         ['display-settings', 'data-display-settings-react', '[id="display-settings"]'],
@@ -235,7 +291,6 @@ test.describe('settings React pages in Chromium', () => {
         'log-settings',
         'advanced-settings',
         'network-test-settings',
-        'global-actions',
       ] as const;
 
       for (const pageId of navPages) {

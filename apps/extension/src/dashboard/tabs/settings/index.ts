@@ -16,6 +16,7 @@ export * from './base/interfaces';
 import { dashboardTabLifecycle } from '../tabLifecycle';
 import { clearSettingsReactRoot } from '../../../apps/dashboard/pages/settings/settingsReactRoots';
 import { isReactFullSettingsPage } from '../../../apps/dashboard/pages/settings/shared/reactFullPageIds';
+import { normalizeSettingsSubSectionId } from '../../../apps/dashboard/pages/settings/shared/settingsRouteAliases';
 
 // 设置面板管理器
 export { settingsPanelManager } from './base/SettingsPanelManager';
@@ -176,7 +177,10 @@ export async function initSettingsPage(): Promise<void> {
         }
         
         // 解析子路径（支持 tab-settings/ai-settings 格式）
-        const [mainTab, subSection] = hash.split('/');
+        const [mainTab, rawSubSection] = hash.split('/');
+        // 2026-10-03 IA 裁决：退役路由 id 归一化，必须早于 isReactFullSettingsPage 判定，
+        // 否则旧 hash 会被当成遗留页并复活 global-actions / emby-settings 面板。
+        const subSection = normalizeSettingsSubSectionId(rawSubSection);
         
         if (mainTab !== 'tab-settings' || !subSection) {
             return;
@@ -275,7 +279,9 @@ export async function initSettingsTab(): Promise<void> {
     try {
         console.debug('========== initSettingsTab 开始 ==========');
         const hash = window.location.hash.substring(1);
-        const [mainTab, subSection] = hash.split('/');
+        const [mainTab, rawSubSection] = hash.split('/');
+        // 2026-10-03 IA 裁决：退役路由 id 归一化（同上），旧 hash 亦不得复活遗留面板
+        const subSection = normalizeSettingsSubSectionId(rawSubSection);
         
         console.debug('hash:', hash);
         console.debug('mainTab:', mainTab);

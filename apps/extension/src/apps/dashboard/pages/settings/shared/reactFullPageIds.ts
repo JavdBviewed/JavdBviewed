@@ -17,7 +17,8 @@ export const REACT_FULL_SETTINGS_PAGE_IDS = new Set<string>([
   // W4.1：115 设置保真 React 全页（用户点验启用）
   'drive115-settings',
   // 媒体服务器配置已迁移为摘要列表 + 弹窗编辑
-  'emby-settings',
+  // （2026-10-03 IA 裁决：emby-settings 改名 media-library-settings，旧 hash 先经路由别名归一化）
+  'media-library-settings',
   // 版本与关于页面包含系列产品入口，使用 React 内容页
   'update-settings',
   // 功能增强设置使用 React 页面，保留原功能卡片的视觉与交互语义
@@ -33,9 +34,10 @@ export const REACT_FULL_SETTINGS_PAGE_IDS = new Set<string>([
   'insights-settings',
   'log-settings',
   // W4.6 第三批：工具与诊断配置页
+  // 高级配置同时承载并入的全局操作分组
+  // （2026-10-03 IA 裁决：global-actions 不再是独立 React 全页，已从名单移除）
   'advanced-settings',
   'network-test-settings',
-  'global-actions',
 ]);
 
 /**

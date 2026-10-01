@@ -11,6 +11,8 @@ import {
   resolveSettingsTarget,
 } from '../../apps/extension/src/features/settingsSearch';
 import { DEFAULT_ONLINE_AVAILABILITY_SITES } from '../../apps/extension/src/features/onlineAvailability';
+import { normalizeSettingsSubSectionId } from '../../apps/extension/src/apps/dashboard/pages/settings/shared/settingsRouteAliases';
+import { SETTINGS_NAV_ITEMS } from '../../apps/extension/src/apps/dashboard/pages/settings/settingsNavModel';
 import { DEFAULT_SETTINGS } from '../../apps/extension/src/utils/config';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -680,5 +682,21 @@ describe('settings search feature', () => {
     expect(enhancementCss).toContain('#enhancement-settings .magnet-concurrency-config .form-group-inline.jdb-settings-search-highlight');
     expect(enhancementCss).toContain('var(--settings-search-pulse-fill)');
     expect(enhancementCss).toContain('var(--settings-search-pulse-ring)');
+  });
+
+  it('keeps legacy settings-search hashes landing on surviving pages after the IA consolidation', () => {
+    // 搜索索引由遗留 partial 注册表构建（pageId 仍是旧 hash 口径：emby-settings / global-actions），
+    // 2026-10-03 IA 裁决后退役路由必须经归一化落到仍在导航目录里的页面。
+    for (const retired of ['global-actions', 'emby-settings']) {
+      const target = normalizeSettingsSubSectionId(retired);
+      expect(SETTINGS_NAV_ITEMS.some((item) => item.id === target), retired).toBe(true);
+    }
+    // 现役目录卡 id 不得被别名表吞掉
+    for (const item of SETTINGS_NAV_ITEMS) {
+      expect(normalizeSettingsSubSectionId(item.id), item.id).toBe(item.id);
+    }
+    // 「全局」关键词仍能在索引页命中高级配置卡
+    const advanced = SETTINGS_NAV_ITEMS.find((item) => item.id === 'advanced-settings');
+    expect(advanced?.description).toContain('全局');
   });
 });
