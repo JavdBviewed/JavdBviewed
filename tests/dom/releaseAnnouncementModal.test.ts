@@ -6,8 +6,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   RELEASE_ANNOUNCEMENT_STORAGE_KEY,
+  RELEASE_NOTES,
   mountReleaseAnnouncementModal,
+  type ResolvedReleaseAnnouncement,
 } from '../../apps/extension/src/features/releaseAnnouncement';
+import {
+  MAX_ANNOUNCEMENT_HIGHLIGHTS,
+  createReleaseAnnouncementModal,
+} from '../../apps/extension/src/features/releaseAnnouncement/ui/releaseAnnouncementModal';
 import { mountDashboardReleaseAnnouncement } from '../../apps/extension/src/apps/dashboard/releaseAnnouncementBootstrap';
 
 const storageState: Record<string, any> = {};
@@ -180,6 +186,122 @@ describe('release announcement modal', () => {
       lastSeenAnnouncementKey: '1.20.2',
       lastSeenAt: expect.any(Number),
     });
+  });
+
+  it('caps update highlights at 7 and exposes the GitHub release tag link', async () => {
+    installChromeStorageMock();
+    storageState[RELEASE_ANNOUNCEMENT_STORAGE_KEY] = {
+      pending: {
+        type: 'update',
+        version: '2.1.0',
+        previousVersion: '2.0.1',
+        createdAt: 1000,
+      },
+    };
+
+    await mountReleaseAnnouncementModal('2.1.0');
+
+    const notes = RELEASE_NOTES.find(note => note.version === '2.1.0')?.highlights ?? [];
+    const visible = notes.slice(0, MAX_ANNOUNCEMENT_HIGHLIGHTS);
+    expect(MAX_ANNOUNCEMENT_HIGHLIGHTS).toBe(7);
+
+    const modal = document.querySelector<HTMLElement>('.jdb-release-announcement-modal');
+    const items = Array.from(modal?.querySelectorAll<HTMLLIElement>('.jdb-release-highlights li') ?? []);
+    expect(items.length).toBe(visible.length);
+    expect(items.map(item => item.textContent)).toEqual(visible);
+    if (notes.length > MAX_ANNOUNCEMENT_HIGHLIGHTS) {
+      expect(items.length).toBe(7);
+      expect(modal?.textContent).not.toContain(notes[MAX_ANNOUNCEMENT_HIGHLIGHTS]);
+    }
+
+    const more = modal?.querySelector<HTMLAnchorElement>('a.jdb-release-more');
+    expect(more?.textContent).toBe('更多');
+    expect(more?.getAttribute('href')).toBe('https://github.com/JavdBviewed/JavdBviewed/releases/tag/v2.1.0');
+    expect(more?.getAttribute('target')).toBe('_blank');
+    expect(more?.getAttribute('rel')).toBe('noopener');
+
+    const styleText = document.getElementById('jdb-release-announcement-style')?.textContent;
+    expect(styleText).toContain('.jdb-release-more');
+  });
+
+  it('caps an over-long update announcement at 7 independently of release notes data', () => {
+    const highlights = Array.from({ length: 19 }, (_, index) => `更新要点 ${index + 1}，超出 7 条上限的部分不再渲染。`);
+    const announcement = {
+      type: 'update',
+      announcementKey: '9.9.9',
+      version: '9.9.9',
+      title: 'Jav 助手已更新',
+      subtitle: '合成 19 条，锁定 7 条硬上限与 tag 链接推导。',
+      highlights,
+      primaryActionLabel: '知道了',
+    } satisfies ResolvedReleaseAnnouncement;
+
+    const modal = createReleaseAnnouncementModal(announcement);
+    const items = Array.from(modal.querySelectorAll<HTMLLIElement>('.jdb-release-highlights li'));
+    expect(items.length).toBe(7);
+    expect(items.map(item => item.textContent)).toEqual(highlights.slice(0, 7));
+    expect(modal.textContent).not.toContain(highlights[7]);
+
+    const more = modal.querySelector<HTMLAnchorElement>('a.jdb-release-more');
+    expect(more?.textContent).toBe('更多');
+    expect(more?.getAttribute('href')).toBe('https://github.com/JavdBviewed/JavdBviewed/releases/tag/v9.9.9');
+  });
+
+  it('caps install welcome highlights at 7 and never renders the more link', () => {
+    const announcement = {
+      type: 'install',
+      announcementKey: '2.1.0',
+      version: '2.1.0',
+      title: '欢迎使用 Jav 助手',
+      subtitle: '安装欢迎文案，用于验证 7 条上限同样适用。',
+      highlights: Array.from({ length: 19 }, (_, index) => `安装要点 ${index + 1}，超出上限的部分不再渲染。`),
+      primaryActionLabel: '开始使用',
+    } satisfies ResolvedReleaseAnnouncement;
+
+    const modal = createReleaseAnnouncementModal(announcement);
+    const items = modal.querySelectorAll('.jdb-release-highlights li');
+    expect(items.length).toBe(7);
+    expect(modal.querySelectorAll('a.jdb-release-more').length).toBe(0);
+  });
+
+  it('still renders the more link for update announcements with fewer than 7 highlights', () => {
+    const announcement = {
+      type: 'update',
+      announcementKey: '2.0.1',
+      version: '2.0.1',
+      title: 'Jav 助手已更新',
+      subtitle: 'v2.0.1 已安装，以下是本次主要变化。',
+      highlights: [
+        '媒体库入口已开放，Dashboard 分类导航重新整理。',
+        'WebDAV 支持默认备份端与全部备份端上传。',
+        '新增本地 ZIP 备份与恢复能力。',
+      ],
+      primaryActionLabel: '知道了',
+    } satisfies ResolvedReleaseAnnouncement;
+
+    const modal = createReleaseAnnouncementModal(announcement);
+    expect(modal.querySelectorAll('.jdb-release-highlights li').length).toBe(3);
+
+    const more = modal.querySelector<HTMLAnchorElement>('a.jdb-release-more');
+    expect(more?.textContent).toBe('更多');
+    expect(more?.getAttribute('href')).toBe('https://github.com/JavdBviewed/JavdBviewed/releases/tag/v2.0.1');
+    expect(more?.getAttribute('target')).toBe('_blank');
+    expect(more?.getAttribute('rel')).toBe('noopener');
+  });
+
+  it('omits the more link when an update announcement carries no version', () => {
+    const announcement = {
+      type: 'update',
+      announcementKey: 'release-announcement-fallback',
+      title: 'Jav 助手已更新',
+      subtitle: '以下是本次主要变化。',
+      highlights: Array.from({ length: 19 }, (_, index) => `更新要点 ${index + 1}，无法拼出 tag 链接。`),
+      primaryActionLabel: '知道了',
+    } satisfies ResolvedReleaseAnnouncement;
+
+    const modal = createReleaseAnnouncementModal(announcement);
+    expect(modal.querySelectorAll('.jdb-release-highlights li').length).toBe(7);
+    expect(modal.querySelectorAll('a.jdb-release-more').length).toBe(0);
   });
 });
 

@@ -3,12 +3,16 @@
  * @description releaseAnnouncementModal
  * @module features/releaseAnnouncement
  */
+import { REPO_URL } from '../../../shared/repoIdentity';
 import type { ResolvedReleaseAnnouncement } from '../domain/types';
 import { markAnnouncementSeen, readReleaseAnnouncementState } from '../application/announcementState';
 import { resolveAnnouncement } from '../application/resolveAnnouncement';
 
 const MODAL_ID = 'jdb-release-announcement-modal';
 const STYLE_ID = 'jdb-release-announcement-style';
+
+/** 应用内弹窗硬上限：公告要点最多显示 7 条，完整清单走「更多」链接跳转 GitHub release。 */
+export const MAX_ANNOUNCEMENT_HIGHLIGHTS = 7;
 
 export async function mountReleaseAnnouncementModal(currentVersion = getManifestVersion()): Promise<void> {
   if (document.getElementById(MODAL_ID)) return;
@@ -21,7 +25,7 @@ export async function mountReleaseAnnouncementModal(currentVersion = getManifest
   document.body.appendChild(createReleaseAnnouncementModal(announcement));
 }
 
-function createReleaseAnnouncementModal(announcement: ResolvedReleaseAnnouncement): HTMLElement {
+export function createReleaseAnnouncementModal(announcement: ResolvedReleaseAnnouncement): HTMLElement {
   const overlay = document.createElement('div');
   overlay.id = MODAL_ID;
   overlay.className = 'jdb-release-announcement-modal';
@@ -67,11 +71,13 @@ function createReleaseAnnouncementModal(announcement: ResolvedReleaseAnnouncemen
 
   const list = document.createElement('ul');
   list.className = 'jdb-release-highlights';
-  for (const text of announcement.highlights) {
+  for (const text of announcement.highlights.slice(0, MAX_ANNOUNCEMENT_HIGHLIGHTS)) {
     const item = document.createElement('li');
     item.textContent = text;
     list.appendChild(item);
   }
+
+  const moreLink = createMoreReleasesLink(announcement);
 
   const actionRow = document.createElement('div');
   actionRow.className = 'jdb-release-actions';
@@ -86,7 +92,7 @@ function createReleaseAnnouncementModal(announcement: ResolvedReleaseAnnouncemen
   });
 
   actionRow.appendChild(closeButton);
-  shell.append(sparks, badge, title, subtitle, list, actionRow);
+  shell.append(sparks, badge, title, subtitle, list, ...(moreLink ? [moreLink] : []), actionRow);
   overlay.appendChild(shell);
 
   overlay.addEventListener('click', event => {
@@ -96,6 +102,25 @@ function createReleaseAnnouncementModal(announcement: ResolvedReleaseAnnouncemen
   });
 
   return overlay;
+}
+
+/**
+ * 更新型公告的「更多」入口：指向该版本的 GitHub release tag。
+ * 安装欢迎型不渲染；版本缺失时无法定位 tag，同样不渲染（避免指向 404 的链接）。
+ */
+function createMoreReleasesLink(announcement: ResolvedReleaseAnnouncement): HTMLAnchorElement | null {
+  if (announcement.type !== 'update') return null;
+
+  const version = String(announcement.version || '').trim();
+  if (!version) return null;
+
+  const link = document.createElement('a');
+  link.className = 'jdb-release-more';
+  link.textContent = '更多';
+  link.href = `${REPO_URL}/releases/tag/v${version}`;
+  link.target = '_blank';
+  link.rel = 'noopener';
+  return link;
 }
 
 async function closeReleaseAnnouncement(modal: HTMLElement, announcementKey: string): Promise<void> {
@@ -211,6 +236,22 @@ function ensureReleaseAnnouncementStyles(): void {
       border-radius: 999px;
       background: #f97316;
       box-shadow: 0 0 0 4px color-mix(in srgb, #f97316 16%, transparent);
+    }
+
+    .jdb-release-more {
+      position: relative;
+      z-index: 1;
+      display: inline-block;
+      margin-top: 12px;
+      color: var(--text-secondary, #536079);
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .jdb-release-more:hover {
+      color: var(--primary, #3b82f6);
     }
 
     .jdb-release-actions {
