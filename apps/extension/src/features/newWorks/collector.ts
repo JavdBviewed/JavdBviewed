@@ -17,11 +17,33 @@ import { viewedGetAll, newWorksGet } from '../../platform/storage/indexedDb';
 import { buildJavDBUrl } from '../routeManagement';
 import { getSettings } from '../../utils/storage';
 import {
+    ACTOR_SCAN_UNION_MAX_CATEGORIES,
     applyCategoryBlackFilter,
-    buildCategoryUrlParams,
-    CATEGORY_URL_DIM_KEYS,
+    buildActorScanRequests,
+    deriveActorScanInputs,
+    looksLikeLoginPage,
+    mergeActorWorksResponses,
     type RawDetailDocument,
 } from './categoryFilter';
+
+/**
+ * 演员作品页遭遇登录墙（10-01-newworks-whitelist-merge）：
+ * 类别白名单经 ?t= 生效需登录态，匿名/会话失效时站点 302 到登录页。
+ * 修复前该情形表现为页内轮询 30s 超时后被静默吞成「无作品」，
+ * 故显式上抛，让扫描编排「停该演员剩余请求」并按轮次汇总上报。
+ */
+export class ActorLoginWallError extends Error {
+    constructor(public readonly actorUrl: string, public readonly finalUrl: string) {
+        super(`演员作品页遭遇登录墙: ${actorUrl} -> ${finalUrl}`);
+        this.name = 'ActorLoginWallError';
+    }
+}
+
+/** 墙错误判定（按 name 判定，便于测试桩与跨上下文实例）。 */
+export function isActorLoginWallError(error: unknown): boolean {
+    if (error instanceof ActorLoginWallError) return true;
+    return !!error && typeof error === 'object' && (error as { name?: string }).name === 'ActorLoginWallError';
+}
 
 /**
  * 页内采集器（self-contained，chrome.scripting.executeScript func 序列化要求：
@@ -83,34 +105,72 @@ export class NewWorksCollector {
     private readonly BASE_DELAY = 3000; // 基础延迟3秒
 
     /**
-     * 构建演员作品页面URL，应用类别白名单
-     * P3：白名单拆分为 t 码（?t=）+ appliesToUrl 维度类别（?cN=，多值逗号）；
-     * 留空 = 不限制；未验证维度与字典外值不拼 URL（仅告警）。
+     * 演员扫描编排（10-01-newworks-whitelist-merge）：类别白名单 → 多请求并集合并。
+     * - 基础过滤 t 码 + 数字类别 ID 一律走 ?t=（演员页 ?cN= 实测被站点静默忽略，不再拼）；
+     * - N 个数字类别 = N 个请求，按 video ID 并集去重（站点 ?t= 多值是 AND 交集，
+     *   单请求拼多个数字会把并集压成交集甚至 0 结果）；N 超上限降级单请求 AND；
+     * - 单请求失败（网络/解析）记日志并继续，不因一个类别丢掉整个演员；
+     * - 任一响应跳登录页 → 停该演员剩余请求并标 wallDetected（调用方按轮次汇总）。
      */
-    private async buildActorWorksUrl(actorId: string, categoryFilters?: string[]): Promise<string> {
-        let url = await buildJavDBUrl(`/actors/${actorId}`);
-
-        const params = buildCategoryUrlParams(categoryFilters ?? []);
-        const parts: string[] = [];
-        if (params.t.length > 0) parts.push(`t=${params.t.join(',')}`);
-        for (const dim of CATEGORY_URL_DIM_KEYS) {
-            const ids = params.byDim[dim];
-            if (ids && ids.length > 0) parts.push(`${dim}=${ids.join(',')}`);
+    private async scanActorWorksWithWhitelist(
+        subscription: ActorSubscription,
+        globalConfig: NewWorksGlobalConfig
+    ): Promise<{ works: any[]; wallDetected: boolean; requestCount: number; degraded: boolean }> {
+        const inputs = deriveActorScanInputs(globalConfig.filters.categoryFilters ?? []);
+        if (inputs.dropped.length > 0) {
+            console.warn(`[CS] 白名单含不可识别值（已忽略）: ${inputs.dropped.join(', ')}`);
         }
-        if (parts.length > 0) {
-            url += `?${parts.join('&')}&sort_type=0`;
-            console.log(`[CS] 应用类别白名单: ${parts.join('&')}`);
+        const paths = buildActorScanRequests(subscription.actorId, inputs.letters, inputs.nums);
+        const degraded = inputs.nums.length > ACTOR_SCAN_UNION_MAX_CATEGORIES;
+        if (degraded) {
+            console.warn(`[CS] 白名单数字类别 ${inputs.nums.length} 项超过并集上限 ${ACTOR_SCAN_UNION_MAX_CATEGORIES}，降级为「同时满足全部（交集）」单请求`);
+        }
+        if (inputs.nums.length > 0) {
+            console.log(`[CS] 类别白名单生效: ${paths.length} 个请求（并集），基础过滤 ${inputs.letters.join(',') || '无'}`);
+        } else if (inputs.letters.length > 0) {
+            console.log(`[CS] 应用基础过滤 t 码: ${inputs.letters.join(',')}`);
         } else {
             console.log(`[CS] 未应用类别白名单（显示所有类别）`);
         }
-        if (params.notUrlAppliable.length > 0) {
-            console.warn(`[CS] 白名单含不参与 URL 的维度（已忽略）: ${params.notUrlAppliable.join(', ')}`);
-        }
-        if (params.dropped.length > 0) {
-            console.warn(`[CS] 白名单含不可识别值（已忽略）: ${params.dropped.join(', ')}`);
+
+        const pages: any[][] = [];
+        let wallDetected = false;
+        for (const path of paths) {
+            const url = await buildJavDBUrl(path);
+            try {
+                pages.push(await this.parseActorWorksPage(url, globalConfig));
+            } catch (error) {
+                if (isActorLoginWallError(error)) {
+                    wallDetected = true;
+                    console.warn(`[ACTOR][WALL] 演员 ${subscription.actorName} 遭遇登录墙，停止该演员剩余请求: ${url}`);
+                    break;
+                }
+                console.error('[ACTOR] 单个类别请求失败（跳过该请求，保留其余结果）:', error);
+            }
         }
 
-        return url;
+        const merged = mergeActorWorksResponses(pages);
+        if (paths.length > 1) {
+            console.log(`[CS] 多类别并集合并: ${merged.pages}/${paths.length} 个响应成功，去重后 ${merged.works.length} 个作品（重复 ${merged.duplicates}）`);
+        }
+        return { works: merged.works, wallDetected, requestCount: paths.length, degraded };
+    }
+
+    /** 轮次级登录墙名单（批量扫描一轮汇总上报一次；单演员入口即时上报）。 */
+    private roundWallActors: string[] = [];
+    private roundOpen = false;
+
+    /** 登记遭遇登录墙的演员：批量轮次内累积，非轮次（单演员）即时上报。 */
+    private noteWallActor(actorName: string): void {
+        if (!this.roundWallActors.includes(actorName)) this.roundWallActors.push(actorName);
+        if (!this.roundOpen) this.reportWalls('单演员扫描');
+    }
+
+    /** 每轮次经既有日志通道汇总上报一次（不建新 UI）。 */
+    private reportWalls(scope: string): void {
+        if (this.roundWallActors.length === 0) return;
+        console.warn(`[NEWWORKS][WALL] ${scope}：本轮 ${this.roundWallActors.length} 个演员遭遇登录墙（类别白名单需登录态才生效），名单: ${this.roundWallActors.join(', ')}`);
+        this.roundWallActors = [];
     }
 
     /**
@@ -216,11 +276,10 @@ export class NewWorksCollector {
         try {
             console.log(`开始检查演员 ${subscription.actorName} 的新作品`);
             
-            // 构建演员作品页面URL，应用类别筛选
-            const actorWorksUrl = await this.buildActorWorksUrl(subscription.actorId, globalConfig.filters.categoryFilters);
-            
-            // 获取演员作品页面数据
-            const works = await this.parseActorWorksPage(actorWorksUrl, globalConfig);
+            // 类别白名单：多请求并集扫描（遇登录墙停该演员剩余请求）
+            const scan = await this.scanActorWorksWithWhitelist(subscription, globalConfig);
+            if (scan.wallDetected) this.noteWallActor(subscription.actorName);
+            const works = scan.works;
             
             // 应用全局过滤条件
             const filteredWorks = await this.applyGlobalFilters(works, globalConfig.filters);
@@ -287,6 +346,8 @@ export class NewWorksCollector {
             return works;
             
         } catch (error) {
+            // 登录墙上抛给扫描编排（停剩余请求 + 轮次汇总），不静默吞成空列表
+            if (isActorLoginWallError(error)) throw error;
             console.error('[CS] 解析演员作品页面失败:', error);
 
             // 提供更详细的错误信息
@@ -578,8 +639,9 @@ export class NewWorksCollector {
         try {
             console.log(`[ACTOR] 开始(详细)检查演员 ${subscription.actorName} 的新作品`);
 
-            const actorWorksUrl = await this.buildActorWorksUrl(subscription.actorId, globalConfig.filters.categoryFilters);
-            const worksRaw = await this.parseActorWorksPage(actorWorksUrl, globalConfig);
+            const scan = await this.scanActorWorksWithWhitelist(subscription, globalConfig);
+            if (scan.wallDetected) this.noteWallActor(subscription.actorName);
+            const worksRaw = scan.works;
             const identified = worksRaw.length;
 
             const { filteredWorks, filteredCount } = await this.applyGlobalFiltersWithStats(worksRaw, globalConfig.filters);
@@ -715,6 +777,7 @@ export class NewWorksCollector {
                 }
 
             } catch (error) {
+                if (isActorLoginWallError(error)) throw error; // 登录墙：上抛，编排层停剩余请求
                 console.error(`[ACTOR] 解析第 ${currentPage} 页失败:`, error);
                 break;
             }
@@ -764,12 +827,15 @@ export class NewWorksCollector {
                 // 注入脚本解析作品数据。
                 // 页面未就绪（仍在导航 / readyState=loading / 列表容器未渲染）时返回 null，
                 // 由调用方继续轮询；就绪后返回作品数组（空数组表示该页确实没有作品）。
-                const parseFunc = (targetUrl: string): any[] | null => {
+                const parseFunc = (targetUrl: string): any[] | { redirected: boolean; finalUrl: string } | null => {
                     try {
                         const target = new URL(targetUrl);
                         const here = new URL(window.location.href);
                         if (here.origin !== target.origin || here.pathname !== target.pathname) {
-                            return null;
+                            // 跳转（典型：类别白名单需登录态，匿名 302→登录页）：上报最终 URL，
+                            // 由调用方判定登录墙（照 extractDetailPanelsFunc 口径）；
+                            // 非登录页的瞬态跳转仍由调用方继续轮询，不误判空页。
+                            return { redirected: true, finalUrl: here.href };
                         }
                         if (document.readyState === 'loading') {
                             return null;
@@ -869,6 +935,18 @@ export class NewWorksCollector {
                             if (isResolved) return;
                             // 执行失败（页面仍在导航、无可用上下文等）时 results 为空，继续轮询
                             const result = results && results[0] && results[0].result;
+                            if (result && typeof result === 'object' && !Array.isArray(result)
+                                && (result as { redirected?: boolean }).redirected) {
+                                const finalUrl = String((result as { finalUrl?: string }).finalUrl || '');
+                                if (looksLikeLoginPage(finalUrl)) {
+                                    isResolved = true;
+                                    cleanup();
+                                    chrome.tabs.remove(tabId);
+                                    reject(new ActorLoginWallError(url, finalUrl));
+                                    return;
+                                }
+                                return; // 瞬态跳转（非登录页）：继续轮询
+                            }
                             if (!Array.isArray(result)) return;
                             isResolved = true;
                             cleanup();
@@ -924,8 +1002,27 @@ export class NewWorksCollector {
 
     /**
      * 检查多个演员的新作品（支持并发）
+     * 本线（10-01-newworks-whitelist-merge）：一轮批量扫描的登录墙只在结束时汇总上报一次。
      */
     async checkMultipleActors(
+        subscriptions: ActorSubscription[],
+        globalConfig: NewWorksGlobalConfig
+    ): Promise<{
+        discovered: number;
+        errors: string[];
+        newWorks: NewWorkRecord[];
+    }> {
+        this.roundOpen = true;
+        this.roundWallActors = [];
+        try {
+            return await this.runCheckMultipleActors(subscriptions, globalConfig);
+        } finally {
+            this.roundOpen = false;
+            this.reportWalls('批量扫描');
+        }
+    }
+
+    private async runCheckMultipleActors(
         subscriptions: ActorSubscription[],
         globalConfig: NewWorksGlobalConfig
     ): Promise<{

@@ -2707,6 +2707,24 @@ input:checked + .toggle-slider:before {
     line-height: 1.5;
 }
 
+/* 白名单分组小标题（10-01-newworks-whitelist-merge：基础过滤 t 码组） */
+.new-works-config-modal .category-filter-group-title {
+    margin: 0 0 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+/* 白名单 N>上限 降级警示（并集 → 交集） */
+.new-works-config-modal .category-panel-warn {
+    display: block;
+    margin-top: 4px;
+    color: var(--danger);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: normal;
+}
+
 /* 类别维度分组折叠（P3 白/黑名单共用） */
 .new-works-config-modal .category-dim-list {
     display: flex;

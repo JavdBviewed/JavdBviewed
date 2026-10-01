@@ -4,8 +4,9 @@
  * （08-29-actor-passthrough-category-filter P3）。
  *
  * 语义：
- * - 白名单：勾选=保留。t 码拼 ?t=，appliesToUrl 维度类别拼 ?cN=（多值逗号）；
- *   由 collector 在构建演员作品页 URL 时应用。
+ * - 白名单：勾选=保留。基础过滤 t 码与数字类别 ID 一律走 ?t=（演员页 ?cN= 实测被
+ *   站点静默忽略，拼了是 no-op）；数字类别按「一类别一请求 + 并集合并」展开，
+ *   由 collector 在构建演员作品页 URL 时应用（10-01-newworks-whitelist-merge）。
  * - 黑名单：入库前剔除。对候选作品解析详情页类别（先读演员穿透缓存，miss 才取详情页，
  *   计入请求限速），命中即丢弃；解析失败/未知一律保留（保守不丢片）。
  *   取详情页由调用方经 loadDetail 注入（collector 用隐藏标签页 + 页内采集：
@@ -178,6 +179,107 @@ export function buildCategoryUrlParams(
     (byDim[parsed.dim] ??= []).push(parsed.id);
   }
   return { t, byDim, dropped, notUrlAppliable };
+}
+
+/** 演员扫描并集展开的数字类别上限（超过则降级单请求 AND，见 buildActorScanRequests）。 */
+export const ACTOR_SCAN_UNION_MAX_CATEGORIES = 5;
+
+/** 白名单勾选值 → 演员扫描输入。 */
+export interface ActorScanInputs {
+  /** 基础过滤 t 码（s/p/d/c/4k/uncensored，勾选集遍历序） */
+  letters: string[];
+  /** 数字类别 ID（entryKey 取 id，勾选集遍历序、已去重） */
+  nums: string[];
+  /** 字典外/无法识别值（已丢弃，调用方告警） */
+  dropped: string[];
+}
+
+/**
+ * 白名单勾选值 → 演员扫描输入（字母 + 数字类别 ID）。
+ * legacy「不限制(全选)」29 值签名经 splitNewWorksFilterValues 视为空 →
+ * letters/nums 皆空 → 调用方得到 1 条裸演员页 URL（= 不限制），零迁移口径不破。
+ * 307 项数字类别不分维度一律生效（不再按 appliesToUrl 分治：演员页 cN= 是 no-op）。
+ */
+export function deriveActorScanInputs(
+  values: readonly string[],
+  dict: CategoryDictionary = DEFAULT_DICT,
+): ActorScanInputs {
+  const { t, categoryKeys, dropped } = splitNewWorksFilterValues(values, dict);
+  const nums: string[] = [];
+  for (const key of categoryKeys) {
+    const parsed = parseEntryKey(key);
+    if (parsed && !nums.includes(parsed.id)) nums.push(parsed.id);
+  }
+  return { letters: t, nums, dropped };
+}
+
+/**
+ * 演员扫描请求列表（path+query 形态；域名/线路由调用方经 buildJavDBUrl 逐条组装）。
+ * 三档（coord 定稿）：
+ * - N=0 → 1 项（仅字母；字母也空 = 裸演员 URL，照既有「不限制」处理，不加 sort_type）
+ * - 1<=N<=max → N 项，每项 = 字母 + 一个数字（并集：抓取属于任一已勾选类别的作品；
+ *   站点 ?t= 多值是 AND 交集，单请求拼多个数字会把并集压成交集甚至 0 结果）
+ * - N>max → 1 项（字母 + 全部数字，退化为 AND 交集，避免扫描时长随类别数线性膨胀）
+ * 数字顺序 = 勾选集现有遍历序；演员页永不拼 cN=。
+ */
+export function buildActorScanRequests(
+  actorId: string,
+  letters: readonly string[],
+  nums: readonly string[],
+  maxUnionCategories: number = ACTOR_SCAN_UNION_MAX_CATEGORIES,
+): string[] {
+  const base = `/actors/${actorId}`;
+  const cleanLetters = (letters ?? []).filter((v) => typeof v === 'string' && v.length > 0);
+  const cleanNums = (nums ?? []).filter((v) => typeof v === 'string' && v.length > 0);
+  const withT = (tValues: string[]): string =>
+    tValues.length > 0 ? `${base}?t=${tValues.join(',')}&sort_type=0` : base;
+  if (cleanNums.length === 0) return [withT(cleanLetters)];
+  if (cleanNums.length <= maxUnionCategories) {
+    return cleanNums.map((num) => withT([...cleanLetters, num]));
+  }
+  return [withT([...cleanLetters, ...cleanNums])];
+}
+
+/** 多类别响应合并结果（作品列表 + 计数，供日志与单测）。 */
+export interface ActorWorksMergeResult<T> {
+  works: T[];
+  /** 实际参与合并的响应数（非数组/null 页不计） */
+  pages: number;
+  /** 因 video ID 重复被丢弃的条目数 */
+  duplicates: number;
+}
+
+/**
+ * 合并同一演员多个类别响应：按 video ID 并集去重、保留首现顺序。
+ * 键口径 = javdbId（列表 href 内的 JavDB 视频 ID）优先，缺失回退 id（番号或 JavDB ID）；
+ * 两者皆空的条目原样保留（不猜身份，避免静默丢片）。
+ */
+export function mergeActorWorksResponses<T extends { id?: string; javdbId?: string }>(
+  pages: readonly (readonly T[] | null | undefined)[],
+): ActorWorksMergeResult<T> {
+  const works: T[] = [];
+  const seen = new Set<string>();
+  let duplicates = 0;
+  let pageCount = 0;
+  for (const page of pages ?? []) {
+    if (!Array.isArray(page)) continue;
+    pageCount += 1;
+    for (const work of page) {
+      if (!work) continue;
+      const key = String(work.javdbId ?? work.id ?? '');
+      if (!key) {
+        works.push(work);
+        continue;
+      }
+      if (seen.has(key)) {
+        duplicates += 1;
+        continue;
+      }
+      seen.add(key);
+      works.push(work);
+    }
+  }
+  return { works, pages: pageCount, duplicates };
 }
 
 /**
