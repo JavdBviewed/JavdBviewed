@@ -4,21 +4,24 @@
  * 校验文案（与旧 configModal 逐字一致）、config↔表单映射形状零变化
  * @module apps/dashboard/pages/settings/newWorks
  */
-import { BUILTIN_CATEGORY_DICTIONARY, entryKey } from '@javdb/video-category-dict';
+import { BUILTIN_CATEGORY_DICTIONARY, entryKey, type DimKey } from '@javdb/video-category-dict';
 import type { NewWorksGlobalConfig } from '../../../../../types';
 import {
   ACTOR_SCAN_UNION_MAX_CATEGORIES,
   deriveActorScanInputs,
+  splitNewWorksFilterValues,
 } from '../../../../../features/newWorks/categoryFilter';
 import {
   DEFAULT_NEW_WORKS_SETTINGS_FORM,
   deriveWhitelistDegradation,
+  filterCategoryDimGroups,
   getNewWorksCategoryDimGroups,
   getNewWorksWhitelistTags,
   mapConfigToFormState,
   mapFormStateToConfigPatch,
   normalizeCategoryOrder,
   validateNewWorksForm,
+  type NewWorksCategoryDimGroup,
 } from './newWorksSettingsModel';
 
 const source = BUILTIN_CATEGORY_DICTIONARY.sources[BUILTIN_CATEGORY_DICTIONARY.activeSite];
@@ -160,8 +163,93 @@ describe('newWorksSettingsModel 映射', () => {
     expect(d.degraded).toBe(true);
     expect(d.numsCount).toBe(deriveActorScanInputs(six).nums.length);
     expect(d.warnText).toBe(
-      `已选 ${d.numsCount} 个类别，超过 ${ACTOR_SCAN_UNION_MAX_CATEGORIES} 个将降级为「同时满足全部（交集）」`,
+      `类别勾太多（超过 ${ACTOR_SCAN_UNION_MAX_CATEGORIES} 个）：为省时只抓同时属于全部已勾类别的作品，范围会明显变窄。`,
     );
     void secondDimKey;
+  });
+});
+
+describe('newWorksSettingsModel 白名单计数口径（10-06 线：只计 311 字典类别，不含 6 t 码）', () => {
+  it('2 个 t 码 + 3 个数字类别 → 计数 3（t 码不计入）', () => {
+    const dim1 = source.dimensionOrder[0];
+    const dim2 = source.dimensionOrder[1];
+    const dim3 = source.dimensionOrder[2];
+    const k1 = entryKey(dim1, source.dimensions[dim1].entries[0].id);
+    const k2 = entryKey(dim2, source.dimensions[dim2].entries[0].id);
+    const k3 = entryKey(dim3, source.dimensions[dim3].entries[0].id);
+    const split = splitNewWorksFilterValues(['s', '4k', k1, k2, k3]);
+    expect(split.t).toEqual(['s', '4k']);
+    expect(split.categoryKeys.length).toBe(3);
+  });
+
+  it('全 t 码 → 计数 0；全字典项 → 计数 = 字典项数', () => {
+    expect(splitNewWorksFilterValues(['s', 'p', 'd', 'c', '4k', 'uncensored']).categoryKeys.length).toBe(0);
+    const groups = getNewWorksCategoryDimGroups();
+    const allKeys = groups.flatMap((g) => g.entries.map((e) => entryKey(g.key, e.id)));
+    expect(splitNewWorksFilterValues(allKeys).categoryKeys.length).toBe(311);
+  });
+});
+
+describe('newWorksSettingsModel 类别面板搜索过滤（10-06 线纯函数）', () => {
+  const mkGroups = (): NewWorksCategoryDimGroup[] => [
+    {
+      key: 'c2' as DimKey,
+      label: '番号前缀',
+      appliesToUrl: false,
+      entries: [
+        { id: '1', label: 'JUL' },
+        { id: '2', label: 'SSIS' },
+        { id: '3', label: 'Blue' },
+      ],
+    },
+    {
+      key: 'c4' as DimKey,
+      label: '系列',
+      appliesToUrl: true,
+      entries: [
+        { id: '10', label: '初体验' },
+        { id: '11', label: 'NTR' },
+        { id: '12', label: 'Club' },
+      ],
+    },
+  ];
+
+  it('空 query（含纯空白）= 全组全条目、顺序不变（默认渲染态）', () => {
+    for (const q of ['', '   ']) {
+      const out = filterCategoryDimGroups(mkGroups(), q);
+      expect(out.map((g) => g.key)).toEqual(['c2', 'c4']);
+      expect(out[0].entries.map((e) => e.label)).toEqual(['JUL', 'SSIS', 'Blue']);
+      expect(out[1].entries.map((e) => e.label)).toEqual(['初体验', 'NTR', 'Club']);
+    }
+  });
+
+  it('命中仅对应维度：0 命中组整组不渲染', () => {
+    const out = filterCategoryDimGroups(mkGroups(), 'JUL');
+    expect(out).toHaveLength(1);
+    expect(out[0].key).toBe('c2');
+    expect(out[0].entries.map((e) => e.label)).toEqual(['JUL']);
+  });
+
+  it('组内条目集 = 命中子集（未命中条目不保留、顺序不变；跨维度同时命中）', () => {
+    const out = filterCategoryDimGroups(mkGroups(), 'u');
+    expect(out.map((g) => g.key)).toEqual(['c2', 'c4']);
+    expect(out[0].entries.map((e) => e.label)).toEqual(['JUL', 'Blue']);
+    expect(out[1].entries.map((e) => e.label)).toEqual(['Club']);
+  });
+
+  it('全部 0 命中 → 空数组（页面据此渲染「没有匹配的类别」）', () => {
+    expect(filterCategoryDimGroups(mkGroups(), '不存在的类别xyz')).toEqual([]);
+  });
+
+  it('大小写不敏感（lowercase query 命中 uppercase label，反之亦然）', () => {
+    expect(filterCategoryDimGroups(mkGroups(), 'ssis')[0].entries.map((e) => e.label)).toEqual(['SSIS']);
+    expect(filterCategoryDimGroups(mkGroups(), 'jUl')[0].entries.map((e) => e.label)).toEqual(['JUL']);
+  });
+
+  it('中文包含匹配', () => {
+    const out = filterCategoryDimGroups(mkGroups(), '体验');
+    expect(out).toHaveLength(1);
+    expect(out[0].key).toBe('c4');
+    expect(out[0].entries.map((e) => e.label)).toEqual(['初体验']);
   });
 });

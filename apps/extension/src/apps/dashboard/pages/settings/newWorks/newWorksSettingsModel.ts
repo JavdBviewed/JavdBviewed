@@ -191,6 +191,27 @@ export function deriveWhitelistDegradation(whitelistValues: readonly string[]): 
   return {
     degraded,
     numsCount,
-    warnText: `已选 ${numsCount} 个类别，超过 ${ACTOR_SCAN_UNION_MAX_CATEGORIES} 个将降级为「同时满足全部（交集）」`,
+    warnText: `类别勾太多（超过 ${ACTOR_SCAN_UNION_MAX_CATEGORIES} 个）：为省时只抓同时属于全部已勾类别的作品，范围会明显变窄。`,
   };
+}
+
+/**
+ * 类别面板搜索过滤（10-06 线）：query.trim() 为空 = 全组全条目（默认渲染态）；
+ * 非空 = 按条目名称 e.label 大小写不敏感 contains，0 命中组整组丢弃、有命中组只保留命中子集。
+ * 纯函数：页面只消费；「没有匹配的类别」提示由页面在 query 非空 + 返回空时渲染。
+ */
+export function filterCategoryDimGroups(
+  dimGroups: readonly NewWorksCategoryDimGroup[],
+  query: string,
+): NewWorksCategoryDimGroup[] {
+  const q = query.trim().toLowerCase();
+  if (q === '') {
+    return dimGroups.map((g) => ({ ...g, entries: g.entries.map((e) => ({ ...e })) }));
+  }
+  return dimGroups
+    .map((g) => ({
+      ...g,
+      entries: g.entries.filter((e) => e.label.toLowerCase().includes(q)),
+    }))
+    .filter((g) => g.entries.length > 0);
 }
