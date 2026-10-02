@@ -17,12 +17,10 @@ import { viewedGetAll, newWorksGet } from '../../platform/storage/indexedDb';
 import { buildJavDBUrl } from '../routeManagement';
 import { getSettings } from '../../utils/storage';
 import {
-    ACTOR_SCAN_UNION_MAX_CATEGORIES,
     applyCategoryBlackFilter,
     buildActorScanRequests,
     deriveActorScanInputs,
     looksLikeLoginPage,
-    mergeActorWorksResponses,
     type RawDetailDocument,
 } from './categoryFilter';
 
@@ -105,55 +103,46 @@ export class NewWorksCollector {
     private readonly BASE_DELAY = 3000; // 基础延迟3秒
 
     /**
-     * 演员扫描编排（10-01-newworks-whitelist-merge）：类别白名单 → 多请求并集合并。
-     * - 基础过滤 t 码 + 数字类别 ID 一律走 ?t=（演员页 ?cN= 实测被站点静默忽略，不再拼）；
-     * - N 个数字类别 = N 个请求，按 video ID 并集去重（站点 ?t= 多值是 AND 交集，
-     *   单请求拼多个数字会把并集压成交集甚至 0 结果）；N 超上限降级单请求 AND；
-     * - 单请求失败（网络/解析）记日志并继续，不因一个类别丢掉整个演员；
-     * - 任一响应跳登录页 → 停该演员剩余请求并标 wallDetected（调用方按轮次汇总）。
+     * 演员扫描编排（10-08-newworks-whitelist-and）：类别白名单 → 单请求 AND 扫描。
+     * - 属性 t 码（p/d/c）+ 数字类别 ID（+ c9 时长伪 ID）一律走 ?t= 多值
+     *   （AND 交集，真机实证：混合形态 R1-R3 全过）；永不拼 cN=（演员页 no-op）；
+     * - legacy「不限制(全选)」29 值签名 → tValues 空 → 裸演员 URL（= 不限制），零迁移口径不破；
+     * - 单请求失败（网络/解析）记日志并保留空结果、不抛错；跳登录页标 wallDetected
+     *   （调用方按轮次汇总）；非空白名单 0 命中 → 排障告警（条件可能过严）。
      */
     private async scanActorWorksWithWhitelist(
         subscription: ActorSubscription,
         globalConfig: NewWorksGlobalConfig
-    ): Promise<{ works: any[]; wallDetected: boolean; requestCount: number; degraded: boolean }> {
+    ): Promise<{ works: any[]; wallDetected: boolean }> {
         const inputs = deriveActorScanInputs(globalConfig.filters.categoryFilters ?? []);
         if (inputs.dropped.length > 0) {
             console.warn(`[CS] 白名单含不可识别值（已忽略）: ${inputs.dropped.join(', ')}`);
         }
-        const paths = buildActorScanRequests(subscription.actorId, inputs.letters, inputs.nums);
-        const degraded = inputs.nums.length > ACTOR_SCAN_UNION_MAX_CATEGORIES;
-        if (degraded) {
-            console.warn(`[CS] 白名单数字类别 ${inputs.nums.length} 项超过并集上限 ${ACTOR_SCAN_UNION_MAX_CATEGORIES}，降级为「同时满足全部（交集）」单请求`);
-        }
-        if (inputs.nums.length > 0) {
-            console.log(`[CS] 类别白名单生效: ${paths.length} 个请求（并集），基础过滤 ${inputs.letters.join(',') || '无'}`);
-        } else if (inputs.letters.length > 0) {
-            console.log(`[CS] 应用基础过滤 t 码: ${inputs.letters.join(',')}`);
+        const path = buildActorScanRequests(subscription.actorId, inputs.tValues);
+        if (inputs.tValues.length > 0) {
+            console.log(`[CS] 类别白名单生效: 单请求 AND 交集 t=${inputs.tValues.join(',')}`);
         } else {
             console.log(`[CS] 未应用类别白名单（显示所有类别）`);
         }
 
-        const pages: any[][] = [];
+        let works: any[] = [];
         let wallDetected = false;
-        for (const path of paths) {
-            const url = await buildJavDBUrl(path);
-            try {
-                pages.push(await this.parseActorWorksPage(url, globalConfig));
-            } catch (error) {
-                if (isActorLoginWallError(error)) {
-                    wallDetected = true;
-                    console.warn(`[ACTOR][WALL] 演员 ${subscription.actorName} 遭遇登录墙，停止该演员剩余请求: ${url}`);
-                    break;
-                }
-                console.error('[ACTOR] 单个类别请求失败（跳过该请求，保留其余结果）:', error);
+        const url = await buildJavDBUrl(path);
+        try {
+            const page = await this.parseActorWorksPage(url, globalConfig);
+            if (Array.isArray(page)) works = page;
+        } catch (error) {
+            if (isActorLoginWallError(error)) {
+                wallDetected = true;
+                console.warn(`[ACTOR][WALL] 演员 ${subscription.actorName} 遭遇登录墙: ${url}`);
+            } else {
+                console.error('[ACTOR] 白名单请求失败（该演员本轮无结果）:', error);
             }
         }
-
-        const merged = mergeActorWorksResponses(pages);
-        if (paths.length > 1) {
-            console.log(`[CS] 多类别并集合并: ${merged.pages}/${paths.length} 个响应成功，去重后 ${merged.works.length} 个作品（重复 ${merged.duplicates}）`);
+        if (inputs.tValues.length > 0 && works.length === 0 && !wallDetected) {
+            console.warn(`[NEWWORKS] 演员 ${subscription.actorName} 白名单 AND 命中 0（t=${inputs.tValues.join(',')}），条件可能过严`);
         }
-        return { works: merged.works, wallDetected, requestCount: paths.length, degraded };
+        return { works, wallDetected };
     }
 
     /** 轮次级登录墙名单（批量扫描一轮汇总上报一次；单演员入口即时上报）。 */
@@ -276,7 +265,7 @@ export class NewWorksCollector {
         try {
             console.log(`开始检查演员 ${subscription.actorName} 的新作品`);
             
-            // 类别白名单：多请求并集扫描（遇登录墙停该演员剩余请求）
+            // 类别白名单：单请求 AND 扫描（遇登录墙标记 wallDetected）
             const scan = await this.scanActorWorksWithWhitelist(subscription, globalConfig);
             if (scan.wallDetected) this.noteWallActor(subscription.actorName);
             const works = scan.works;

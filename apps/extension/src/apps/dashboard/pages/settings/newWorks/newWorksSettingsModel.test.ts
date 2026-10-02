@@ -1,24 +1,21 @@
 /**
  * @file newWorksSettingsModel.test.ts
- * @description 新作品设置模型单测：类别计数（6 t 码 + 311 字典项）、规范排序、
- * 校验文案（与旧 configModal 逐字一致）、config↔表单映射形状零变化
+ * @description 新作品设置模型单测：属性组 + 311 字典项面板数据、规范排序、
+ * 校验文案（与旧 configModal 逐字一致）、config↔表单映射（legacy 值读时归一）
  * @module apps/dashboard/pages/settings/newWorks
  */
 import { BUILTIN_CATEGORY_DICTIONARY, entryKey, type DimKey } from '@javdb/video-category-dict';
 import type { NewWorksGlobalConfig } from '../../../../../types';
 import {
-  ACTOR_SCAN_UNION_MAX_CATEGORIES,
-  deriveActorScanInputs,
   splitNewWorksFilterValues,
 } from '../../../../../features/newWorks/categoryFilter';
 import {
   DEFAULT_NEW_WORKS_SETTINGS_FORM,
-  deriveWhitelistDegradation,
   filterCategoryDimGroups,
   getNewWorksCategoryDimGroups,
-  getNewWorksWhitelistTags,
   mapConfigToFormState,
   mapFormStateToConfigPatch,
+  NEW_WORKS_ATTR_ITEMS,
   normalizeCategoryOrder,
   validateNewWorksForm,
   type NewWorksCategoryDimGroup,
@@ -54,10 +51,9 @@ function makeConfig(overrides: Partial<NewWorksGlobalConfig> = {}): NewWorksGlob
 }
 
 describe('newWorksSettingsModel 类别面板数据', () => {
-  it('白名单基础过滤 = ACTOR_FILTER_TAGS basic/quality 6 项 t 码', () => {
-    const tags = getNewWorksWhitelistTags();
-    expect(tags).toHaveLength(6);
-    expect(tags.map((t) => t.value).sort()).toEqual(['4k', 'c', 'd', 'p', 's', 'uncensored']);
+  it('白名单属性组 = 3 项（p 可播放 / d 含磁鏈 / c 含字幕，D3 真机验证；站点自报 label 用繁体「鏈」）', () => {
+    expect(NEW_WORKS_ATTR_ITEMS.map((a) => a.value)).toEqual(['p', 'd', 'c']);
+    expect(NEW_WORKS_ATTR_ITEMS.map((a) => a.label)).toEqual(['可播放', '含磁鏈', '含字幕']);
   });
 
   it('字典维度合计 311 项（与 builtin 快照一致）', () => {
@@ -69,15 +65,16 @@ describe('newWorksSettingsModel 类别面板数据', () => {
     );
   });
 
-  it('normalizeCategoryOrder 与旧 configModal DOM 收集顺序逐字节一致（t 码网格 → 维度序 → 条目序）', () => {
-    // 乱序输入：字典项在前、t 码在后，含跨维度
+  it('normalizeCategoryOrder 与旧 configModal DOM 收集顺序逐字节一致（属性组 → 维度序 → 条目序）', () => {
+    // 乱序输入：字典项在前、属性字母在后，含跨维度
     const secondDimKey = source.dimensionOrder[1];
     const secondEntry = source.dimensions[secondDimKey].entries[0];
     const secondKey = entryKey(secondDimKey, secondEntry.id);
-    const shuffled = [secondKey, sampleEntryKey, 'd', '4k', 's'];
+    const shuffled = [secondKey, sampleEntryKey, 'd', 'p', 's'];
     const ordered = normalizeCategoryOrder(shuffled, true);
-    expect(ordered).toEqual(['s', 'p', 'd', 'c', '4k', 'uncensored'].filter((t) => shuffled.includes(t)).concat([sampleEntryKey, secondKey]));
-    // 黑名单口径：不含 t 码
+    // 属性组仅 p/d/c（s 已随 legacy 归一走字典 c7=28，不再产出字母形态）
+    expect(ordered).toEqual(['p', 'd', sampleEntryKey, secondKey]);
+    // 黑名单口径：不含属性字母
     const black = normalizeCategoryOrder([secondKey, 's', sampleEntryKey], false);
     expect(black).toEqual([sampleEntryKey, secondKey]);
   });
@@ -105,8 +102,8 @@ describe('newWorksSettingsModel 校验', () => {
 });
 
 describe('newWorksSettingsModel 映射', () => {
-  it('白名单值归一：t 码 + entryKey，落盘顺序=规范渲染序（逐字节同构旧 configModal）', () => {
-    // 模拟旧存储乱序值
+  it('白名单值归一（10-08 线）：legacy s/4k/uncensored → c7 同名字典项，落盘顺序=规范渲染序', () => {
+    // 模拟旧存储乱序值（legacy 字母形态 + entryKey）
     const config = makeConfig({
       filters: {
         excludeViewed: true,
@@ -120,12 +117,31 @@ describe('newWorksSettingsModel 映射', () => {
       },
     });
     const form = mapConfigToFormState(config);
-    expect(form.whitelistValues).toEqual(['s', '4k', sampleEntryKey]);
+    // c7 条目序：28 先于 345/347（字典内 id 序）
+    expect(form.whitelistValues).toEqual([sampleEntryKey, 'c7=28', 'c7=347']);
     expect(form.blacklistValues).toEqual([sampleEntryKey]);
 
     const patch = mapFormStateToConfigPatch(form);
-    expect(patch.filters?.categoryFilters).toEqual(['s', '4k', sampleEntryKey]);
+    expect(patch.filters?.categoryFilters).toEqual([sampleEntryKey, 'c7=28', 'c7=347']);
     expect(patch.filters?.categoryBlackFilters).toEqual([sampleEntryKey]);
+  });
+
+  it('属性字母 + entryKey 混合：落盘顺序=属性组（p,d,c 序）→ 维度序 → 条目序', () => {
+    const form = mapConfigToFormState(
+      makeConfig({
+        filters: {
+          excludeViewed: true,
+          excludeBrowsed: true,
+          excludeWant: false,
+          dateRange: 3,
+          categoryFilters: ['c7=28', 'c', 'p', sampleEntryKey],
+          categoryBlackFilters: [],
+          excludeAR: false,
+          applyContentFilter: false,
+        },
+      }),
+    );
+    expect(form.whitelistValues).toEqual(['p', 'c', sampleEntryKey, 'c7=28']);
   });
 
   it('落盘补丁不携带 maxWorksPerCheck/lastGlobalCheck（manager 合并保留既有值，形状零变化）', () => {
@@ -146,31 +162,11 @@ describe('newWorksSettingsModel 映射', () => {
     );
   });
 
-  it('降级判定与警示文案（>5 数字类别触发，与运行时 deriveActorScanInputs 同口径）', () => {
-    const secondDimKey = source.dimensionOrder[1];
-    const keys: string[] = [];
-    for (const key of source.dimensionOrder) {
-      for (const e of source.dimensions[key].entries) {
-        keys.push(entryKey(key, e.id));
-        if (keys.length >= 6) break;
-      }
-      if (keys.length >= 6) break;
-    }
-    const five = keys.slice(0, ACTOR_SCAN_UNION_MAX_CATEGORIES);
-    expect(deriveWhitelistDegradation(five).degraded).toBe(false);
-    const six = keys.slice(0, ACTOR_SCAN_UNION_MAX_CATEGORIES + 1);
-    const d = deriveWhitelistDegradation(six);
-    expect(d.degraded).toBe(true);
-    expect(d.numsCount).toBe(deriveActorScanInputs(six).nums.length);
-    expect(d.warnText).toBe(
-      `类别勾太多（超过 ${ACTOR_SCAN_UNION_MAX_CATEGORIES} 个）：为省时只抓同时属于全部已勾类别的作品，范围会明显变窄。`,
-    );
-    void secondDimKey;
-  });
+
 });
 
-describe('newWorksSettingsModel 白名单计数口径（10-06 线：只计 311 字典类别，不含 6 t 码）', () => {
-  it('2 个 t 码 + 3 个数字类别 → 计数 3（t 码不计入）', () => {
+describe('newWorksSettingsModel splitNewWorksFilterValues 拆分口径（运行时不变）', () => {
+  it('2 个 t 码 + 3 个数字类别 → t 轴 2 / 类别轴 3', () => {
     const dim1 = source.dimensionOrder[0];
     const dim2 = source.dimensionOrder[1];
     const dim3 = source.dimensionOrder[2];
@@ -182,7 +178,7 @@ describe('newWorksSettingsModel 白名单计数口径（10-06 线：只计 311 �
     expect(split.categoryKeys.length).toBe(3);
   });
 
-  it('全 t 码 → 计数 0；全字典项 → 计数 = 字典项数', () => {
+  it('全 t 码 → 类别轴 0；全字典项 → 类别轴 = 字典项数', () => {
     expect(splitNewWorksFilterValues(['s', 'p', 'd', 'c', '4k', 'uncensored']).categoryKeys.length).toBe(0);
     const groups = getNewWorksCategoryDimGroups();
     const allKeys = groups.flatMap((g) => g.entries.map((e) => entryKey(g.key, e.id)));

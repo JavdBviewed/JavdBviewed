@@ -4,17 +4,15 @@
  *
  * 口径说明：
  * - 存储键 new_works_config 的对象形状零变化（读写经 newWorksManager，零迁移）；
- * - 白名单勾选值格式与旧 configModal 逐字节同构：字母 t 码（ACTOR_FILTER_TAGS
- *   basic/quality）+ 字典 entryKey（如 c2=48、c4=17），落盘顺序=规范渲染序；
- * - 运行时契约（splitNewWorksFilterValues/deriveActorScanInputs 等）零改动。
+ * - 白名单勾选值 = 属性 t 码（p/d/c）+ 字典 entryKey（含 legacy s/4k/uncensored
+ *   读时归一的 c7=28/347/345），落盘顺序 = 属性组 → 维度序 → 条目序；
+ * - 运行时契约：mapLegacyWhitelistValues 读时归一、deriveActorScanInputs 单请求 AND（10-08 线）。
  * @module apps/dashboard/pages/settings/newWorks
  */
 import { BUILTIN_CATEGORY_DICTIONARY, entryKey, type DimKey } from '@javdb/video-category-dict';
 import type { NewWorksGlobalConfig } from '../../../../../types';
-import { ACTOR_FILTER_TAGS, type ActorFilterTag } from '../../../../../dashboard/config/actorFilterTags';
 import {
-  ACTOR_SCAN_UNION_MAX_CATEGORIES,
-  deriveActorScanInputs,
+  mapLegacyWhitelistValues,
   normalizeCategoryBlackValues,
   splitNewWorksFilterValues,
 } from '../../../../../features/newWorks/categoryFilter';
@@ -59,10 +57,12 @@ export const DEFAULT_NEW_WORKS_SETTINGS_FORM: NewWorksSettingsFormState = {
   blacklistValues: [],
 };
 
-/** 白名单「基础过滤」t 码（与旧 configModal 同口径：basic + quality 6 项） */
-export function getNewWorksWhitelistTags(): ActorFilterTag[] {
-  return ACTOR_FILTER_TAGS.filter((tag) => tag.group === 'basic' || tag.group === 'quality');
-}
+/** 白名单属性组（10-08 线：可播放 p / 含磁鏈 d / 含字幕 c；D3 真机验证；站点自报 label 用繁体「鏈」）。 */
+export const NEW_WORKS_ATTR_ITEMS: readonly { value: string; label: string }[] = [
+  { value: 'p', label: '可播放' },
+  { value: 'd', label: '含磁鏈' },
+  { value: 'c', label: '含字幕' },
+];
 
 /** 类别维度分组（与字典 dimensionOrder 一致；appliesToUrl=该维度全条目可拼 URL） */
 export interface NewWorksCategoryDimGroup {
@@ -89,15 +89,15 @@ export function getNewWorksCategoryDimGroups(): NewWorksCategoryDimGroup[] {
 }
 
 /**
- * 规范排序：t 码网格序 → 维度 dimensionOrder → 条目 id 序。
- * 与旧 configModal 保存时的 DOM 收集顺序逐字节一致。
+ * 规范排序：属性组序（p/d/c）→ 维度 dimensionOrder → 条目 id 序。
+ * 与旧 configModal 保存时的 DOM 收集顺序逐字节一致（10-08 线：属性组替原 6 项 t 码网格）。
  */
 export function normalizeCategoryOrder(values: readonly string[], includeTags: boolean): string[] {
   const set = new Set(values);
   const out: string[] = [];
   if (includeTags) {
-    for (const tag of getNewWorksWhitelistTags()) {
-      if (set.has(tag.value)) out.push(tag.value);
+    for (const item of NEW_WORKS_ATTR_ITEMS) {
+      if (set.has(item.value)) out.push(item.value);
     }
   }
   for (const dim of getNewWorksCategoryDimGroups()) {
@@ -111,7 +111,7 @@ export function normalizeCategoryOrder(values: readonly string[], includeTags: b
 
 /** config → 表单（白名单/黑名单归一口径与旧 configModal createModal 一致） */
 export function mapConfigToFormState(config: NewWorksGlobalConfig): NewWorksSettingsFormState {
-  const split = splitNewWorksFilterValues(config.filters.categoryFilters ?? []);
+  const split = splitNewWorksFilterValues(mapLegacyWhitelistValues(config.filters.categoryFilters ?? []));
   const whitelistSet = new Set<string>([...split.t, ...split.categoryKeys]);
   const blacklist = normalizeCategoryBlackValues(config.filters.categoryBlackFilters ?? []);
 
@@ -180,20 +180,6 @@ export function validateNewWorksForm(form: NewWorksSettingsFormState): { ok: tru
   return { ok: true };
 }
 
-/** 白名单数字类别降级判定与警示文案（与旧 configModal 同源：deriveActorScanInputs） */
-export function deriveWhitelistDegradation(whitelistValues: readonly string[]): {
-  degraded: boolean;
-  numsCount: number;
-  warnText: string;
-} {
-  const numsCount = deriveActorScanInputs([...whitelistValues]).nums.length;
-  const degraded = numsCount > ACTOR_SCAN_UNION_MAX_CATEGORIES;
-  return {
-    degraded,
-    numsCount,
-    warnText: `类别勾太多（超过 ${ACTOR_SCAN_UNION_MAX_CATEGORIES} 个）：为省时只抓同时属于全部已勾类别的作品，范围会明显变窄。`,
-  };
-}
 
 /**
  * 类别面板搜索过滤（10-06 线）：query.trim() 为空 = 全组全条目（默认渲染态）；
