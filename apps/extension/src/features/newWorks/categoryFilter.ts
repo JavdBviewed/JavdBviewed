@@ -4,9 +4,11 @@
  * （08-29-actor-passthrough-category-filter P3）。
  *
  * 语义：
- * - 白名单：勾选=保留。基础过滤 t 码与数字类别 ID 一律走 ?t=（演员页 ?cN= 实测被
- *   站点静默忽略，拼了是 no-op）；数字类别按「一类别一请求 + 并集合并」展开，
- *   由 collector 在构建演员作品页 URL 时应用（10-01-newworks-whitelist-merge）。
+ * - 白名单：勾选=保留。10-08 线：统一为单一 ?t= 多值 AND 交集（D1/D4 真机实证：
+ *   字母/数字/c9 伪 ID 混合形态全通过）；legacy 3 t 码 s/4k/uncensored 读时归一为
+ *   同名字典 c7 项数字 entryKey（mapLegacyWhitelistValues，存储零迁移），属性 p/d/c
+ *   透传；6 项硬性条件块废止并入通用类别列表。由 collector 在构建演员作品页 URL
+ *   时应用（单请求，永不拼 cN=；演员页 ?cN= 实测被站点静默忽略）。
  * - 黑名单：入库前剔除。对候选作品解析详情页类别（先读演员穿透缓存，miss 才取详情页，
  *   计入请求限速），命中即丢弃；解析失败/未知一律保留（保守不丢片）。
  *   取详情页由调用方经 loadDetail 注入（collector 用隐藏标签页 + 页内采集：
@@ -18,6 +20,7 @@ import {
   BUILTIN_CATEGORY_DICTIONARY,
   CATEGORY_DIM_KEYS,
   categoriesFromRawPanels,
+  entryKey,
   findEntry,
   parseEntryKey,
   resolveEntryKey,
@@ -101,6 +104,40 @@ export function isLegacyUnlimitedCategoryValues(
   return true;
 }
 
+/** 白名单属性组 t 码（10-08 线：可播放/含磁鏈/含字幕；D3 真机验证单值与多值均为有效 AND 约束）。 */
+export const ATTR_T_CODES = ['p', 'd', 'c'] as const;
+
+/**
+ * legacy 白名单值读时归一映射（10-08-newworks-whitelist-and）：旧「硬性条件」块的
+ * 3 个 t 码（s=单体作品 / 4k=4K / uncensored=无码流出）对应字典 c7 同名字项的
+ * 数字 ID（28/347/345；D2 定案 canonical = 数字形态）。p/d/c（属性组）与
+ * entryKey/裸数字 ID 不在映射内（原样透传）。
+ */
+export const LEGACY_T_CODE_MAP: Readonly<Record<string, string>> = {
+  s: 'c7=28',
+  '4k': 'c7=347',
+  uncensored: 'c7=345',
+};
+
+/**
+ * 白名单值读时归一（存储零迁移）：存量 legacy 值读时归一到新形态，经新 UI 保存后
+ * 落盘即归一形态（幂等）。legacy「不限制(全选)」29 值签名须用原始值先判 → 空
+ * （= 不限制）——归一前判（归一后 s/4k/uncensored 已不可识别）。
+ */
+export function mapLegacyWhitelistValues(
+  values: readonly string[] | null | undefined,
+): string[] {
+  if (!Array.isArray(values)) return [];
+  if (isLegacyUnlimitedCategoryValues(values)) return [];
+  const out: string[] = [];
+  for (const raw of values) {
+    const v = typeof raw === 'string' ? raw.trim() : '';
+    if (!v) continue;
+    out.push(LEGACY_T_CODE_MAP[v] ?? v);
+  }
+  return out;
+}
+
 /**
  * 拆分新作品类别白名单勾选值：t 码（s/p/d/c/4k/uncensored）+ 类别 entryKey
  * （entryKey/裸数字 id 经字典归一，未知丢弃）。
@@ -181,105 +218,55 @@ export function buildCategoryUrlParams(
   return { t, byDim, dropped, notUrlAppliable };
 }
 
-/** 演员扫描并集展开的数字类别上限（超过则降级单请求 AND，见 buildActorScanRequests）。 */
-export const ACTOR_SCAN_UNION_MAX_CATEGORIES = 5;
-
-/** 白名单勾选值 → 演员扫描输入。 */
+/** 白名单勾选值 → 演员扫描输入（10-08 线：单一 t 值集合，AND 语义）。 */
 export interface ActorScanInputs {
-  /** 基础过滤 t 码（s/p/d/c/4k/uncensored，勾选集遍历序） */
-  letters: string[];
-  /** 数字类别 ID（entryKey 取 id，勾选集遍历序、已去重） */
-  nums: string[];
+  /** 单一 ?t= 值集：属性字母 + 数字类别 ID + c9 时长伪 ID，渲染序、去重 */
+  tValues: string[];
   /** 字典外/无法识别值（已丢弃，调用方告警） */
   dropped: string[];
 }
 
 /**
- * 白名单勾选值 → 演员扫描输入（字母 + 数字类别 ID）。
- * legacy「不限制(全选)」29 值签名经 splitNewWorksFilterValues 视为空 →
- * letters/nums 皆空 → 调用方得到 1 条裸演员页 URL（= 不限制），零迁移口径不破。
- * 307 项数字类别不分维度一律生效（不再按 appliesToUrl 分治：演员页 cN= 是 no-op）。
+ * 白名单勾选值 → 演员扫描输入（10-08 线：单请求 ?t= 多值 = AND 交集，D4 真机实证）。
+ * 读时归一优先（mapLegacyWhitelistValues）；legacy「不限制(全选)」29 值签名 →
+ * tValues 空 → 调用方得到 1 条裸演员页 URL（= 不限制），零迁移口径不破。
+ * tValues 序 = 渲染序：属性组（p,d,c 固定序）→ c1..c9 维度 dimensionOrder →
+ * 维度内条目序；类别值取字典条目数字 ID（c9 伪 ID 为字符串 id，原样）。
  */
 export function deriveActorScanInputs(
-  values: readonly string[],
+  values: readonly string[] | null | undefined,
   dict: CategoryDictionary = DEFAULT_DICT,
 ): ActorScanInputs {
-  const { t, categoryKeys, dropped } = splitNewWorksFilterValues(values, dict);
-  const nums: string[] = [];
-  for (const key of categoryKeys) {
-    const parsed = parseEntryKey(key);
-    if (parsed && !nums.includes(parsed.id)) nums.push(parsed.id);
+  const mapped = mapLegacyWhitelistValues(values);
+  const { t, categoryKeys, dropped } = splitNewWorksFilterValues(mapped, dict);
+  const keySet = new Set(categoryKeys);
+  const tValues: string[] = [];
+  for (const code of ATTR_T_CODES) {
+    if (t.includes(code)) tValues.push(code);
   }
-  return { letters: t, nums, dropped };
+  const source = dict.sources[SITE];
+  for (const dim of source.dimensionOrder) {
+    for (const entry of source.dimensions[dim]?.entries ?? []) {
+      if (keySet.has(entryKey(dim, entry.id))) tValues.push(String(entry.id));
+    }
+  }
+  return { tValues, dropped };
 }
 
 /**
- * 演员扫描请求列表（path+query 形态；域名/线路由调用方经 buildJavDBUrl 逐条组装）。
- * 三档（coord 定稿）：
- * - N=0 → 1 项（仅字母；字母也空 = 裸演员 URL，照既有「不限制」处理，不加 sort_type）
- * - 1<=N<=max → N 项，每项 = 字母 + 一个数字（并集：抓取属于任一已勾选类别的作品；
- *   站点 ?t= 多值是 AND 交集，单请求拼多个数字会把并集压成交集甚至 0 结果）
- * - N>max → 1 项（字母 + 全部数字，退化为 AND 交集，避免扫描时长随类别数线性膨胀）
- * 数字顺序 = 勾选集现有遍历序；演员页永不拼 cN=。
+ * 演员扫描请求（单请求形态；域名/线路由调用方经 buildJavDBUrl 组装）。
+ * 10-08 线：tValues 非空 → 单请求 ?t=<逗号拼>&sort_type=0（多值 = AND 交集）；
+ * tValues 空 → 裸演员 URL（= 不限制，不加 sort_type，照既有处理）。
+ * 永不拼 cN=（演员页 ?cN= 被站点静默忽略 = no-op）。
  */
 export function buildActorScanRequests(
   actorId: string,
-  letters: readonly string[],
-  nums: readonly string[],
-  maxUnionCategories: number = ACTOR_SCAN_UNION_MAX_CATEGORIES,
-): string[] {
-  const base = `/actors/${actorId}`;
-  const cleanLetters = (letters ?? []).filter((v) => typeof v === 'string' && v.length > 0);
-  const cleanNums = (nums ?? []).filter((v) => typeof v === 'string' && v.length > 0);
-  const withT = (tValues: string[]): string =>
-    tValues.length > 0 ? `${base}?t=${tValues.join(',')}&sort_type=0` : base;
-  if (cleanNums.length === 0) return [withT(cleanLetters)];
-  if (cleanNums.length <= maxUnionCategories) {
-    return cleanNums.map((num) => withT([...cleanLetters, num]));
-  }
-  return [withT([...cleanLetters, ...cleanNums])];
-}
-
-/** 多类别响应合并结果（作品列表 + 计数，供日志与单测）。 */
-export interface ActorWorksMergeResult<T> {
-  works: T[];
-  /** 实际参与合并的响应数（非数组/null 页不计） */
-  pages: number;
-  /** 因 video ID 重复被丢弃的条目数 */
-  duplicates: number;
-}
-
-/**
- * 合并同一演员多个类别响应：按 video ID 并集去重、保留首现顺序。
- * 键口径 = javdbId（列表 href 内的 JavDB 视频 ID）优先，缺失回退 id（番号或 JavDB ID）；
- * 两者皆空的条目原样保留（不猜身份，避免静默丢片）。
- */
-export function mergeActorWorksResponses<T extends { id?: string; javdbId?: string }>(
-  pages: readonly (readonly T[] | null | undefined)[],
-): ActorWorksMergeResult<T> {
-  const works: T[] = [];
-  const seen = new Set<string>();
-  let duplicates = 0;
-  let pageCount = 0;
-  for (const page of pages ?? []) {
-    if (!Array.isArray(page)) continue;
-    pageCount += 1;
-    for (const work of page) {
-      if (!work) continue;
-      const key = String(work.javdbId ?? work.id ?? '');
-      if (!key) {
-        works.push(work);
-        continue;
-      }
-      if (seen.has(key)) {
-        duplicates += 1;
-        continue;
-      }
-      seen.add(key);
-      works.push(work);
-    }
-  }
-  return { works, pages: pageCount, duplicates };
+  tValues: readonly string[],
+): string {
+  const clean = (tValues ?? []).filter((v) => typeof v === 'string' && v.length > 0);
+  return clean.length > 0
+    ? `/actors/${actorId}?t=${clean.join(',')}&sort_type=0`
+    : `/actors/${actorId}`;
 }
 
 /**

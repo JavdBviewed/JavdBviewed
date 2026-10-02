@@ -8,14 +8,13 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
-  ACTOR_SCAN_UNION_MAX_CATEGORIES,
   applyCategoryBlackFilter,
   buildActorScanRequests,
   buildCategoryUrlParams,
   deriveActorScanInputs,
   isLegacyUnlimitedCategoryValues,
   looksLikeLoginPage,
-  mergeActorWorksResponses,
+  mapLegacyWhitelistValues,
   normalizeCategoryBlackValues,
   splitNewWorksFilterValues,
   type RawDetailDocument,
@@ -462,114 +461,97 @@ describe('applyCategoryBlackFilter', () => {
   });
 });
 
-// ---------- 10-01-newworks-whitelist-merge：演员扫描请求展开 / 并集合并 ----------
+// ---------- 10-08-newworks-whitelist-and：演员扫描单请求 AND（并集多请求已废止） ----------
 
-describe('deriveActorScanInputs（白名单勾选值 → 字母 + 数字类别）', () => {
-  it('entryKey 取 id，按勾选集遍历序、去重；跨维度（含旧标 appliesToUrl=false）一律进 nums', () => {
+describe('mapLegacyWhitelistValues（legacy 值读时归一，存储零迁移）', () => {
+  it('legacy t 码 → 同名字典项数字 entryKey（s→c7=28 / 4k→c7=347 / uncensored→c7=345）', () => {
+    expect(mapLegacyWhitelistValues(['s', '4k', 'uncensored'])).toEqual(['c7=28', 'c7=347', 'c7=345']);
+  });
+
+  it('legacy「不限制(全选)」29 值签名 → 空（= 不限制，原始值先判）', () => {
+    expect(isLegacyUnlimitedCategoryValues(LEGACY_ALL)).toBe(true);
+    expect(mapLegacyWhitelistValues(LEGACY_ALL)).toEqual([]);
+  });
+
+  it('属性 t 码 p/d/c 原样透传（非类别、不进字典）', () => {
+    expect(mapLegacyWhitelistValues(['p', 'd', 'c'])).toEqual(['p', 'd', 'c']);
+  });
+
+  it('entryKey / 裸数字 ID 原样透传、顺序保持', () => {
+    expect(mapLegacyWhitelistValues(['c1=157', 's', '28'])).toEqual(['c1=157', 'c7=28', '28']);
+  });
+
+  it('幂等：输出再归一一次不变', () => {
+    const once = mapLegacyWhitelistValues(['s', '4k', 'uncensored', 'p', 'c4=17']);
+    expect(mapLegacyWhitelistValues(once)).toEqual(once);
+  });
+
+  it('空 / undefined 输入 → 空', () => {
+    expect(mapLegacyWhitelistValues([])).toEqual([]);
+    expect(mapLegacyWhitelistValues(undefined as any)).toEqual([]);
+  });
+});
+
+describe('deriveActorScanInputs（白名单勾选值 → 单一 t 值集合，AND 语义）', () => {
+  it('entryKey → 数字 ID，渲染序（c1..c9 维度序 → 维度内条目序）、去重；legacy s 归一为 c7=28', () => {
     const r = deriveActorScanInputs(['s', 'c4=17', 'c6=93', 'c1=157', 'c4=17']);
-    expect(r.letters).toEqual(['s']);
-    expect(r.nums).toEqual(['17', '93', '157']);
+    expect(r.tValues).toEqual(['157', '17', '93', '28']);
     expect(r.dropped).toEqual([]);
   });
 
-  it('裸数字 id 经字典归一后进 nums；字典外值进 dropped', () => {
+  it('属性组 p/d/c 居 tValues 前（渲染序：属性组 → c1..c9）', () => {
+    const r = deriveActorScanInputs(['c7=28', 'p', 'c1=157']);
+    expect(r.tValues).toEqual(['p', '157', '28']);
+    expect(deriveActorScanInputs(['c', 'p']).tValues).toEqual(['p', 'c']);
+  });
+
+  it('裸数字 id 经字典归一后进 tValues；字典外值进 dropped', () => {
     const r = deriveActorScanInputs(['28', '999999']);
-    expect(r.nums).toEqual(['28']);
+    expect(r.tValues).toEqual(['28']);
     expect(r.dropped).toEqual(['999999']);
   });
 
-  it('legacy「不限制(全选)」29 值签名 → letters/nums 皆空（= 不限制，零迁移口径）', () => {
-    expect(isLegacyUnlimitedCategoryValues(LEGACY_ALL)).toBe(true);
+  it('c9 伪 ID（字符串 id）原样进集，与属性 + 数字混合同集', () => {
+    const r = deriveActorScanInputs(['c9=45-90', 'c', 'c7=28']);
+    expect(r.tValues).toEqual(['c', '28', '45-90']);
+    expect(r.dropped).toEqual([]);
+  });
+
+  it('legacy「不限制(全选)」29 值签名 → tValues 空（= 不限制，零迁移口径）', () => {
     const r = deriveActorScanInputs(LEGACY_ALL);
-    expect(r).toEqual({ letters: [], nums: [], dropped: [] });
+    expect(r).toEqual({ tValues: [], dropped: [] });
   });
 
-  it('空输入 / 仅 t 码 → nums 空', () => {
-    expect(deriveActorScanInputs([]).nums).toEqual([]);
-    expect(deriveActorScanInputs(['p', 'd'])).toEqual({ letters: ['p', 'd'], nums: [], dropped: [] });
-  });
-});
-
-describe('buildActorScanRequests（三档展开，path+query 形态）', () => {
-  it('N=0 且有字母 → 1 项（仅字母）', () => {
-    expect(buildActorScanRequests('B8gBr', ['s', '4k'], [])).toEqual([
-      '/actors/B8gBr?t=s,4k&sort_type=0',
-    ]);
-  });
-
-  it('N=0 且字母也空 → 1 项裸演员 URL（不加 sort_type，照既有「不限制」处理）', () => {
-    expect(buildActorScanRequests('B8gBr', [], [])).toEqual(['/actors/B8gBr']);
-  });
-
-  it('1<=N<=5 → N 项，每项 = 字母 + 一个数字（并集），顺序照勾选集遍历序', () => {
-    expect(buildActorScanRequests('AzVy0', ['s'], ['48', '212'])).toEqual([
-      '/actors/AzVy0?t=s,48&sort_type=0',
-      '/actors/AzVy0?t=s,212&sort_type=0',
-    ]);
-    const five = buildActorScanRequests('MmnyQ', [], ['48', '212', '17', '93', '28']);
-    expect(five).toHaveLength(5);
-    expect(five[4]).toBe('/actors/MmnyQ?t=28&sort_type=0');
-    expect(five.every((u) => u.includes('&sort_type=0'))).toBe(true);
-    expect(five.some((u) => /c\d=/.test(u))).toBe(false); // 演员页永不拼 cN=
-  });
-
-  it('N>5 → 1 项（字母 + 全部数字，降级 AND 交集）', () => {
-    const nums = ['1', '2', '3', '4', '5', '6'];
-    expect(buildActorScanRequests('MmnyQ', ['s'], nums)).toEqual([
-      `/actors/MmnyQ?t=s,${nums.join(',')}&sort_type=0`,
-    ]);
-    expect(ACTOR_SCAN_UNION_MAX_CATEGORIES).toBe(5);
-  });
-
-  it('max 可注入（测试用小上限同样按三档展开）', () => {
-    expect(buildActorScanRequests('x', [], ['1', '2', '3'], 2)).toEqual([
-      '/actors/x?t=1,2,3&sort_type=0',
-    ]);
-    expect(buildActorScanRequests('x', [], ['1', '2'], 2)).toEqual([
-      '/actors/x?t=1&sort_type=0',
-      '/actors/x?t=2&sort_type=0',
-    ]);
-  });
-
-  it('空串/非字符串值过滤，不产出空 t 值', () => {
-    expect(buildActorScanRequests('x', ['', 's'] as any, [''] as any)).toEqual(['/actors/x?t=s&sort_type=0']);
+  it('空输入 / 仅字母 → tValues 为属性组字母', () => {
+    expect(deriveActorScanInputs([])).toEqual({ tValues: [], dropped: [] });
+    expect(deriveActorScanInputs(['p', 'd'])).toEqual({ tValues: ['p', 'd'], dropped: [] });
   });
 });
 
-describe('mergeActorWorksResponses（多类别响应并集合并）', () => {
-  const w = (id: string, javdbId: string) => ({ id, javdbId, title: `${id} 标题` });
-
-  it('按 video ID 并集去重、保留首现顺序', () => {
-    const a = [w('AAA-001', 'x1'), w('AAA-002', 'x2')];
-    const b = [w('AAA-002', 'x2'), w('AAA-003', 'x3')];
-    const r = mergeActorWorksResponses([a, b]);
-    expect(r.works.map((x) => x.javdbId)).toEqual(['x1', 'x2', 'x3']);
-    expect(r.pages).toBe(2);
-    expect(r.duplicates).toBe(1);
+describe('buildActorScanRequests（单请求 ?t= 多值 = AND 交集，D4 真机实证）', () => {
+  it('tValues 非空 → 单请求 ?t=<逗号拼>&sort_type=0', () => {
+    expect(buildActorScanRequests('B8gBr', ['p', '157', '28'])).toBe(
+      '/actors/B8gBr?t=p,157,28&sort_type=0',
+    );
   });
 
-  it('javdbId 缺失回退 id 作键', () => {
-    const r = mergeActorWorksResponses([[{ id: 'SSIS-001' }], [{ id: 'SSIS-001' }, { id: 'SSIS-002' }]] as any);
-    expect(r.works.map((x: any) => x.id)).toEqual(['SSIS-001', 'SSIS-002']);
-    expect(r.duplicates).toBe(1);
+  it('tValues 空 → 裸演员 URL（不加 sort_type，照既有「不限制」处理）', () => {
+    expect(buildActorScanRequests('B8gBr', [])).toBe('/actors/B8gBr');
   });
 
-  it('null / 非数组页不计入 pages；空数组页保留计数', () => {
-    const r = mergeActorWorksResponses([null, undefined, [], [w('A-1', 'a1')]] as any);
-    expect(r.pages).toBe(2);
-    expect(r.works).toHaveLength(1);
+  it('多值（属性 + 数字 + c9 伪 ID）单请求 join、顺序保持、永不拼 cN=', () => {
+    const url = buildActorScanRequests('MmnyQ', ['p', 'd', 'c', '157', '17', '45-90']);
+    expect(url).toBe('/actors/MmnyQ?t=p,d,c,157,17,45-90&sort_type=0');
+    expect(/c\d=/.test(url)).toBe(false);
   });
 
-  it('键皆空的条目原样保留（不猜身份，避免静默丢片）', () => {
-    const r = mergeActorWorksResponses([[{ title: '无键一' }, { title: '无键二' }]] as any);
-    expect(r.works).toHaveLength(2);
-    expect(r.duplicates).toBe(0);
+  it('多值（>5）仍单请求（无并集 fan-out / 无降级档）', () => {
+    const tValues = ['1', '2', '3', '4', '5', '6', '7'];
+    expect(buildActorScanRequests('x', tValues)).toBe(`/actors/x?t=${tValues.join(',')}&sort_type=0`);
   });
 
-  it('单页 = 原样（零并集开销）', () => {
-    const only = [w('ONE-1', 'o1')];
-    const r = mergeActorWorksResponses([only]);
-    expect(r.works).toEqual(only);
-    expect(r.pages).toBe(1);
+  it('空串值过滤，不产出空 t 值', () => {
+    expect(buildActorScanRequests('x', ['', 'p'] as any)).toBe('/actors/x?t=p&sort_type=0');
+    expect(buildActorScanRequests('x', ['', ''] as any)).toBe('/actors/x');
   });
 });

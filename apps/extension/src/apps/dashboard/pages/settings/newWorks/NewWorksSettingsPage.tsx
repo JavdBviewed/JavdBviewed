@@ -4,7 +4,8 @@
  *
  * 用 SettingSection/SettingField/SettingToggleRow 体系重建原「新作品设置」弹窗 4 区块
  * （扫描/入口/过滤/清理）；文案经 10-06 线用户批复精简（未列文案仍继承旧 configModal 口径）。
- * 白/黑类别面板各加搜索框（本地态不入 form）与清空按钮；计数口径=字典类别数（白名单不含 t 码）。
+ * 白名单合并列表 = 属性组 3 项（可播放 p / 含磁鏈 d / 含字幕 c）+ 311 字典项，AND 交集语义（10-08 线）；
+ * 白/黑类别面板各加搜索框（本地态不入 form）与清空按钮；计数口径=白名单勾选总数（含属性组）/黑名单字典项数。
  * 纯自动保存（1s 防抖 + 卸载 flush）；落盘后重启调度器；存储键与逻辑层零改动。
  * @module apps/dashboard/pages/settings/newWorks
  */
@@ -17,14 +18,12 @@ import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import { useDebouncedSettingsSave } from '../shared/settingsPersist';
 import { loadNewWorksSettingsForm, persistNewWorksForm, toast } from './newWorksSettingsActions';
 import {
-  deriveWhitelistDegradation,
   filterCategoryDimGroups,
   getNewWorksCategoryDimGroups,
-  getNewWorksWhitelistTags,
   DEFAULT_NEW_WORKS_SETTINGS_FORM,
+  NEW_WORKS_ATTR_ITEMS,
   type NewWorksSettingsFormState,
 } from './newWorksSettingsModel';
-import { splitNewWorksFilterValues } from '../../../../../features/newWorks/categoryFilter';
 import { entryKey } from '@javdb/video-category-dict';
 
 const AUTO_SAVE_MS = 1000;
@@ -116,17 +115,20 @@ export function NewWorksSettingsPage() {
     [updateForm],
   );
 
-  const whitelistTags = getNewWorksWhitelistTags();
   const dimGroups = getNewWorksCategoryDimGroups();
   const whitelistSet = new Set(form.whitelistValues);
   const blacklistSet = new Set(form.blacklistValues);
-  const degradation = deriveWhitelistDegradation(form.whitelistValues);
-  /** 白名单计数口径（10-06 线）：只计 311 字典类别，不含 6 个硬性条件 t 码；计数与搜索无关 */
-  const whitelistCount = splitNewWorksFilterValues(form.whitelistValues).categoryKeys.length;
+  /** 白名单计数口径（10-08 线）：勾选总数（含属性组 3 项）；计数与搜索无关 */
+  const whitelistCount = form.whitelistValues.length;
   const wlQuery = whitelistQuery.trim();
   const blQuery = blacklistQuery.trim();
   const wlVisibleGroups = filterCategoryDimGroups(dimGroups, whitelistQuery);
   const blVisibleGroups = filterCategoryDimGroups(dimGroups, blacklistQuery);
+  const wlAttrVisible =
+    wlQuery === ''
+      ? NEW_WORKS_ATTR_ITEMS
+      : NEW_WORKS_ATTR_ITEMS.filter((a) => a.label.toLowerCase().includes(wlQuery.toLowerCase()));
+  const wlAttrChecked = NEW_WORKS_ATTR_ITEMS.filter((a) => whitelistSet.has(a.value)).length;
 
   return (
     <SettingsPageFrame
@@ -276,7 +278,7 @@ export function NewWorksSettingsPage() {
                 <div className="min-w-0 flex-1">
                   <h4 className="m-0 text-[13.5px] font-bold text-[var(--color-fg)]">只抓这些类别</h4>
                   <p className="mt-1 mb-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
-                    勾选后，只抓属于任一已选类别的作品（沾一个就算）；一类都不勾 = 不按类别限制。下面的硬性条件叠加生效：勾选的每项，最终抓到的作品都必须满足。
+                    勾选后，只抓同时满足全部已勾选项的作品（AND 交集）；全不勾 = 不限制。不确定的类别宁可少勾，勾得越多范围越窄；要排除某类作品用下面的黑名单。
                   </p>
                 </div>
                 <div className="shrink-0 text-[12.5px] text-[var(--color-fg-muted)]">
@@ -284,7 +286,7 @@ export function NewWorksSettingsPage() {
                   <strong id="nwCategoryWhitelistCount" className="text-[var(--color-fg)]">
                     {whitelistCount}
                   </strong>{' '}
-                  个类别
+                  项
                   {form.whitelistValues.length > 0 ? (
                     <button
                       type="button"
@@ -296,13 +298,6 @@ export function NewWorksSettingsPage() {
                       清空
                     </button>
                   ) : null}
-                  <span
-                    id="nwCategoryWhitelistWarn"
-                    className="ml-2 text-[var(--color-danger,#c0392b)]"
-                    hidden={!degradation.degraded}
-                  >
-                    {degradation.warnText}
-                  </span>
                 </div>
               </div>
 
@@ -316,32 +311,39 @@ export function NewWorksSettingsPage() {
                 />
               </div>
 
-              <div className="mt-2 text-[12.5px] font-semibold text-[var(--color-fg)]">硬性条件（叠加在类别之上，勾选的每项都要满足）</div>
-              <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
-                {whitelistTags.map((tag) => (
-                  <label key={tag.value} className="flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-fg)]">
-                    <input
-                      type="checkbox"
-                      className={`nw-whitelist-t-checkbox ${CHECKBOX_CLASS}`}
-                      value={tag.value}
-                      checked={whitelistSet.has(tag.value)}
-                      onChange={() => toggleWhitelistValue(tag.value)}
-                    />
-                    {tag.label}
-                  </label>
-                ))}
-              </div>
-
-              <div className="mt-2 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
-                例：这里勾“4K”＋下面勾“淫亂真實”= 只抓 4K 的淫亂真實。
-                <br />
-                提示：单体作品 / 4K / 无码流出 在下方“類別”里也有同名项，只勾一头：要“必须是”就勾这里，要“这类全抓（不限类别）”就勾下面的。
-              </div>
-
-              {wlQuery !== '' && wlVisibleGroups.length === 0 ? (
+              {wlQuery !== '' && wlAttrVisible.length === 0 && wlVisibleGroups.length === 0 ? (
                 <p className="m-0 mt-2 text-[12px] text-[var(--color-fg-muted)]">没有匹配的类别</p>
               ) : null}
               <div className="mt-2 flex flex-col gap-2">
+                <details
+                  id="nwCatDimWhitelist-attr"
+                  open={wlQuery !== ''}
+                  className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)]"
+                >
+                  <summary className="cursor-pointer select-none px-3 py-2 text-[12.5px] font-semibold text-[var(--color-fg)]">
+                    属性
+                    <span className="ml-2 font-normal text-[var(--color-fg-muted)]">
+                      已选 {wlAttrChecked}/{NEW_WORKS_ATTR_ITEMS.length}
+                    </span>
+                  </summary>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-3 pb-2 sm:grid-cols-3 md:grid-cols-4">
+                    {wlAttrVisible.map((a) => (
+                      <label
+                        key={a.value}
+                        className="flex cursor-pointer items-center gap-2 text-[12px] text-[var(--color-fg)]"
+                      >
+                        <input
+                          type="checkbox"
+                          className={`nw-whitelist-checkbox ${CHECKBOX_CLASS}`}
+                          value={a.value}
+                          checked={whitelistSet.has(a.value)}
+                          onChange={() => toggleWhitelistValue(a.value)}
+                        />
+                        {a.label}
+                      </label>
+                    ))}
+                  </div>
+                </details>
                 {wlVisibleGroups.map((dim) => (
                   <details
                     key={dim.key}
