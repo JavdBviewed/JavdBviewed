@@ -276,7 +276,7 @@ export function NewWorksSettingsPage() {
                 <div className="min-w-0 flex-1">
                   <h4 className="m-0 text-[13.5px] font-bold text-[var(--color-fg)]">只抓这些类别</h4>
                   <p className="mt-1 mb-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
-                    勾选后，只抓属于这些类别的作品（沾一个就算）；一项都不勾 = 所有类别都抓。
+                    勾选后，只抓属于任一已选类别的作品（沾一个就算）；一类都不勾 = 不按类别限制。下面的硬性条件叠加生效：勾选的每项，最终抓到的作品都必须满足。
                   </p>
                 </div>
                 <div className="shrink-0 text-[12.5px] text-[var(--color-fg-muted)]">
@@ -316,7 +316,7 @@ export function NewWorksSettingsPage() {
                 />
               </div>
 
-              <div className="mt-2 text-[12.5px] font-semibold text-[var(--color-fg)]">硬性条件（勾选的每项都要满足）</div>
+              <div className="mt-2 text-[12.5px] font-semibold text-[var(--color-fg)]">硬性条件（叠加在类别之上，勾选的每项都要满足）</div>
               <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
                 {whitelistTags.map((tag) => (
                   <label key={tag.value} className="flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-fg)]">
@@ -330,6 +330,12 @@ export function NewWorksSettingsPage() {
                     {tag.label}
                   </label>
                 ))}
+              </div>
+
+              <div className="mt-2 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
+                例：这里勾“4K”＋下面勾“淫亂真實”= 只抓 4K 的淫亂真實。
+                <br />
+                提示：单体作品 / 4K / 无码流出 在下方“類別”里也有同名项，只勾一头：要“必须是”就勾这里，要“这类全抓（不限类别）”就勾下面的。
               </div>
 
               {wlQuery !== '' && wlVisibleGroups.length === 0 ? (
