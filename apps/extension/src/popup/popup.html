@@ -48,7 +48,12 @@
 
         <div class="main-grid">
             <div class="filters-left main-controls">
-                <div class="section-title">番号过滤</div>
+                <!-- 10-05-popup-more-filter-title：「更多过滤」链接挪到本区块标题行右上角（文字之后），
+                     右对齐靠 .section-title 既有 flex + justify-content: space-between；深链行为不变（bootstrap 按 id 绑定） -->
+                <div class="section-title">
+                    番号过滤
+                    <a id="moreFiltersLink" class="more-link" href="#">更多过滤 →</a>
+                </div>
                 <div id="toggleWatchedContainer"></div>
                 <div id="toggleViewedContainer"></div>
                 <div id="toggleVRContainer"></div>
@@ -63,11 +68,6 @@
                 <div id="toggleHideBlacklistedActorsContainer"></div>
                 <div id="toggleHideNonFavoritedActorsContainer"></div>
                 <div id="toggleHideSubscribedActorsContainer"></div>
-            </div>
-
-            <!-- 10-01-popup-more-filter：「更多过滤」整行右对齐链接（mock V3 方案 B）→ dashboard 内容过滤卡（ListTab）深链 -->
-            <div class="full-row more-row">
-                <a id="moreFiltersLink" class="more-link" href="#">更多过滤 →</a>
             </div>
 
             <div class="full-row">

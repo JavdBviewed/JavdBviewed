@@ -419,7 +419,7 @@ describe('EnhancementSettingsPage layout', () => {
     expect(popupBootstrap).toContain("'显示真实已看的影片'");
   });
 
-  it('drops the unrecognized-actor toggle from the popup and adds the more-filters link (10-01-popup-more-filter)', () => {
+  it('drops the unrecognized-actor toggle from the popup and keeps the more-filters link in the 番号过滤 title row (10-01-popup-more-filter / 10-05-popup-more-filter-title)', () => {
     // 删「无法识别」开关仅 popup 侧（3 处：容器/getElementById/createListEnhancementToggle 调用）；
     // dashboard 侧全部落点（listFilterFields / settings-enhancement.html / model / content）键与行为零改动
     const popupBootstrap = readFileSync(
@@ -434,9 +434,12 @@ describe('EnhancementSettingsPage layout', () => {
     expect(popupHtml).not.toContain('id="toggleHideUnrecognizedActorsContainer"');
     expect(popupBootstrap).not.toContain("getElementById('toggleHideUnrecognizedActorsContainer')");
     expect(popupBootstrap).not.toContain("'hideUnrecognizedActorsInList'");
-    // 2) 「更多过滤」整行链接：存在 + 文案（mock V3 方案 B：整行右对齐文字链接）
+    // 2) 「更多过滤」链接：存在 + 文案。10-05-popup-more-filter-title：原底部整行块（full-row more-row）
+    //    下线、链接移进「番号过滤」section-title 右上角，故此处由正向锁翻为负向锁（结构正锁在
+    //    tests/dom/popupMoreFiltersTitleLink.test.ts）；文案与 id 断言逐字保留。
     expect(popupHtml).toContain('id="moreFiltersLink"');
-    expect(popupHtml).toContain('class="full-row more-row"');
+    expect(popupHtml).not.toContain('class="full-row more-row"');
+    expect(popupHtml).not.toContain('more-row');
     expect(popupHtml).toContain('更多过滤 →');
     expect(popupBootstrap).toContain("getElementById('moreFiltersLink')");
     // 3) 深链目标 = enhancement-settings 的 list 子页 hash（内容过滤卡 ListTab）

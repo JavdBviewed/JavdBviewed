@@ -424,21 +424,17 @@ button {
     min-height: 44px;
 }
 
-/* 10-01-popup-more-filter：「更多过滤」整行右对齐文字链接（视觉基准 = /tmp/popupmock V3 方案 B）。 */
-.more-row {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    min-height: 22px;
-}
-
+/* 10-05-popup-more-filter-title：「更多过滤」链接挪进「番号过滤」标题行右上角，原 .more-row 整行块（flex-end + min-height 22px）下线。
+   右对齐不需新规则：.section-title 已是 display:flex + justify-content:space-between（文字在左、链接在右）；
+   flex-shrink:0 = 左列网格下不被压扁；字号 12px -> 11px（标题 13px/900，链接降一层级），颜色与 :hover 档零改动。 */
 .more-link {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     color: var(--text-secondary);
     text-decoration: none;
     cursor: pointer;
     letter-spacing: .01em;
+    flex-shrink: 0;
 }
 
 .more-link:hover {
