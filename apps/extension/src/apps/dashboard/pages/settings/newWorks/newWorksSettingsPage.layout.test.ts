@@ -80,8 +80,9 @@ describe('NewWorksSettingsPage 四区块与字段', () => {
     expect(concInput).not.toContain('disabled');
   });
 
-  it('文案逐字继承旧 configModal（含 247 线白名单/黑名单口径）', () => {
-    const verbatim = [
+  it('文案锁：未列文案逐字继承旧 configModal（铁口径第 11 条），10-06 线精简新文案逐字（每处 ≥1 条）', () => {
+    // 未列文案一律不动（入口区块/智能内容过滤/跳转链接/自动清理/保存 toast 等）
+    const inherited = [
       '启用自动检查',
       '在后台按设定周期扫描所有已启用订阅的演员。',
       '检查间隔（小时）',
@@ -89,33 +90,65 @@ describe('NewWorksSettingsPage 四区块与字段', () => {
       '并发数量',
       '在演员页显示“扫描新作品”按钮',
       '这是快捷入口。点击后仍会使用这里配置的类别过滤、状态过滤和去重规则。',
-      '排除已标记“看过”',
-      '避免重复收集已经确认看过的作品。',
-      '排除已浏览详情页',
-      '减少对已经点进去看过详情作品的重复提醒。',
-      '排除已标记“想看”',
-      '把已加入待看清单的作品从新作品结果中剔除。',
-      '排除 AR 影片',
-      '过滤掉你不想纳入追踪范围的 AR 类型作品。',
       '时间范围（月）',
       '应用智能内容过滤',
       '联动“功能增强 → 内容过滤”中的隐藏规则，一起过滤不想追踪的作品。',
       '前往内容过滤设置',
-      '白名单（只扫这些）',
-      '勾选后只抓取属于任一已勾选类别的作品（并集）；基础过滤是每部作品都必须同时满足的条件。数字类别勾选超过',
-      '项时降级为「同时满足全部（交集）」，抓取范围会明显收窄。全部不勾 = 不限制。',
-      '基础过滤（作品须同时满足这些）',
-      '类别黑名单（入库前剔除）',
-      '命中勾选类别的影片不会保存（类别取自影片详情解析；解析失败时保留不丢片）。',
       '启用自动清理',
       '自动移除已经处理且超过保留时间的新作品记录。',
       '清理天数',
-      '建议按你的追新节奏设置，例如 30～90 天。',
       '设置已保存',
     ];
-    for (const text of verbatim) {
+    // 10-06 线新文案（用户已批，逐字；警示新模板在 model 侧逐字锁）
+    const fresh = [
+      '设置自动追新的范围与节奏，修改自动保存。',
+      '只抓这些类别',
+      '勾选后，只抓属于这些类别的作品（沾一个就算）；一项都不勾 = 所有类别都抓。',
+      '硬性条件（勾选的每项都要满足）',
+      '这些类别不要',
+      '扫到属于这些类别的作品直接跳过、不入库；解析不到类别时保留、不丢片。',
+      '跳过“已看过”',
+      '跳过“已浏览详情”',
+      '跳过“想看”清单',
+      '不追踪 AR',
+      '按天扫描即可（建议 ≥24 小时）',
+      '请求之间的停顿，建议 ≥3 秒，太频繁容易被站点限制',
+      '同时查几个演员，建议从 1 开始，稳定后再加大',
+      '只看最近几个月的新作，0 = 不限',
+      '超过这个天数且已处理的记录自动清掉，建议 30～90 天',
+      '个类别',
+      '搜索类别',
+      '没有匹配的类别',
+      '清空',
+    ];
+    for (const text of [...inherited, ...fresh]) {
       expect(pageSource).toContain(text);
     }
+  });
+
+  it('两搜索框 + 两清空按钮：新 id / 占位 / aria-label 在位（10-06 线）', () => {
+    expect(pageSource).toContain('id="nwWhitelistSearch"');
+    expect(pageSource).toContain('id="nwBlacklistSearch"');
+    expect(pageSource.split('placeholder="搜索类别"').length - 1).toBe(2);
+    expect(pageSource).toContain('id="nwWhitelistClearBtn"');
+    expect(pageSource).toContain('id="nwBlacklistClearBtn"');
+    expect(pageSource).toContain('aria-label="清空白名单勾选"');
+    expect(pageSource).toContain('aria-label="清空黑名单勾选"');
+  });
+
+  it('计数口径：白名单只计 311 字典类别（不含 6 t 码）、黑名单口径不变（10-06 线）', () => {
+    expect(pageSource).toContain(
+      'const whitelistCount = splitNewWorksFilterValues(form.whitelistValues).categoryKeys.length;',
+    );
+    expect(pageSource).toContain('{form.blacklistValues.length}');
+  });
+
+  it('负锁：白/黑面板无外层 details（311 项区域保持展开，不做整体折叠）', () => {
+    // 全页 <details 恰 2 处：白/黑面板各自 dimGroups.map 内的维度组手风琴；无外层整体折叠 details
+    const detailsCount = (pageSource.match(/<details/g) ?? []).length;
+    expect(detailsCount).toBe(2);
+    expect(pageSource).toContain('id={`nwCatDimWhitelist-${dim.key}`}');
+    expect(pageSource).toContain('id={`nwCatDimBlacklist-${dim.key}`}');
   });
 
   it('白名单/黑名单面板：计数行、动态警示、复选框 class 在位', () => {

@@ -3,7 +3,8 @@
  * @description 新作品设置 React 全页（#tab-settings/new-works-settings）
  *
  * 用 SettingSection/SettingField/SettingToggleRow 体系重建原「新作品设置」弹窗 4 区块
- * （扫描/入口/过滤/清理）；文案逐字继承旧 configModal（含 247 线白名单 h5/desc/警示口径）。
+ * （扫描/入口/过滤/清理）；文案经 10-06 线用户批复精简（未列文案仍继承旧 configModal 口径）。
+ * 白/黑类别面板各加搜索框（本地态不入 form）与清空按钮；计数口径=字典类别数（白名单不含 t 码）。
  * 纯自动保存（1s 防抖 + 卸载 flush）；落盘后重启调度器；存储键与逻辑层零改动。
  * @module apps/dashboard/pages/settings/newWorks
  */
@@ -17,12 +18,13 @@ import { useDebouncedSettingsSave } from '../shared/settingsPersist';
 import { loadNewWorksSettingsForm, persistNewWorksForm, toast } from './newWorksSettingsActions';
 import {
   deriveWhitelistDegradation,
+  filterCategoryDimGroups,
   getNewWorksCategoryDimGroups,
   getNewWorksWhitelistTags,
   DEFAULT_NEW_WORKS_SETTINGS_FORM,
   type NewWorksSettingsFormState,
 } from './newWorksSettingsModel';
-import { ACTOR_SCAN_UNION_MAX_CATEGORIES } from '../../../../../features/newWorks/categoryFilter';
+import { splitNewWorksFilterValues } from '../../../../../features/newWorks/categoryFilter';
 import { entryKey } from '@javdb/video-category-dict';
 
 const AUTO_SAVE_MS = 1000;
@@ -33,6 +35,9 @@ export function NewWorksSettingsPage() {
   const [form, setForm] = useState<NewWorksSettingsFormState>(DEFAULT_NEW_WORKS_SETTINGS_FORM);
   const [loading, setLoading] = useState(true);
   const [saveError, setSaveError] = useState<string | null>(null);
+  /** 类别面板搜索词（10-06 线）：本地 React 态，不入 form、不持久化、切页重置 */
+  const [whitelistQuery, setWhitelistQuery] = useState('');
+  const [blacklistQuery, setBlacklistQuery] = useState('');
   const formRef = useRef(form);
   formRef.current = form;
 
@@ -116,11 +121,17 @@ export function NewWorksSettingsPage() {
   const whitelistSet = new Set(form.whitelistValues);
   const blacklistSet = new Set(form.blacklistValues);
   const degradation = deriveWhitelistDegradation(form.whitelistValues);
+  /** 白名单计数口径（10-06 线）：只计 311 字典类别，不含 6 个硬性条件 t 码；计数与搜索无关 */
+  const whitelistCount = splitNewWorksFilterValues(form.whitelistValues).categoryKeys.length;
+  const wlQuery = whitelistQuery.trim();
+  const blQuery = blacklistQuery.trim();
+  const wlVisibleGroups = filterCategoryDimGroups(dimGroups, whitelistQuery);
+  const blVisibleGroups = filterCategoryDimGroups(dimGroups, blacklistQuery);
 
   return (
     <SettingsPageFrame
       title="新作品设置"
-      description="新作品扫描、入口与过滤。变更自动保存，保存后自动检查调度立即重启。"
+      description="设置自动追新的范围与节奏，修改自动保存。"
       rootDataAttrs={{ 'data-new-works-settings-react': '1' }}
     >
       {loading ? (
@@ -143,7 +154,7 @@ export function NewWorksSettingsPage() {
               <SettingField
                 id="nwCheckInterval"
                 label="检查间隔（小时）"
-                description="建议设置为24小时或更长。建议按天级别扫描，减少无效请求。"
+                description="按天扫描即可（建议 ≥24 小时）"
               >
                 <Input
                   id="nwCheckInterval"
@@ -158,7 +169,7 @@ export function NewWorksSettingsPage() {
               <SettingField
                 id="nwRequestInterval"
                 label="请求间隔（秒）"
-                description="避免频繁请求，建议至少3秒。请求越平稳，越不容易触发站点限制。"
+                description="请求之间的停顿，建议 ≥3 秒，太频繁容易被站点限制"
               >
                 <Input
                   id="nwRequestInterval"
@@ -173,7 +184,7 @@ export function NewWorksSettingsPage() {
               <SettingField
                 id="nwConcurrency"
                 label="并发数量"
-                description="同时检查多少个演员的新作品，建议1-3个，过高可能导致请求失败。建议从 1 开始，确认稳定后再逐步提升。"
+                description="同时查几个演员，建议从 1 开始，稳定后再加大"
               >
                 <Input
                   id="nwConcurrency"
@@ -208,36 +219,32 @@ export function NewWorksSettingsPage() {
           >
             <SettingToggleRow
               id="nwExcludeViewed"
-              label="排除已标记“看过”"
-              description="避免重复收集已经确认看过的作品。"
+              label="跳过“已看过”"
               checked={form.excludeViewed}
               onChange={(v) => updateForm({ excludeViewed: v })}
             />
             <SettingToggleRow
               id="nwExcludeBrowsed"
-              label="排除已浏览详情页"
-              description="减少对已经点进去看过详情作品的重复提醒。"
+              label="跳过“已浏览详情”"
               checked={form.excludeBrowsed}
               onChange={(v) => updateForm({ excludeBrowsed: v })}
             />
             <SettingToggleRow
               id="nwExcludeWant"
-              label="排除已标记“想看”"
-              description="把已加入待看清单的作品从新作品结果中剔除。"
+              label="跳过“想看”清单"
               checked={form.excludeWant}
               onChange={(v) => updateForm({ excludeWant: v })}
             />
             <SettingToggleRow
               id="nwExcludeAR"
-              label="排除 AR 影片"
-              description="过滤掉你不想纳入追踪范围的 AR 类型作品。"
+              label="不追踪 AR"
               checked={form.excludeAR}
               onChange={(v) => updateForm({ excludeAR: v })}
             />
             <SettingField
               id="nwDateRange"
               label="时间范围（月）"
-              description="仅检查最近几个月内发行的作品，0 表示不限制。0 表示不限时间范围，适合第一次全量整理时使用。"
+              description="只看最近几个月的新作，0 = 不限"
             >
               <Input
                 id="nwDateRange"
@@ -267,18 +274,28 @@ export function NewWorksSettingsPage() {
             <div id="nwWhitelistPanel" className="mt-1.5 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2,transparent)] px-3 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <h4 className="m-0 text-[13.5px] font-bold text-[var(--color-fg)]">白名单（只扫这些）</h4>
+                  <h4 className="m-0 text-[13.5px] font-bold text-[var(--color-fg)]">只抓这些类别</h4>
                   <p className="mt-1 mb-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
-                    勾选后只抓取属于任一已勾选类别的作品（并集）；基础过滤是每部作品都必须同时满足的条件。数字类别勾选超过{' '}
-                    {ACTOR_SCAN_UNION_MAX_CATEGORIES} 项时降级为「同时满足全部（交集）」，抓取范围会明显收窄。全部不勾 = 不限制。
+                    勾选后，只抓属于这些类别的作品（沾一个就算）；一项都不勾 = 所有类别都抓。
                   </p>
                 </div>
                 <div className="shrink-0 text-[12.5px] text-[var(--color-fg-muted)]">
                   已选{' '}
                   <strong id="nwCategoryWhitelistCount" className="text-[var(--color-fg)]">
-                    {form.whitelistValues.length}
+                    {whitelistCount}
                   </strong>{' '}
-                  项
+                  个类别
+                  {form.whitelistValues.length > 0 ? (
+                    <button
+                      type="button"
+                      id="nwWhitelistClearBtn"
+                      aria-label="清空白名单勾选"
+                      className="ml-2 rounded-[var(--radius-2)] text-[12.5px] text-[var(--color-primary)] hover:underline focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)]"
+                      onClick={() => updateForm({ whitelistValues: [] })}
+                    >
+                      清空
+                    </button>
+                  ) : null}
                   <span
                     id="nwCategoryWhitelistWarn"
                     className="ml-2 text-[var(--color-danger,#c0392b)]"
@@ -289,7 +306,17 @@ export function NewWorksSettingsPage() {
                 </div>
               </div>
 
-              <div className="mt-3 text-[12.5px] font-semibold text-[var(--color-fg)]">基础过滤（作品须同时满足这些）</div>
+              <div className="mt-2">
+                <Input
+                  id="nwWhitelistSearch"
+                  type="text"
+                  placeholder="搜索类别"
+                  value={whitelistQuery}
+                  onChange={(e) => setWhitelistQuery(e.currentTarget.value)}
+                />
+              </div>
+
+              <div className="mt-2 text-[12.5px] font-semibold text-[var(--color-fg)]">硬性条件（勾选的每项都要满足）</div>
               <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
                 {whitelistTags.map((tag) => (
                   <label key={tag.value} className="flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-fg)]">
@@ -305,11 +332,15 @@ export function NewWorksSettingsPage() {
                 ))}
               </div>
 
+              {wlQuery !== '' && wlVisibleGroups.length === 0 ? (
+                <p className="m-0 mt-2 text-[12px] text-[var(--color-fg-muted)]">没有匹配的类别</p>
+              ) : null}
               <div className="mt-2 flex flex-col gap-2">
-                {dimGroups.map((dim) => (
+                {wlVisibleGroups.map((dim) => (
                   <details
                     key={dim.key}
                     id={`nwCatDimWhitelist-${dim.key}`}
+                    open={wlQuery !== ''}
                     className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)]"
                   >
                     <summary className="cursor-pointer select-none px-3 py-2 text-[12.5px] font-semibold text-[var(--color-fg)]">
@@ -348,9 +379,9 @@ export function NewWorksSettingsPage() {
             <div id="nwBlacklistPanel" className="mt-1.5 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2,transparent)] px-3 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <h4 className="m-0 text-[13.5px] font-bold text-[var(--color-fg)]">类别黑名单（入库前剔除）</h4>
+                  <h4 className="m-0 text-[13.5px] font-bold text-[var(--color-fg)]">这些类别不要</h4>
                   <p className="mt-1 mb-0 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
-                    命中勾选类别的影片不会保存（类别取自影片详情解析；解析失败时保留不丢片）。
+                    扫到属于这些类别的作品直接跳过、不入库；解析不到类别时保留、不丢片。
                   </p>
                 </div>
                 <div className="shrink-0 text-[12.5px] text-[var(--color-fg-muted)]">
@@ -358,15 +389,40 @@ export function NewWorksSettingsPage() {
                   <strong id="nwCategoryBlacklistCount" className="text-[var(--color-fg)]">
                     {form.blacklistValues.length}
                   </strong>{' '}
-                  项
+                  个类别
+                  {form.blacklistValues.length > 0 ? (
+                    <button
+                      type="button"
+                      id="nwBlacklistClearBtn"
+                      aria-label="清空黑名单勾选"
+                      className="ml-2 rounded-[var(--radius-2)] text-[12.5px] text-[var(--color-primary)] hover:underline focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)]"
+                      onClick={() => updateForm({ blacklistValues: [] })}
+                    >
+                      清空
+                    </button>
+                  ) : null}
                 </div>
               </div>
 
+              <div className="mt-2">
+                <Input
+                  id="nwBlacklistSearch"
+                  type="text"
+                  placeholder="搜索类别"
+                  value={blacklistQuery}
+                  onChange={(e) => setBlacklistQuery(e.currentTarget.value)}
+                />
+              </div>
+
+              {blQuery !== '' && blVisibleGroups.length === 0 ? (
+                <p className="m-0 mt-3 text-[12px] text-[var(--color-fg-muted)]">没有匹配的类别</p>
+              ) : null}
               <div className="mt-3 flex flex-col gap-2">
-                {dimGroups.map((dim) => (
+                {blVisibleGroups.map((dim) => (
                   <details
                     key={dim.key}
                     id={`nwCatDimBlacklist-${dim.key}`}
+                    open={blQuery !== ''}
                     className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)]"
                   >
                     <summary className="cursor-pointer select-none px-3 py-2 text-[12.5px] font-semibold text-[var(--color-fg)]">
@@ -418,7 +474,7 @@ export function NewWorksSettingsPage() {
             <SettingField
               id="nwCleanupDays"
               label="清理天数"
-              description="自动清理已读且超过指定天数的作品。建议按你的追新节奏设置，例如 30～90 天。"
+              description="超过这个天数且已处理的记录自动清掉，建议 30～90 天"
             >
               <Input
                 id="nwCleanupDays"
