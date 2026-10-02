@@ -139,7 +139,7 @@ export function NewWorksSettingsPage() {
               checked={form.autoCheckEnabled}
               onChange={(v) => updateForm({ autoCheckEnabled: v })}
             />
-            <div className="grid gap-0.5 sm:grid-cols-3">
+            <div className="grid gap-2 sm:grid-cols-3">
               <SettingField
                 id="nwCheckInterval"
                 label="检查间隔（小时）"
@@ -264,7 +264,7 @@ export function NewWorksSettingsPage() {
               </a>
             </div>
 
-            <div id="nwWhitelistPanel" className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2,transparent)] px-3 py-3">
+            <div id="nwWhitelistPanel" className="mt-1.5 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2,transparent)] px-3 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <h4 className="m-0 text-[13.5px] font-bold text-[var(--color-fg)]">白名单（只扫这些）</h4>
@@ -290,7 +290,7 @@ export function NewWorksSettingsPage() {
               </div>
 
               <div className="mt-3 text-[12.5px] font-semibold text-[var(--color-fg)]">基础过滤（作品须同时满足这些）</div>
-              <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+              <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
                 {whitelistTags.map((tag) => (
                   <label key={tag.value} className="flex cursor-pointer items-center gap-2 text-[12.5px] text-[var(--color-fg)]">
                     <input
@@ -305,7 +305,7 @@ export function NewWorksSettingsPage() {
                 ))}
               </div>
 
-              <div className="mt-2 flex flex-col gap-1">
+              <div className="mt-2 flex flex-col gap-2">
                 {dimGroups.map((dim) => (
                   <details
                     key={dim.key}
@@ -320,7 +320,7 @@ export function NewWorksSettingsPage() {
                         {dim.entries.length}
                       </span>
                     </summary>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-3 pb-2 sm:grid-cols-3 md:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-3 pb-2 sm:grid-cols-3 md:grid-cols-4">
                       {dim.entries.map((e) => {
                         const k = entryKey(dim.key, e.id);
                         return (
@@ -345,7 +345,7 @@ export function NewWorksSettingsPage() {
               </div>
             </div>
 
-            <div id="nwBlacklistPanel" className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2,transparent)] px-3 py-3">
+            <div id="nwBlacklistPanel" className="mt-1.5 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2,transparent)] px-3 py-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <h4 className="m-0 text-[13.5px] font-bold text-[var(--color-fg)]">类别黑名单（入库前剔除）</h4>
@@ -362,7 +362,7 @@ export function NewWorksSettingsPage() {
                 </div>
               </div>
 
-              <div className="mt-3 flex flex-col gap-1">
+              <div className="mt-3 flex flex-col gap-2">
                 {dimGroups.map((dim) => (
                   <details
                     key={dim.key}
@@ -377,7 +377,7 @@ export function NewWorksSettingsPage() {
                         {dim.entries.length}
                       </span>
                     </summary>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-3 pb-2 sm:grid-cols-3 md:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-3 pb-2 sm:grid-cols-3 md:grid-cols-4">
                       {dim.entries.map((e) => {
                         const k = entryKey(dim.key, e.id);
                         return (

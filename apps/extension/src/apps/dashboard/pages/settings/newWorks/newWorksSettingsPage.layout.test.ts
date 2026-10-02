@@ -161,3 +161,36 @@ describe('NewWorksSettingsPage 死码负锁', () => {
     expect(pageSource).not.toContain('newWorksConfigForm');
   });
 });
+
+describe('NewWorksSettingsPage 容器间距（253 线间距修正锁）', () => {
+  const panelClass = 'className="mt-1.5 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2,transparent)] px-3 py-3">';
+
+  it('扫描区 3 列网格：gap-0.5(2px)→gap-2(8px)', () => {
+    expect(pageSource).toContain('<div className="grid gap-2 sm:grid-cols-3">');
+  });
+
+  it('t 码基础过滤网格：行距 6px→8px（gap-y-2，列距 gap-x-4 不动）', () => {
+    expect(pageSource).toContain('<div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">');
+  });
+
+  it('两处手风琴容器（白名单 mt-2 / 黑名单 mt-3）：gap-1(4px)→gap-2(8px)', () => {
+    expect(pageSource).toContain('<div className="mt-2 flex flex-col gap-2">');
+    expect(pageSource).toContain('<div className="mt-3 flex flex-col gap-2">');
+  });
+
+  it('字典网格（白名单+黑名单共 2 处）：行距 6px→8px', () => {
+    const grid = '<div className="grid grid-cols-2 gap-x-4 gap-y-2 px-3 pb-2 sm:grid-cols-3 md:grid-cols-4">';
+    expect(pageSource.split(grid).length - 1).toBe(2);
+  });
+
+  it('白名单/黑名单面板各加 mt-1.5（body 2px + mt 6px = 8px，与上方内容及彼此分离）', () => {
+    expect(pageSource.split(panelClass).length - 1).toBe(2);
+  });
+
+  it('根容器 gap-4 不动；旧紧贴类（gap-0.5/gap-y-1.5/flex-col gap-1）零残留', () => {
+    expect(pageSource).toContain('<div className="flex flex-col gap-4" id="new-works-settings">');
+    expect(pageSource).not.toContain('gap-0.5');
+    expect(pageSource).not.toContain('gap-y-1.5');
+    expect(pageSource).not.toContain('flex-col gap-1');
+  });
+});
