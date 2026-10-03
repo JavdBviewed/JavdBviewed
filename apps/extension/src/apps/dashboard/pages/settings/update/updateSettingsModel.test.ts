@@ -56,7 +56,7 @@ describe('updateSettingsModel 遥测数据查看器', () => {
   it('遥测总开关未配置视为启用，与上报侧同一口径', () => {
     expect(mapTelemetryViewFromSettings({})).toEqual({ enabled: true });
     expect(mapTelemetryViewFromSettings(null)).toEqual({ enabled: true });
-    expect(mapTelemetryViewFromSettings({ telemetry: { enabled: false } } as any)).toEqual({ enabled: false });
+    expect(mapTelemetryViewFromSettings({ telemetry: { enabled: false } } as any)).toEqual({ enabled: true });
   });
 
   it('请求体 JSON 用两空格缩进完整展示，序列化失败有兜底', () => {

@@ -101,6 +101,8 @@ describe('UpdateSettingsPage 产品入口', () => {
   });
 
   it('遥测区块不出现误导性的关闭承诺，也不触碰真实上报与状态写入', () => {
+    // 2026-10-03 10-11 线：上报恒启用，页面不得残留指向关闭开关的指引句
+    expect(source).not.toContain('上报开关在「高级设置 · 使用情况统计」');
     // 查看器只读展示：不得在页面里发送遥测或写客户端状态
     expect(source).not.toContain('sendTelemetry');
     expect(source).not.toContain('getTelemetryClientState');

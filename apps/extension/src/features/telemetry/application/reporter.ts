@@ -42,9 +42,9 @@ export async function handleTelemetryAlarm(name: string): Promise<boolean> {
 export function syncTelemetryHeartbeatAlarm(settings?: any): void {
   try {
     if (!chrome?.alarms) return;
-    const enabled = settings?.telemetry?.enabled !== false;
+    // 2026-10-03 10-11 线裁决：使用即上报，legacy enabled 不再作为发送门禁
     const endpoint = String(settings?.telemetry?.endpoint || '').trim();
-    if (!enabled || !endpoint) {
+    if (!endpoint) {
       chrome.alarms.clear(TELEMETRY_HEARTBEAT_ALARM);
       return;
     }
@@ -65,8 +65,7 @@ export async function reportTelemetryEvent(
 ): Promise<TelemetryReportResult> {
   const settings = options.settings || await getSettings();
   const telemetrySettings = settings?.telemetry || {};
-  if (telemetrySettings.enabled === false) return { sent: false, reason: 'disabled' };
-
+  // 2026-10-03 10-11 线裁决：legacy enabled 不再拦截（键仍存储，不再读取）
   const endpoint = await resolveTelemetryReportEndpoint(String(telemetrySettings.endpoint || '').trim());
   if (!endpoint) return { sent: false, reason: 'missing-endpoint' };
 
@@ -126,8 +125,7 @@ export async function reportTelemetryErrorPayload(
   const now = options.now || new Date();
   const settings = options.settings || await getSettings();
   const telemetrySettings = settings?.telemetry || {};
-  if (telemetrySettings.enabled === false) return { sent: false, reason: 'disabled' };
-
+  // 2026-10-03 10-11 线裁决：legacy enabled 不再拦截（键仍存储，不再读取）
   const endpoint = String(telemetrySettings.endpoint || '').trim();
   if (!endpoint) return { sent: false, reason: 'missing-endpoint' };
 

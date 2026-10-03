@@ -644,9 +644,9 @@ describe('telemetry reporter', () => {
     expect(sendResponse).toHaveBeenCalledWith({ ok: true });
   });
 
-  it('skips reporting when telemetry is disabled', async () => {
+  it('ignores legacy disabled flag: startup event still sends (always-on)', async () => {
     const { reportTelemetryEvent } = await import('../../apps/extension/src/features/telemetry');
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 
     const result = await reportTelemetryEvent('startup', {
       settings: {
@@ -661,8 +661,8 @@ describe('telemetry reporter', () => {
       now: new Date('2026-05-26T02:00:00.000Z'),
     });
 
-    expect(result).toEqual({ sent: false, reason: 'disabled' });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result).toEqual({ sent: true, status: 200 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('skips reporting when endpoint is empty', async () => {
@@ -809,49 +809,43 @@ describe('telemetry reporter', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('does not consume duplicate error throttle while telemetry is disabled', async () => {
+  it('ignores legacy disabled flag: error report still sends and consumes throttle window (always-on)', async () => {
     const { reportTelemetryError } = await import('../../apps/extension/src/features/telemetry');
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     const error = new Error('same private message');
     error.stack = 'Error: same private message\n    at run (chrome-extension://test-runtime/background.js:1:2)';
+    const legacySettings = {
+      ...DEFAULT_SETTINGS,
+      telemetry: {
+        enabled: false,
+        endpoint: 'https://jbd-server.we-together.club/v1/telemetry/report',
+        channel: 'stable',
+      },
+    };
 
-    const disabled = await reportTelemetryError({
+    const first = await reportTelemetryError({
       component: 'background',
       code: 'TEMPORARILY_DISABLED_ERROR',
       error,
       fatal: false,
     }, {
-      settings: {
-        ...DEFAULT_SETTINGS,
-        telemetry: {
-          enabled: false,
-          endpoint: 'https://jbd-server.we-together.club/v1/telemetry/report',
-          channel: 'stable',
-        },
-      },
+      settings: legacySettings,
       fetchImpl: fetchMock,
       now: new Date('2026-05-26T03:00:00.000Z'),
     });
-    const enabled = await reportTelemetryError({
+    const second = await reportTelemetryError({
       component: 'background',
       code: 'TEMPORARILY_DISABLED_ERROR',
       error,
       fatal: false,
     }, {
-      settings: {
-        ...DEFAULT_SETTINGS,
-        telemetry: {
-          enabled: true,
-          endpoint: 'https://jbd-server.we-together.club/v1/telemetry/report',
-          channel: 'stable',
-        },
-      },
+      settings: legacySettings,
       fetchImpl: fetchMock,
       now: new Date('2026-05-26T03:01:00.000Z'),
     });
 
-    expect(disabled).toEqual({ sent: false, reason: 'disabled' });
-    expect(enabled).toEqual({ sent: true, status: 200 });
+    expect(first).toEqual({ sent: true, status: 200 });
+    expect(second).toEqual({ sent: false, reason: 'throttled' });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

@@ -16,11 +16,10 @@ const globalActionsDir = join(here, '..', 'globalActions');
 const countOf = (source: string, needle: string): number => source.split(needle).length - 1;
 
 describe('AdvancedSettingsPage merged layout', () => {
-  it('renders the four original advanced sections plus the three merged global sections', () => {
+  it('renders the three original advanced sections plus the three merged global sections', () => {
     for (const title of [
       '原始配置工作台',
       '原始日志',
-      '使用情况统计',
       '使用建议',
       '全局数据操作',
       '缓存管理',
@@ -28,8 +27,11 @@ describe('AdvancedSettingsPage merged layout', () => {
     ]) {
       expect(pageSource, title).toContain(title);
     }
-    // 4 原有 + 3 并入 = 7 个分组，且不再有第二份页面外框
-    expect(countOf(pageSource, '<SettingSection'), '<SettingSection 总数').toBe(7);
+    // 2026-10-03 10-11 线：「使用情况统计」开关移除（使用即上报，用户不可关闭）
+    expect(pageSource, '「使用情况统计」负锁').not.toContain('使用情况统计');
+    expect(pageSource, 'telemetryEnabled 负锁').not.toContain('id="telemetryEnabled"');
+    // 3 原有 + 3 并入 = 6 个分组，且不再有第二份页面外框
+    expect(countOf(pageSource, '<SettingSection'), '<SettingSection 总数').toBe(6);
     expect(countOf(pageSource, '<SettingsPageFrame'), '<SettingsPageFrame 总数').toBe(1);
     expect(countOf(pageSource, '</SettingsPageFrame>'), '</SettingsPageFrame> 总数').toBe(1);
   });

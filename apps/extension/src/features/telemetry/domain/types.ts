@@ -146,6 +146,7 @@ export interface TelemetryPayload {
 /** 上报结果 */
 export interface TelemetryReportResult {
   sent: boolean;
-  reason?: 'disabled' | 'missing-endpoint' | 'throttled' | 'network-error' | 'http-error';
+  // 2026-10-03 10-11 线：'disabled' 随上报恒启用移除（legacy enabled 不再读取）
+  reason?: 'missing-endpoint' | 'throttled' | 'network-error' | 'http-error';
   status?: number;                                    // HTTP 状态码
 }
