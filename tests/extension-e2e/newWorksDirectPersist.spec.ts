@@ -10,7 +10,7 @@
  * manager.newWorksPersist.test.ts 覆盖。
  * @module tests/extension-e2e
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Worker } from '@playwright/test';
 import path from 'node:path';
 import {
   extensionPageUrl,
@@ -71,6 +71,83 @@ async function pickActorWithRecentWorks(): Promise<E2eActor | null> {
   }
 }
 
+const ROUTE_SEED_STABLE_POLLS = 3;
+const ROUTE_SEED_POLL_MS = 100;
+const ROUTE_SEED_DEADLINE_MS = 12_000;
+
+/**
+ * JavDB 路由锚定稳定写入（10-09 复测实证竞态）：SW 启动期存在一次全量 settings
+ * 初始化写（身份回填等，复测 trace 实证其落盘早于一次性 seed 约 1ms），一次性
+ * 写入会被整体覆盖 → check 读到默认线路 javdb.com（本机不可达）→ SW 后台 tab
+ * 落 chrome-error → 0 发现。此处「写入 + 读回校验 + 漂移重写」，锚定字段连续
+ * ROUTE_SEED_STABLE_POLLS 轮稳定才返回。
+ *
+ * 校验锚定字段而非全量对象：判定目标是 getCurrentRoute 的解析结果，只取决于
+ *   ① preferredUrl === host；
+ *   ② alternatives 含指向 host 的 enabled 条目。
+ * 服务端线路合并会重写整个 alternatives 数组（长度/顺序变化）但按产品契约保留
+ * preferredUrl 与用户自定义备选（mergeRemoteRoutes「保留用户的 preferredUrl」），
+ * 故合并落盘不破坏锚定；合并前后任一时刻发起 check 都收敛到 host。
+ *
+ * 写入仍为完整路由对象（禁止部分 { primary }）：RouteManager 的 getCurrentRoute /
+ * mergeRemoteRoutes 存在 .alternatives.filter 无守卫调用（01-ack 已登记），
+ * 部分对象会抛错致静默全零。
+ */
+async function seedJavdbRouteStably(worker: Worker): Promise<void> {
+  const writeRoute = (): Promise<void> => worker.evaluate((primaryHost) => {
+    return new Promise<void>((resolve) => {
+      chrome.storage.local.get('settings', (current) => {
+        const settings = (current?.settings ?? {}) as Record<string, any>;
+        const existing = (settings.routes?.javdb ?? {}) as Record<string, any>;
+        const existingAlternatives = Array.isArray(existing.alternatives) ? existing.alternatives : [];
+        chrome.storage.local.set({
+          settings: {
+            ...settings,
+            routes: {
+              ...(settings.routes ?? {}),
+              javdb: {
+                ...existing,
+                primary: primaryHost,
+                preferredUrl: primaryHost,
+                alternatives: [
+                  { url: primaryHost, enabled: true, description: 'e2e direct', addedAt: Date.now() },
+                  ...existingAlternatives.filter((alt: any) => alt && alt.url !== primaryHost),
+                ],
+              },
+            },
+          },
+        }, resolve);
+      });
+    });
+  }, JAVDB_E2E_HOST);
+
+  const isRouteAnchored = (): Promise<boolean> => worker.evaluate((host) => new Promise<boolean>((resolve) => {
+    chrome.storage.local.get('settings', (current) => {
+      const javdb = (current?.settings?.routes?.javdb ?? {}) as Record<string, any>;
+      const alts = Array.isArray(javdb.alternatives) ? javdb.alternatives : [];
+      resolve(
+        javdb.preferredUrl === host
+          && alts.some((alt: any) => alt && alt.url === host && alt.enabled === true),
+      );
+    });
+  }), JAVDB_E2E_HOST);
+
+  const deadline = Date.now() + ROUTE_SEED_DEADLINE_MS;
+  let stable = 0;
+  for (let attempt = 1; ; attempt += 1) {
+    await writeRoute();
+    stable = (await isRouteAnchored()) ? stable + 1 : 0;
+    if (stable >= ROUTE_SEED_STABLE_POLLS) return;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `seedJavdbRouteStably: 路由锚定 ${ROUTE_SEED_DEADLINE_MS}ms 内未稳定（第 ${attempt} 轮）；`
+        + '疑 SW 启动期存在新的全量 settings 写者，需人工归因',
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, ROUTE_SEED_POLL_MS));
+  }
+}
+
 test.describe('new works direct IndexedDB persist (#42)', () => {
   // 演员页后台 tab 解析含 3s 基础延迟 + 可能的分页，真机耗时较长
   test.setTimeout(240_000);
@@ -122,26 +199,12 @@ test.describe('new works direct IndexedDB persist (#42)', () => {
         })();
       });
 
-      // 配置路由（保留既有 settings，仅覆盖 javdb 主线路）与订阅
-      await worker.evaluate((primaryHost) => {
-        return new Promise<void>((resolve, reject) => {
-          chrome.storage.local.get('settings', (current) => {
-            const settings = (current?.settings ?? {}) as Record<string, any>;
-            chrome.storage.local.set({
-              settings: {
-                ...settings,
-                routes: {
-                  ...(settings.routes ?? {}),
-                  javdb: {
-                    ...(settings.routes?.javdb ?? {}),
-                    primary: primaryHost,
-                  },
-                },
-              },
-            }, resolve);
-          });
-        });
-      }, JAVDB_E2E_HOST);
+      // 配置路由（稳定写入：SW 启动期全量 settings 初始化写会与一次性 seed 竞态，
+      // 复测实证覆盖落盘早于 seed ~1ms → check 读默认线路 → 0 发现；收敛逻辑见
+      // seedJavdbRouteStably）并锚定 preferredUrl 到目标线路，使「服务端线路合并」
+      // 竞态全分支收敛（合并保留 preferredUrl 与自定义备选 / 合并后 spec 覆写 /
+      // 合并不发生则完整对象直接可用）。getCurrentRoute 恒解析目标线路（本机仅该线路可达）。
+      await seedJavdbRouteStably(worker);
 
       await worker.evaluate((sub) => chrome.storage.local.set({
         new_works_subscriptions: { [sub.actorId]: { ...sub, enabled: true, subscribedAt: Date.now() } },

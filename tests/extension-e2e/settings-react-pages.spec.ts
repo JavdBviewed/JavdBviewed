@@ -9,7 +9,9 @@ import {
 } from '../../scripts/extensionHarness';
 
 const SETTINGS_REACT_PAGES = [
-  { id: 'display-settings', marker: 'data-display-settings-react' },
+  // 10-03 IA 线：display-settings React 页已退役（旧 hash 由 mount.ts 重定向至 enhancement-settings/list）；
+  // spec 跟随盘上 UI：该条目换成接任页，共享 shell 契约覆盖保持 11 页
+  { id: 'enhancement-settings', marker: 'data-enhancement-settings-react' },
   { id: 'search-engine-settings', marker: 'data-search-engine-settings-react' },
   { id: 'ai-settings', marker: 'data-ai-settings-react' },
   { id: 'privacy-settings', marker: 'data-privacy-settings-react' },
@@ -129,7 +131,8 @@ test.describe('settings React pages in Chromium', () => {
         page.locator('[data-advanced-settings-react="1"]').last(),
       );
       expect(new URL(page.url()).hash).toBe('#tab-settings/advanced-settings');
-      for (const title of ['原始配置工作台', '原始日志', '使用情况统计', '使用建议']) {
+      // 10-11 线（e9a0d918c，v259）整体删除 advanced-settings 的「使用情况统计」section；spec 跟随删除
+      for (const title of ['原始配置工作台', '原始日志', '使用建议']) {
         await expect(page.locator('[data-ui-pattern="setting-section"]').filter({ hasText: title })).not.toHaveCount(0);
       }
       for (const id of ['clearAllBtn', 'clearCacheBtn', 'clearTempDataBtn', 'resetSettingsBtn', 'reloadExtensionBtn']) {
@@ -159,6 +162,17 @@ test.describe('settings React pages in Chromium', () => {
       await expect(page.locator('a[href="#tab-settings/advanced-settings"]')).toHaveCount(1);
       await expect(page.locator('.si-card').filter({ hasText: '媒体库设置' })).toHaveCount(1);
       await expect(page.locator('.si-card').filter({ hasText: '原始配置编辑与全局数据操作' })).toHaveCount(1);
+
+      // 10-03 IA 线：display-settings React 页退役，旧 hash 当场重定向到增强列表子 tab；
+      // 负锁：退役 marker 与旧内容根不得复活（spec 跟随退役，不复活产品）
+      await gotoExtensionPage(
+        page,
+        extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/display-settings'),
+        page.locator('[data-enhancement-settings-react="1"]').last(),
+      );
+      expect(new URL(page.url()).hash).toBe('#tab-settings/enhancement-settings/list');
+      await expect(page.locator('[data-display-settings-react="1"]')).toHaveCount(0);
+      await expect(page.locator('[id="display-settings"]')).toHaveCount(0);
     } finally {
       await context.close();
     }
@@ -219,11 +233,13 @@ test.describe('settings React pages in Chromium', () => {
       const extensionId = await readExtensionId(context);
       await suppressReleaseAnnouncementForTest(context);
       const page = await context.newPage();
-      // 8 legacy pages keep the per-page colour wash; the remaining React pages
+      // 7 legacy pages keep the per-page colour wash; the remaining React pages
       // (insights/log/update/cloud/emby/enhancement) reuse the
       // shared shell without a wash, so the wash assertion only applies here.
       const washCues = [
-        ['display-settings', 'data-display-settings-react', '[id="display-settings"]'],
+        // 10-03 IA 线退役 display-settings React 页，本条跟随接任页 enhancement-settings
+        //（共享 shell、无 wash——此处仅断言 page-id 锚点根契约）
+        ['enhancement-settings', 'data-enhancement-settings-react', '[id="enhancement-settings"]'],
         ['search-engine-settings', 'data-search-engine-settings-react', '[id="search-engine-settings"]'],
         ['ai-settings', 'data-ai-settings-react', '[id="ai-settings"]'],
         ['privacy-settings', 'data-privacy-settings-react', '[id="privacy-settings"]'],
@@ -335,7 +351,15 @@ test.describe('settings React pages in Chromium', () => {
       await page.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/display-settings'), {
         waitUntil: 'domcontentloaded',
       });
+      // 10-03 IA 线：display-settings 页退役，旧 hash 当场重定向到增强列表子 tab；
+      // #hideViewed 迁入内容过滤卡 numeric 子 tab（默认激活 pane），卡细节默认折叠（120ms 展开定时器）
+      await expect(page).toHaveURL(/#tab-settings\/enhancement-settings\/list$/);
+      const filterCard = page.locator('[data-enhancement-feature="内容过滤"]');
+      await filterCard.hover();
+      await expect(filterCard).toHaveAttribute('data-expanded', '1');
       const toggle = page.locator('#hideViewed');
+      const toggleRow = page.locator('[data-ui-pattern="setting-toggle-row"]', { has: toggle }).first();
+      await expect(toggleRow).toBeVisible();
       const nextValue = !await toggle.isChecked();
       await toggle.locator('xpath=ancestor::label[1]').click();
       await page.locator('.ssp-back[data-action="back-to-settings"]').click();
@@ -350,11 +374,11 @@ test.describe('settings React pages in Chromium', () => {
     }
   });
 
-  test('shows the actor-penetration hint on display settings and jumps to the enhancement list tab', async ({}, testInfo) => {
+  test('redirects the retired display-settings hash onto the enhancement list tab and keeps the actor penetration switch', async ({}, testInfo) => {
     const harnessOptions = resolveExtensionHarnessOptions({
       ...process.env,
       JAVDB_EXTENSION_USE_CHROME_DATA: '0',
-      JAVDB_EXTENSION_PROFILE: testInfo.outputPath('display-penetration-hint-profile'),
+      JAVDB_EXTENSION_PROFILE: testInfo.outputPath('enhancement-actor-penetration-profile'),
     }, process.cwd());
     const context = await launchExtensionContext(harnessOptions, {
       headless: process.env.JAVDB_EXTENSION_HEADLESS !== '0',
@@ -369,27 +393,37 @@ test.describe('settings React pages in Chromium', () => {
         waitUntil: 'domcontentloaded',
       });
 
-      // 干净 profile：enableActorPenetration 默认 false → 提示条可见
-      const hint = page.locator('#actorPenetrationHint');
-      await expect(hint).toBeVisible();
-      await expect(hint).toContainText('演员穿透');
-      await expect(page.locator('#goEnhancementActorPenetrationBtn')).toBeVisible();
-
-      // 点击跳转 → hash 带列表 tab，enhancement 落在列表页增强，穿透开关可见
-      await page.locator('#goEnhancementActorPenetrationBtn').click();
+      // 10-03 IA 线：display-settings 页退役，旧 hash 当场重定向到增强列表子 tab
       await expect(page).toHaveURL(/#tab-settings\/enhancement-settings\/list$/);
-      await expect(page.locator('[data-enhancement-subtab="list"]')).toBeVisible();
-      // 穿透开关行可见（checkbox 本身是隐藏控件，断言其可点击 label）
-      const penetrationRow = page.locator('#enableActorPenetration').locator('xpath=ancestor::label[1]');
-      await expect(penetrationRow).toBeVisible();
+      await expect(page.locator('[data-enhancement-settings-react="1"]').last()).toBeVisible();
+      // 负锁：退役的提示条与跳转按钮不得复活
+      await expect(page.locator('#actorPenetrationHint')).toHaveCount(0);
+      await expect(page.locator('#goEnhancementActorPenetrationBtn')).toHaveCount(0);
 
-      // 在 enhancement 页开启穿透后，返回 display 页提示条应消失
-      await penetrationRow.click();
-      await expect(page.locator('#enableActorPenetration')).toBeChecked();
+      // 干净 profile：enableActorPenetration 默认 false；开关为演员穿透卡主开关，
+      // 已提升至卡头（恒可见；checkbox 本身是隐藏控件，点其可点击 label）
+      const penetrationToggle = page.locator('#enableActorPenetration');
+      const penetrationRow = page.locator('[data-ui-pattern="setting-toggle-row"]', { has: penetrationToggle }).first();
+      await expect(penetrationRow).toBeVisible();
+      expect(await penetrationToggle.isChecked()).toBe(false);
+      await penetrationToggle.locator('xpath=ancestor::label[1]').click();
+      await expect(penetrationToggle).toBeChecked();
+
+      // 增强页自动保存为 1s 防抖（useDebouncedSettingsSave）；轮询盘上值再继续，
+      // 避免防抖定时器与重导航竞态
+      await expect.poll(async () => page.evaluate(async () => {
+        const state = await chrome.storage.local.get('settings');
+        return (state.settings as { listEnhancement?: { enableActorPenetration?: boolean } } | undefined)
+          ?.listEnhancement?.enableActorPenetration;
+      })).toBe(true);
+
+      // 经退役 hash 重新进入页面（读 storage），开关保持开启——持久化往返
       await page.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/display-settings'), {
         waitUntil: 'domcontentloaded',
       });
-      await expect(page.locator('#actorPenetrationHint')).toHaveCount(0);
+      await expect(page).toHaveURL(/#tab-settings\/enhancement-settings\/list$/);
+      await expect(penetrationRow).toBeVisible();
+      await expect(penetrationToggle).toBeChecked();
     } finally {
       await context.close();
     }
@@ -467,13 +501,35 @@ test.describe('settings React pages in Chromium', () => {
         await page.waitForTimeout(250);
         expect(await section.evaluate((element) => getComputedStyle(element).transform)).not.toBe(cardTransform);
 
-        const toggleRow = page.locator('[data-ui-pattern="setting-toggle-row"]').first();
-        await expect(toggleRow).toBeVisible();
-        await page.mouse.move(0, 0);
-        const rowBackground = await toggleRow.evaluate((element) => getComputedStyle(element).backgroundColor);
-        await toggleRow.hover();
-        await page.waitForTimeout(80);
-        expect(await toggleRow.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(rowBackground);
+        if (pageId === 'enhancement-settings') {
+          // 卡片页（10-03 IA 线）：主开关提升至卡头、卡细节默认折叠，旧口径的 (0,0) 离卡采样点
+          // 与卡 120ms 展开 / 180-420ms 收起定时器竞态（01-ack L432 探针双证）。
+          // 改用卡内 body 行（宽度 ≥100）做确定性 hover 目标，卡头做干净预 hover 点，
+          // 全程鼠标不离卡。
+          await expect(section).toHaveAttribute('data-expanded', '1');
+          const bodyRow = page.locator('[data-ui-pattern="setting-toggle-row"]', {
+            has: page.locator('#hideViewed'),
+          }).first();
+          await expect(bodyRow).toBeVisible();
+          const bodyBox = await bodyRow.boundingBox();
+          expect(bodyBox, 'body 行应有可测盒子').not.toBeNull();
+          expect(bodyBox!.width, 'body 行应为宽确定性目标').toBeGreaterThanOrEqual(100);
+          const cardHeader = section.locator('.enhancement-feature-card__header').first();
+          await cardHeader.hover();
+          const rowBackground = await bodyRow.evaluate((element) => getComputedStyle(element).backgroundColor);
+          await bodyRow.hover();
+          await page.waitForTimeout(250);
+          expect(await bodyRow.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(rowBackground);
+        } else {
+          // webdav/sync/log 无卡片展开定时器，保持原离卡 (0,0) 复位口径
+          const toggleRow = page.locator('[data-ui-pattern="setting-toggle-row"]').first();
+          await expect(toggleRow).toBeVisible();
+          await page.mouse.move(0, 0);
+          const rowBackground = await toggleRow.evaluate((element) => getComputedStyle(element).backgroundColor);
+          await toggleRow.hover();
+          await page.waitForTimeout(80);
+          expect(await toggleRow.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(rowBackground);
+        }
       }
     } finally {
       await context.close();
@@ -535,7 +591,10 @@ test.describe('settings React pages in Chromium', () => {
       await expect(filterToggle).toBeChecked();
       const filterCard = page.locator('[data-enhancement-feature="内容过滤"]');
       await filterCard.hover();
-      await page.waitForTimeout(180);
+      // 卡细节默认折叠（10-03 IA 线）：等 120ms 展开定时器落地，再切到规则子 tab
+      //（09-29-cftabs：默认激活 pane 为 numeric，规则行在 rules pane）
+      await expect(filterCard).toHaveAttribute('data-expanded', '1');
+      await page.locator('#cf-tab-rules').click();
       const rule = page.locator('#filterRulesList > div').first();
       await expect(rule).toBeVisible();
       const ruleBefore = await rule.evaluate((element) => getComputedStyle(element).backgroundColor);
@@ -577,7 +636,12 @@ test.describe('settings React pages in Chromium', () => {
       await expect(page).toHaveURL(/#tab-settings\/search-engine-settings$/);
       const anchor = page.locator('#search-engine-enabled-column');
       await expect(anchor).toBeVisible();
-      await expect(anchor).toHaveClass(/jdb-settings-search-highlight/);
+      // 高亮类落在锚点所属 section 容器（settingsSearchHighlight.findHighlightContainer
+      // 取最近 [data-ui-pattern="setting-section"]），不在锚点列自身；类 1.8s 后移除，窗口内轮询
+      const highlightedSection = page.locator('[data-ui-pattern="setting-section"]', { has: anchor }).first();
+      await expect.poll(async () => await highlightedSection.evaluate((element) =>
+        (element as HTMLElement).classList.contains('jdb-settings-search-highlight'),
+      ), { timeout: 4000, intervals: [100] }).toBe(true);
     } finally {
       await context.close();
     }
@@ -1310,7 +1374,13 @@ test.describe('settings React pages in Chromium', () => {
         expect(await cards.count()).toBeGreaterThan(0);
         for (let index = 0; index < await cards.count(); index += 1) {
           const card = cards.nth(index);
-          await expect(card.locator('.enhancement-feature-name')).not.toContainText('✨');
+          // 240/242 线：「类别快捷操作」（影片）与「去除原站广告」（其他）卡有意使用 ✨ 图标
+          //（ENHANCEMENT_FEATURE_META 缺映射为有意 fallback，01-ack 已登记）；spec 跟随产品：
+          // 图标前缀保留，仅断言标题文本本身非空且不含 ✨
+          const rawName = (await card.locator('.enhancement-feature-name').innerText()).trim();
+          const title = rawName.replace(/^\S+\s+/, '').trim();
+          expect(title, `卡片#${index} 标题应非空: "${rawName}"`).not.toBe('');
+          expect(title, `卡片#${index} 标题不应含 ✨: "${rawName}"`).not.toContain('✨');
           await expect(card.locator('.enhancement-feature-status')).toHaveText(/.+/);
         }
       }
@@ -1515,6 +1585,10 @@ test.describe('settings React pages in Chromium', () => {
       }
       const card = page.locator('[data-enhancement-feature="内容过滤"]');
       await card.hover();
+      // 卡细节默认折叠（10-03 IA 线）：等展开定时器落地，再切到规则子 tab
+      //（09-29-cftabs：加规则按钮在 rules pane，且仅主开关开启时在 DOM）
+      await expect(card).toHaveAttribute('data-expanded', '1');
+      await page.locator('#cf-tab-rules').click();
       await page.locator('#addFilterRule').click();
 
       const modal = page.locator('[data-enhancement-filter-rule-modal="1"]');
