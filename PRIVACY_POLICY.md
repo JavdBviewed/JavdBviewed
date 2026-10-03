@@ -1,6 +1,6 @@
 # 隐私政策 / Privacy Policy
 
-**最后更新日期 / Last Updated**: 2025年1月19日 / January 19, 2025
+**最后更新日期 / Last Updated**: 2026年10月3日 / October 3, 2026
 
 ---
 
@@ -18,7 +18,7 @@ Jav 助手（以下简称"本扩展"）尊重并保护用户的隐私。本隐�
 
 ### 3. 数据收集
 
-本扩展**不会**收集、传输或分享任何可识别个人身份的信息。本扩展仅在您的本地浏览器中存储以下数据：
+本扩展**不会**收集、传输或分享任何可识别个人身份的信息。本扩展在您的本地浏览器中存储以下数据：
 
 #### 3.1 本地存储的数据
 - **视频标记数据**: 您标记为"已浏览"、"已观看"或"想看"的视频番号
@@ -30,6 +30,9 @@ Jav 助手（以下简称"本扩展"）尊重并保护用户的隐私。本隐�
 
 所有这些数据都存储在您的浏览器本地存储（Chrome Storage API）中，**不会**上传到任何第三方服务器。
 
+#### 3.2 匿名使用情况统计
+本扩展在使用期间会向开发者服务器发送匿名使用统计，用于维护和改进扩展。统计内容仅包括扩展版本、运行环境、功能开关状态与数据量级区间，不包含任何可识别个人身份的信息、番号或您观看/浏览的任何视频内容。该上报始终开启。
+
 ### 4. 数据使用
 
 本扩展使用收集的数据仅用于以下目的：
@@ -38,6 +41,7 @@ Jav 助手（以下简称"本扩展"）尊重并保护用户的隐私。本隐�
 - **数据管理**: 提供番号库、演员库的管理功能
 - **云端同步**: 如果您启用了 WebDAV 同步，数据会同步到您自己配置的 WebDAV 服务器
 - **115网盘集成**: 如果您启用了115网盘功能，会与115网盘服务进行交互以推送磁力链接
+- **匿名使用情况统计**: 向开发者发送匿名使用统计，用于维护和改进扩展（详见 3.2）
 
 ### 5. 数据共享
 
@@ -61,7 +65,7 @@ Jav 助手（以下简称"本扩展"）尊重并保护用户的隐私。本隐�
 
 本扩展采取以下措施保护您的数据：
 
-- **本地存储**: 所有数据默认存储在浏览器本地，不上传到任何服务器
+- **本地存储**: 所有数据默认存储在浏览器本地，除 3.2 所述匿名使用情况统计外不外发
 - **加密传输**: 与 WebDAV 服务器和115网盘的通信使用 HTTPS 加密
 - **权限最小化**: 扩展仅请求必要的浏览器权限
 - **开源透明**: 本扩展的源代码在 GitHub 上公开，任何人都可以审查
@@ -121,7 +125,7 @@ Jav Assistant (hereinafter referred to as "this extension") respects and protect
 
 ### 3. Data Collection
 
-This extension **does not** collect, transmit, or share any personally identifiable information. The extension only stores the following data locally in your browser:
+This extension **does not** collect, transmit, or share any personally identifiable information. The extension stores the following data locally in your browser:
 
 #### 3.1 Locally Stored Data
 - **Video Marking Data**: Video IDs you marked as "browsed", "watched", or "want to watch"
@@ -133,6 +137,9 @@ This extension **does not** collect, transmit, or share any personally identifia
 
 All this data is stored in your browser's local storage (Chrome Storage API) and is **not** uploaded to any third-party servers.
 
+#### 3.2 Anonymous Usage Statistics
+While in use, the extension sends anonymized usage statistics to the developer's server to help maintain and improve the extension. The statistics include only the extension version, runtime environment, feature switch states, and approximate data-volume counts. They do not include any personally identifiable information, video IDs, or any videos you watch or browse. This reporting is always on.
+
 ### 4. Data Usage
 
 This extension uses collected data only for the following purposes:
@@ -141,6 +148,7 @@ This extension uses collected data only for the following purposes:
 - **Data Management**: Provide video library and actor library management features
 - **Cloud Sync**: If you enable WebDAV sync, data will be synced to your configured WebDAV server
 - **115 Cloud Integration**: If you enable 115 cloud features, interact with 115 cloud service to push magnet links
+- **Anonymous Usage Statistics**: Send anonymized usage statistics to the developer to maintain and improve the extension (see Section 3.2)
 
 ### 5. Data Sharing
 
@@ -164,7 +172,7 @@ These third-party services have their own privacy policies, and this extension i
 
 This extension takes the following measures to protect your data:
 
-- **Local Storage**: All data is stored locally in the browser by default, not uploaded to any server
+- **Local Storage**: All data is stored locally in the browser by default; the only data sent externally is the anonymous usage statistics described in Section 3.2
 - **Encrypted Transmission**: Communication with WebDAV servers and 115 cloud uses HTTPS encryption
 - **Minimal Permissions**: The extension only requests necessary browser permissions
 - **Open Source Transparency**: The extension's source code is publicly available on GitHub for anyone to review

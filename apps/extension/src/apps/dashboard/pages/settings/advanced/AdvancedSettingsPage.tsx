@@ -3,18 +3,13 @@
  * @description 高级配置 React 全页
  * @module apps/dashboard/pages/settings/advanced
  */
-import { useEffect, useState } from 'react';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { SettingSection } from '../../../../../ui/patterns/SettingSection/SettingSection';
-import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { SettingsPageFrame } from '../shared/settingsPageFrame';
-import { getSettings } from '../shared/settingsPersist';
 import {
   editSettingsJson,
   exportCompleteBackup,
-  mapTelemetryEnabled,
   sendTestLog,
-  setTelemetryEnabled,
   viewRawLogs,
   viewSettingsJson,
 } from './advancedSettingsActions';
@@ -30,34 +25,6 @@ import {
  * 高级配置完整页面
  */
 export function AdvancedSettingsPage() {
-  const [telemetryEnabled, setTelemetry] = useState(true);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const settings = await getSettings();
-        if (cancelled) return;
-        setTelemetry(mapTelemetryEnabled(settings));
-      } catch (err) {
-        console.error('[AdvancedSettingsPage] load failed', err);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const onTelemetryChange = async (checked: boolean) => {
-    const prev = telemetryEnabled;
-    setTelemetry(checked);
-    const ok = await setTelemetryEnabled(checked);
-    if (!ok) setTelemetry(prev);
-  };
-
   return (
     <SettingsPageFrame
       title="高级配置"
@@ -65,9 +32,6 @@ export function AdvancedSettingsPage() {
       rootDataAttrs={{ 'data-advanced-settings-react': '1' }}
       pageId="advanced-settings"
     >
-      {loading ? (
-        <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>
-      ) : (
         <div className="flex flex-col gap-4" id="advanced-settings">
           <SettingSection
             title="原始配置工作台"
@@ -106,15 +70,6 @@ export function AdvancedSettingsPage() {
                 日志查看为只读操作，测试日志会写入一条新的诊断日志。
               </p>
             </SettingSection>
-
-            <SettingSection title="使用情况统计" description="帮助了解拓展功能使用状态。">
-              <SettingToggleRow
-                id="telemetryEnabled"
-                label="发送匿名使用情况统计"
-                checked={telemetryEnabled}
-                onChange={(c) => void onTelemetryChange(c)}
-              />
-            </SettingSection>
           </div>
 
           <SettingSection title="使用建议" description="高级功能适合调试、迁移和恢复配置时使用。">
@@ -125,10 +80,9 @@ export function AdvancedSettingsPage() {
             </ul>
           </SettingSection>
         </div>
-      )}
       {/* 2026-10-03 IA 裁决：全局操作页并入本页。
           包裹层 id 与 5 个按钮 id 原样保留（遗留 CSS 选择器 / 搜索定位 / e2e 锚点契约不变），
-          且不受上方 loading 态影响，行为与独立成页时逐字一致。 */}
+          行为与独立成页时逐字一致。 */}
       <div className="flex flex-col gap-4" id="global-actions">
         <SettingSection title="全局数据操作" description="影响本地数据、缓存和扩展运行状态的危险操作。">
           <div className="flex flex-col gap-3 px-2 py-2">

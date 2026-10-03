@@ -400,7 +400,6 @@ export function UpdateSettingsPage() {
                     {telemetryView.enabled ? '已启用上报' : '已停止上报'}
                   </strong>
                 </span>
-                <span>上报开关在「高级设置 · 使用情况统计」，关闭后即停止全部上报。</span>
               </div>
 
               <div className="flex flex-wrap gap-2">

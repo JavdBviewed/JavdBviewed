@@ -4,7 +4,7 @@
  * @module apps/dashboard/pages/settings/advanced
  */
 import type { ExtensionSettings } from '../../../../../types';
-import { getSettings, saveSettings, syncDashboardState } from '../shared/settingsPersist';
+import { getSettings } from '../shared/settingsPersist';
 
 const KEY_LABELS: Record<string, string> = {
   display: '显示设置',
@@ -190,35 +190,4 @@ export async function sendTestLog(): Promise<void> {
     console.error('测试日志失败:', error);
     await showToast('测试日志失败', 'error');
   }
-}
-
-/**
- * 切换遥测开关并保存
- */
-export async function setTelemetryEnabled(enabled: boolean): Promise<boolean> {
-  try {
-    const current = await getSettings();
-    const next = {
-      ...current,
-      telemetry: {
-        ...(current.telemetry || {}),
-        enabled,
-      },
-    } as ExtensionSettings;
-    await saveSettings(next);
-    await syncDashboardState(next);
-    await showToast(enabled ? '使用情况统计已启用' : '使用情况统计已关闭', 'success');
-    return true;
-  } catch (error) {
-    console.error('保存使用情况统计设置失败:', error);
-    await showToast('保存使用情况统计设置失败', 'error');
-    return false;
-  }
-}
-
-/**
- * 读取遥测默认：未配置视为 true
- */
-export function mapTelemetryEnabled(settings: Partial<ExtensionSettings> | null | undefined): boolean {
-  return settings?.telemetry?.enabled !== false;
 }

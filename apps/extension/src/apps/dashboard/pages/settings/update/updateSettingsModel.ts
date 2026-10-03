@@ -110,9 +110,10 @@ export type TelemetryViewerState = {
 export function mapTelemetryViewFromSettings(
   settings: Partial<ExtensionSettings> | null | undefined,
 ): TelemetryViewerState {
-  const telemetry = (settings as any)?.telemetry || {};
+  // 2026-10-03 10-11 线裁决：上报恒启用，legacy telemetry.enabled 不再读取（键仍存储、不迁移）
+  void settings;
   return {
-    enabled: telemetry.enabled !== false,
+    enabled: true,
   };
 }
 
