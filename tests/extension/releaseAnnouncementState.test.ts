@@ -139,11 +139,12 @@ describe('release announcement state', () => {
     ]);
     const highlightsFor = (version: string) => RELEASE_NOTES.find(note => note.version === version)?.highlights;
 
-    // 10-01-popup-more-filter：2.1.0 公告数据裁成最终 7 条（数据锁随数据；排版锁/版本清单锁不动）
+    // 10-01-popup-more-filter：2.1.0 公告数据裁成最终 7 条（数据锁随数据；排版锁/版本清单锁不动）；
+    // 10-10-release-notes-210-final：本线为 2.1.0 文案定稿同步（数据锁随数据先例）
     expect(highlightsFor('2.1.0')?.length).toBe(7);
     expect(highlightsFor('2.1.0')).toEqual(expect.arrayContaining([
       '影片页类别链接悬浮出快捷面板：一键屏蔽（红字删除线）或设置不入库（带禁止标）。',
-      'popup 新增隐藏媒体库已入库与真实已看影片两个开关，更多过滤一键跳转详细设置。',
+      'popup 新增隐藏媒体库已入库与真实已看影片两个开关，「更多过滤」一键跳转详细设置。',
       '新作品手动检查改为三步：收集 → 确认 → 入库，避免误入库；会话失效明示登录墙。',
     ]));
     expect(highlightsFor('2.0.1')).toEqual(expect.arrayContaining([
@@ -180,9 +181,10 @@ describe('release announcement state', () => {
     ]));
     expect(highlightsFor('1.20.1')).toContain('115 离线下载支持选择目标文件夹。');
     expect(highlightsFor('1.20.0')).toContain('全局任务中心接入详情页增强和后台任务。');
+    // 2026-10-03 2.1.0 定稿文案（用户裁决不复议）实长最大 55，上限 42→55 为最小必要放宽，12 下界与条数下界零改动
     for (const note of RELEASE_NOTES) {
       expect(note.highlights.length).toBeGreaterThanOrEqual(3);
-      expect(note.highlights.every(item => item.length >= 12 && item.length <= 42)).toBe(true);
+      expect(note.highlights.every(item => item.length >= 12 && item.length <= 55)).toBe(true);
     }
   });
 });
