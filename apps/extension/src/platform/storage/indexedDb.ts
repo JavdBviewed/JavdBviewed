@@ -32,7 +32,7 @@ import {
 } from './indexedDbViewedIndexes';
 import { loadActorsForTrend } from './actorTrendQuery';
 export { initDB } from './indexedDbConnection';
-export { viewedStatusGetMany } from './indexedDbViewedStatus';
+export { viewedStatusGetMany, viewedStatusGetManyFolded } from './indexedDbViewedStatus';
 export { actorsStats, type ActorsStats } from './indexedDbActorsStats';
 export {
   magnetPushLogsAdd,

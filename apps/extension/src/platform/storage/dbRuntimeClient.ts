@@ -101,6 +101,16 @@ export async function dbViewedStatusGetMany(videoIds: readonly string[]): Promis
   return Array.isArray(resp.records) ? resp.records : [];
 }
 
+/** 大小写折叠兜底状态查询（issue#51）：仅对精确键 miss 集调用；summary.id 为查询键（原文大小写）。 */
+export async function dbViewedStatusGetManyFolded(missIds: readonly string[]): Promise<ViewedStatusSummary[]> {
+  if (missIds.length === 0) return [];
+  const resp = await sendMessage<{ success: true; records: ViewedStatusSummary[] }>(
+    'DB:VIEWED_STATUS_GET_MANY_FOLDED',
+    { ids: [...missIds] },
+  );
+  return Array.isArray(resp.records) ? resp.records : [];
+}
+
 export function dbViewedBulkPut(records: VideoRecord[]): Promise<void> {
   log('[DBClient] viewedBulkPut:request', { count: records.length });
   return sendMessage('DB:VIEWED_BULK_PUT', { records }).then(() => {
