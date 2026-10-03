@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import {
   parseNativeResourceTags,
@@ -145,7 +146,7 @@ describe('list resource tags', () => {
 
   it('keeps native magnet and new-magnet evidence intact in the saved JavDB list fixture', () => {
     document.body.innerHTML = readFileSync(
-      'test-results/performance/local-session-capture/pages-offline/01.html',
+      path.join(__dirname, '../../../../../../tests/fixtures/offline-pages/01.html'),
       'utf8',
     );
     const item = document.querySelector<HTMLElement>('.movie-list .item');

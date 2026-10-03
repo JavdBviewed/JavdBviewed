@@ -4,7 +4,7 @@ import { describe, expect, it, afterEach } from 'vitest';
 import { ContentScreenshotBlurController } from '../../apps/extension/src/features/privacy/content/contentScreenshotBlur';
 
 function loadOfflinePage(name: string): void {
-    const html = readFileSync(resolve(process.cwd(), 'test-results/performance/local-session-capture/pages-offline', name), 'utf8');
+    const html = readFileSync(resolve(__dirname, '../fixtures/offline-pages', name), 'utf8');
     document.documentElement.innerHTML = html;
 }
 

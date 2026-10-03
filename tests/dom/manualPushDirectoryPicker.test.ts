@@ -87,8 +87,8 @@ describe('manual 115 push directory picker', () => {
 
   it('keeps the picker scrollable on a saved JavDB detail-page fixture', () => {
     const fixturePath = path.resolve(
-      process.cwd(),
-      'test-results/performance/local-session-capture/pages-offline/04.html',
+      __dirname,
+      '../fixtures/offline-pages/04.html',
     );
     document.open();
     document.write(readFileSync(fixturePath, 'utf8'));
