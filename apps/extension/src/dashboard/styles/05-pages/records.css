@@ -297,6 +297,14 @@
     box-shadow: var(--records-shadow-soft);
 }
 
+/* 批量操作下拉向下溢出，须绘制在其后的兄弟容器（#searchResultCount/视频列表卡等）之上：
+   .records-page > * 均为 z-index:1 独立层叠上下文，下拉框自身 z-index:1000 只在
+   #batchOperations 上下文内有效，故整个批量操作块抬升到兄弟之上
+   （.records-page > * 全局规则不变，仅本块 z-index 提升） */
+.records-page .batch-operations {
+    z-index: 10;
+}
+
 .records-page .batch-btn {
     border-radius: 999px;
     font-weight: 800;
