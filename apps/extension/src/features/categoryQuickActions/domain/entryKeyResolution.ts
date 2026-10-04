@@ -18,6 +18,7 @@
  */
 import {
   BUILTIN_CATEGORY_DICTIONARY,
+  CATEGORY_DIM_KEYS,
   entryKey,
   findEntry,
   isDimKey,
@@ -154,6 +155,104 @@ export function collectCategoryLinkCandidates(
 /** 面板标题文本是否为类别面板（直接用字典包导出的单一事实源判定）。 */
 export function isCategoryPanelTitle(text: string | null | undefined): boolean {
   return isCategoryPanelLabel(text);
+}
+
+/**
+ * 从演员页标签 href 抽取 (dim, id)：仅认 t= 单值纯数字类别 ID（10-15-issue-53）。
+ * resolver 与 DOM finder 共用；站点演员页标签云实测形态 =
+ * /actors/<ID>?t=<N>&sort_type=<K>（60/60 全部同演员 pathname 查询变体）。
+ */
+function extractTagPairFromHref(
+  href: string,
+  base: string,
+  dict: CategoryDictionary,
+  site: CategorySiteId,
+): { dim: DimKey; id: string } | null {
+  let url: URL;
+  try {
+    url = new URL(href, base);
+  } catch {
+    return null;
+  }
+  if (!/\/actors\/\w+/.test(url.pathname)) return null;
+  const t = url.searchParams.get('t');
+  if (!t || !/^\d+$/.test(t)) return null;
+  // 纯数字 ID 跨 8 维反查（跨维 ID 零重叠 → 唯一）；c9 区间码全非纯数字，天然被排除
+  for (const dim of CATEGORY_DIM_KEYS) {
+    if (findEntry(dict, site, dim, t)) return { dim, id: t };
+  }
+  return null;
+}
+
+/**
+ * 单个演员页标签 href → 字典内 entryKey；不可用返回 null。
+ *
+ * 口径（10-15-issue-53，与影片页 cN= 解析并列的第二套 per-link 解析）：
+ *  1. 链接 pathname 须匹配 /\/actors\/\w+/（非演员页形态一律 null）；
+ *  2. 仅认 t= 单值纯数字（/^\d+$/）：多值（t=a,b）、字母过滤码（t=s/d/p）、缺 t 一律 null；
+ *  3. 纯数字 ID 跨字典全维度反查（跨维 ID 零重叠 → 唯一命中）；
+ *  4. 字典外 / 解析抛错 → null（UI 处置与影片页一致：面板与按钮完全不出现，不置灰）。
+ */
+export function resolveCategoryEntryKeyFromTagHref(
+  href: string,
+  base: string = FALLBACK_BASE,
+  dict: CategoryDictionary = CATEGORY_DICT,
+  site: CategorySiteId = CATEGORY_SITE,
+): string | null {
+  const pair = extractTagPairFromHref(href, base, dict, site);
+  return pair ? entryKey(pair.dim, pair.id) : null;
+}
+
+/**
+ * DOM 侧：在给定根（document 或新增节点）内收集演员页的可用类别标签链接。
+ *
+ * 站点形态（10-15-issue-53 实测）：演员页标签云是独立
+ * <a class="tag is-medium" href="/actors/<ID>?t=<N>&amp;sort_type=<K>"> 组
+ * （无 .panel-block 包裹，区别于影片页类别面板）。
+ * 绑定条件：链接 pathname 与当前页（base）pathname 相同，且 t= 纯数字反查字典命中。
+ * 返回元素与候选一一对应（同一 entryKey 只保留一次，按页面顺序）。
+ */
+export function findActorTagLinkElements(
+  root: Document | HTMLElement,
+  base: string = currentBaseHref(),
+  dict: CategoryDictionary = CATEGORY_DICT,
+  site: CategorySiteId = CATEGORY_SITE,
+): Array<{ element: HTMLAnchorElement; candidate: CategoryLinkCandidate }> {
+  const result: Array<{ element: HTMLAnchorElement; candidate: CategoryLinkCandidate }> = [];
+  const seen = new Set<string>();
+  let basePathname = '';
+  try {
+    basePathname = new URL(base).pathname;
+  } catch {
+    basePathname = '';
+  }
+  const anchors = root.querySelectorAll<HTMLAnchorElement>('a[href]');
+  anchors.forEach(anchor => {
+    const href = anchor.getAttribute('href') || '';
+    let linkPathname = '';
+    try {
+      linkPathname = new URL(href, base).pathname;
+    } catch {
+      return;
+    }
+    if (linkPathname !== basePathname) return;
+    const pair = extractTagPairFromHref(href, base, dict, site);
+    if (!pair) return;
+    const key = entryKey(pair.dim, pair.id);
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push({
+      element: anchor,
+      candidate: {
+        entryKey: key,
+        dim: pair.dim,
+        id: pair.id,
+        label: (anchor.textContent || '').trim(),
+        href,
+      },
+    });
+  });
+  return result;
 }
 
 /**

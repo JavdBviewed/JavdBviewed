@@ -635,6 +635,16 @@ async function initialize(): Promise<void> {
         initOrchestrator.add('high', () => categoryQuickActionsManager.ensureInit(), { label: 'categoryQuickActions:init', delayMs: 500, priority: 5, visibilityPolicy: 'background_allowed' });
     }
 
+    // 初始化类别快捷操作（演员页 high；10-15-issue-53-actor-cat-hover）
+    if (isVideoEnhancementSubOn(settings, 'enableCategoryQuickActions') && isActorPage) {
+        categoryQuickActionsManager.updateConfig({
+            enabled: true,
+            showDelay: 300,
+            hideDelay: 200,
+        });
+        initOrchestrator.add('high', () => categoryQuickActionsManager.init(), { label: 'categoryQuickActions:init:actor', delayMs: 500, priority: 5, visibilityPolicy: 'background_allowed' });
+    }
+
     // 初始化 Emby/Jellyfin 增强功能（延后执行）
     // 优化：缩短延迟到1500ms
     if (isCurrentPageMatchedByEmby(settings)) {

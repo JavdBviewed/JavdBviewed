@@ -23,6 +23,7 @@ import { saveSettingsSectionDelta } from '../../utils/settingsDelta';
 import type { NewWorksGlobalConfig } from '../../types';
 import {
   currentBaseHref,
+  findActorTagLinkElements,
   findCategoryLinkElements,
   type CategoryLinkCandidate,
 } from './domain/entryKeyResolution';
@@ -81,6 +82,8 @@ class CategoryQuickActionsManager {
   private stylesInjected = false;
   private observer: MutationObserver | null = null;
   private inited = false;
+  /** ensureInit 时判定一次的页型（video 详情页 / actor 演员页）；存实例供 observer 的 scanAndBind 复用，不逐帧重判。 */
+  private pageKind: 'video' | 'actor' | null = null;
   /**
    * 链接被本功能改写前的原值（color/textDecoration/title）。
    * ★ 用 WeakMap 而非 dataset：不把扩展自己的数据写进站点 DOM。
@@ -644,10 +647,23 @@ class CategoryQuickActionsManager {
     };
   }
 
+  /** 页型判定（仅 ensureInit 时执行一次；无 window 环境按 video 兜底）。 */
+  private detectPageKind(): 'video' | 'actor' {
+    try {
+      if (typeof window !== 'undefined' && /\/actors\/\w+/.test(window.location.pathname)) return 'actor';
+    } catch {
+      // ignore
+    }
+    return 'video';
+  }
+
   /** 扫描当前文档的类别链接并绑定（幂等；不可用链接不返回=不绑定）。 */
   private scanAndBind(root: Document | HTMLElement = document): number {
     const base = currentBaseHref();
-    const found = findCategoryLinkElements(root, base);
+    // 页型在 ensureInit 判定一次（存实例）：演员页=同 pathname 标签云 t= 形态，影片页=.panel-block 类别面板
+    const found = this.pageKind === 'actor'
+      ? findActorTagLinkElements(root, base)
+      : findCategoryLinkElements(root, base);
     found.forEach(({ element, candidate }) => this.enhanceCategoryLink(element, candidate));
     return found.length;
   }
@@ -657,10 +673,11 @@ class CategoryQuickActionsManager {
     if (!this.config.enabled) return;
     if (this.inited) return;
     this.inited = true;
+    this.pageKind = this.detectPageKind();
 
     this.injectStyles();
     const count = this.scanAndBind(document);
-    console.log(`🏷️ 类别快捷操作增强已启用（找到 ${count} 个可用类别链接）`);
+    console.log(`🏷️ 类别快捷操作增强已启用（${this.pageKind} 页，找到 ${count} 个可用类别链接）`);
 
     // 状态标记首次渲染（绑定时的同步补画用的是空快照，这里读一次真实集合重画）
     this.installStorageWatcher();
@@ -678,9 +695,9 @@ class CategoryQuickActionsManager {
     this.observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  /** 仅在影片详情页（/v/...）初始化。 */
+  /** 仅在影片详情页（/v/...）或演员页（/actors/...）初始化（10-15-issue-53）。 */
   async init(): Promise<void> {
-    if (!/\/v\/\w+/.test(window.location.pathname)) return;
+    if (!/\/v\/\w+|\/actors\/\w+/.test(window.location.pathname)) return;
     await this.ensureInit();
   }
 
@@ -702,6 +719,7 @@ class CategoryQuickActionsManager {
     this.disposeStorageWatcher = null;
     this.cachedSnapshot = DEFAULT_SNAPSHOT;
     this.inited = false;
+    this.pageKind = null;
     this.hideTooltip();
   }
 }
