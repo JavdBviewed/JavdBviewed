@@ -4,13 +4,17 @@
  * 覆盖派单验收四项：真实形态 /tags?cN=ID 命中、未知 id 不可用、非类别链接跳过、同 entryKey 去重。
  */
 import { describe, expect, it } from 'vitest';
+import { CATEGORY_DIM_KEYS, entryKey, findEntry } from '@javdb/video-category-dict';
 import {
+  CATEGORY_DICT,
+  CATEGORY_SITE,
   FALLBACK_BASE,
   collectCategoryLinkCandidates,
   extractDimPairFromHref,
   isCategoryPanelTitle,
   resolveBaseHref,
   resolveCategoryEntryKeyFromHref,
+  resolveCategoryEntryKeyFromTagHref,
 } from './entryKeyResolution';
 
 const BASE = 'https://javdb.com';
@@ -148,5 +152,40 @@ describe('isCategoryPanelTitle（转调字典包单一事实源）', () => {
     expect(isCategoryPanelTitle('')).toBe(false);
     expect(isCategoryPanelTitle(null)).toBe(false);
     expect(isCategoryPanelTitle(undefined)).toBe(false);
+  });
+});
+
+
+describe('resolveCategoryEntryKeyFromTagHref（演员页标签云 t= 形态，10-15-issue-53）', () => {
+  const ACTOR_PAGE = 'https://javdb.com/actors/MmnyQ';
+
+  it('t=48（纯数字且字典内）→ c2=48（字典 8 维中 c2 维度）', () => {
+    expect(resolveCategoryEntryKeyFromTagHref('/actors/MmnyQ?t=48&sort_type=0', ACTOR_PAGE)).toBe('c2=48');
+  });
+
+  it('t=212 → 字典唯一维度 entryKey（跨维 ID 零重叠 → 恰好 1 维命中）', () => {
+    const hits = CATEGORY_DIM_KEYS.filter(d => findEntry(CATEGORY_DICT, CATEGORY_SITE, d, '212'));
+    expect(hits.length).toBe(1);
+    expect(resolveCategoryEntryKeyFromTagHref('/actors/MmnyQ?t=212&sort_type=0', ACTOR_PAGE)).toBe(entryKey(hits[0], '212'));
+  });
+
+  it('t=999999（纯数字但字典外）→ null（UI 侧面板完全不出现，不置灰）', () => {
+    expect(resolveCategoryEntryKeyFromTagHref('/actors/MmnyQ?t=999999&sort_type=0', ACTOR_PAGE)).toBeNull();
+  });
+
+  it('t=s（字母过滤码）→ null', () => {
+    expect(resolveCategoryEntryKeyFromTagHref('/actors/MmnyQ?t=s&sort_type=0', ACTOR_PAGE)).toBeNull();
+  });
+
+  it('t=48,4（多值 AND 形态）→ null', () => {
+    expect(resolveCategoryEntryKeyFromTagHref('/actors/MmnyQ?t=48,4&sort_type=0', ACTOR_PAGE)).toBeNull();
+  });
+
+  it('缺 t（仅 sort_type）→ null', () => {
+    expect(resolveCategoryEntryKeyFromTagHref('/actors/MmnyQ?sort_type=0', ACTOR_PAGE)).toBeNull();
+  });
+
+  it('异 pathname（非演员页形态）→ null', () => {
+    expect(resolveCategoryEntryKeyFromTagHref('/v/NQ6pPb?t=48', ACTOR_PAGE)).toBeNull();
   });
 });

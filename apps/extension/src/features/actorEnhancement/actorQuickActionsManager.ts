@@ -14,6 +14,34 @@ interface ActorQuickActionsConfig {
   hideDelay: number; // 隐藏延迟（毫秒）
 }
 
+/**
+ * 判定链接是否为「演员页上的类别标签过滤链接」（不是演员名链接）。
+ *
+ * 站点形态（10-15-issue-53 实测）：演员页 /actors/<ID> 的类别标签云是同演员 URL 的
+ * 查询变体（/actors/<ID>?t=<N>&sort_type=<K>）——pathname 与页面相同且带查询参数。
+ * 这类链接此前被 a[href*="/actors/"] 选择器误当演员链接增强，hover 弹出
+ * 「演员快捷操作」卡（issue #53 现象）；守卫命中后 enhanceActorLink 直接跳过
+ * （不置 data 标，链接可被类别卡功能接管）。
+ *
+ * 口径（三条件全满足）：
+ *  1. 页面 pathname 匹配 /\/actors\/\w+/（演员页）；
+ *  2. 链接 pathname 与页面 pathname 相同；
+ *  3. 链接 search 非空（任意 query = 过滤变体；站点无其他同 pathname 链接形态）。
+ *
+ * 纯函数：只看 URL 字符串，不触 DOM（单测可直接喂）。
+ */
+export function isActorTagFilterLink(href: string, pageHref: string): boolean {
+  try {
+    const page = new URL(pageHref);
+    if (!/\/actors\/\w+/.test(page.pathname)) return false;
+    const link = new URL(href, pageHref);
+    if (link.pathname !== page.pathname) return false;
+    return link.search !== '';
+  } catch {
+    return false;
+  }
+}
+
 class ActorQuickActionsManager {
   private config: ActorQuickActionsConfig = {
     enabled: true,
@@ -591,6 +619,8 @@ class ActorQuickActionsManager {
    */
   public enhanceActorLink(actorLink: HTMLAnchorElement): void {
     if (actorLink.getAttribute('data-x-actor-quick-bound') === 'true') return;
+    // 10-15-issue-53：演员页的类别标签过滤链接（同 pathname + 查询变体）不出演员卡
+    if (isActorTagFilterLink(actorLink.href, window.location.href)) return;
     const actorId = this.parseActorId(actorLink);
     if (!actorId) return;
     actorLink.setAttribute('data-x-actor-quick-bound', 'true');
