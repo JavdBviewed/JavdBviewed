@@ -33,6 +33,8 @@ export interface NewWorksManualConfirmSource {
   existingCount?: number;
   breakdown?: NewWorksManualBreakdown;
   pendingWorks?: NewWorksManualPendingWork[];
+  /** 10-19：'restored' = 页面刷新后的恢复回填批次（SW 持久化取回），脚注追加恢复说明；缺省 = live 原页路径，零漂移 */
+  sourceKind?: 'live' | 'restored';
 }
 
 export interface NewWorksConfirmSummary {
@@ -111,6 +113,9 @@ export function buildNewWorksConfirmSummary(source: NewWorksManualConfirmSource 
   footnotes.push('手动检查固定剔除：已看 / 已浏览 / 想看（无需你在设置里勾选）。');
   if (source.cancelled) {
     footnotes.push('取消 = 停止检查后续演员；上面已经收集到的作品仍由你决定是否入库。');
+  }
+  if (source.sourceKind === 'restored') {
+    footnotes.push('本批次为页面刷新后的恢复回填：作品已在本次检查中收集，尚未写入新作品库。');
   }
 
   return {

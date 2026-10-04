@@ -285,7 +285,7 @@ function createSessionId(): string {
   return `sw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function resolveSessionStorage(): ManualScanStorage {
+export function resolveSessionStorage(): ManualScanStorage {
   const noop: ManualScanStorage = {
     get: async () => null,
     set: async () => undefined,

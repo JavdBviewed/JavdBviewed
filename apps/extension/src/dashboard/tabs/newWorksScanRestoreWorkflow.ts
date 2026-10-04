@@ -33,6 +33,8 @@ export interface NewWorksScanRestoreDeps {
     showSummaryToast(status: 'done' | 'cancelled', result: ManualScanResultSummary): void;
     showInterruptedToast(): void;
     logError(message: string, error: unknown): void;
+    /** 10-19：terminal + pendingCount>0 → 页面取回 SW 持久化作品并喂入库确认弹窗（缺省不处理，零漂移） */
+    restorePendingWorks?(status: 'done' | 'cancelled', result: ManualScanResultSummary): Promise<void> | void;
 }
 
 export async function restoreNewWorksScanState(deps: NewWorksScanRestoreDeps): Promise<void> {
@@ -60,7 +62,17 @@ export async function restoreNewWorksScanState(deps: NewWorksScanRestoreDeps): P
         case 'done':
         case 'cancelled':
             // terminal 查询即消费（SW 侧已清盘）：只补一次性提示，不做任何持久化
-            if (query.result) deps.showSummaryToast(query.status, query.result);
+            if (query.result) {
+                deps.showSummaryToast(query.status, query.result);
+                // 10-19：收集数 > 0 → 取回持久化作品弹入库确认弹窗（批次清盘由确认流程收口锁定）
+                if (
+                    typeof query.result.pendingCount === 'number'
+                    && query.result.pendingCount > 0
+                    && deps.restorePendingWorks
+                ) {
+                    await deps.restorePendingWorks(query.status, query.result);
+                }
+            }
             return;
         case 'interrupted':
             deps.showInterruptedToast();
@@ -74,7 +86,7 @@ export function buildScanSummaryToastMessage(status: 'done' | 'cancelled', resul
     if (status === 'cancelled') {
         return `新作品检查已取消：${identified}，已收集 ${result.pendingCount}（未写入新作品库）`;
     }
-    return `新作品检查已完成：${identified}，可入库 ${result.pendingCount}（刷新期间完成，未写入新作品库，重新检查可入库）`;
+    return `新作品检查已完成：${identified}，可入库 ${result.pendingCount}（刷新期间完成，未写入新作品库）`;
 }
 
 /** SW 重启致扫描中断的一次性轻提示（低频，不持久化、不弹窗） */

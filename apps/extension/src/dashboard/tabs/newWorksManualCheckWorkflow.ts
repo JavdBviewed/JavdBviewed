@@ -52,6 +52,8 @@ export interface NewWorksManualCheckWorkflowDeps {
   confirmAndCommit?(source: NewWorksManualConfirmSource): Promise<void>;
   /** 流程结束通知后台扫描状态机消费确认（terminal 才清，running 不动；缺省不通知） */
   ackScanState?: () => void;
+  /** 10-19：新链确认流程收口后清 SW 持久化的 pending 批次（fire-and-forget；仅新链实跑时发，缺省不发） */
+  consumePendingBatch?: () => void;
 }
 
 export interface RunNewWorksManualCheckWorkflowInput {
@@ -60,6 +62,9 @@ export interface RunNewWorksManualCheckWorkflowInput {
 
 export async function runNewWorksManualCheckWorkflow(input: RunNewWorksManualCheckWorkflowInput): Promise<void> {
   const { deps } = input;
+
+  // 10-19：确认流程是否实跑（收口后须清 SW 持久化批次；旧链/失败路径不清）
+  let confirmFlowRan = false;
 
   try {
     deps.setCheckingButtonLoading(true);
@@ -90,6 +95,7 @@ export async function runNewWorksManualCheckWorkflow(input: RunNewWorksManualChe
 
     // 后台回收了 pendingWorks 且页面接入了确认流程 = 新链；否则逐字保留旧提示语义
     if (Array.isArray(result.pendingWorks) && deps.confirmAndCommit) {
+      confirmFlowRan = true;
       await commitAfterConfirm(deps, result, errors);
       deps.updateProgressUI({ done: true });
       return;
@@ -135,6 +141,10 @@ export async function runNewWorksManualCheckWorkflow(input: RunNewWorksManualChe
     // 后台终态消费确认（后台只清 terminal，running/未注入均安全 no-op）
     if (deps.ackScanState) {
       try { deps.ackScanState(); } catch {}
+    }
+    // 10-19：确认流程收口后清 SW 持久化批次（含异常收口；与现状 live 语义一致——失败也不重弹）
+    if (confirmFlowRan && deps.consumePendingBatch) {
+      try { deps.consumePendingBatch(); } catch {}
     }
   }
 }
