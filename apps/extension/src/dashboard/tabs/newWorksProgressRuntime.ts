@@ -1,3 +1,5 @@
+import type { ManualScanResultSummary } from '../../features/newWorks/newWorksScanState';
+
 export interface NewWorksProgressData {
   processed?: number;
   total?: number;
@@ -12,6 +14,14 @@ export interface NewWorksProgressData {
   activeActorNames?: string[];
   concurrency?: number;
   done?: boolean;
+  /** SW 终态广播：本次扫描已结束（完成/取消/异常） */
+  finished?: boolean;
+  /** 终态为取消 */
+  cancelled?: boolean;
+  /** 终态为 SW 侧异常 */
+  error?: boolean;
+  /** 完成摘要（计数，非记录）：页面离线期间完成时补一次性提示 */
+  resultSummary?: ManualScanResultSummary;
 }
 
 export interface NewWorksProgressRuntimeDeps {
@@ -144,9 +154,12 @@ export function hideNewWorksProgressUIAfter(
   ms: number,
   onRemoved: () => void,
   win: Window = window,
+  /** 延迟到期时校验元素是否仍属当前扫描（窗口内重开新扫描 = 复用同一元素，旧延迟不得拆新 UI） */
+  isStillCurrent?: () => boolean,
 ): void {
   if (!progressEl) return;
   win.setTimeout(() => {
+    if (isStillCurrent && !isStillCurrent()) return;
     progressEl.remove();
     onRemoved();
   }, Math.max(0, ms));
@@ -163,7 +176,8 @@ export function attachNewWorksProgressListener(
     try {
       if (message && message.type === 'new-works-progress') {
         const payload = message.payload || {};
-        onProgress({
+        const finished = payload.finished === true;
+        const data: NewWorksProgressData = {
           processed: payload.processed,
           total: payload.total,
           identifiedTotal: payload.identifiedTotal,
@@ -172,7 +186,15 @@ export function attachNewWorksProgressListener(
           actorName: payload.actorName,
           activeActorNames: normalizeActorNames(payload.activeActorNames),
           concurrency: typeof payload.concurrency === 'number' ? payload.concurrency : undefined,
-        });
+        };
+        // 终态广播（issue#52）：合并 done 语义（进度 UI 收口「检查完成」）+ 终态标记透传；
+        // 常规进度消息保持原字段形状（无多余键），既有断言零位移
+        if (payload.done === true || finished) data.done = true;
+        if (finished) data.finished = true;
+        if (payload.cancelled === true) data.cancelled = true;
+        if (payload.error === true) data.error = true;
+        if (payload.resultSummary) data.resultSummary = payload.resultSummary;
+        onProgress(data);
       }
     } catch {}
   };

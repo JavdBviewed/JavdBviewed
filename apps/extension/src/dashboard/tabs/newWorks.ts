@@ -47,6 +47,13 @@ import {
     updateNewWorksProgressUI,
 } from './newWorksProgressRuntime';
 import type { NewWorksProgressData } from './newWorksProgressRuntime';
+import {
+    buildScanInterruptedToastMessage,
+    buildScanSummaryToastMessage,
+    restoreNewWorksScanState,
+    type RestoreRunningScanState,
+    type ScanStatusQueryResult,
+} from './newWorksScanRestoreWorkflow';
 import { renderNewWorksStatsRuntime } from './newWorksStatsRuntime';
 import {
     findSelectedBatchWorkById,
@@ -108,6 +115,12 @@ export class NewWorksTab {
     private debounceRender = this.debounce(() => this.render(), 300);
     private progressListener?: (message: any) => void;
     private progressEl?: HTMLElement;
+    /** 手动检查在途标记：发起页收到 finished 广播不重复收口（由 sendResponse 结果路径收口） */
+    private manualCheckInFlight = false;
+    /** 进度 UI 世代：延迟隐藏到期时校验仍属当前扫描（窗口内重开新扫描，旧延迟不得拆新 UI） */
+    private progressUiGeneration = 0;
+    /** 终态收口标记：查询回填与终态广播双路径互斥，防重复 toast */
+    private scanTerminalHandled = false;
     private unreadBatchOpenCooldownTimer?: number;
     private active = true;
     private renderGeneration = 0;
@@ -171,6 +184,8 @@ export class NewWorksTab {
             );
 
             this.isInitialized = true;
+            // issue#52：刷新/重开后向 SW 查询扫描状态回填（fire-and-forget；查询失败 logError 静默跳过）
+            void this.restoreManualScanState();
             // 自动同步状态不与首轮列表竞争；隐藏页会取消未启动的空闲任务。
             if (this.diagnosticMode.autoSync) this.autoSyncScheduler.request();
             console.log('[NewWorks] 新作品标签页初始化完成');
@@ -680,26 +695,33 @@ export class NewWorksTab {
      * 立即检查新作品
      */
     private async checkNewWorksNow(): Promise<void> {
-        await runNewWorksManualCheckWorkflow({
-            deps: {
-                setCheckingButtonLoading: loading => this.setCheckNowButtonLoading(loading),
-                getSubscriptions: () => newWorksManager.getSubscriptions(),
-                ensureProgressUI: () => this.ensureProgressUI(),
-                updateProgressUI: data => this.updateProgressUI(data),
-                attachProgressListener: () => this.attachProgressListener(),
-                detachProgressListener: () => this.detachProgressListener(),
-                hideProgressUIAfter: ms => this.hideProgressUIAfter(ms),
-                sendManualCheck: () => new Promise<any>((resolve) => {
-                    // confirmRequired = 后台只收集不入库，弹窗确认后才写（无标记仍是旧直写）
-                    chrome.runtime.sendMessage({ type: 'new-works-manual-check', confirmRequired: true }, resolve);
-                }),
-                confirmAndCommit: source => this.confirmAndCommitNewWorksManualResults(source),
-                render: () => this.render(),
-                showMessage,
-                logWarn: (message, error) => console.warn(message, error),
-                logError: (message, error) => console.error(message, error),
-            },
-        });
+        this.manualCheckInFlight = true;
+        this.scanTerminalHandled = false;
+        try {
+            await runNewWorksManualCheckWorkflow({
+                deps: {
+                    setCheckingButtonLoading: loading => this.setCheckNowButtonLoading(loading),
+                    getSubscriptions: () => newWorksManager.getSubscriptions(),
+                    ensureProgressUI: () => this.ensureProgressUI(),
+                    updateProgressUI: data => this.updateProgressUI(data),
+                    attachProgressListener: () => this.attachProgressListener(),
+                    detachProgressListener: () => this.detachProgressListener(),
+                    hideProgressUIAfter: ms => this.hideProgressUIAfter(ms),
+                    sendManualCheck: () => new Promise<any>((resolve) => {
+                        // confirmRequired = 后台只收集不入库，弹窗确认后才写（无标记仍是旧直写）
+                        chrome.runtime.sendMessage({ type: 'new-works-manual-check', confirmRequired: true }, resolve);
+                    }),
+                    confirmAndCommit: source => this.confirmAndCommitNewWorksManualResults(source),
+                    render: () => this.render(),
+                    showMessage,
+                    logWarn: (message, error) => console.warn(message, error),
+                    logError: (message, error) => console.error(message, error),
+                    ackScanState: () => this.sendManualScanStateAck(),
+                },
+            });
+        } finally {
+            this.manualCheckInFlight = false;
+        }
     }
 
     private setCheckNowButtonLoading(loading: boolean): void {
@@ -747,6 +769,8 @@ export class NewWorksTab {
      * 创建进度UI（若不存在）
      */
     private ensureProgressUI(): void {
+        // 世代 +1：旧延迟隐藏到期时若世代已变，不拆新扫描 UI
+        this.progressUiGeneration++;
         this.progressEl = ensureNewWorksProgressUI(this.progressEl, {
             sendCancelMessage: () => {
                 try {
@@ -767,9 +791,10 @@ export class NewWorksTab {
      * 隐藏进度UI（延迟）
      */
     private hideProgressUIAfter(ms: number): void {
+        const generation = this.progressUiGeneration;
         hideNewWorksProgressUIAfter(this.progressEl, ms, () => {
-            this.progressEl = undefined;
-        });
+            if (this.progressUiGeneration === generation) this.progressEl = undefined;
+        }, window, () => this.progressUiGeneration === generation);
     }
 
     /**
@@ -778,7 +803,11 @@ export class NewWorksTab {
     private attachProgressListener(): void {
         this.progressListener = attachNewWorksProgressListener(
             this.progressListener,
-            data => this.updateProgressUI(data),
+            data => {
+                this.updateProgressUI(data);
+                // 本页发起的扫描由 sendResponse 结果路径收口（确认弹窗/直写提示）；finished 广播只服务离线恢复页
+                if (data.finished && !this.manualCheckInFlight) this.onManualScanFinished(data);
+            },
             chrome.runtime as any,
         );
     }
@@ -802,6 +831,136 @@ export class NewWorksTab {
      */
     private async showManageSubscriptionsModal(): Promise<void> {
         await this.subscriptionActions.showManageSubscriptionsModal();
+    }
+    /**
+     * issue#52：刷新/重开后向 SW 查询手动扫描状态并回填
+     * （running → 恢复进度 UI + 取消按钮；terminal → 一次性提示；idle → 无操作）
+     */
+    private async restoreManualScanState(): Promise<void> {
+        let restoredRunning: RestoreRunningScanState | null = null;
+        await restoreNewWorksScanState({
+            queryStatus: () => this.queryManualScanState(),
+            restoreProgressUI: state => {
+                restoredRunning = state;
+                this.restoreManualScanProgressUI(state);
+            },
+            showSummaryToast: (status, result) => showMessage(buildScanSummaryToastMessage(status, result), 'info'),
+            showInterruptedToast: () => showMessage(buildScanInterruptedToastMessage(), 'info'),
+            logError: (message, error) => console.error('[NewWorks]', message, error),
+        });
+        if (!restoredRunning) return;
+        // 二次查询：兜「首查与 UI 恢复之间扫描已结束、本页错过终态广播」窗口
+        // （terminal 已被 SW 查询侧消费；广播与回填双路径由 scanTerminalHandled 互斥防重复提示）
+        const recheck = await this.queryManualScanStateSafe();
+        if (!recheck) return;
+        if (recheck.status === 'done' || recheck.status === 'cancelled') {
+            this.onManualScanFinished({
+                finished: true,
+                cancelled: recheck.status === 'cancelled',
+                resultSummary: recheck.result,
+            });
+        } else if (recheck.status === 'interrupted') {
+            showMessage(buildScanInterruptedToastMessage(), 'info');
+        }
+    }
+
+    /** running 回填：恢复进度 UI + 取消按钮 + 进行中按钮态（取消机制零改动，原样复用） */
+    private restoreManualScanProgressUI(state: RestoreRunningScanState): void {
+        this.setCheckNowButtonLoading(true);
+        this.ensureProgressUI();
+        this.updateProgressUI({
+            processed: state.processed,
+            total: state.total,
+            identifiedTotal: state.identifiedTotal,
+            pendingTotal: state.pendingTotal,
+            actorName: state.actorName,
+            activeActorNames: state.activeActorNames,
+            concurrency: state.concurrency,
+        });
+        this.attachProgressListener();
+    }
+
+    /**
+     * 终态收口（双路径入口：SW finished 广播 / 查询回填二次查询）；
+     * scanTerminalHandled 保证每页加载只收口一次（防广播与回填竞态重复提示）
+     */
+    private onManualScanFinished(data: NewWorksProgressData): void {
+        if (this.scanTerminalHandled) return;
+        this.scanTerminalHandled = true;
+        this.detachProgressListener();
+        this.setCheckNowButtonLoading(false);
+        this.hideProgressUIAfter(1500);
+        if (!data.error && data.resultSummary) {
+            showMessage(buildScanSummaryToastMessage(data.cancelled ? 'cancelled' : 'done', data.resultSummary), 'info');
+        }
+        this.sendManualScanStateAck();
+    }
+
+    /** 查询 SW 手动扫描状态（失败 reject；调用方决定静默或记日志） */
+    private queryManualScanState(): Promise<ScanStatusQueryResult> {
+        return new Promise<ScanStatusQueryResult>((resolve, reject) => {
+            try {
+                chrome.runtime.sendMessage({ type: 'new-works-manual-scan-status' }, (response: any) => {
+                    const lastError = chrome.runtime.lastError;
+                    if (lastError) {
+                        reject(new Error(lastError.message || 'scan status query failed'));
+                        return;
+                    }
+                    if (!response || response.success !== true || !response.status || typeof response.status !== 'object') {
+                        reject(new Error(response && response.error ? String(response.error) : 'scan status query failed'));
+                        return;
+                    }
+                    resolve(this.mapScanStatusResponse(response.status));
+                });
+            } catch (error) {
+                reject(error instanceof Error ? error : new Error(String(error)));
+            }
+        });
+    }
+
+    private async queryManualScanStateSafe(): Promise<ScanStatusQueryResult | null> {
+        try {
+            return await this.queryManualScanState();
+        } catch {
+            return null;
+        }
+    }
+
+    /** SW 侧完整状态 → 页面侧扁平形态（防御性字段过滤） */
+    private mapScanStatusResponse(status: any): ScanStatusQueryResult {
+        if (status.status === 'running') {
+            return {
+                status: 'running',
+                processed: typeof status.processed === 'number' ? status.processed : 0,
+                total: typeof status.total === 'number' ? status.total : 0,
+                identifiedTotal: typeof status.identifiedTotal === 'number' ? status.identifiedTotal : 0,
+                pendingTotal: typeof status.pendingTotal === 'number' ? status.pendingTotal : 0,
+                actorName: typeof status.actorName === 'string' ? status.actorName : undefined,
+                activeActorNames: Array.isArray(status.activeActorNames)
+                    ? status.activeActorNames.filter((name: unknown): name is string => typeof name === 'string')
+                    : [],
+                concurrency: typeof status.concurrency === 'number' ? status.concurrency : undefined,
+            };
+        }
+        if (status.status === 'done' || status.status === 'cancelled') {
+            return {
+                status: status.status,
+                result: status.result && typeof status.result === 'object' ? status.result : undefined,
+            };
+        }
+        if (status.status === 'interrupted') {
+            return { status: 'interrupted' };
+        }
+        return { status: 'idle' };
+    }
+
+    /** 终态消费确认（SW 只清 terminal；running/SW 缺席均安全 no-op） */
+    private sendManualScanStateAck(): void {
+        try {
+            chrome.runtime.sendMessage({ type: 'new-works-manual-scan-ack' }, () => {
+                void chrome.runtime.lastError;
+            });
+        } catch {}
     }
 }
 
