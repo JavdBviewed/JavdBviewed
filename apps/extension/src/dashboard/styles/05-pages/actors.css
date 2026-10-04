@@ -1154,6 +1154,22 @@
     box-shadow: var(--shadow-md);
 }
 
+/* 10-17-actor-card-delete-pos：卡片视图删除按钮移到卡片右上角（底部行 7 按钮超宽溢出；列表视图零改动）。
+   绝对定位相对 .actor-card 根（position:relative）；top/right 12px 与批量勾选 ::before（左上 12px）对称。
+   头像 120px 居中、卡片 min-width 300px → 右上角留白 ≥90px，不压头像主体。 */
+.actor-card-top-delete {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 11; /* 高于头像层 z2 与批量勾选 ::before z10 */
+    width: 32px;
+    height: 32px;
+    min-width: 0;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 12px;
+}
+
 /* 查看作品按钮 - 蓝色 */
 .actor-works-btn {
     background: var(--info-light);

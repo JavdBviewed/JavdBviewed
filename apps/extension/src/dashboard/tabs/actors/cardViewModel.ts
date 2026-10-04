@@ -31,6 +31,11 @@ function buildActorCardViewHtml(actor: ActorRecord, options: BuildActorCardHtmlO
 
   return `
             <div class="actor-card batch-mode" data-actor-id="${actor.id}" data-blacklisted="${isBlacklisted}" data-fav="${isFavorited ? '1' : '0'}" data-gender="${actor.gender}" ${cardStyle}>
+                <button class="actor-action-btn actor-delete-btn actor-card-top-delete"
+                        data-actor-id="${actor.id}"
+                        title="删除">
+                    <i class="fas fa-trash"></i>
+                </button>
                 <div class="actor-card-avatar-container">
                     <div class="actor-card-avatar" id="actor-avatar-${actor.id}">
                         <!-- 头像将通过JS添加 -->
@@ -83,11 +88,6 @@ function buildActorCardViewHtml(actor: ActorRecord, options: BuildActorCardHtmlO
                             data-actor-id="${actor.id}"
                             title="刷新元数据">
                         <i class="fas fa-sync-alt"></i>
-                    </button>
-                    <button class="actor-action-btn actor-delete-btn"
-                            data-actor-id="${actor.id}"
-                            title="删除">
-                        <i class="fas fa-trash"></i>
                     </button>
                     <button class="actor-action-btn actor-blacklist-toggle-btn"
                             data-actor-id="${actor.id}"
