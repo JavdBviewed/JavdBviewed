@@ -125,6 +125,7 @@ describe('release announcement state', () => {
 
   it('ships user-facing release notes for recent versions', () => {
     expect(RELEASE_NOTES.map(note => note.version)).toEqual([
+      '2.1.1',
       '2.1.0',
       '2.0.1',
       '2.0.0',
@@ -139,6 +140,13 @@ describe('release announcement state', () => {
     ]);
     const highlightsFor = (version: string) => RELEASE_NOTES.find(note => note.version === version)?.highlights;
 
+    // 2.1.1 发版（2026-10-04，用户过目定稿）：4 项用户可见修复，数据锁随数据先例
+    expect(highlightsFor('2.1.1')?.length).toBe(5);
+    expect(highlightsFor('2.1.1')).toEqual(expect.arrayContaining([
+      '新作品检查进行中刷新页面不再丢失进度，检查状态自动恢复，可随时取消。',
+      '欧美点分号非标番号（如 XX.12.34）增加识别适配，同一作品不再被拆成两条记录。',
+      '记录页批量操作下拉菜单不再被其他组件遮挡，可正常点击。',
+    ]));
     // 10-01-popup-more-filter：2.1.0 公告数据裁成最终 7 条（数据锁随数据；排版锁/版本清单锁不动）；
     // 10-10-release-notes-210-final：本线为 2.1.0 文案定稿同步（数据锁随数据先例）
     expect(highlightsFor('2.1.0')?.length).toBe(7);
