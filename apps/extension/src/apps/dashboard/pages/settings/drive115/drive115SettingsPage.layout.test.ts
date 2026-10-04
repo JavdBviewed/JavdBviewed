@@ -165,3 +165,37 @@ it('renders indexed metadata diagnostics in the report modal', () => {
   expect(pageSource).toContain('hasCoverPickCode');
   expect(pageSource).toContain('hasNfoPickCode');
 });
+
+
+describe('Drive115 legacy-to-react full-page guard', () => {
+  // 10-21：legacy #drive115-settings::before 页顶渐变 + overflow:hidden 裁剪命中 React 全页根，
+  // 由 .ssp-page[data-settings-stack='react-full'] 守卫关闭；legacy 原规则一律不删（负锁）。
+  const REACT_ROOT_SELECTOR = ".ssp-page[data-settings-stack='react-full']#drive115-settings";
+
+  it('suppresses the legacy ::before gradient on the React full-page root', () => {
+    const guardStart = driveCssSource.indexOf(`${REACT_ROOT_SELECTOR}::before`);
+    expect(guardStart).toBeGreaterThanOrEqual(0);
+    const guardBlock = driveCssSource.slice(guardStart, driveCssSource.indexOf('}', guardStart));
+    expect(guardBlock).toContain('content: none');
+  });
+
+  it('releases the legacy overflow clipping on the React full-page root', () => {
+    const guardStart = driveCssSource.indexOf(`${REACT_ROOT_SELECTOR} {`);
+    expect(guardStart).toBeGreaterThanOrEqual(0);
+    const guardBlock = driveCssSource.slice(guardStart, driveCssSource.indexOf('}', guardStart));
+    expect(guardBlock).toContain('overflow: visible');
+  });
+
+  it('keeps the legacy original rules intact (negative lock: guard adds rules, never deletes)', () => {
+    expect(driveCssSource).toContain('#drive115-settings {\n    position: relative;\n    overflow: hidden;\n}');
+    expect(driveCssSource).toContain('#drive115-settings::before {');
+    expect(driveCssSource).toContain('height: 200px;');
+    expect(driveCssSource).toContain('rgba(255, 107, 53, 0.05) 0%');
+    expect(driveCssSource).toContain('[data-theme="dark"] #drive115-settings::before {');
+    expect(driveCssSource).toContain('rgba(255, 138, 101, 0.08) 0%');
+  });
+
+  it('locks the React page component untouched (CSS-only fix)', () => {
+    expect(pageSource).toContain('rootId="drive115-settings"');
+  });
+});

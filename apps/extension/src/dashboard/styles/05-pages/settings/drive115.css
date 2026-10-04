@@ -1790,3 +1790,17 @@
 #drive115-settings[data-drive115-settings-react='1'] .settings-section-nav {
     --settings-section-nav-accent: var(--drive115-settings-primary, var(--primary));
 }
+
+/*
+ * 10-21 legacy→react 守卫：React 全页（settingsPageFrame rootId='drive115-settings'）迁移后，
+ * legacy 根级装饰（页顶 200px 渐变 ::before + overflow:hidden 裁剪）会命中 React 页根，
+ * 在全宽页根顶部渲染突兀色块并泄漏裁剪。以下按 react-full 页根标记关闭伪元素、释放裁剪。
+ * 单条 content:none 主题无关，同时罩住 light/dark 两变体；legacy 原规则保留不删。
+ */
+.ssp-page[data-settings-stack='react-full']#drive115-settings::before {
+    content: none;
+}
+
+.ssp-page[data-settings-stack='react-full']#drive115-settings {
+    overflow: visible;
+}
