@@ -4,6 +4,8 @@
  * @module features/newWorks
  */
 import { newWorksCollector, newWorksManager, newWorksScheduler } from './index';
+import { manualScanStore } from './newWorksScanState';
+import type { ManualScanResultSummary } from './newWorksScanState';
 import type { NewWorkRecord } from '../../types';
 
 /** 手动确认入库单次上限（防御性截断，正常 maxWorksPerCheck 远小于此值） */
@@ -34,6 +36,22 @@ export function handleNewWorksRuntimeMessage(message: any, sendResponse: SendRes
         sendResponse({ success: false, error: error?.message || 'cancel failed' });
       }
       return true;
+    case 'new-works-manual-scan-status':
+      // 查询通道（issue#52）：幂等 reconcile 后回当前状态；terminal 查询即消费（见 newWorksScanState）
+      (async () => {
+        try {
+          sendResponse({ success: true, status: await manualScanStore.status() });
+        } catch (error: any) {
+          sendResponse({ success: false, error: error?.message || 'scan status failed' });
+        }
+      })();
+      return true;
+    case 'new-works-manual-scan-ack':
+      // 在线收到终态广播的页面消费确认（只清 terminal，running 不动）
+      manualScanStore.ack()
+        .then(() => sendResponse({ success: true }))
+        .catch((error: any) => sendResponse({ success: false, error: error?.message || 'scan ack failed' }));
+      return true;
     case 'new-works-scheduler-restart':
       // 批 3a：dashboard 保存配置后发此消息；restart() 的 start() 会读内存配置定 alarm 周期，
       // 不先 reload 会拿到旧周期 → 先 reloadGlobalConfig 再 restart。
@@ -59,6 +77,14 @@ export function handleNewWorksRuntimeMessage(message: any, sendResponse: SendRes
 function handleManualCheck(sendResponse: SendResponse, confirmRequired = false): void {
   (async () => {
     try {
+      // 先 reconcile（SW 重启 → 上一 session 的 running 标记为 interrupted），再同步占位：
+      // 同 SW 已有在途手动扫描 → 拒绝本次（页面侧提示「检查进行中」），堵双扫描竞态
+      await manualScanStore.reconcile();
+      if (!manualScanStore.claim()) {
+        sendResponse({ success: false, error: 'manual-check-running' });
+        return;
+      }
+
       manualCheckCancel.cancelled = false;
 
       const config = await newWorksManager.getGlobalConfig();
@@ -90,6 +116,13 @@ function handleManualCheck(sendResponse: SendResponse, confirmRequired = false):
       const concurrency = Math.max(1, Number(cfg.concurrency) || 1);
       console.log(`[Background] 开始手动检查，并发数: ${concurrency}`);
 
+      // 状态机初值落盘（running）：刷新后页面经查询通道回填进度 UI + 取消按钮
+      await manualScanStore.begin({
+        total,
+        concurrency,
+        activeActorNames: active.map(s => s.actorName),
+      });
+
       const emitProgress = (activeActorNames: string[], actorName?: string) => {
         try {
           chrome.runtime.sendMessage({
@@ -108,6 +141,14 @@ function handleManualCheck(sendResponse: SendResponse, confirmRequired = false):
             },
           });
         } catch {}
+        // 同点节流落盘（~500ms 合并写，状态转换必写）
+        manualScanStore.progress({
+          processed,
+          identifiedTotal,
+          pendingTotal: pendingWorks.length,
+          actorName,
+          activeActorNames,
+        });
       };
 
       // 初始进度：让前端立刻知道即将按并发批次推进
@@ -215,8 +256,49 @@ function handleManualCheck(sendResponse: SendResponse, confirmRequired = false):
         result.breakdown = breakdown;
         result.existingCount = existingCount;
       }
+      const scanSummary: ManualScanResultSummary = {
+        discovered,
+        identifiedTotal,
+        // 旧直写模式收集即入库，「未写入」口径 = 0（摘要提示只面向 confirm 模式的新作品页）
+        pendingCount: confirmRequired ? pendingWorks.length : 0,
+        existingCount,
+        cancelled: manualCheckCancel.cancelled,
+        errorCount: errors.length,
+      };
+      await manualScanStore.finish(scanSummary);
+      // 终态广播：扫描期间离线的页面（刷新/隐藏页）收 finished 事件收口 UI + 一次性提示；
+      // 发起页（在线）的进度监听收到后不重复处理（发起页由 sendResponse 结果走弹窗/直写提示）
+      try {
+        chrome.runtime.sendMessage({
+          type: 'new-works-progress',
+          payload: {
+            processed,
+            total,
+            discovered,
+            identifiedTotal,
+            effectiveTotal,
+            pendingTotal: pendingWorks.length,
+            actorName: undefined,
+            activeActorNames: [],
+            concurrency,
+            finished: true,
+            cancelled: manualCheckCancel.cancelled,
+            resultSummary: scanSummary,
+          },
+        });
+      } catch {}
       sendResponse({ success: true, result });
     } catch (error: any) {
+      // 错误路径：释放状态机占位 + 清状态，并通知在途页面收口（error 终态）
+      try {
+        await manualScanStore.release();
+      } catch {}
+      try {
+        chrome.runtime.sendMessage({
+          type: 'new-works-progress',
+          payload: { finished: true, error: true },
+        });
+      } catch {}
       sendResponse({ success: false, error: error?.message || 'manual check failed' });
     }
   })();

@@ -50,6 +50,8 @@ export interface NewWorksManualCheckWorkflowDeps {
   logError(message: string, error: unknown): void;
   /** 注入则走「收集-确认-入库」新链；缺省=旧当场直写语义（其它调用方不受影响） */
   confirmAndCommit?(source: NewWorksManualConfirmSource): Promise<void>;
+  /** 流程结束通知后台扫描状态机消费确认（terminal 才清，running 不动；缺省不通知） */
+  ackScanState?: () => void;
 }
 
 export interface RunNewWorksManualCheckWorkflowInput {
@@ -119,12 +121,21 @@ export async function runNewWorksManualCheckWorkflow(input: RunNewWorksManualChe
     );
     deps.updateProgressUI({ done: true });
   } catch (error) {
-    deps.logError('立即检查失败:', error);
-    deps.showMessage('检查失败，请重试', 'error');
+    // 双扫描守卫拒绝不是失败：不弹通用「检查失败」（误导），只给等待提示
+    if (error instanceof Error && error.message === 'manual-check-running') {
+      deps.showMessage('新作品检查进行中，请等待完成', 'warn');
+    } else {
+      deps.logError('立即检查失败:', error);
+      deps.showMessage('检查失败，请重试', 'error');
+    }
   } finally {
     deps.setCheckingButtonLoading(false);
     deps.detachProgressListener();
     deps.hideProgressUIAfter(1500);
+    // 后台终态消费确认（后台只清 terminal，running/未注入均安全 no-op）
+    if (deps.ackScanState) {
+      try { deps.ackScanState(); } catch {}
+    }
   }
 }
 

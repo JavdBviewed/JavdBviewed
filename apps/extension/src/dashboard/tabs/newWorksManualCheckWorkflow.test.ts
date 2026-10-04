@@ -189,3 +189,43 @@ describe('new works manual check workflow（收集-确认-入库新链）', () =
     expect(runtimeDeps.showMessage).toHaveBeenCalledWith('检查完成！已识别 4，可入库 2，新增 1', 'success');
   });
 });
+
+describe('双扫描守卫拒绝 + 状态机 ack（issue#52）', () => {
+  it('守卫拒绝（manual-check-running）→ 等待提示（warn），不走通用失败提示', async () => {
+    const runtimeDeps = deps({
+      sendManualCheck: vi.fn(async () => ({ success: false, error: 'manual-check-running' })),
+    });
+
+    await runNewWorksManualCheckWorkflow({ deps: runtimeDeps });
+
+    expect(runtimeDeps.showMessage).toHaveBeenCalledTimes(1);
+    expect(runtimeDeps.showMessage).toHaveBeenCalledWith('新作品检查进行中，请等待完成', 'warn');
+    expect(runtimeDeps.showMessage).not.toHaveBeenCalledWith('检查失败，请重试', 'error');
+    expect(runtimeDeps.logError).not.toHaveBeenCalled();
+  });
+
+  it('流程结束 finally 通知后台状态机消费确认（ackScanState 恰一次，成功路径）', async () => {
+    const runtimeDeps = deps({ ackScanState: vi.fn() });
+
+    await runNewWorksManualCheckWorkflow({ deps: runtimeDeps });
+
+    expect(runtimeDeps.ackScanState).toHaveBeenCalledTimes(1);
+  });
+
+  it('守卫拒绝路径同样触发 ackScanState 恰一次', async () => {
+    const runtimeDeps = deps({
+      sendManualCheck: vi.fn(async () => ({ success: false, error: 'manual-check-running' })),
+      ackScanState: vi.fn(),
+    });
+
+    await runNewWorksManualCheckWorkflow({ deps: runtimeDeps });
+
+    expect(runtimeDeps.ackScanState).toHaveBeenCalledTimes(1);
+  });
+
+  it('未注入 ackScanState 时流程不受影响（缺省可选）', async () => {
+    const runtimeDeps = deps();
+    await runNewWorksManualCheckWorkflow({ deps: runtimeDeps });
+    expect(runtimeDeps.showMessage).toHaveBeenCalledWith('检查完成！已识别 4，可入库 2，新增 1', 'success');
+  });
+});
