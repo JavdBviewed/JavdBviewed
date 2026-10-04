@@ -15,11 +15,12 @@ import {
   pickPendingContentRecordIds,
   waitForContentRecordSummaries,
 } from './recordCache';
-import { dbViewedGet, dbViewedStatusGetMany } from '../../platform/storage/dbRuntimeClient';
+import { dbViewedGet, dbViewedStatusGetMany, dbViewedStatusGetManyFolded } from '../../platform/storage/dbRuntimeClient';
 
 vi.mock('../../platform/storage/dbRuntimeClient', () => ({
   dbViewedGet: vi.fn(),
   dbViewedStatusGetMany: vi.fn(),
+  dbViewedStatusGetManyFolded: vi.fn(),
 }));
 
 describe('内容页记录摘要占位（pending）契约', () => {
@@ -31,6 +32,7 @@ describe('内容页记录摘要占位（pending）契约', () => {
     resolveDb = null;
     vi.mocked(dbViewedGet).mockReset();
     vi.mocked(dbViewedStatusGetMany).mockReset();
+    vi.mocked(dbViewedStatusGetManyFolded).mockResolvedValue([]);
   });
 
   it('占位写入即登记 pending，真实摘要落地后解除且等待方被放行', async () => {

@@ -65,3 +65,46 @@ describe('videoCodeExtractor', () => {
     expect(normalizeVideoCodeCandidate('no code title')).toBeNull();
   });
 });
+describe('videoCodeExtractor western-dot（欧美点分号）', () => {
+  const westernCases: Array<[string, string]> = [
+    ['RKPrime.26.10.01', 'RKPRIME.26.10.01'],
+    ['RKPRIME.26.10.01', 'RKPRIME.26.10.01'],
+    ['RKPrime.26.10.01InkedAndOiled', 'RKPRIME.26.10.01'],
+    ['RKPrime.26.10.01 Inked And Oiled', 'RKPRIME.26.10.01'],
+    ['RKPrime.26.10.01 (2026).mkv', 'RKPRIME.26.10.01'],
+    ['abc.12.34', 'ABC.12.34'],
+    ['XYZ.99.88.77', 'XYZ.99.88.77'],
+    ['x.RKPrime.26.10.01', 'RKPRIME.26.10.01'],
+  ];
+
+  it('提取欧美点分号并归一为整串大写（kind=western-dot）', () => {
+    for (const [input, expected] of westernCases) {
+      const first = getFirstVideoCodeFromText(input, { allowStandaloneFc2Number: true });
+      expect(first, `input=${input}`).toMatchObject({ normalized: expected, kind: 'western-dot' });
+    }
+  });
+
+  it('normalizeVideoCodeCandidate 对欧美点分号整串归一（含贴词/尾缀形态）', () => {
+    for (const [input, expected] of westernCases) {
+      expect(normalizeVideoCodeCandidate(input), `input=${input}`).toBe(expected);
+    }
+  });
+
+  it('版本号/随机 URL id/单字符前缀等形态不产生 western-dot 候选', () => {
+    const nullCases = ['7yd3M1', 'v2.1.0', '1.2.3', 'RK.1.2', 'hello.world', 'RKPrime.26.10.01.1080p', 'X.99.88'];
+    for (const input of nullCases) {
+      expect(normalizeVideoCodeCandidate(input), `input=${input}`).toBeNull();
+    }
+    for (const input of ['SSIS-0123', 'FC2-PPV-1234567', '123456_789']) {
+      const first = getFirstVideoCodeFromText(input, { allowStandaloneFc2Number: true });
+      expect(first, `input=${input}`).not.toBeNull();
+      expect(first!.kind, `input=${input}`).not.toBe('western-dot');
+    }
+  });
+
+  it('点分号与既有番号混排时按首次出现顺序保留各组', () => {
+    const result = extractVideoCodesFromText('先看 SSIS-0123，再看 RKPrime.26.10.01 和 abc.12.34');
+    expect(values(result, 'normalized')).toEqual(['SSIS-0123', 'RKPRIME.26.10.01', 'ABC.12.34']);
+    expect(values(result, 'kind')).toEqual(['jav', 'western-dot', 'western-dot']);
+  });
+});

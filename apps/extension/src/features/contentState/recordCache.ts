@@ -3,7 +3,7 @@
  * @description 内容脚本只保留当前页面需要的记录摘要，详情页再按番号补全。
  */
 import type { VideoRecord } from '../../types';
-import { dbViewedGet, dbViewedStatusGetMany } from '../../platform/storage/dbRuntimeClient';
+import { dbViewedGet, dbViewedStatusGetMany, dbViewedStatusGetManyFolded } from '../../platform/storage/dbRuntimeClient';
 import { STATE, SELECTORS, log, setContentRecord, setContentRecordSummary } from './index';
 import { countContentPerformanceEvent } from '../../platform/tasks';
 
@@ -99,6 +99,15 @@ export async function loadContentRecordSummaries(videoIds: readonly string[]): P
             countContentPerformanceEvent('storage.viewedSummaryIds', missing.length);
             summaries.forEach(setContentRecordSummary);
             log('[ContentRecordCache] loaded page summaries', { requested: missing.length, found: summaries.length });
+            // issue#51 大小写折叠兜底：欧美卡原文键与记录大写键分裂时精确键必 miss，
+            // 对 miss 集一次性折叠查询，命中者以查询键回写真实摘要（覆盖 untracked 占位）。只读路径，写路径零改动。
+            const hitIds = new Set(summaries.map((s) => s.id));
+            const missSet = missing.filter((id) => !hitIds.has(id));
+            if (missSet.length > 0) {
+                const folded = await dbViewedStatusGetManyFolded(missSet);
+                folded.forEach(setContentRecordSummary);
+                log('[ContentRecordCache] folded summary fallback', { requested: missSet.length, found: folded.length });
+            }
         } finally {
             inflightSummaryLoads.delete(task);
             releasePendingSummaries(missing);

@@ -40,7 +40,19 @@ export type ContentRecordSnapshot = Partial<VideoRecord> & Pick<VideoRecord, 'id
 
 /** 返回当前内容页已加载的完整记录或轻量摘要。 */
 export function getContentRecord(videoId: string): ContentRecordSnapshot | undefined {
-    return STATE.records[videoId] || STATE.recordSummaries[videoId];
+    const exact = STATE.records[videoId] || STATE.recordSummaries[videoId];
+    if (exact) return exact;
+    // 大小写折叠兜底：欧美号详情页键（大写）与列表卡键（原文大小写）分裂时仍可命中（issue#51）。
+    // 精确命中永远优先；只读兜底，不改任何写路径。
+    const folded = String(videoId || '').toLowerCase();
+    if (!folded) return undefined;
+    for (const [key, record] of Object.entries(STATE.records)) {
+        if (key.toLowerCase() === folded) return record;
+    }
+    for (const [key, summary] of Object.entries(STATE.recordSummaries)) {
+        if (key.toLowerCase() === folded) return summary;
+    }
+    return undefined;
 }
 
 export function setContentRecordSummary(summary: ViewedStatusSummary): void {

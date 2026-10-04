@@ -4,7 +4,7 @@
  * @module shared/utils
  */
 
-export type VideoCodeKind = 'jav' | 'fc2' | 'numeric-dash' | 'uncensored' | 'unknown';
+export type VideoCodeKind = 'jav' | 'fc2' | 'numeric-dash' | 'uncensored' | 'western-dot' | 'unknown';
 
 export interface ExtractedVideoCode {
   raw: string;
@@ -160,6 +160,26 @@ function addStandardCandidates(text: string, candidates: Candidate[]): void {
   }
 }
 
+function addWesternDotCandidates(text: string, candidates: Candidate[]): void {
+  // 欧美点分号（如 RKPrime.26.10.01）：前段字母开头 2–16 字 + 2–3 个 2–4 位纯数字点分段。
+  // 尾边界不排除字母（标题/文件名中 code 常直接贴文案）；截断风险由 (?!\d)(?!\.\d) 双数字守卫兜住。
+  const pattern = /(?<![A-Z0-9])([A-Z][A-Z0-9]{1,15})((?:\.\d{2,4}){2,3})(?!\d)(?!\.\d)/gi;
+  for (const match of text.matchAll(pattern)) {
+    const raw = match[0];
+    if (!raw || match.index === undefined) continue;
+    const normalized = raw.toUpperCase();
+    pushCandidate(candidates, {
+      raw,
+      normalized,
+      display: normalized,
+      kind: 'western-dot',
+      index: match.index,
+      end: match.index + raw.length,
+      priority: 45,
+    });
+  }
+}
+
 function addStandaloneFc2NumberCandidates(text: string, candidates: Candidate[]): void {
   const pattern = /(?<![A-Z0-9])(\d{5,10})(?![-_A-Z0-9])/g;
   for (const match of text.matchAll(pattern)) {
@@ -216,6 +236,7 @@ export function extractVideoCodesFromText(text: string, options: ExtractVideoCod
   addUncensoredCandidates(source, candidates);
   addNumericDashCandidates(source, candidates);
   addStandardCandidates(source, candidates);
+  addWesternDotCandidates(source, candidates);
   if (options.allowStandaloneFc2Number === true) {
     addStandaloneFc2NumberCandidates(source, candidates);
   }

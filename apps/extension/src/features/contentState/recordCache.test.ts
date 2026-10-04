@@ -1,11 +1,12 @@
 ﻿import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { STATE } from './index';
 import { loadContentRecordSummaries } from './recordCache';
-import { dbViewedGet, dbViewedStatusGetMany } from '../../platform/storage/dbRuntimeClient';
+import { dbViewedGet, dbViewedStatusGetMany, dbViewedStatusGetManyFolded } from '../../platform/storage/dbRuntimeClient';
 
 vi.mock('../../platform/storage/dbRuntimeClient', () => ({
   dbViewedGet: vi.fn(),
   dbViewedStatusGetMany: vi.fn(),
+  dbViewedStatusGetManyFolded: vi.fn(),
 }));
 
 describe('内容页记录缓存', () => {
@@ -14,6 +15,7 @@ describe('内容页记录缓存', () => {
     STATE.recordSummaries = {};
     vi.mocked(dbViewedGet).mockReset();
     vi.mocked(dbViewedStatusGetMany).mockReset();
+    vi.mocked(dbViewedStatusGetManyFolded).mockResolvedValue([]);
   });
 
   it('只批量读取当前页面番号的轻量摘要，不读取完整 viewed 对象', async () => {

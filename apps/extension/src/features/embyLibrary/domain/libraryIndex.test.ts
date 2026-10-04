@@ -279,4 +279,29 @@ describe('emby library index', () => {
       'http://192.168.1.11:8096/web/index.html#!/details?id=jf%20item%2F301&serverId=jf-server-1',
     );
   });
+
+  it('normalizes western dot-separated codes from item names and query keys', () => {
+    // 欧美点分号（issue#51 /v/7yd3M1 样本：RKPrime.26.10.01）
+    expect(normalizeVideoCode('RKPrime.26.10.01')).toBe('RKPRIME.26.10.01');
+    expect(normalizeVideoCode('RKPrime.26.10.01 (2026).mkv')).toBe('RKPRIME.26.10.01');
+    expect(normalizeVideoCode('/media/western/RKPrime.26.10.01.mp4')).toBe('RKPRIME.26.10.01');
+    // 随机 URL id 走 firstWord 兜底（既有行为不变）
+    expect(normalizeVideoCode('7yd3M1')).toBe('7YD3M1');
+
+    const index = buildLibraryIndex(embyServer, [
+      { Id: 'w1', Name: 'RKPrime.26.10.01 (2026).mkv', Path: '/media/western/RKPrime.26.10.01.mp4' },
+    ]);
+    expect(Object.keys(index.entries)).toEqual(['RKPRIME.26.10.01']);
+
+    // 查询侧：原文大小写键与索引键归一到同一 canonical
+    expect(findLibraryMatches(index, 'RKPrime.26.10.01').map(m => m.itemId)).toEqual(['w1']);
+    expect(findLibraryMatches(index, 'RKPRIME.26.10.01').map(m => m.itemId)).toEqual(['w1']);
+    expect(findLibraryMatches(index, 'no code at all')).toEqual([]);
+
+    // 搜索词走 generic 分支（canonical + 小写）
+    expect(generateVideoCodeSearchTerms('RKPrime.26.10.01')).toEqual([
+      'RKPRIME.26.10.01',
+      'rkprime.26.10.01',
+    ]);
+  });
 });
