@@ -183,3 +183,84 @@ describe('terminal + pendingCount>0 → 恢复回填确认（10-19）', () => {
     expect(runtimeDeps.showSummaryToast).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('10-05 F-2 页载再弹孤儿批次（idle/interrupted + storage.session 孤儿批次 → 恢复回填再弹）', () => {
+  it('idle + dep 在位 → 调 restoreOrphanPendingWorks() 恰一次，无其它 UI 副作用', async () => {
+    const restoreOrphanPendingWorks = vi.fn();
+    const d = deps({
+      queryStatus: vi.fn(async () => ({ status: 'idle' as const })),
+      restoreOrphanPendingWorks,
+    });
+
+    await restoreNewWorksScanState(d);
+
+    expect(restoreOrphanPendingWorks).toHaveBeenCalledTimes(1);
+    expect(d.restoreProgressUI).not.toHaveBeenCalled();
+    expect(d.showSummaryToast).not.toHaveBeenCalled();
+    expect(d.showInterruptedToast).not.toHaveBeenCalled();
+  });
+
+  it('interrupted + dep 在位 → 一次性提示照发 + 再弹孤儿批次（SW 重启后 terminal 已清但批次留存）', async () => {
+    const restoreOrphanPendingWorks = vi.fn();
+    const d = deps({
+      queryStatus: vi.fn(async () => ({ status: 'interrupted' as const })),
+      restoreOrphanPendingWorks,
+    });
+
+    await restoreNewWorksScanState(d);
+
+    expect(d.showInterruptedToast).toHaveBeenCalledTimes(1);
+    expect(restoreOrphanPendingWorks).toHaveBeenCalledTimes(1);
+    expect(d.restoreProgressUI).not.toHaveBeenCalled();
+  });
+
+  it('running → 不调孤儿再弹（扫描进行中，无孤儿语义）', async () => {
+    const restoreOrphanPendingWorks = vi.fn();
+    const d = deps({
+      queryStatus: vi.fn(async () => ({ ...RUNNING_STATE })),
+      restoreOrphanPendingWorks,
+    });
+
+    await restoreNewWorksScanState(d);
+
+    expect(restoreOrphanPendingWorks).not.toHaveBeenCalled();
+    expect(d.restoreProgressUI).toHaveBeenCalledTimes(1);
+  });
+
+  it('terminal（done+pending>0）→ 走既有 restorePendingWorks 路径，不走孤儿再弹（单页载至多一路径触发）', async () => {
+    const result = { discovered: 2, identifiedTotal: 3, pendingCount: 2, existingCount: 1, cancelled: false, errorCount: 0 };
+    const restorePendingWorks = vi.fn(async () => undefined);
+    const restoreOrphanPendingWorks = vi.fn();
+    const d = deps({
+      queryStatus: vi.fn(async () => ({ status: 'done' as const, result })),
+      restorePendingWorks,
+      restoreOrphanPendingWorks,
+    });
+
+    await restoreNewWorksScanState(d);
+
+    expect(restorePendingWorks).toHaveBeenCalledTimes(1);
+    expect(restoreOrphanPendingWorks).not.toHaveBeenCalled();
+  });
+
+  it('dep 未注入（旧调用方）→ idle/interrupted 零副作用不崩（既有行为零漂移）', async () => {
+    const idleDeps = deps({ queryStatus: vi.fn(async () => ({ status: 'idle' as const })) });
+    await expect(restoreNewWorksScanState(idleDeps)).resolves.toBeUndefined();
+
+    const interruptedDeps = deps({ queryStatus: vi.fn(async () => ({ status: 'interrupted' as const })) });
+    await expect(restoreNewWorksScanState(interruptedDeps)).resolves.toBeUndefined();
+    expect(interruptedDeps.showInterruptedToast).toHaveBeenCalledTimes(1);
+  });
+
+  it('查询失败 → 不调孤儿再弹（查询不可信时不动批次，与现状一致）', async () => {
+    const restoreOrphanPendingWorks = vi.fn();
+    const d = deps({
+      queryStatus: vi.fn(async () => { throw new Error('no SW'); }),
+      restoreOrphanPendingWorks,
+    });
+
+    await expect(restoreNewWorksScanState(d)).resolves.toBeUndefined();
+    expect(d.logError).toHaveBeenCalledTimes(1);
+    expect(restoreOrphanPendingWorks).not.toHaveBeenCalled();
+  });
+});
