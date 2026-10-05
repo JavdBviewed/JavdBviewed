@@ -21,6 +21,8 @@ function setupDom() {
     <input id="listsFilterInput" /><div id="listsFilterDropdown" style="display:none"></div>
     <input id="seriesFilterInput" /><div id="seriesFilterDropdown" style="display:none"></div>
     <input id="labelsFilterInput" /><div id="labelsFilterDropdown" style="display:none"></div>
+    <input id="makersFilterInput" /><div id="makersFilterDropdown" style="display:none"></div>
+    <input id="directorsFilterInput" /><div id="directorsFilterDropdown" style="display:none"></div>
     <button id="listPickerCloseBtn"></button>
     <button id="listPickerDoneBtn"></button>
     <div id="listPickerPanel"><div class="list-picker-backdrop"></div></div>
@@ -44,6 +46,10 @@ function setupDom() {
     seriesFilterDropdown: document.getElementById('seriesFilterDropdown') as HTMLElement,
     labelsFilterInput: document.getElementById('labelsFilterInput') as HTMLInputElement,
     labelsFilterDropdown: document.getElementById('labelsFilterDropdown') as HTMLElement,
+    makersFilterInput: document.getElementById('makersFilterInput') as HTMLInputElement,
+    makersFilterDropdown: document.getElementById('makersFilterDropdown') as HTMLElement,
+    directorsFilterInput: document.getElementById('directorsFilterInput') as HTMLInputElement,
+    directorsFilterDropdown: document.getElementById('directorsFilterDropdown') as HTMLElement,
   };
 }
 
@@ -77,6 +83,8 @@ describe('records page lifecycle controller', () => {
         lists: { bind: mark('lists.bind'), render: mark('lists.render') },
         series: { bind: mark('series.bind') },
         labels: { bind: mark('labels.bind') },
+        makers: { bind: mark('makers.bind') },
+        directors: { bind: mark('directors.bind') },
       },
       advancedConditions: {
         addCondition: mark('advanced.addCondition'),
@@ -103,6 +111,8 @@ describe('records page lifecycle controller', () => {
       'lists.bind',
       'series.bind',
       'labels.bind',
+      'makers.bind',
+      'directors.bind',
       'batchToolbar.bind',
       'cover.ensureTooltipElement',
       'viewToolbar.update',
@@ -143,6 +153,8 @@ describe('records page lifecycle controller', () => {
         lists: { bind: mark('lists.bind'), render: mark('lists.render') },
         series: { bind: mark('series.bind') },
         labels: { bind: mark('labels.bind') },
+        makers: { bind: mark('makers.bind') },
+        directors: { bind: mark('directors.bind') },
       },
       advancedConditions: {
         addCondition: mark('advanced.addCondition'),
@@ -212,6 +224,8 @@ describe('records page lifecycle controller', () => {
         lists: { bind: mark('lists.bind'), render: mark('lists.render') },
         series: { bind: mark('series.bind') },
         labels: { bind: mark('labels.bind') },
+        makers: { bind: mark('makers.bind') },
+        directors: { bind: mark('directors.bind') },
       },
       advancedConditions: {
         addCondition: mark('advanced.addCondition'),

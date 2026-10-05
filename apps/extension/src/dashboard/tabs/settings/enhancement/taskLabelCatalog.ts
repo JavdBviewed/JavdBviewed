@@ -17,6 +17,7 @@ export const TASK_LABEL_SHORT: Record<string, string> = {
   'actorEnhancement:actionButtons': '演员页操作按钮增强',
   'actorQuickActions:init': '演员快捷操作初始化',
   'categoryQuickActions:init': '类别快捷操作初始化',
+  'collectionQuickActions:init': '影片实体快捷收藏初始化',
   'enhancementUI:showLoadingIndicator': '增强加载提示显示',
   'performanceOptimizer:init': '性能优化器初始化',
   'ux:shortcuts:init': '快捷键系统初始化',

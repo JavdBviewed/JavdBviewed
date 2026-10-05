@@ -34,6 +34,8 @@ describe('records search result count controller', () => {
       getSelectedListIdsCount: () => 1,
       getSelectedSeriesIdsCount: () => 0,
       getSelectedLabelIdsCount: () => 0,
+      getSelectedMakerIdsCount: () => 2,
+      getSelectedDirectorIdsCount: () => 1,
       getAdvancedConditionsCount: () => 1,
     });
 
@@ -43,6 +45,8 @@ describe('records search result count controller', () => {
     expect(elements.container.textContent).toContain('找到 12 个结果');
     expect(elements.container.textContent).toContain('ABC');
     expect(elements.container.textContent).toContain('已看');
+    expect(elements.container.textContent).toContain('2个片商');
+    expect(elements.container.textContent).toContain('1个導演');
   });
 
   it('hides the summary when there is no active query or filter', () => {
@@ -57,6 +61,8 @@ describe('records search result count controller', () => {
       getSelectedListIdsCount: () => 0,
       getSelectedSeriesIdsCount: () => 0,
       getSelectedLabelIdsCount: () => 0,
+      getSelectedMakerIdsCount: () => 0,
+      getSelectedDirectorIdsCount: () => 0,
       getAdvancedConditionsCount: () => 0,
     });
 

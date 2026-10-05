@@ -21,6 +21,8 @@ function result(partial: Partial<UpdateRecordsLocalFilterStateResult> = {}): Upd
     tokenSelectedListIds: partial.tokenSelectedListIds || new Set(['list-1']),
     tokenSelectedSeriesIds: partial.tokenSelectedSeriesIds || new Set(['series-1']),
     tokenSelectedLabelIds: partial.tokenSelectedLabelIds || new Set(['label-1']),
+    tokenSelectedMakerIds: partial.tokenSelectedMakerIds || new Set(['maker-1']),
+    tokenSelectedDirectorIds: partial.tokenSelectedDirectorIds || new Set(['director-1']),
   };
 }
 
@@ -31,11 +33,15 @@ function createRuntime(overrides: Partial<Parameters<typeof createRecordsLocalFi
     tokenSelectedListIds: new Set<string>(['old-list']),
     tokenSelectedSeriesIds: new Set<string>(['old-series']),
     tokenSelectedLabelIds: new Set<string>(['old-label']),
+    tokenSelectedMakerIds: new Set<string>(['old-maker']),
+    tokenSelectedDirectorIds: new Set<string>(['old-director']),
   };
   const refreshTags = vi.fn();
   const refreshLists = vi.fn();
   const refreshSeries = vi.fn();
   const refreshLabels = vi.fn();
+  const refreshMakers = vi.fn();
+  const refreshDirectors = vi.fn();
   const updateLocalFilterState = vi.fn(() => result());
   const logError = vi.fn();
   const records = [record('AAA-001')];
@@ -49,6 +55,8 @@ function createRuntime(overrides: Partial<Parameters<typeof createRecordsLocalFi
     selectedListIds: new Set<string>(),
     selectedSeriesIds: new Set<string>(),
     selectedLabelIds: new Set<string>(),
+    selectedMakerIds: new Set<string>(),
+    selectedDirectorIds: new Set<string>(),
     getTokenSelectedTags: () => state.tokenSelectedTags,
     setTokenSelectedTags: (value: Set<string>) => {
       state.tokenSelectedTags = value;
@@ -65,15 +73,27 @@ function createRuntime(overrides: Partial<Parameters<typeof createRecordsLocalFi
     setTokenSelectedLabelIds: (value: Set<string>) => {
       state.tokenSelectedLabelIds = value;
     },
+    getTokenSelectedMakerIds: () => state.tokenSelectedMakerIds,
+    setTokenSelectedMakerIds: (value: Set<string>) => {
+      state.tokenSelectedMakerIds = value;
+    },
+    getTokenSelectedDirectorIds: () => state.tokenSelectedDirectorIds,
+    setTokenSelectedDirectorIds: (value: Set<string>) => {
+      state.tokenSelectedDirectorIds = value;
+    },
     listNameById: new Map<string, string>(),
     seriesIdToRecord: new Map<string, any>(),
     labelIdToRecord: new Map<string, any>(),
+    makerIdToRecord: new Map<string, any>(),
+    directorIdToRecord: new Map<string, any>(),
     getAdvancedConditions: () => [],
     isFavoritesFilterActive: () => false,
     refreshTags,
     refreshLists,
     refreshSeries,
     refreshLabels,
+    refreshMakers,
+    refreshDirectors,
     setFilteredRecords: (value: VideoRecord[]) => {
       state.filteredRecords = value;
     },
@@ -92,6 +112,8 @@ function createRuntime(overrides: Partial<Parameters<typeof createRecordsLocalFi
     refreshLists,
     refreshSeries,
     refreshLabels,
+    refreshMakers,
+    refreshDirectors,
     logError,
   };
 }
@@ -115,15 +137,21 @@ describe('records local filter runtime', () => {
       tokenSelectedSeriesIds: new Set(['old-series']),
       selectedLabelIds: options.selectedLabelIds,
       tokenSelectedLabelIds: new Set(['old-label']),
+      tokenSelectedMakerIds: new Set(['old-maker']),
+      tokenSelectedDirectorIds: new Set(['old-director']),
       listNameById: options.listNameById,
       seriesIdToRecord: options.seriesIdToRecord,
       labelIdToRecord: options.labelIdToRecord,
+      makerIdToRecord: options.makerIdToRecord,
+      directorIdToRecord: options.directorIdToRecord,
       advancedConditions: [],
       favoritesFilterActive: false,
       refreshTags: options.refreshTags,
       refreshLists: options.refreshLists,
       refreshSeries: options.refreshSeries,
       refreshLabels: options.refreshLabels,
+      refreshMakers: options.refreshMakers,
+      refreshDirectors: options.refreshDirectors,
       onError: expect.any(Function),
     }));
     expect(state.filteredRecords.map(item => item.id)).toEqual(['AAA-001']);
@@ -131,6 +159,8 @@ describe('records local filter runtime', () => {
     expect([...state.tokenSelectedListIds]).toEqual(['list-1']);
     expect([...state.tokenSelectedSeriesIds]).toEqual(['series-1']);
     expect([...state.tokenSelectedLabelIds]).toEqual(['label-1']);
+    expect([...state.tokenSelectedMakerIds]).toEqual(['maker-1']);
+    expect([...state.tokenSelectedDirectorIds]).toEqual(['director-1']);
   });
 
   it('uses empty records when the global record list is unavailable', () => {

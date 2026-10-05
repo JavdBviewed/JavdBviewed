@@ -19,6 +19,8 @@ describe('records search result summary model', () => {
       selectedListIdsCount: 0,
       selectedSeriesIdsCount: 0,
       selectedLabelIdsCount: 0,
+      selectedMakerIdsCount: 0,
+      selectedDirectorIdsCount: 0,
       advancedConditionsCount: 0,
     })).toEqual({
       visible: true,
@@ -36,6 +38,8 @@ describe('records search result summary model', () => {
       selectedListIdsCount: 1,
       selectedSeriesIdsCount: 0,
       selectedLabelIdsCount: 1,
+      selectedMakerIdsCount: 0,
+      selectedDirectorIdsCount: 0,
       advancedConditionsCount: 2,
     })).toEqual({
       visible: true,
@@ -53,7 +57,28 @@ describe('records search result summary model', () => {
       selectedListIdsCount: 0,
       selectedSeriesIdsCount: 0,
       selectedLabelIdsCount: 0,
+      selectedMakerIdsCount: 0,
+      selectedDirectorIdsCount: 0,
       advancedConditionsCount: 0,
     })).toEqual({ visible: false, html: '' });
+  });
+
+  it('includes maker and director counts in the active conditions summary', () => {
+    expect(buildRecordsSearchResultSummary({
+      totalCount: 5,
+      durationMs: null,
+      searchTerm: '',
+      filterText: '',
+      selectedTagsCount: 0,
+      selectedListIdsCount: 0,
+      selectedSeriesIdsCount: 0,
+      selectedLabelIdsCount: 0,
+      selectedMakerIdsCount: 2,
+      selectedDirectorIdsCount: 1,
+      advancedConditionsCount: 0,
+    })).toEqual({
+      visible: true,
+      html: '搜索 2个片商 + 1个導演，找到 <span class="count-number">5</span> 个结果',
+    });
   });
 });

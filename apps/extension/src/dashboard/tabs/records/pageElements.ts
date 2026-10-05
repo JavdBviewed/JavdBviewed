@@ -54,6 +54,8 @@ export interface RecordsPageElements {
     lists: RecordsFilterElements;
     series: RecordsFilterElements;
     labels: RecordsFilterElements;
+    makers: RecordsFilterElements;
+    directors: RecordsFilterElements;
   };
   advanced: RecordsAdvancedElements;
   searchSuggest: HTMLDivElement;
@@ -127,6 +129,20 @@ export function collectRecordsPageElements(documentRef: Document = document): Re
         searchInput: getById<HTMLInputElement>('labelsSearchInput'),
         optionList: getById<HTMLElement>('labelsFilterList'),
         selectedContainer: getById<HTMLElement>('selectedLabelsContainer'),
+      },
+      makers: {
+        filterInput: getById<HTMLInputElement>('makersFilterInput'),
+        dropdown: getById<HTMLElement>('makersFilterDropdown'),
+        searchInput: getById<HTMLInputElement>('makersSearchInput'),
+        optionList: getById<HTMLElement>('makersFilterList'),
+        selectedContainer: getById<HTMLElement>('selectedMakersContainer'),
+      },
+      directors: {
+        filterInput: getById<HTMLInputElement>('directorsFilterInput'),
+        dropdown: getById<HTMLElement>('directorsFilterDropdown'),
+        searchInput: getById<HTMLInputElement>('directorsSearchInput'),
+        optionList: getById<HTMLElement>('directorsFilterList'),
+        selectedContainer: getById<HTMLElement>('selectedDirectorsContainer'),
       },
     },
     advanced: {

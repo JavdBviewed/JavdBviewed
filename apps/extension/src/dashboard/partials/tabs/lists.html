@@ -3,7 +3,7 @@
     <div>
       <span class="lists-eyebrow">Collections</span>
       <h3>收藏中心</h3>
-      <p>管理本地清单、JavDB 收藏的系列与番号，点击条目可快速筛选番号库。</p>
+      <p>管理本地清单、JavDB 收藏的系列、番号、片商与導演，点击条目可快速筛选番号库。</p>
     </div>
     <div class="lists-hero-mark">
       <i class="fas fa-bookmark"></i>
@@ -19,6 +19,12 @@
     </button>
     <button class="lists-subtab" data-subtab="labels">
       <i class="fas fa-tag"></i> 番号
+    </button>
+    <button class="lists-subtab" data-subtab="makers">
+      <i class="fas fa-building"></i> 片商
+    </button>
+    <button class="lists-subtab" data-subtab="directors">
+      <i class="fas fa-user-tie"></i> 導演
     </button>
   </div>
 
@@ -76,6 +82,34 @@
       <div class="lists-section lists-section--full">
         <h5>收藏的番号 <span id="listsLabelsCount" class="badge-pill">0</span></h5>
         <div id="listsLabelsContainer" class="lists-list lists-list--grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 片商 panel -->
+  <div id="lists-panel-makers" class="lists-panel lists-panel--hidden">
+    <div class="lists-collection-notice">
+      <i class="fas fa-info-circle"></i>
+      仅保留收藏关系，不同步全量数据。点击片商可在番号库中查看已入库的匹配影片。
+    </div>
+    <div class="lists-sections lists-sections--2col">
+      <div class="lists-section lists-section--full">
+        <h5>收藏的片商 <span id="listsMakersCount" class="badge-pill">0</span></h5>
+        <div id="listsMakersContainer" class="lists-list lists-list--grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 導演 panel -->
+  <div id="lists-panel-directors" class="lists-panel lists-panel--hidden">
+    <div class="lists-collection-notice">
+      <i class="fas fa-info-circle"></i>
+      仅保留收藏关系，不同步全量数据。点击導演可在番号库中查看已入库的匹配影片。
+    </div>
+    <div class="lists-sections lists-sections--2col">
+      <div class="lists-section lists-section--full">
+        <h5>收藏的導演 <span id="listsDirectorsCount" class="badge-pill">0</span></h5>
+        <div id="listsDirectorsContainer" class="lists-list lists-list--grid"></div>
       </div>
     </div>
   </div>

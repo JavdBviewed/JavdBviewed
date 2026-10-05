@@ -10,6 +10,10 @@ export interface SyncRecordsTokenSelectionsInput {
   tokenSelectedSeriesIds: Set<string>;
   selectedLabelIds: Set<string>;
   tokenSelectedLabelIds: Set<string>;
+  selectedMakerIds: Set<string>;
+  tokenSelectedMakerIds: Set<string>;
+  selectedDirectorIds: Set<string>;
+  tokenSelectedDirectorIds: Set<string>;
   listNameById: Map<string, string>;
 }
 
@@ -18,6 +22,8 @@ export interface SyncRecordsTokenSelectionsResult {
   tokenSelectedListIds: Set<string>;
   tokenSelectedSeriesIds: Set<string>;
   tokenSelectedLabelIds: Set<string>;
+  tokenSelectedMakerIds: Set<string>;
+  tokenSelectedDirectorIds: Set<string>;
 }
 
 function replaceTokenSelections(target: Set<string>, previousTokens: Set<string>, nextTokens: Set<string>): void {
@@ -61,10 +67,18 @@ export function syncRecordsTokenSelections(
   const tokenSelectedLabelIds = new Set(input.parsedTokens.labelPrefixes);
   replaceTokenSelections(input.selectedLabelIds, input.tokenSelectedLabelIds, tokenSelectedLabelIds);
 
+  const tokenSelectedMakerIds = new Set(input.parsedTokens.makerIds || []);
+  replaceTokenSelections(input.selectedMakerIds, input.tokenSelectedMakerIds, tokenSelectedMakerIds);
+
+  const tokenSelectedDirectorIds = new Set(input.parsedTokens.directorIds || []);
+  replaceTokenSelections(input.selectedDirectorIds, input.tokenSelectedDirectorIds, tokenSelectedDirectorIds);
+
   return {
     tokenSelectedTags,
     tokenSelectedListIds,
     tokenSelectedSeriesIds,
     tokenSelectedLabelIds,
+    tokenSelectedMakerIds,
+    tokenSelectedDirectorIds,
   };
 }

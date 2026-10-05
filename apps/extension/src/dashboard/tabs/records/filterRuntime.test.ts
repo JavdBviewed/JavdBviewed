@@ -29,6 +29,8 @@ describe('records filter runtime', () => {
     let tokenSelectedListIds = new Set<string>();
     let tokenSelectedSeriesIds = new Set<string>();
     let tokenSelectedLabelIds = new Set<string>();
+    let tokenSelectedMakerIds = new Set<string>();
+    let tokenSelectedDirectorIds = new Set<string>();
     let filteredRecords: VideoRecord[] = [];
 
     const controllers = {
@@ -36,6 +38,8 @@ describe('records filter runtime', () => {
       lists: { refresh: vi.fn(), clearRenderedOptions: vi.fn() },
       series: { refresh: vi.fn(), clearRenderedOptions: vi.fn() },
       labels: { refresh: vi.fn(), clearRenderedOptions: vi.fn() },
+      makers: { refresh: vi.fn(), clearRenderedOptions: vi.fn() },
+      directors: { refresh: vi.fn(), clearRenderedOptions: vi.fn() },
     };
     const backdropController = {
       sync: vi.fn(),
@@ -52,6 +56,8 @@ describe('records filter runtime', () => {
     const listsElements = filterElements();
     const seriesElements = filterElements();
     const labelsElements = filterElements();
+    const makersElements = filterElements();
+    const directorsElements = filterElements();
 
     const runtime = createRecordsFilterRuntime({
       elements: {
@@ -63,6 +69,8 @@ describe('records filter runtime', () => {
           lists: listsElements,
           series: seriesElements,
           labels: labelsElements,
+          makers: makersElements,
+          directors: directorsElements,
         },
       },
       getRecords: () => [record('AAA-001')],
@@ -70,6 +78,8 @@ describe('records filter runtime', () => {
       selectedListIds: new Set<string>(),
       selectedSeriesIds: new Set<string>(),
       selectedLabelIds: new Set<string>(),
+      selectedMakerIds: new Set<string>(),
+      selectedDirectorIds: new Set<string>(),
       getTokenSelectedTags: () => tokenSelectedTags,
       setTokenSelectedTags: (value) => {
         tokenSelectedTags = value;
@@ -86,13 +96,25 @@ describe('records filter runtime', () => {
       setTokenSelectedLabelIds: (value) => {
         tokenSelectedLabelIds = value;
       },
+      getTokenSelectedMakerIds: () => tokenSelectedMakerIds,
+      setTokenSelectedMakerIds: (value) => {
+        tokenSelectedMakerIds = value;
+      },
+      getTokenSelectedDirectorIds: () => tokenSelectedDirectorIds,
+      setTokenSelectedDirectorIds: (value) => {
+        tokenSelectedDirectorIds = value;
+      },
       getAllTags: () => ['字幕'],
       listNameById: new Map([['list-1', '清单']]),
       listSourceById: new Map([['list-1', 'local']]),
       seriesNameById: new Map([['series-1', '系列']]),
       labelNameById: new Map([['label-1', '番号']]),
+      makerNameById: new Map([['maker-1', '片商']]),
+      directorNameById: new Map([['director-1', '導演']]),
       seriesIdToRecord: new Map(),
       labelIdToRecord: new Map(),
+      makerIdToRecord: new Map(),
+      directorIdToRecord: new Map(),
       ensureListMetaLoaded: vi.fn(),
       getAdvancedConditions: () => [],
       isFavoritesFilterActive: () => false,
@@ -124,6 +146,8 @@ describe('records filter runtime', () => {
     localOptions.refreshLists();
     localOptions.refreshSeries();
     localOptions.refreshLabels();
+    localOptions.refreshMakers();
+    localOptions.refreshDirectors();
 
     expect(runtime.filterControllers).toBe(controllers);
     expect(runtime.localFilterRuntime).toBe(localFilterRuntime);
@@ -152,6 +176,8 @@ describe('records filter runtime', () => {
     expect(listsElements.dropdown.style.display).toBe('none');
     expect(seriesElements.dropdown.style.display).toBe('block');
     expect(labelsElements.dropdown.style.display).toBe('block');
+    expect(makersElements.dropdown.style.display).toBe('block');
+    expect(directorsElements.dropdown.style.display).toBe('block');
     expect(localFilterRuntime.updateFilteredRecords).toHaveBeenCalledTimes(1);
     expect(onFilterChanged).toHaveBeenCalledTimes(1);
     expect(tokenSelectedTags).toEqual(new Set(['字幕']));
@@ -161,9 +187,13 @@ describe('records filter runtime', () => {
     expect(controllers.lists.refresh).toHaveBeenCalledTimes(1);
     expect(controllers.series.refresh).toHaveBeenCalledTimes(1);
     expect(controllers.labels.refresh).toHaveBeenCalledTimes(1);
+    expect(controllers.makers.refresh).toHaveBeenCalledTimes(1);
+    expect(controllers.directors.refresh).toHaveBeenCalledTimes(1);
     expect(controllers.tags.clearRenderedOptions).toHaveBeenCalledTimes(1);
     expect(controllers.lists.clearRenderedOptions).toHaveBeenCalledTimes(1);
     expect(controllers.series.clearRenderedOptions).toHaveBeenCalledTimes(1);
     expect(controllers.labels.clearRenderedOptions).toHaveBeenCalledTimes(1);
+    expect(controllers.makers.clearRenderedOptions).toHaveBeenCalledTimes(1);
+    expect(controllers.directors.clearRenderedOptions).toHaveBeenCalledTimes(1);
   });
 });

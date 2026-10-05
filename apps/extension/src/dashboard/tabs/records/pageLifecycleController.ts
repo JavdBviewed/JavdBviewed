@@ -22,6 +22,10 @@ export interface RecordsPageLifecycleElements {
   seriesFilterDropdown?: HTMLElement | null;
   labelsFilterInput?: HTMLElement | null;
   labelsFilterDropdown?: HTMLElement | null;
+  makersFilterInput?: HTMLElement | null;
+  makersFilterDropdown?: HTMLElement | null;
+  directorsFilterInput?: HTMLElement | null;
+  directorsFilterDropdown?: HTMLElement | null;
 }
 
 export interface RecordsPageLifecycleOptions {
@@ -43,6 +47,8 @@ export interface RecordsPageLifecycleOptions {
     lists: RenderableController;
     series: RenderableController;
     labels: RenderableController;
+    makers: RenderableController;
+    directors: RenderableController;
   };
   advancedConditions: {
     addCondition: (condition: RecordsAdvancedCondition) => void;
@@ -79,6 +85,16 @@ function closeFilterDropdowns(options: RecordsPageLifecycleOptions, event: Mouse
   if (elements.labelsFilterInput && elements.labelsFilterDropdown) {
     if (!elements.labelsFilterInput.contains(target) && !elements.labelsFilterDropdown.contains(target)) {
       elements.labelsFilterDropdown.style.display = 'none';
+    }
+  }
+  if (elements.makersFilterInput && elements.makersFilterDropdown) {
+    if (!elements.makersFilterInput.contains(target) && !elements.makersFilterDropdown.contains(target)) {
+      elements.makersFilterDropdown.style.display = 'none';
+    }
+  }
+  if (elements.directorsFilterInput && elements.directorsFilterDropdown) {
+    if (!elements.directorsFilterInput.contains(target) && !elements.directorsFilterDropdown.contains(target)) {
+      elements.directorsFilterDropdown.style.display = 'none';
     }
   }
   options.syncDropdownBackdrop();
@@ -138,6 +154,8 @@ export function bindRecordsPageLifecycle(options: RecordsPageLifecycleOptions): 
   options.filters.lists.bind();
   options.filters.series.bind();
   options.filters.labels.bind();
+  options.filters.makers.bind();
+  options.filters.directors.bind();
 
   document.addEventListener('click', (event) => closeFilterDropdowns(options, event));
 

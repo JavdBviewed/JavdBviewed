@@ -17,6 +17,8 @@ export interface CreateRecordsQueryRuntimeOptions {
   selectedListIds: Set<string>;
   selectedSeriesIds: Set<string>;
   selectedLabelIds: Set<string>;
+  selectedMakerIds: Set<string>;
+  selectedDirectorIds: Set<string>;
   listNameById: Map<string, string>;
   getAdvancedConditions: () => RecordsAdvancedCondition[];
   isFavoritesFilterActive: () => boolean;
@@ -55,7 +57,10 @@ export function createRecordsQueryRuntime(options: CreateRecordsQueryRuntimeOpti
   );
 
   const shouldUseIDB = (): boolean => {
-    return options.selectedSeriesIds.size === 0 && options.selectedLabelIds.size === 0;
+    return options.selectedSeriesIds.size === 0
+      && options.selectedLabelIds.size === 0
+      && options.selectedMakerIds.size === 0
+      && options.selectedDirectorIds.size === 0;
   };
 
   const parseSort = (): RecordsSort | null => {

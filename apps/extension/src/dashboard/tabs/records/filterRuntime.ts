@@ -24,6 +24,8 @@ export interface RecordsFilterRuntimeElements {
     lists: RecordsFilterElements;
     series: RecordsFilterElements;
     labels: RecordsFilterElements;
+    makers: RecordsFilterElements;
+    directors: RecordsFilterElements;
   };
 }
 
@@ -34,6 +36,8 @@ export interface CreateRecordsFilterRuntimeOptions {
   selectedListIds: Set<string>;
   selectedSeriesIds: Set<string>;
   selectedLabelIds: Set<string>;
+  selectedMakerIds: Set<string>;
+  selectedDirectorIds: Set<string>;
   getTokenSelectedTags: () => Set<string>;
   setTokenSelectedTags: (value: Set<string>) => void;
   getTokenSelectedListIds: () => Set<string>;
@@ -42,13 +46,21 @@ export interface CreateRecordsFilterRuntimeOptions {
   setTokenSelectedSeriesIds: (value: Set<string>) => void;
   getTokenSelectedLabelIds: () => Set<string>;
   setTokenSelectedLabelIds: (value: Set<string>) => void;
+  getTokenSelectedMakerIds: () => Set<string>;
+  setTokenSelectedMakerIds: (value: Set<string>) => void;
+  getTokenSelectedDirectorIds: () => Set<string>;
+  setTokenSelectedDirectorIds: (value: Set<string>) => void;
   getAllTags: () => string[];
   listNameById: Map<string, string>;
   listSourceById: Map<string, string>;
   seriesNameById: Map<string, string>;
   labelNameById: Map<string, string>;
+  makerNameById: Map<string, string>;
+  directorNameById: Map<string, string>;
   seriesIdToRecord: Map<string, any>;
   labelIdToRecord: Map<string, any>;
+  makerIdToRecord: Map<string, any>;
+  directorIdToRecord: Map<string, any>;
   ensureListMetaLoaded: () => void;
   getAdvancedConditions: () => RecordsAdvancedCondition[];
   isFavoritesFilterActive: () => boolean;
@@ -91,19 +103,27 @@ export function createRecordsFilterRuntime(options: CreateRecordsFilterRuntimeOp
       lists: elements.filters.lists,
       series: elements.filters.series,
       labels: elements.filters.labels,
+      makers: elements.filters.makers,
+      directors: elements.filters.directors,
     } satisfies RecordsFilterControllersElements,
     selectedTags: options.selectedTags,
     selectedListIds: options.selectedListIds,
     selectedSeriesIds: options.selectedSeriesIds,
     selectedLabelIds: options.selectedLabelIds,
+    selectedMakerIds: options.selectedMakerIds,
+    selectedDirectorIds: options.selectedDirectorIds,
     tokenSelectedListIds: options.getTokenSelectedListIds,
     tokenSelectedSeriesIds: options.getTokenSelectedSeriesIds,
     tokenSelectedLabelIds: options.getTokenSelectedLabelIds,
+    tokenSelectedMakerIds: options.getTokenSelectedMakerIds,
+    tokenSelectedDirectorIds: options.getTokenSelectedDirectorIds,
     getAllTags: options.getAllTags,
     listNameById: options.listNameById,
     listSourceById: options.listSourceById,
     seriesNameById: options.seriesNameById,
     labelNameById: options.labelNameById,
+    makerNameById: options.makerNameById,
+    directorNameById: options.directorNameById,
     ensureListMetaLoaded: options.ensureListMetaLoaded,
     syncDropdownBackdrop,
     onChange: options.onFilterChanged,
@@ -114,6 +134,8 @@ export function createRecordsFilterRuntime(options: CreateRecordsFilterRuntimeOp
     filterControllers.lists.clearRenderedOptions();
     filterControllers.series.clearRenderedOptions();
     filterControllers.labels.clearRenderedOptions();
+    filterControllers.makers.clearRenderedOptions();
+    filterControllers.directors.clearRenderedOptions();
   };
 
   const localFilterRuntime = createLocalFilter({
@@ -125,6 +147,8 @@ export function createRecordsFilterRuntime(options: CreateRecordsFilterRuntimeOp
     selectedListIds: options.selectedListIds,
     selectedSeriesIds: options.selectedSeriesIds,
     selectedLabelIds: options.selectedLabelIds,
+    selectedMakerIds: options.selectedMakerIds,
+    selectedDirectorIds: options.selectedDirectorIds,
     getTokenSelectedTags: options.getTokenSelectedTags,
     setTokenSelectedTags: options.setTokenSelectedTags,
     getTokenSelectedListIds: options.getTokenSelectedListIds,
@@ -133,15 +157,23 @@ export function createRecordsFilterRuntime(options: CreateRecordsFilterRuntimeOp
     setTokenSelectedSeriesIds: options.setTokenSelectedSeriesIds,
     getTokenSelectedLabelIds: options.getTokenSelectedLabelIds,
     setTokenSelectedLabelIds: options.setTokenSelectedLabelIds,
+    getTokenSelectedMakerIds: options.getTokenSelectedMakerIds,
+    setTokenSelectedMakerIds: options.setTokenSelectedMakerIds,
+    getTokenSelectedDirectorIds: options.getTokenSelectedDirectorIds,
+    setTokenSelectedDirectorIds: options.setTokenSelectedDirectorIds,
     listNameById: options.listNameById,
     seriesIdToRecord: options.seriesIdToRecord,
     labelIdToRecord: options.labelIdToRecord,
+    makerIdToRecord: options.makerIdToRecord,
+    directorIdToRecord: options.directorIdToRecord,
     getAdvancedConditions: options.getAdvancedConditions,
     isFavoritesFilterActive: options.isFavoritesFilterActive,
     refreshTags: () => { try { filterControllers.tags.refresh(); } catch {} },
     refreshLists: () => { try { filterControllers.lists.refresh(); } catch {} },
     refreshSeries: () => { try { filterControllers.series.refresh(); } catch {} },
     refreshLabels: () => { try { filterControllers.labels.refresh(); } catch {} },
+    refreshMakers: () => { try { filterControllers.makers.refresh(); } catch {} },
+    refreshDirectors: () => { try { filterControllers.directors.refresh(); } catch {} },
     setFilteredRecords: options.setFilteredRecords,
   });
 

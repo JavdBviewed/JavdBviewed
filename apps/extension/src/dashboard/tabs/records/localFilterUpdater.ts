@@ -18,15 +18,23 @@ export interface UpdateRecordsLocalFilterStateInput {
   tokenSelectedSeriesIds: Set<string>;
   selectedLabelIds: Set<string>;
   tokenSelectedLabelIds: Set<string>;
+  selectedMakerIds: Set<string>;
+  tokenSelectedMakerIds: Set<string>;
+  selectedDirectorIds: Set<string>;
+  tokenSelectedDirectorIds: Set<string>;
   listNameById: Map<string, string>;
   seriesIdToRecord: Map<string, any>;
   labelIdToRecord: Map<string, any>;
+  makerIdToRecord: Map<string, any>;
+  directorIdToRecord: Map<string, any>;
   advancedConditions: RecordsAdvancedCondition[];
   favoritesFilterActive: boolean;
   refreshTags: () => void;
   refreshLists: () => void;
   refreshSeries: () => void;
   refreshLabels: () => void;
+  refreshMakers: () => void;
+  refreshDirectors: () => void;
   onError: (error: unknown) => void;
 }
 
@@ -37,6 +45,8 @@ export interface UpdateRecordsLocalFilterStateResult {
   tokenSelectedListIds: Set<string>;
   tokenSelectedSeriesIds: Set<string>;
   tokenSelectedLabelIds: Set<string>;
+  tokenSelectedMakerIds: Set<string>;
+  tokenSelectedDirectorIds: Set<string>;
 }
 
 function safeRefresh(callback: () => void): void {
@@ -60,6 +70,10 @@ export function updateRecordsLocalFilterState(
       tokenSelectedSeriesIds: input.tokenSelectedSeriesIds,
       selectedLabelIds: input.selectedLabelIds,
       tokenSelectedLabelIds: input.tokenSelectedLabelIds,
+      selectedMakerIds: input.selectedMakerIds,
+      tokenSelectedMakerIds: input.tokenSelectedMakerIds,
+      selectedDirectorIds: input.selectedDirectorIds,
+      tokenSelectedDirectorIds: input.tokenSelectedDirectorIds,
       listNameById: input.listNameById,
     });
 
@@ -67,6 +81,8 @@ export function updateRecordsLocalFilterState(
     safeRefresh(input.refreshLists);
     safeRefresh(input.refreshSeries);
     safeRefresh(input.refreshLabels);
+    safeRefresh(input.refreshMakers);
+    safeRefresh(input.refreshDirectors);
 
     const filteredRecords = filterAndSortRecords({
       records: Array.isArray(input.records) ? input.records : (() => { throw new Error('records must be an array'); })(),
@@ -76,8 +92,12 @@ export function updateRecordsLocalFilterState(
       selectedListIds: input.selectedListIds,
       selectedSeriesIds: input.selectedSeriesIds,
       selectedLabelIds: input.selectedLabelIds,
+      selectedMakerIds: input.selectedMakerIds,
+      selectedDirectorIds: input.selectedDirectorIds,
       seriesIdToRecord: input.seriesIdToRecord,
       labelIdToRecord: input.labelIdToRecord,
+      makerIdToRecord: input.makerIdToRecord,
+      directorIdToRecord: input.directorIdToRecord,
       advancedConditions: input.advancedConditions,
       favoritesFilterActive: input.favoritesFilterActive,
       sortValue: input.sortValue,
@@ -97,6 +117,8 @@ export function updateRecordsLocalFilterState(
       tokenSelectedListIds: input.tokenSelectedListIds,
       tokenSelectedSeriesIds: input.tokenSelectedSeriesIds,
       tokenSelectedLabelIds: input.tokenSelectedLabelIds,
+      tokenSelectedMakerIds: input.tokenSelectedMakerIds,
+      tokenSelectedDirectorIds: input.tokenSelectedDirectorIds,
     };
   }
 }

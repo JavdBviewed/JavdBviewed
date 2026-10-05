@@ -13,6 +13,7 @@ import { magnetSearchManager, normalizeMagnetSortMode } from '../../features/mag
 import { listEnhancementManager } from '../../features/listEnhancement';
 import { actorEnhancementManager, actorQuickActionsManager } from '../../features/actorEnhancement';
 import { categoryQuickActionsManager } from '../../features/categoryQuickActions';
+import { collectionQuickActionsManager } from '../../features/collectionQuick';
 import { anchorOptimizationManager } from '../../features/anchorOptimization/content';
 import { onlineAvailabilityManager } from '../../features/onlineAvailability';
 import { stopPreviewVideoWatcher } from '../../features/previews';
@@ -42,6 +43,7 @@ export function installContentLifecycleHandlers(cleanups: ContentLifecycleCleanu
             actorEnhancementManager?.destroy?.();
             actorQuickActionsManager?.destroy?.();
             categoryQuickActionsManager?.destroy?.();
+            collectionQuickActionsManager?.destroy?.();
             anchorOptimizationManager?.destroy?.();
             onlineAvailabilityManager?.destroy?.();
 

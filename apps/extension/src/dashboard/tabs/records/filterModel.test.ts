@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { filterAndSortRecords } from './filterModel';
 import type { VideoRecord } from '../../../types';
 import type { RecordsAdvancedCondition } from './advancedConditionModel';
+import { filterAndSortRecords } from './filterModel';
 
 function record(partial: Partial<VideoRecord>): VideoRecord {
   return {
@@ -15,6 +15,10 @@ function record(partial: Partial<VideoRecord>): VideoRecord {
     listIds: partial.listIds,
     series: partial.series,
     seriesUrl: partial.seriesUrl,
+    maker: partial.maker,
+    makerUrl: partial.makerUrl,
+    director: partial.director,
+    directorUrl: partial.directorUrl,
     isFavorite: partial.isFavorite,
     createdAt: partial.createdAt,
     updatedAt: partial.updatedAt,
@@ -37,8 +41,12 @@ describe('records filter model', () => {
       selectedListIds: new Set(['list-1']),
       selectedSeriesIds: new Set(),
       selectedLabelIds: new Set(),
+      selectedMakerIds: new Set(),
+      selectedDirectorIds: new Set(),
       seriesIdToRecord: new Map(),
       labelIdToRecord: new Map(),
+      makerIdToRecord: new Map(),
+      directorIdToRecord: new Map(),
       advancedConditions: [],
       favoritesFilterActive: true,
       sortValue: 'updatedAt_desc',
@@ -61,8 +69,12 @@ describe('records filter model', () => {
       selectedListIds: new Set(),
       selectedSeriesIds: new Set(['s1']),
       selectedLabelIds: new Set(['fc2']),
+      selectedMakerIds: new Set(),
+      selectedDirectorIds: new Set(),
       seriesIdToRecord: new Map(),
       labelIdToRecord: new Map(),
+      makerIdToRecord: new Map(),
+      directorIdToRecord: new Map(),
       advancedConditions: [],
       favoritesFilterActive: false,
       sortValue: 'updatedAt_desc',
@@ -83,8 +95,12 @@ describe('records filter model', () => {
       selectedListIds: new Set(),
       selectedSeriesIds: new Set(),
       selectedLabelIds: new Set(),
+      selectedMakerIds: new Set(),
+      selectedDirectorIds: new Set(),
       seriesIdToRecord: new Map(),
       labelIdToRecord: new Map(),
+      makerIdToRecord: new Map(),
+      directorIdToRecord: new Map(),
       advancedConditions: [],
       favoritesFilterActive: false,
       sortValue: 'id_asc',
@@ -111,8 +127,12 @@ describe('records filter model', () => {
       selectedListIds: new Set(),
       selectedSeriesIds: new Set(),
       selectedLabelIds: new Set(),
+      selectedMakerIds: new Set(),
+      selectedDirectorIds: new Set(),
       seriesIdToRecord: new Map(),
       labelIdToRecord: new Map(),
+      makerIdToRecord: new Map(),
+      directorIdToRecord: new Map(),
       advancedConditions,
       favoritesFilterActive: false,
       sortValue: 'id_asc',
@@ -134,8 +154,12 @@ describe('records filter model', () => {
       selectedListIds: new Set(),
       selectedSeriesIds: new Set(),
       selectedLabelIds: new Set(),
+      selectedMakerIds: new Set(),
+      selectedDirectorIds: new Set(),
       seriesIdToRecord: new Map(),
       labelIdToRecord: new Map(),
+      makerIdToRecord: new Map(),
+      directorIdToRecord: new Map(),
       advancedConditions: [
         { id: 'rating', field: 'rating', op: 'gte', value: '8' },
         { id: 'user-rating', field: 'userRating', op: 'not_empty' },
@@ -145,5 +169,35 @@ describe('records filter model', () => {
     });
 
     expect(result.map(item => item.id)).toEqual(['R-8']);
+  });
+
+  it('matches maker and director filters via record maps with URL/name fallback', () => {
+    const records = [
+      record({ id: 'M-1', maker: 'AEO 片商', makerUrl: 'https://javdb.com/makers/AEO', director: 'dekM', directorUrl: 'https://javdb.com/directors/dekM' }),
+      record({ id: 'M-2', maker: 'OTHER', makerUrl: 'https://javdb.com/makers/OTHER', director: 'dekM', directorUrl: 'https://javdb.com/directors/dekM' }),
+      record({ id: 'M-3', maker: 'AEO 片商', makerUrl: 'https://javdb.com/makers/AEO', director: 'other', directorUrl: 'https://javdb.com/directors/other' }),
+      record({ id: 'M-4', makerUrl: 'https://javdb.com/makers/Z99', directorUrl: 'https://javdb.com/directors/zz' }),
+    ];
+
+    const result = filterAndSortRecords({
+      records,
+      searchTerm: '',
+      status: 'all',
+      selectedTags: new Set(),
+      selectedListIds: new Set(),
+      selectedSeriesIds: new Set(),
+      selectedLabelIds: new Set(),
+      selectedMakerIds: new Set(['AEO', 'Z99']),
+      selectedDirectorIds: new Set(['dekM', 'zz']),
+      seriesIdToRecord: new Map(),
+      labelIdToRecord: new Map(),
+      makerIdToRecord: new Map([[ 'AEO', { id: 'maker:AEO', name: 'AEO 片商', type: 'maker' as const, externalId: 'AEO' }]]),
+      directorIdToRecord: new Map([[ 'dekM', { id: 'director:dekM', name: 'dekM 導演', type: 'director' as const, externalId: 'dekM' }]]),
+      advancedConditions: [],
+      favoritesFilterActive: false,
+      sortValue: 'id_asc',
+    });
+
+    expect(result.map(item => item.id)).toEqual(['M-1', 'M-4']);
   });
 });

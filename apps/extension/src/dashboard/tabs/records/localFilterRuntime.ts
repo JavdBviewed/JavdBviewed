@@ -16,6 +16,8 @@ export interface CreateRecordsLocalFilterRuntimeOptions {
   selectedListIds: Set<string>;
   selectedSeriesIds: Set<string>;
   selectedLabelIds: Set<string>;
+  selectedMakerIds: Set<string>;
+  selectedDirectorIds: Set<string>;
   getTokenSelectedTags: () => Set<string>;
   setTokenSelectedTags: (value: Set<string>) => void;
   getTokenSelectedListIds: () => Set<string>;
@@ -24,15 +26,23 @@ export interface CreateRecordsLocalFilterRuntimeOptions {
   setTokenSelectedSeriesIds: (value: Set<string>) => void;
   getTokenSelectedLabelIds: () => Set<string>;
   setTokenSelectedLabelIds: (value: Set<string>) => void;
+  getTokenSelectedMakerIds: () => Set<string>;
+  setTokenSelectedMakerIds: (value: Set<string>) => void;
+  getTokenSelectedDirectorIds: () => Set<string>;
+  setTokenSelectedDirectorIds: (value: Set<string>) => void;
   listNameById: Map<string, string>;
   seriesIdToRecord: Map<string, any>;
   labelIdToRecord: Map<string, any>;
+  makerIdToRecord: Map<string, any>;
+  directorIdToRecord: Map<string, any>;
   getAdvancedConditions: () => RecordsAdvancedCondition[];
   isFavoritesFilterActive: () => boolean;
   refreshTags: () => void;
   refreshLists: () => void;
   refreshSeries: () => void;
   refreshLabels: () => void;
+  refreshMakers: () => void;
+  refreshDirectors: () => void;
   setFilteredRecords: (records: VideoRecord[]) => void;
   logError?: (message: string, error: unknown) => void;
   updateLocalFilterState?: UpdateLocalFilterState;
@@ -56,6 +66,8 @@ export function createRecordsLocalFilterRuntime(
     options.setTokenSelectedListIds(result.tokenSelectedListIds);
     options.setTokenSelectedSeriesIds(result.tokenSelectedSeriesIds);
     options.setTokenSelectedLabelIds(result.tokenSelectedLabelIds);
+    options.setTokenSelectedMakerIds(result.tokenSelectedMakerIds);
+    options.setTokenSelectedDirectorIds(result.tokenSelectedDirectorIds);
   };
 
   const updateFilteredRecords = (): void => {
@@ -74,15 +86,23 @@ export function createRecordsLocalFilterRuntime(
         tokenSelectedSeriesIds: options.getTokenSelectedSeriesIds(),
         selectedLabelIds: options.selectedLabelIds,
         tokenSelectedLabelIds: options.getTokenSelectedLabelIds(),
+        selectedMakerIds: options.selectedMakerIds,
+        tokenSelectedMakerIds: options.getTokenSelectedMakerIds(),
+        selectedDirectorIds: options.selectedDirectorIds,
+        tokenSelectedDirectorIds: options.getTokenSelectedDirectorIds(),
         listNameById: options.listNameById,
         seriesIdToRecord: options.seriesIdToRecord,
         labelIdToRecord: options.labelIdToRecord,
+        makerIdToRecord: options.makerIdToRecord,
+        directorIdToRecord: options.directorIdToRecord,
         advancedConditions: options.getAdvancedConditions(),
         favoritesFilterActive: options.isFavoritesFilterActive(),
         refreshTags: options.refreshTags,
         refreshLists: options.refreshLists,
         refreshSeries: options.refreshSeries,
         refreshLabels: options.refreshLabels,
+        refreshMakers: options.refreshMakers,
+        refreshDirectors: options.refreshDirectors,
         onError: (error) => {
           logError('[Records] 更新过滤记录时出错:', error);
         },

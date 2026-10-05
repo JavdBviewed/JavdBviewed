@@ -134,7 +134,7 @@ export interface ActorSyncResult {
 export interface ListRecord {
   id: string;
   name: string;
-  type: 'mine' | 'favorite' | 'local' | 'series' | 'label';
+  type: 'mine' | 'favorite' | 'local' | 'series' | 'label' | 'maker' | 'director';
   source: 'javdb' | 'local';                          // 'javdb'=JavDB同步, 'local'=扩展内手动创建
   externalId?: string;                                // 同步后的真实 JavDB 标识
   moviesCount?: number;

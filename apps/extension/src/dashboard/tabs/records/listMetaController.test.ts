@@ -23,6 +23,8 @@ describe('records list meta controller', () => {
         list({ id: 'local-1', name: '本地清单', type: 'local', source: 'local' }),
         list({ id: 'series:abc', name: '测试系列', type: 'series', externalId: 'abc' }),
         list({ id: 'label:fc2', name: 'FC2', type: 'label', externalId: 'fc2' }),
+        list({ id: 'maker:AEO', name: 'AEO 片商', type: 'maker', externalId: 'AEO' }),
+        list({ id: 'director:dekM', name: 'dekM 導演', type: 'director', externalId: 'dekM' }),
       ]),
       shouldRenderAfterLoad: () => true,
       onAfterLoaded,
@@ -36,6 +38,10 @@ describe('records list meta controller', () => {
     expect(controller.maps.labelIdToName.get('FC2')).toBe('FC2');
     expect(controller.maps.seriesIdToRecord.get('abc')?.type).toBe('series');
     expect(controller.maps.labelIdToRecord.get('FC2')?.type).toBe('label');
+    expect(controller.maps.makerIdToName.get('AEO')).toBe('AEO 片商');
+    expect(controller.maps.directorIdToName.get('dekM')).toBe('dekM 導演');
+    expect(controller.maps.makerIdToRecord.get('AEO')?.type).toBe('maker');
+    expect(controller.maps.directorIdToRecord.get('dekM')?.type).toBe('director');
     expect(controller.isLoaded()).toBe(true);
     expect(onAfterLoaded).toHaveBeenCalledTimes(1);
   });
