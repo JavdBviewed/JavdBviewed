@@ -16,17 +16,33 @@ export class ConfirmModal {
     private modal: HTMLElement | null = null;
     private onConfirmCallback: (() => void) | null = null;
     private onCancelCallback: (() => void) | null = null;
+    /** 10-05 F-1：当前未收口 show() 的 resolve（新 show() 到达时以 false 自动放弃旧弹窗，防旧 Promise 永久悬挂） */
+    private pendingResolve: ((value: boolean) => void) | null = null;
 
     /**
      * 显示确认弹窗
      */
     show(options: ConfirmOptions): Promise<boolean> {
         return new Promise((resolve) => {
-            this.onConfirmCallback = () => resolve(true);
-            this.onCancelCallback = () => resolve(false);
+            // 10-05 F-1：上一弹窗未收口即来新确认 → 旧弹窗按「放弃」收口（resolve false），
+            // 旧调用方走既有 cancel 分支正常收口（如新作品确认流程发「已放弃本次 N 条」既有 toast），
+            // 不再永久悬挂（悬挂会导致旧批次被新终态覆盖/清盘后静默丢失）。已收口时幂等无操作。
+            this.resolvePending(false);
+            this.pendingResolve = resolve;
+            this.onConfirmCallback = () => this.resolvePending(true);
+            this.onCancelCallback = () => this.resolvePending(false);
             this.createModal(options);
             this.showModal();
         });
+    }
+
+    /** 收口当前未 resolve 的 show() Promise（幂等：已收口则无操作） */
+    private resolvePending(value: boolean): void {
+        if (this.pendingResolve) {
+            const resolve = this.pendingResolve;
+            this.pendingResolve = null;
+            resolve(value);
+        }
     }
 
     /**

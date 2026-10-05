@@ -854,6 +854,9 @@ export class NewWorksTab {
             restorePendingWorks: (status, result) => {
                 this.runRestoredPendingConfirmFlow(status, result);
             },
+            restoreOrphanPendingWorks: () => {
+                this.runRestoredPendingWorkflow();
+            },
         });
         if (!restoredRunning) return;
         // 二次查询：兜「首查与 UI 恢复之间扫描已结束、本页错过终态广播」窗口
@@ -1007,6 +1010,15 @@ export class NewWorksTab {
      * 后到者 fetch=null 自然 no-op（批次只弹一次）。
      */
     private runRestoredPendingConfirmFlow(status: 'done' | 'cancelled', result: ManualScanResultSummary): void {
+        void this.runRestoredPendingWorkflow();
+    }
+
+    /**
+     * 10-05 F-2：孤儿批次页载再弹入口（restoreManualScanState idle/interrupted 分支）。
+     * 与 terminal 回填同一工作流：取回批次→喂既有确认弹窗（R1 恢复脚注）→收口必清盘。
+     * 批次在位=用户尚未收口的旧终态批次；再弹后确认/取消均清盘，单页载至多弹一次（状态互斥）。
+     */
+    private runRestoredPendingWorkflow(): void {
         void runNewWorksRestoredPendingWorkflow({
             deps: {
                 fetchPendingBatch: () => this.queryManualPendingBatchSafe(),

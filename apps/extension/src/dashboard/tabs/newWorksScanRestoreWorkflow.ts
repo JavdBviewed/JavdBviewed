@@ -3,7 +3,9 @@
  * @description 刷新/重开后扫描状态回填 workflow（纯 DI，issue#52）：
  *              running → 恢复进度 UI（字段逐一映射）；done/cancelled 带摘要 → 一次性摘要 toast
  *              （terminal 状态已被 SW 查询侧消费，无需页面 ack 往返）；interrupted → 一次性轻提示；
- *              idle → 无操作；查询失败 → logError 静默返回不抛。
+ *              idle → 无操作（10-05 F-2：注入 restoreOrphanPendingWorks 时例外——terminal 已被死亡页
+ *              消费后 storage.session 可能残留孤儿批次，页载再弹恢复回填；interrupted 同理，
+ *              SW 重启清 terminal 但 storage.session 批次留存）；查询失败 → logError 静默返回不抛。
  *              三处新文案 builder 精确字符串锁定（最终措辞由 coord 核版，机制已批）。
  * @module dashboard/tabs
  */
@@ -35,6 +37,13 @@ export interface NewWorksScanRestoreDeps {
     logError(message: string, error: unknown): void;
     /** 10-19：terminal + pendingCount>0 → 页面取回 SW 持久化作品并喂入库确认弹窗（缺省不处理，零漂移） */
     restorePendingWorks?(status: 'done' | 'cancelled', result: ManualScanResultSummary): Promise<void> | void;
+    /**
+     * 10-05 F-2：页载再弹孤儿批次。查询结果 idle（terminal 已被死亡页消费）或 interrupted
+     * （SW 重启清 terminal）时调用——取回 storage.session 残留孤儿批次并喂入库确认弹窗
+     * （复用 10-19 恢复回填链 + R1 脚注；收口必清盘，单页载至多触发一路径，无第三次弹路径）。
+     * 缺省不处理（旧调用方零漂移）。
+     */
+    restoreOrphanPendingWorks?(): Promise<void> | void;
 }
 
 export async function restoreNewWorksScanState(deps: NewWorksScanRestoreDeps): Promise<void> {
@@ -45,7 +54,11 @@ export async function restoreNewWorksScanState(deps: NewWorksScanRestoreDeps): P
         deps.logError('新作品检查状态查询失败，跳过后填', error);
         return;
     }
-    if (!query || query.status === 'idle') return;
+    if (!query || query.status === 'idle') {
+        // 10-05 F-2：idle 但 storage.session 可能残留孤儿批次（terminal 被死亡页消费后留存）→ 页载再弹
+        deps.restoreOrphanPendingWorks?.();
+        return;
+    }
 
     switch (query.status) {
         case 'running':
@@ -76,6 +89,8 @@ export async function restoreNewWorksScanState(deps: NewWorksScanRestoreDeps): P
             return;
         case 'interrupted':
             deps.showInterruptedToast();
+            // 10-05 F-2：SW 重启清 terminal 但 storage.session 孤儿批次留存 → 一次性提示后页载再弹
+            deps.restoreOrphanPendingWorks?.();
             return;
     }
 }
