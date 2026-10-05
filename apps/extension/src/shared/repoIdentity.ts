@@ -10,6 +10,7 @@ export const REPO_SLUG = `${REPO_OWNER}/${REPO_NAME}`;
 export const REPO_URL = `https://github.com/${REPO_SLUG}`;
 export const REPO_RELEASES_URL = `${REPO_URL}/releases`;
 export const REPO_RELEASES_LATEST_URL = `${REPO_RELEASES_URL}/latest`;
+export const REPO_RELEASE_TAG_URL_PREFIX = `${REPO_RELEASES_URL}/tag/`;
 export const REPO_ISSUES_URL = `${REPO_URL}/issues`;
 export const REPO_API_RELEASES_URL = `https://api.github.com/repos/${REPO_SLUG}/releases`;
 export const REPO_RAW_PREFIX = `https://raw.githubusercontent.com/${REPO_SLUG}`;
