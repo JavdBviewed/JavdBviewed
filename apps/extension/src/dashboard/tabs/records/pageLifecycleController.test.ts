@@ -23,6 +23,8 @@ describe('records page lifecycle', () => {
       lists: { bind: vi.fn(), render: vi.fn() },
       series: { bind: vi.fn(), render: vi.fn() },
       labels: { bind: vi.fn(), render: vi.fn() },
+      makers: { bind: vi.fn(), render: vi.fn() },
+      directors: { bind: vi.fn(), render: vi.fn() },
     };
 
     bindRecordsPageLifecycle({
@@ -39,6 +41,10 @@ describe('records page lifecycle', () => {
         seriesFilterDropdown: element(),
         labelsFilterInput: element(),
         labelsFilterDropdown: element(),
+        makersFilterInput: element(),
+        makersFilterDropdown: element(),
+        directorsFilterInput: element(),
+        directorsFilterDropdown: element(),
       },
       getRecordsPerPage: () => 10,
       setRecordsPerPage: vi.fn(),
@@ -73,5 +79,7 @@ describe('records page lifecycle', () => {
     expect(filters.lists.render).not.toHaveBeenCalled();
     expect(filters.series.render).not.toHaveBeenCalled();
     expect(filters.labels.render).not.toHaveBeenCalled();
+    expect(filters.makers.render).not.toHaveBeenCalled();
+    expect(filters.directors.render).not.toHaveBeenCalled();
   });
 });

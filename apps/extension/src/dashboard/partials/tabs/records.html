@@ -136,6 +136,34 @@
                     <!-- 已选择的番号将由 JS 动态填充 -->
                 </div>
             </div>
+            <div class="tags-filter-container">
+                <input type="text" id="makersFilterInput" placeholder="筛选片商..." readonly>
+                <div id="makersFilterDropdown" class="tags-dropdown" style="display: none;">
+                    <div class="tags-search-box">
+                        <input type="text" id="makersSearchInput" placeholder="输入片商名称...">
+                    </div>
+                    <div id="makersFilterList" class="tags-list">
+                        <!-- 片商列表将由 JS 动态填充 -->
+                    </div>
+                </div>
+                <div id="selectedMakersContainer" class="selected-tags">
+                    <!-- 已选择的片商将由 JS 动态填充 -->
+                </div>
+            </div>
+            <div class="tags-filter-container">
+                <input type="text" id="directorsFilterInput" placeholder="筛选導演..." readonly>
+                <div id="directorsFilterDropdown" class="tags-dropdown" style="display: none;">
+                    <div class="tags-search-box">
+                        <input type="text" id="directorsSearchInput" placeholder="输入導演名称...">
+                    </div>
+                    <div id="directorsFilterList" class="tags-list">
+                        <!-- 導演列表将由 JS 动态填充 -->
+                    </div>
+                </div>
+                <div id="selectedDirectorsContainer" class="selected-tags">
+                    <!-- 已选择的導演将由 JS 动态填充 -->
+                </div>
+            </div>
         </div>
         <div class="search-row-full">
             <div class="search-input-wrapper">
@@ -155,6 +183,8 @@
                         <li>清单：如 <b>list:精选</b>、<b>listid:VwR3aD</b>（会自动同步到清单筛选）</li>
                         <li>系列：如 <b>series:abc123</b>（系列 ID，从收藏中心跳转时自动填入）</li>
                         <li>番号：如 <b>label:MISM</b>（番号前缀，大小写不敏感）</li>
+                        <li>片商：如 <b>maker:abc</b>（片商 ID，从收藏中心跳转时自动填入）</li>
+                        <li>導演：如 <b>director:dekM</b>（導演 ID，从收藏中心跳转时自动填入）</li>
                         <li>多标签 AND：空格/逗号/分号 分隔</li>
                         <li>同时匹配：番号 / 标题 / 标签</li>
                         <li>可与右侧状态、排序、分页共同使用</li>

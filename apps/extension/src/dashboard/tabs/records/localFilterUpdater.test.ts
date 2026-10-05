@@ -23,6 +23,8 @@ describe('records local filter updater', () => {
     const refreshLists = vi.fn();
     const refreshSeries = vi.fn();
     const refreshLabels = vi.fn();
+    const refreshMakers = vi.fn();
+    const refreshDirectors = vi.fn();
 
     const result = updateRecordsLocalFilterState({
       searchText: 'ABC tag:新标签 list:收藏',
@@ -40,15 +42,23 @@ describe('records local filter updater', () => {
       tokenSelectedSeriesIds: new Set(),
       selectedLabelIds: new Set(),
       tokenSelectedLabelIds: new Set(),
+      selectedMakerIds: new Set(),
+      tokenSelectedMakerIds: new Set(),
+      selectedDirectorIds: new Set(),
+      tokenSelectedDirectorIds: new Set(),
       listNameById: new Map([['list-1', '我的收藏']]),
       seriesIdToRecord: new Map(),
       labelIdToRecord: new Map(),
+      makerIdToRecord: new Map(),
+      directorIdToRecord: new Map(),
       advancedConditions: [],
       favoritesFilterActive: false,
       refreshTags,
       refreshLists,
       refreshSeries,
       refreshLabels,
+      refreshMakers,
+      refreshDirectors,
       onError: vi.fn(),
     });
 
@@ -60,6 +70,8 @@ describe('records local filter updater', () => {
     expect(refreshLists).toHaveBeenCalledTimes(1);
     expect(refreshSeries).toHaveBeenCalledTimes(1);
     expect(refreshLabels).toHaveBeenCalledTimes(1);
+    expect(refreshMakers).toHaveBeenCalledTimes(1);
+    expect(refreshDirectors).toHaveBeenCalledTimes(1);
   });
 
   it('returns empty records and reports error when filtering fails', () => {
@@ -78,15 +90,23 @@ describe('records local filter updater', () => {
       tokenSelectedSeriesIds: new Set(),
       selectedLabelIds: new Set(),
       tokenSelectedLabelIds: new Set(),
+      selectedMakerIds: new Set(),
+      tokenSelectedMakerIds: new Set(),
+      selectedDirectorIds: new Set(),
+      tokenSelectedDirectorIds: new Set(),
       listNameById: new Map(),
       seriesIdToRecord: new Map(),
       labelIdToRecord: new Map(),
+      makerIdToRecord: new Map(),
+      directorIdToRecord: new Map(),
       advancedConditions: [],
       favoritesFilterActive: false,
       refreshTags: () => {},
       refreshLists: () => {},
       refreshSeries: () => {},
       refreshLabels: () => {},
+      refreshMakers: () => {},
+      refreshDirectors: () => {},
       onError,
     });
 

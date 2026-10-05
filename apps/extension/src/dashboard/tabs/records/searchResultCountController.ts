@@ -10,6 +10,8 @@ export interface CreateRecordsSearchResultCountControllerOptions {
   getSelectedListIdsCount: () => number;
   getSelectedSeriesIdsCount: () => number;
   getSelectedLabelIdsCount: () => number;
+  getSelectedMakerIdsCount: () => number;
+  getSelectedDirectorIdsCount: () => number;
   getAdvancedConditionsCount: () => number;
 }
 
@@ -33,6 +35,8 @@ export function createRecordsSearchResultCountController(
       selectedListIdsCount: options.getSelectedListIdsCount(),
       selectedSeriesIdsCount: options.getSelectedSeriesIdsCount(),
       selectedLabelIdsCount: options.getSelectedLabelIdsCount(),
+      selectedMakerIdsCount: options.getSelectedMakerIdsCount(),
+      selectedDirectorIdsCount: options.getSelectedDirectorIdsCount(),
       advancedConditionsCount: options.getAdvancedConditionsCount(),
     });
 

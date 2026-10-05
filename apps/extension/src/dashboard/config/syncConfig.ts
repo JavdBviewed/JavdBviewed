@@ -3,7 +3,7 @@
  */
 
 // 同步类型
-export type SyncType = 'all' | 'viewed' | 'want' | 'actors' | 'actors-gender' | 'lists' | 'series' | 'labels';
+export type SyncType = 'all' | 'viewed' | 'want' | 'actors' | 'actors-gender' | 'lists' | 'series' | 'labels' | 'makers' | 'directors';
 
 // 同步模式（用于已观看、想看和演员同步）
 export type SyncMode = 'full' | 'incremental' | 'basic' | 'gender' | 'force';
@@ -133,6 +133,24 @@ export const SYNC_OPTIONS: SyncOption[] = [
         icon: 'fas fa-tag',
         color: '#20c997',
         enabled: true
+    },
+    {
+        id: 'syncMakersData',
+        type: 'makers',
+        title: '同步片商',
+        description: '收藏的片商',
+        icon: 'fas fa-building',
+        color: '#e83e8c',
+        enabled: true
+    },
+    {
+        id: 'syncDirectorsData',
+        type: 'directors',
+        title: '同步導演',
+        description: '收藏的導演',
+        icon: 'fas fa-user-tie',
+        color: '#fd7e14',
+        enabled: true
     }
 ];
 
@@ -183,6 +201,8 @@ export function isSyncTypeSupported(type: SyncType): boolean {
         case 'lists':
         case 'series':
         case 'labels':
+        case 'makers':
+        case 'directors':
             return true;
         default:
             return false;
@@ -215,5 +235,5 @@ export function getEnabledSyncOptions(): SyncOption[] {
  * 验证同步类型是否有效
  */
 export function isValidSyncType(type: string): type is SyncType {
-    return ['all', 'viewed', 'want', 'actors', 'lists', 'series', 'labels'].includes(type);
+    return ['all', 'viewed', 'want', 'actors', 'lists', 'series', 'labels', 'makers', 'directors'].includes(type);
 }

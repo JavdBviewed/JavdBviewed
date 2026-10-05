@@ -150,6 +150,10 @@ export function initRecordsTab(): void {
     let tokenSelectedSeriesIds = new Set<string>();
     let selectedLabelIds = new Set<string>();
     let tokenSelectedLabelIds = new Set<string>();
+    let selectedMakerIds = new Set<string>();
+    let tokenSelectedMakerIds = new Set<string>();
+    let selectedDirectorIds = new Set<string>();
+    let tokenSelectedDirectorIds = new Set<string>();
 
     const listMetaController = createRecordsListMetaController({
         loadLists: dbListsGetAllNormalized,
@@ -157,7 +161,7 @@ export function initRecordsTab(): void {
             try {
                 const hasAnyLists = (Array.isArray(STATE.records) ? STATE.records : [])
                     .some((record: any) => Array.isArray(record?.listIds) && record.listIds.length > 0);
-                return hasAnyLists || selectedSeriesIds.size > 0 || selectedLabelIds.size > 0;
+                return hasAnyLists || selectedSeriesIds.size > 0 || selectedLabelIds.size > 0 || selectedMakerIds.size > 0 || selectedDirectorIds.size > 0;
             } catch {
                 return false;
             }
@@ -171,6 +175,10 @@ export function initRecordsTab(): void {
         labelIdToName,
         seriesIdToRecord,
         labelIdToRecord,
+        makerIdToName,
+        directorIdToName,
+        makerIdToRecord,
+        directorIdToRecord,
     } = listMetaController.maps;
     const ensureListMetaLoaded = () => {
         void listMetaController.ensureLoaded();
@@ -239,6 +247,8 @@ export function initRecordsTab(): void {
         getSelectedListIdsCount: () => selectedListIds.size,
         getSelectedSeriesIdsCount: () => selectedSeriesIds.size,
         getSelectedLabelIdsCount: () => selectedLabelIds.size,
+        getSelectedMakerIdsCount: () => selectedMakerIds.size,
+        getSelectedDirectorIdsCount: () => selectedDirectorIds.size,
         getAdvancedConditionsCount: () => advConditions.length,
     });
     const updateSearchResultCount = () => searchResultCountController.update();
@@ -427,6 +437,8 @@ export function initRecordsTab(): void {
         selectedListIds,
         selectedSeriesIds,
         selectedLabelIds,
+        selectedMakerIds,
+        selectedDirectorIds,
         listNameById: listIdToName,
         getAdvancedConditions: () => advConditions,
         isFavoritesFilterActive: () => favoritesFilterActive,
@@ -690,6 +702,8 @@ export function initRecordsTab(): void {
         selectedListIds,
         selectedSeriesIds,
         selectedLabelIds,
+        selectedMakerIds,
+        selectedDirectorIds,
         getTokenSelectedTags: () => tokenSelectedTags,
         setTokenSelectedTags: (value) => {
             tokenSelectedTags = value;
@@ -706,6 +720,14 @@ export function initRecordsTab(): void {
         setTokenSelectedLabelIds: (value) => {
             tokenSelectedLabelIds = value;
         },
+        getTokenSelectedMakerIds: () => tokenSelectedMakerIds,
+        setTokenSelectedMakerIds: (value) => {
+            tokenSelectedMakerIds = value;
+        },
+        getTokenSelectedDirectorIds: () => tokenSelectedDirectorIds,
+        setTokenSelectedDirectorIds: (value) => {
+            tokenSelectedDirectorIds = value;
+        },
         getAllTags: () => {
             collectAllTags();
             return Array.from(allTags).map(String);
@@ -714,8 +736,12 @@ export function initRecordsTab(): void {
         listSourceById: listIdToSource,
         seriesNameById: seriesIdToName,
         labelNameById: labelIdToName,
+        makerNameById: makerIdToName,
+        directorNameById: directorIdToName,
         seriesIdToRecord,
         labelIdToRecord,
+        makerIdToRecord,
+        directorIdToRecord,
         ensureListMetaLoaded,
         getAdvancedConditions: () => advConditions,
         isFavoritesFilterActive: () => favoritesFilterActive,
@@ -731,6 +757,8 @@ export function initRecordsTab(): void {
     const listsFilterController = filterControllers.lists;
     const seriesFilterController = filterControllers.series;
     const labelsFilterController = filterControllers.labels;
+    const makersFilterController = filterControllers.makers;
+    const directorsFilterController = filterControllers.directors;
     viewRuntime = createRecordsViewRuntime({
         videoList,
         paginationContainer,
@@ -825,6 +853,8 @@ export function initRecordsTab(): void {
             lists: listsFilterController,
             series: seriesFilterController,
             labels: labelsFilterController,
+            makers: makersFilterController,
+            directors: directorsFilterController,
         },
         advancedConditions: advancedConditionsController,
         addAdvancedCondition: (condition) => {
@@ -863,6 +893,8 @@ export function initRecordsTab(): void {
             filterRuntime.filterControllers.lists.refresh();
             filterRuntime.filterControllers.series.refresh();
             filterRuntime.filterControllers.labels.refresh();
+            filterRuntime.filterControllers.makers.refresh();
+            filterRuntime.filterControllers.directors.refresh();
         },
         onHidden: () => {
             const recordsRoot = videoList.closest('.records-page') as HTMLElement | null;

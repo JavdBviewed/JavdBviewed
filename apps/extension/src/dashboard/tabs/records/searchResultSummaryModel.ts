@@ -7,6 +7,8 @@ export interface RecordsSearchResultSummaryInput {
   selectedListIdsCount: number;
   selectedSeriesIdsCount: number;
   selectedLabelIdsCount: number;
+  selectedMakerIdsCount: number;
+  selectedDirectorIdsCount: number;
   advancedConditionsCount: number;
 }
 
@@ -30,6 +32,8 @@ export function buildRecordsSearchResultSummary(input: RecordsSearchResultSummar
     input.selectedListIdsCount > 0 ||
     input.selectedSeriesIdsCount > 0 ||
     input.selectedLabelIdsCount > 0 ||
+    input.selectedMakerIdsCount > 0 ||
+    input.selectedDirectorIdsCount > 0 ||
     input.advancedConditionsCount > 0,
   );
 
@@ -41,6 +45,8 @@ export function buildRecordsSearchResultSummary(input: RecordsSearchResultSummar
     if (input.selectedListIdsCount > 0) conditions.push(`${input.selectedListIdsCount}个清单`);
     if (input.selectedSeriesIdsCount > 0) conditions.push(`${input.selectedSeriesIdsCount}个系列`);
     if (input.selectedLabelIdsCount > 0) conditions.push(`${input.selectedLabelIdsCount}个番号`);
+    if (input.selectedMakerIdsCount > 0) conditions.push(`${input.selectedMakerIdsCount}个片商`);
+    if (input.selectedDirectorIdsCount > 0) conditions.push(`${input.selectedDirectorIdsCount}个導演`);
     if (input.advancedConditionsCount > 0) conditions.push(`${input.advancedConditionsCount}个高级条件`);
 
     return {

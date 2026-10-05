@@ -45,6 +45,9 @@ export function buildDesignTasks(doGetSettings: () => ExtensionSettings): Orches
     pushTask({ phase: 'high', label: 'categoryQuickActions:init', priority: 5, visibilityPolicy: 'background_allowed', source: 'video', enabled: true });
   }
 
+  // 影片实体快捷收藏（影片页 high，无条件不门控；10-05-collection-makers-directors）
+  pushTask({ phase: 'high', label: 'collectionQuickActions:init', priority: 5, visibilityPolicy: 'background_allowed', source: 'video', enabled: true });
+
   if (settings.userExperience?.enableKeyboardShortcuts) {
     pushTask({ phase: 'high', label: 'ux:shortcuts:init', priority: 8, source: 'global', enabled: true });
   }

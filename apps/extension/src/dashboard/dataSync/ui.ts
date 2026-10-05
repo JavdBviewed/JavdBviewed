@@ -168,8 +168,15 @@ export class SyncUI {
 
 
         // 系列 / 番号收藏同步 - 单按钮 + 跳转收藏中心
-        if (option.type === 'series' || option.type === 'labels') {
-            const navLabel = option.type === 'series' ? '查看系列收藏 →' : '查看番号收藏 →';
+        if (option.type === 'series' || option.type === 'labels' || option.type === 'makers' || option.type === 'directors') {
+            const navLabel =
+                option.type === 'series'
+                    ? '查看系列收藏 →'
+                    : option.type === 'labels'
+                        ? '查看番号收藏 →'
+                        : option.type === 'makers'
+                            ? '查看片商收藏 →'
+                            : '查看導演收藏 →';
             return `
                 <div class="sync-option-card">
                     <div class="sync-option-header">

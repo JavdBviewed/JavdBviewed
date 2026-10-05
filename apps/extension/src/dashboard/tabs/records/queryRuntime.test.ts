@@ -17,6 +17,8 @@ function createRuntime(overrides: Partial<Parameters<typeof createRecordsQueryRu
   const selectedListIds = new Set<string>();
   const selectedSeriesIds = new Set<string>();
   const selectedLabelIds = new Set<string>();
+  const selectedMakerIds = new Set<string>();
+  const selectedDirectorIds = new Set<string>();
   const state = {
     serverModeActive: false,
     serverPageItems: [] as VideoRecord[],
@@ -35,6 +37,8 @@ function createRuntime(overrides: Partial<Parameters<typeof createRecordsQueryRu
     selectedListIds,
     selectedSeriesIds,
     selectedLabelIds,
+    selectedMakerIds,
+    selectedDirectorIds,
     listNameById: new Map<string, string>(),
     getAdvancedConditions: () => [],
     isFavoritesFilterActive: () => true,
@@ -71,12 +75,14 @@ function createRuntime(overrides: Partial<Parameters<typeof createRecordsQueryRu
     state,
     selectedSeriesIds,
     selectedLabelIds,
+    selectedMakerIds,
+    selectedDirectorIds,
   };
 }
 
 describe('records query runtime', () => {
-  it('uses IDB only when series and label filters are clear', () => {
-    const { runtime, selectedSeriesIds, selectedLabelIds } = createRuntime();
+  it('uses IDB only when series, label, maker, and director filters are clear', () => {
+    const { runtime, selectedSeriesIds, selectedLabelIds, selectedMakerIds, selectedDirectorIds } = createRuntime();
 
     expect(runtime.shouldUseIDB()).toBe(true);
 
@@ -85,6 +91,14 @@ describe('records query runtime', () => {
 
     selectedSeriesIds.clear();
     selectedLabelIds.add('label-1');
+    expect(runtime.shouldUseIDB()).toBe(false);
+
+    selectedLabelIds.clear();
+    selectedMakerIds.add('maker-1');
+    expect(runtime.shouldUseIDB()).toBe(false);
+
+    selectedMakerIds.clear();
+    selectedDirectorIds.add('director-1');
     expect(runtime.shouldUseIDB()).toBe(false);
   });
 

@@ -5,6 +5,8 @@ export interface RecordsSearchTokens {
   listNames: string[];
   seriesIds: string[];
   labelPrefixes: string[];
+  makerIds: string[];
+  directorIds: string[];
 }
 
 const splitMultiTokenValue = (value: string): string[] =>
@@ -17,6 +19,8 @@ export function parseRecordsSearchTokens(raw: string): RecordsSearchTokens {
   const listNames: string[] = [];
   const seriesIds: string[] = [];
   const labelPrefixes: string[] = [];
+  const makerIds: string[] = [];
+  const directorIds: string[] = [];
   const remains: string[] = [];
 
   for (const part of parts) {
@@ -50,6 +54,16 @@ export function parseRecordsSearchTokens(raw: string): RecordsSearchTokens {
       if (labelPrefix) labelPrefixes.push(...splitMultiTokenValue(labelPrefix).map((item) => item.toUpperCase()));
       continue;
     }
+    if (/^maker:/i.test(part)) {
+      const makerId = part.replace(/^maker:/i, '').trim();
+      if (makerId) makerIds.push(...splitMultiTokenValue(makerId));
+      continue;
+    }
+    if (/^director:/i.test(part)) {
+      const directorId = part.replace(/^director:/i, '').trim();
+      if (directorId) directorIds.push(...splitMultiTokenValue(directorId));
+      continue;
+    }
     remains.push(part);
   }
 
@@ -60,6 +74,8 @@ export function parseRecordsSearchTokens(raw: string): RecordsSearchTokens {
     listNames,
     seriesIds,
     labelPrefixes,
+    makerIds,
+    directorIds,
   };
 }
 
@@ -92,4 +108,12 @@ export function removeSeriesTokenFromSearchInput(raw: string, seriesId: string):
 
 export function removeLabelTokenFromSearchInput(raw: string, labelId: string): string {
   return removeMultiValueToken(raw, /^label:/i, String(labelId || '').toUpperCase(), (value) => String(value).toUpperCase());
+}
+
+export function removeMakerTokenFromSearchInput(raw: string, makerId: string): string {
+  return removeMultiValueToken(raw, /^maker:/i, String(makerId || '').toLowerCase(), (value) => String(value).toLowerCase());
+}
+
+export function removeDirectorTokenFromSearchInput(raw: string, directorId: string): string {
+  return removeMultiValueToken(raw, /^director:/i, String(directorId || '').toLowerCase(), (value) => String(value).toLowerCase());
 }

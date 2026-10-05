@@ -169,6 +169,14 @@ export class ApiClient {
             return await this.syncUserLabels(userProfile, onProgress, abortSignal);
         }
 
+        if (type === 'makers') {
+            return await this.syncUserMakers(userProfile, onProgress, abortSignal);
+        }
+
+        if (type === 'directors') {
+            return await this.syncUserDirectors(userProfile, onProgress, abortSignal);
+        }
+
         // 其他类型暂时返回空结果
         return {
             success: true,
@@ -575,6 +583,14 @@ export class ApiClient {
             labels: {
                 url: `${javdbRoute}/users/collection_codes`,
                 displayName: '番号'
+            },
+            makers: {
+                url: `${javdbRoute}/users/collection_makers`,
+                displayName: '片商'
+            },
+            directors: {
+                url: `${javdbRoute}/users/collection_directors`,
+                displayName: '導演'
             }
         };
 
@@ -1888,6 +1904,112 @@ export class ApiClient {
         return { success: true, syncedCount: records.length, skippedCount: 0, errorCount: 0, newRecords: records.length, updatedRecords: 0, message: `番号同步完成：共 ${records.length} 个` };
     }
 
+    // ----------------------------------------------------------------
+    //  片商收藏同步
+    // ----------------------------------------------------------------
+    private async syncUserMakers(
+        userProfile: UserProfile,
+        onProgress?: (progress: any) => void,
+        abortSignal?: AbortSignal
+    ): Promise<SyncResponseData> {
+        const settings = await getSettings();
+        const origin = this.getOriginFromUrl(
+            String(settings?.dataSync?.urls?.wantWatch || settings?.dataSync?.urls?.watchedVideos || 'https://javdb.com')
+        );
+        const requestInterval = (settings.dataSync.requestInterval ?? 1) * 1000;
+        const now = Date.now();
+        const records: ListRecord[] = [];
+        const seen = new Set<string>();
+
+        onProgress?.({ percentage: 0, message: '准备同步收藏片商...', stage: 'preparing' });
+
+        for (let page = 1; page <= 50; page++) {
+            if (abortSignal?.aborted) throw new SyncCancelledError('同步已取消');
+            const url = `${origin}/users/collection_makers?page=${page}`;
+            onProgress?.({ percentage: Math.min(90, page * 10), message: `正在获取片商第 ${page} 页...`, stage: 'pages' });
+            const res = await this.fetchWithRetry(url, { method: 'GET', credentials: 'include' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const html = await res.text();
+            const items = this.parseCollectionItemsFromHTML(html, 'makers');
+            if (items.length === 0) break;
+            for (const it of items) {
+                if (seen.has(it.id)) continue;
+                seen.add(it.id);
+                records.push(normalizeCollectionRecord({
+                    id: it.id,
+                    externalId: it.id,
+                    name: it.name,
+                    type: 'maker',
+                    source: 'javdb',
+                    url: `${origin}/makers/${it.id}`,
+                    moviesCount: it.moviesCount,
+                    createdAt: now,
+                    updatedAt: now
+                }));
+            }
+            if (page > 1) await this.delay(requestInterval);
+        }
+
+        await this.replaceCollectionListRecords('maker', records);
+
+        onProgress?.({ percentage: 100, message: '片商同步完成', stage: 'complete' });
+        logAsync('INFO', `片商收藏同步完成：${records.length} 个`, { user: userProfile.username });
+        return { success: true, syncedCount: records.length, skippedCount: 0, errorCount: 0, newRecords: records.length, updatedRecords: 0, message: `片商同步完成：共 ${records.length} 个` };
+    }
+
+    // ----------------------------------------------------------------
+    //  導演收藏同步
+    // ----------------------------------------------------------------
+    private async syncUserDirectors(
+        userProfile: UserProfile,
+        onProgress?: (progress: any) => void,
+        abortSignal?: AbortSignal
+    ): Promise<SyncResponseData> {
+        const settings = await getSettings();
+        const origin = this.getOriginFromUrl(
+            String(settings?.dataSync?.urls?.wantWatch || settings?.dataSync?.urls?.watchedVideos || 'https://javdb.com')
+        );
+        const requestInterval = (settings.dataSync.requestInterval ?? 1) * 1000;
+        const now = Date.now();
+        const records: ListRecord[] = [];
+        const seen = new Set<string>();
+
+        onProgress?.({ percentage: 0, message: '准备同步收藏導演...', stage: 'preparing' });
+
+        for (let page = 1; page <= 50; page++) {
+            if (abortSignal?.aborted) throw new SyncCancelledError('同步已取消');
+            const url = `${origin}/users/collection_directors?page=${page}`;
+            onProgress?.({ percentage: Math.min(90, page * 10), message: `正在获取導演第 ${page} 页...`, stage: 'pages' });
+            const res = await this.fetchWithRetry(url, { method: 'GET', credentials: 'include' });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const html = await res.text();
+            const items = this.parseCollectionItemsFromHTML(html, 'directors');
+            if (items.length === 0) break;
+            for (const it of items) {
+                if (seen.has(it.id)) continue;
+                seen.add(it.id);
+                records.push(normalizeCollectionRecord({
+                    id: it.id,
+                    externalId: it.id,
+                    name: it.name,
+                    type: 'director',
+                    source: 'javdb',
+                    url: `${origin}/directors/${it.id}`,
+                    moviesCount: it.moviesCount,
+                    createdAt: now,
+                    updatedAt: now
+                }));
+            }
+            if (page > 1) await this.delay(requestInterval);
+        }
+
+        await this.replaceCollectionListRecords('director', records);
+
+        onProgress?.({ percentage: 100, message: '導演同步完成', stage: 'complete' });
+        logAsync('INFO', `導演收藏同步完成：${records.length} 个`, { user: userProfile.username });
+        return { success: true, syncedCount: records.length, skippedCount: 0, errorCount: 0, newRecords: records.length, updatedRecords: 0, message: `導演同步完成：共 ${records.length} 个` };
+    }
+
     private async replaceCollectionListRecords(type: CollectionListType, records: ListRecord[]): Promise<void> {
         const normalizedRecords = records.map(record => normalizeCollectionRecord(record));
         const newIdSet = new Set(normalizedRecords.map(record => record.id));
@@ -1909,40 +2031,56 @@ export class ApiClient {
     }
 
     // ----------------------------------------------------------------
-    //  系列 / 番号页面 HTML 解析器
+    //  系列 / 番号 / 片商 / 導演页面 HTML 解析器
     // ----------------------------------------------------------------
-    private parseCollectionItemsFromHTML(html: string, mode: 'series' | 'labels'): Array<{ id: string; name: string; moviesCount?: number }> {
+    private parseCollectionItemsFromHTML(
+        html: string,
+        mode: 'series' | 'labels' | 'makers' | 'directors'
+    ): Array<{ id: string; name: string; moviesCount?: number }> {
         const items: Array<{ id: string; name: string; moviesCount?: number }> = [];
         try {
             const doc = new DOMParser().parseFromString(html, 'text/html');
-            const hrefPattern = mode === 'series' ? /\/series\/([^/?#]+)/ : /\/video_codes\/([^/?#]+)/;
-            // series IDs are JavDB internal (e.g. "eb7x"), labels are code prefixes (e.g. "MISM")
-            const normalizeId = (raw: string) => mode === 'labels' ? raw.trim().toUpperCase() : raw.trim();
+            const hrefPattern =
+                mode === 'series'
+                    ? /\/series\/([^/?#]+)/
+                    : mode === 'makers'
+                        ? /\/makers\/([^/?#]+)/
+                        : mode === 'directors'
+                            ? /\/directors\/([^/?#]+)/
+                            : /\/video_codes\/([^/?#]+)/;
+            // series IDs are JavDB internal (e.g. "eb7x"), labels are code prefixes (e.g. "MISM"),
+            // makers/directors are JavDB internal IDs (e.g. "AEO") kept as-is (no case folding)
+            const normalizeId = (raw: string) => (mode === 'labels' ? raw.trim().toUpperCase() : raw.trim());
 
-            // Primary: #series .box (series-eb7x) or #codes .box (code-MISM)
-            const sectionSel = mode === 'series' ? '#series' : '#codes';
-            const idPrefix   = mode === 'series' ? 'series-' : 'code-';
-            const boxes = doc.querySelectorAll(`${sectionSel} .box`);
-            if (boxes.length > 0) {
-                for (const box of Array.from(boxes)) {
-                    let id = box.id?.startsWith(idPrefix) ? normalizeId(box.id.slice(idPrefix.length)) : '';
-                    if (!id) {
-                        const a = box.querySelector('a') as HTMLAnchorElement | null;
-                        const m = (a?.getAttribute('href') || '').match(hrefPattern);
-                        if (!m) continue;
-                        id = normalizeId(m[1]);
+            // Primary: #series .box (series-eb7x) or #codes .box (code-MISM);
+            // makers/directors 收藏页结构尚未锁定，直接走 fallback 锚点扫描（D1 真机复核后如需可补 primary）
+            const sectionSel = mode === 'series' ? '#series' : mode === 'labels' ? '#codes' : '';
+            const idPrefix = mode === 'series' ? 'series-' : mode === 'labels' ? 'code-' : '';
+            if (sectionSel) {
+                const boxes = doc.querySelectorAll(`${sectionSel} .box`);
+                if (boxes.length > 0) {
+                    for (const box of Array.from(boxes)) {
+                        let id = box.id?.startsWith(idPrefix) ? normalizeId(box.id.slice(idPrefix.length)) : '';
+                        if (!id) {
+                            const a = box.querySelector('a') as HTMLAnchorElement | null;
+                            const m = (a?.getAttribute('href') || '').match(hrefPattern);
+                            if (!m) continue;
+                            id = normalizeId(m[1]);
+                        }
+                        if (!id) continue;
+                        const name = String(box.querySelector('strong')?.textContent || id).trim();
+                        const spanText = box.querySelector('a > span')?.textContent || '';
+                        const mc = spanText.match(/(\d+)/);
+                        items.push({ id, name, moviesCount: mc ? Number(mc[1]) : undefined });
                     }
-                    if (!id) continue;
-                    const name = String(box.querySelector('strong')?.textContent || id).trim();
-                    const spanText = box.querySelector('a > span')?.textContent || '';
-                    const mc = spanText.match(/(\d+)/);
-                    items.push({ id, name, moviesCount: mc ? Number(mc[1]) : undefined });
+                    return items;
                 }
-                return items;
             }
 
             // Fallback: traverse anchor hrefs
-            const anchors = doc.querySelectorAll(`a[href*="${mode === 'series' ? '/series/' : '/video_codes/'}"]`);
+            const fallbackHref =
+                mode === 'series' ? '/series/' : mode === 'labels' ? '/video_codes/' : mode === 'makers' ? '/makers/' : '/directors/';
+            const anchors = doc.querySelectorAll(`a[href*="${fallbackHref}"]`);
             for (const a of Array.from(anchors)) {
                 const href = (a as HTMLAnchorElement).getAttribute('href') || '';
                 const m = href.match(hrefPattern);

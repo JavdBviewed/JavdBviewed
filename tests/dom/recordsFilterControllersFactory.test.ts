@@ -13,6 +13,8 @@ function setupDom() {
     <input id="listsFilterInput" /><div id="listsFilterDropdown" style="display:none"><input id="listsSearchInput" /><div id="listsFilterList"></div></div><div id="selectedListsContainer"></div>
     <input id="seriesFilterInput" /><div id="seriesFilterDropdown" style="display:none"><input id="seriesSearchInput" /><div id="seriesFilterList"></div></div><div id="selectedSeriesContainer"></div>
     <input id="labelsFilterInput" /><div id="labelsFilterDropdown" style="display:none"><input id="labelsSearchInput" /><div id="labelsFilterList"></div></div><div id="selectedLabelsContainer"></div>
+    <input id="makersFilterInput" /><div id="makersFilterDropdown" style="display:none"><input id="makersSearchInput" /><div id="makersFilterList"></div></div><div id="selectedMakersContainer"></div>
+    <input id="directorsFilterInput" /><div id="directorsFilterDropdown" style="display:none"><input id="directorsSearchInput" /><div id="directorsFilterList"></div></div><div id="selectedDirectorsContainer"></div>
   `;
 
   return {
@@ -45,6 +47,20 @@ function setupDom() {
       optionList: document.getElementById('labelsFilterList') as HTMLElement,
       selectedContainer: document.getElementById('selectedLabelsContainer') as HTMLElement,
     },
+    makers: {
+      filterInput: document.getElementById('makersFilterInput') as HTMLInputElement,
+      dropdown: document.getElementById('makersFilterDropdown') as HTMLElement,
+      searchInput: document.getElementById('makersSearchInput') as HTMLInputElement,
+      optionList: document.getElementById('makersFilterList') as HTMLElement,
+      selectedContainer: document.getElementById('selectedMakersContainer') as HTMLElement,
+    },
+    directors: {
+      filterInput: document.getElementById('directorsFilterInput') as HTMLInputElement,
+      dropdown: document.getElementById('directorsFilterDropdown') as HTMLElement,
+      searchInput: document.getElementById('directorsSearchInput') as HTMLInputElement,
+      optionList: document.getElementById('directorsFilterList') as HTMLElement,
+      selectedContainer: document.getElementById('selectedDirectorsContainer') as HTMLElement,
+    },
   };
 }
 
@@ -57,14 +73,20 @@ describe('records filter controllers factory', () => {
       selectedListIds: new Set(['list-1']),
       selectedSeriesIds: new Set(['series-1']),
       selectedLabelIds: new Set(['ABC']),
+      selectedMakerIds: new Set(['maker-1']),
+      selectedDirectorIds: new Set(['director-1']),
       tokenSelectedListIds: new Set(),
       tokenSelectedSeriesIds: new Set(),
       tokenSelectedLabelIds: new Set(),
+      tokenSelectedMakerIds: new Set(),
+      tokenSelectedDirectorIds: new Set(),
       getAllTags: () => ['中文字幕'],
       listNameById: new Map([['list-1', '收藏']]),
       listSourceById: new Map([['list-1', 'local']]),
       seriesNameById: new Map([['series-1', '系列一']]),
       labelNameById: new Map([['ABC', 'ABC']]),
+      makerNameById: new Map([['maker-1', '片商A']]),
+      directorNameById: new Map([['director-1', '導演B']]),
       ensureListMetaLoaded: vi.fn(),
       syncDropdownBackdrop: vi.fn(),
       onChange: vi.fn(),
@@ -74,11 +96,15 @@ describe('records filter controllers factory', () => {
     controllers.lists.render();
     controllers.series.render();
     controllers.labels.render();
+    controllers.makers.render();
+    controllers.directors.render();
 
     expect(dom.tags.optionList.textContent).toContain('中文字幕');
     expect(dom.lists.optionList.textContent).toContain('收藏');
     expect(dom.series.optionList.textContent).toContain('系列一');
     expect(dom.labels.optionList.textContent).toContain('ABC');
+    expect(dom.makers.optionList.textContent).toContain('片商A');
+    expect(dom.directors.optionList.textContent).toContain('導演B');
     expect(dom.lists.optionList.innerHTML).toContain('本地');
   });
 
@@ -94,14 +120,20 @@ describe('records filter controllers factory', () => {
       selectedListIds: new Set(['list-1']),
       selectedSeriesIds: new Set(['series-1']),
       selectedLabelIds: new Set(['ABC']),
+      selectedMakerIds: new Set(),
+      selectedDirectorIds: new Set(),
       tokenSelectedListIds: new Set(['list-1']),
       tokenSelectedSeriesIds: new Set(['series-1']),
       tokenSelectedLabelIds: new Set(['ABC']),
+      tokenSelectedMakerIds: new Set(),
+      tokenSelectedDirectorIds: new Set(),
       getAllTags: () => [],
       listNameById: new Map([['list-1', '收藏']]),
       listSourceById: new Map(),
       seriesNameById: new Map([['series-1', '系列一']]),
       labelNameById: new Map([['ABC', 'ABC']]),
+      makerNameById: new Map(),
+      directorNameById: new Map(),
       ensureListMetaLoaded: vi.fn(),
       syncDropdownBackdrop: vi.fn(),
       onChange: vi.fn(),
@@ -138,14 +170,20 @@ describe('records filter controllers factory', () => {
       selectedListIds: new Set(['list-1']),
       selectedSeriesIds: new Set(),
       selectedLabelIds: new Set(),
+      selectedMakerIds: new Set(),
+      selectedDirectorIds: new Set(),
       tokenSelectedListIds: () => tokenSelectedListIds,
       tokenSelectedSeriesIds: new Set(),
       tokenSelectedLabelIds: new Set(),
+      tokenSelectedMakerIds: new Set(),
+      tokenSelectedDirectorIds: new Set(),
       getAllTags: () => [],
       listNameById: new Map([['list-1', '收藏']]),
       listSourceById: new Map(),
       seriesNameById: new Map(),
       labelNameById: new Map(),
+      makerNameById: new Map(),
+      directorNameById: new Map(),
       ensureListMetaLoaded: vi.fn(),
       syncDropdownBackdrop: vi.fn(),
       onChange: vi.fn(),

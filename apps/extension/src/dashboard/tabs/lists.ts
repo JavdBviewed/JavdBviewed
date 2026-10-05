@@ -5,14 +5,16 @@ import { showMessage } from '../ui/toast';
 import { showConfirm } from '../components/confirmModal';
 import {
     getCollectionExternalId,
+    matchesDirectorRecord,
     matchesLabelRecord,
+    matchesMakerRecord,
     matchesSeriesRecord,
 } from '../../shared/utils/listRecordHelpers';
 import { renderListSourceLinkButton } from './listsSourceLinks';
 import { dashboardTabLifecycle } from './tabLifecycle';
 import { clearTabWorkset } from './tabWorkset';
 
-type SubTab = 'lists' | 'series' | 'labels';
+type SubTab = 'lists' | 'series' | 'labels' | 'makers' | 'directors';
 
 export class ListsTab {
     public isInitialized: boolean = false;
@@ -61,6 +63,8 @@ export class ListsTab {
                     '#listsFavContainer',
                     '#listsSeriesContainer',
                     '#listsLabelsContainer',
+                    '#listsMakersContainer',
+                    '#listsDirectorsContainer',
                 ]);
                 this.lifecycleUnregister?.();
                 this.lifecycleUnregister = null;
@@ -192,6 +196,26 @@ export class ListsTab {
             const id = item.getAttribute('data-filter-id') || '';
             if (id) this.navigateToRecordsWithFilter(`label:${id}`);
         });
+
+        // 片商 panel 点击跳转
+        document.getElementById('listsMakersContainer')?.addEventListener('click', (e: Event) => {
+            const target = e.target as HTMLElement | null;
+            if (this.handleSourceLinkClick(e, target)) return;
+            const item = target?.closest('.lists-item') as HTMLElement | null;
+            if (!item) return;
+            const id = item.getAttribute('data-filter-id') || '';
+            if (id) this.navigateToRecordsWithFilter(`maker:${id}`);
+        });
+
+        // 導演 panel 点击跳转
+        document.getElementById('listsDirectorsContainer')?.addEventListener('click', (e: Event) => {
+            const target = e.target as HTMLElement | null;
+            if (this.handleSourceLinkClick(e, target)) return;
+            const item = target?.closest('.lists-item') as HTMLElement | null;
+            if (!item) return;
+            const id = item.getAttribute('data-filter-id') || '';
+            if (id) this.navigateToRecordsWithFilter(`director:${id}`);
+        });
     }
 
     private handleSourceLinkClick(e: Event, target: HTMLElement | null): boolean {
@@ -225,6 +249,8 @@ export class ListsTab {
             lists: 'lists-panel-lists',
             series: 'lists-panel-series',
             labels: 'lists-panel-labels',
+            makers: 'lists-panel-makers',
+            directors: 'lists-panel-directors',
         };
         Object.entries(panels).forEach(([key, id]) => {
             document.getElementById(id)?.classList.toggle('lists-panel--hidden', key !== tab);
@@ -241,6 +267,8 @@ export class ListsTab {
                 lists: '搜索清单名称 / ID…',
                 series: '搜索系列名称…',
                 labels: '搜索番号前缀…',
+                makers: '搜索片商名称…',
+                directors: '搜索導演名称…',
             };
             searchInput.placeholder = placeholders[tab];
         }
@@ -309,6 +337,8 @@ export class ListsTab {
             case 'lists':   this.renderListsPanel(); break;
             case 'series':  this.renderSeriesPanel(); break;
             case 'labels':  this.renderLabelsPanel(); break;
+            case 'makers':  this.renderMakersPanel(); break;
+            case 'directors': this.renderDirectorsPanel(); break;
         }
     }
 
@@ -395,8 +425,50 @@ export class ListsTab {
         if (emptyTip) emptyTip.style.display = 'none';
     }
 
-    /** 渲染系列 / 番号条目（只读，无编辑操作） */
-    private renderCollectionItem(l: ListRecord, variant: 'series' | 'label', localCount?: number): string {
+    private renderMakersPanel(): void {
+        const el = document.getElementById('listsMakersContainer') as HTMLElement | null;
+        const countEl = document.getElementById('listsMakersCount') as HTMLElement | null;
+        const emptyTip = document.getElementById('listsEmptyTip') as HTMLElement | null;
+        const searchInput = document.getElementById('listsSearchInput') as HTMLInputElement | null;
+        if (!el) return;
+
+        const q = String(searchInput?.value || '').trim().toLowerCase();
+        const items = this.lists
+            .filter(l => l?.type === 'maker' && (!q ||
+                String(l.name || '').toLowerCase().includes(q) ||
+                String(l.id || '').toLowerCase().includes(q) ||
+                String(getCollectionExternalId(l)).toLowerCase().includes(q)))
+            .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+        el.innerHTML = items.map(l => this.renderCollectionItem(l, 'maker', this.computeMakerLocalCount(l))).join('') ||
+            '<div class="lists-empty">暂无收藏片商，请先到"数据同步"里执行"同步片商"。</div>';
+        if (countEl) countEl.textContent = String(items.length);
+        if (emptyTip) emptyTip.style.display = 'none';
+    }
+
+    private renderDirectorsPanel(): void {
+        const el = document.getElementById('listsDirectorsContainer') as HTMLElement | null;
+        const countEl = document.getElementById('listsDirectorsCount') as HTMLElement | null;
+        const emptyTip = document.getElementById('listsEmptyTip') as HTMLElement | null;
+        const searchInput = document.getElementById('listsSearchInput') as HTMLInputElement | null;
+        if (!el) return;
+
+        const q = String(searchInput?.value || '').trim().toLowerCase();
+        const items = this.lists
+            .filter(l => l?.type === 'director' && (!q ||
+                String(l.name || '').toLowerCase().includes(q) ||
+                String(l.id || '').toLowerCase().includes(q) ||
+                String(getCollectionExternalId(l)).toLowerCase().includes(q)))
+            .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+        el.innerHTML = items.map(l => this.renderCollectionItem(l, 'director', this.computeDirectorLocalCount(l))).join('') ||
+            '<div class="lists-empty">暂无收藏導演，请先到"数据同步"里执行"同步導演"。</div>';
+        if (countEl) countEl.textContent = String(items.length);
+        if (emptyTip) emptyTip.style.display = 'none';
+    }
+
+    /** 渲染系列 / 番号 / 片商 / 導演条目（只读，无编辑操作） */
+    private renderCollectionItem(l: ListRecord, variant: 'series' | 'label' | 'maker' | 'director', localCount?: number): string {
         const safeName = this.escapeHtml(String(l.name || l.id));
         const safeId   = this.escapeHtml(String(l.id));
         const safeFilterId = this.escapeHtml(getCollectionExternalId(l));
@@ -408,7 +480,13 @@ export class ListsTab {
         if (javdbCount !== undefined) parts.push(`共 ${javdbCount} 部`);
         const metaHtml = parts.join(' / ');
 
-        const tip = variant === 'series' ? `点击筛选系列：${safeName}` : `点击筛选番号：${safeName}`;
+        let tip: string;
+        switch (variant) {
+            case 'series': tip = `点击筛选系列：${safeName}`; break;
+            case 'label': tip = `点击筛选番号：${safeName}`; break;
+            case 'maker': tip = `点击筛选片商：${safeName}`; break;
+            default: tip = `点击筛选導演：${safeName}`; break;
+        }
         return `
             <div class="lists-item lists-item--${variant}" data-list-id="${safeId}" data-filter-id="${safeFilterId}" title="${tip}">
                 <div class="lists-item-title"><span class="lists-item-name">${safeName}</span></div>
@@ -426,6 +504,16 @@ export class ListsTab {
     private computeLabelLocalCount(label: ListRecord): number {
         const records = Array.isArray(STATE.records) ? STATE.records : [];
         return records.filter(r => matchesLabelRecord(r, label)).length;
+    }
+
+    private computeMakerLocalCount(maker: ListRecord): number {
+        const records = Array.isArray(STATE.records) ? STATE.records : [];
+        return records.filter(r => matchesMakerRecord(r, maker)).length;
+    }
+
+    private computeDirectorLocalCount(director: ListRecord): number {
+        const records = Array.isArray(STATE.records) ? STATE.records : [];
+        return records.filter(r => matchesDirectorRecord(r, director)).length;
     }
 
     /** 渲染内嵌新建输入行 */

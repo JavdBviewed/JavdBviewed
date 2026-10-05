@@ -46,6 +46,20 @@ function pageElements(): RecordsPageElements {
         optionList: element<HTMLElement>('labelsFilterList'),
         selectedContainer: element<HTMLElement>('selectedLabelsContainer'),
       },
+      makers: {
+        filterInput: element<HTMLInputElement>('makersFilterInput'),
+        dropdown: element<HTMLElement>('makersFilterDropdown'),
+        searchInput: element<HTMLInputElement>('makersSearchInput'),
+        optionList: element<HTMLElement>('makersFilterList'),
+        selectedContainer: element<HTMLElement>('selectedMakersContainer'),
+      },
+      directors: {
+        filterInput: element<HTMLInputElement>('directorsFilterInput'),
+        dropdown: element<HTMLElement>('directorsFilterDropdown'),
+        searchInput: element<HTMLInputElement>('directorsSearchInput'),
+        optionList: element<HTMLElement>('directorsFilterList'),
+        selectedContainer: element<HTMLElement>('selectedDirectorsContainer'),
+      },
     },
     advanced: {
       advAddBtn: element<HTMLButtonElement>('advAddBtn'),
@@ -110,6 +124,8 @@ describe('records lifecycle runtime', () => {
         lists: { bind: vi.fn(), render: vi.fn() },
         series: { bind: vi.fn() },
         labels: { bind: vi.fn() },
+        makers: { bind: vi.fn() },
+        directors: { bind: vi.fn() },
       },
       advancedConditions: {
         addCondition: vi.fn(),
@@ -151,6 +167,10 @@ describe('records lifecycle runtime', () => {
       tagsFilterDropdown: page.filters.tags.dropdown,
       labelsFilterInput: page.filters.labels.filterInput,
       labelsFilterDropdown: page.filters.labels.dropdown,
+      makersFilterInput: page.filters.makers.filterInput,
+      makersFilterDropdown: page.filters.makers.dropdown,
+      directorsFilterInput: page.filters.directors.filterInput,
+      directorsFilterDropdown: page.filters.directors.dropdown,
     }));
     expect(lifecycleOptions.getRecordsPerPage()).toBe(20);
     expect(advancedConditions).toEqual([{ id: 'cond-1', field: 'id', op: 'contains', value: 'AAA' }]);

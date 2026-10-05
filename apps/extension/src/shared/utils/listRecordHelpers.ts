@@ -7,20 +7,24 @@
  * - 普通清单（mine/favorite/local）：ID 由 JavDB 分配或用户自定义
  * - 系列清单（series）：ID 格式 `series:{externalId}`
  * - 番号清单（label）：ID 格式 `label:{externalId}`（大写）
+ * - 片商清单（maker）：ID 格式 `maker:{externalId}`（保留原始大小写）
+ * - 導演清单（director）：ID 格式 `director:{externalId}`（保留原始大小写）
  */
 import type { ListRecord, VideoRecord } from '../../types';
 
-export type CollectionListType = 'series' | 'label';
+export type CollectionListType = 'series' | 'label' | 'maker' | 'director';
 
 /** 收藏类清单的 ID 前缀映射 */
 const COLLECTION_PREFIX: Record<CollectionListType, string> = {
   series: 'series:',
   label: 'label:',
+  maker: 'maker:',
+  director: 'director:',
 };
 
 /** 判断类型是否为收藏类清单（series/label） */
 export function isCollectionListType(type: unknown): type is CollectionListType {
-  return type === 'series' || type === 'label';
+  return type === 'series' || type === 'label' || type === 'maker' || type === 'director';
 }
 
 /** 判断记录是否为收藏类清单 */
@@ -33,7 +37,7 @@ export function isVideoListRecord(record: Pick<ListRecord, 'type'> | null | unde
   return !!record && (record.type === 'mine' || record.type === 'favorite' || record.type === 'local');
 }
 
-/** 规范化收藏清单的外部 ID（番号类型强制大写） */
+/** 规范化收藏清单的外部 ID（label 强制大写；maker/director 保留原始大小写） */
 export function normalizeCollectionExternalId(type: CollectionListType, raw: string): string {
   const value = String(raw || '').trim();
   return type === 'label' ? value.toUpperCase() : value;
@@ -86,6 +90,18 @@ export function getSeriesExternalIdFromUrl(seriesUrl?: string): string {
   return match ? decodeURIComponent(match[1]).trim() : '';
 }
 
+/** 从片商 URL 中提取外部 ID，如 `/makers/AEO` → `AEO`（保留原始大小写） */
+export function getMakerExternalIdFromUrl(makerUrl?: string): string {
+  const match = String(makerUrl || '').match(/\/makers\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]).trim() : '';
+}
+
+/** 从導演 URL 中提取外部 ID，如 `/directors/dekM` → `dekM`（保留原始大小写） */
+export function getDirectorExternalIdFromUrl(directorUrl?: string): string {
+  const match = String(directorUrl || '').match(/\/directors\/([^/?#]+)/);
+  return match ? decodeURIComponent(match[1]).trim() : '';
+}
+
 /** 规范化名称用于比较：NFKC 标准化 + 去多余空格 + 小写 */
 function normalizeComparableName(value: unknown): string {
   return String(value || '').trim().normalize('NFKC').replace(/\s+/g, ' ').toLowerCase();
@@ -106,6 +122,45 @@ export function matchesSeriesRecord(
   const seriesName = normalizeComparableName(series.name);
   const seriesId = normalizeComparableName(externalId);
   return (!!seriesName && recordSeries === seriesName) || (!!seriesId && recordSeries === seriesId);
+}
+
+/** 片商/導演名称比较：NFKC 标准化 + 移除全部空白 + 小写（片商名常以空格分写） */
+function normalizeNoSpaceName(value: unknown): string {
+  return String(value || '').trim().normalize('NFKC').replace(/\s+/g, '').toLowerCase();
+}
+
+/** 判断视频记录是否属于某个片商（URL id 精确匹配或名称匹配） */
+export function matchesMakerRecord(
+  record: Partial<VideoRecord>,
+  maker: Pick<ListRecord, 'id' | 'name' | 'type'> & Partial<Pick<ListRecord, 'externalId'>>
+): boolean {
+  const externalId = getCollectionExternalId(maker);
+  const urlId = getMakerExternalIdFromUrl(record.makerUrl);
+  if (urlId && externalId && urlId === externalId) return true;
+
+  const recordMaker = normalizeNoSpaceName(record.maker);
+  if (!recordMaker) return false;
+
+  const makerName = normalizeNoSpaceName(maker.name);
+  const makerId = normalizeNoSpaceName(externalId);
+  return (!!makerName && recordMaker === makerName) || (!!makerId && recordMaker === makerId);
+}
+
+/** 判断视频记录是否属于某个導演（URL id 精确匹配或名称匹配） */
+export function matchesDirectorRecord(
+  record: Partial<VideoRecord>,
+  director: Pick<ListRecord, 'id' | 'name' | 'type'> & Partial<Pick<ListRecord, 'externalId'>>
+): boolean {
+  const externalId = getCollectionExternalId(director);
+  const urlId = getDirectorExternalIdFromUrl(record.directorUrl);
+  if (urlId && externalId && urlId === externalId) return true;
+
+  const recordDirector = normalizeNoSpaceName(record.director);
+  if (!recordDirector) return false;
+
+  const directorName = normalizeNoSpaceName(director.name);
+  const directorId = normalizeNoSpaceName(externalId);
+  return (!!directorName && recordDirector === directorName) || (!!directorId && recordDirector === directorId);
 }
 
 /** 判断视频记录是否属于某个番号标签（ID 精确匹配或前缀匹配，如 `ABC-123` 匹配 `ABC`） */

@@ -47,6 +47,8 @@ function sampleLists(): Array<Record<string, unknown>> {
     { id: 'l1', source: 'local', type: 'mine', name: '本地清单A', externalId: 'ext-a', url: 'https://javdb.com/list/a', moviesCount: 3, updatedAt: 1000 },
     { id: 'l2', source: 'local', type: 'mine', name: '本地清单B', externalId: 'ext-b', url: 'https://javdb.com/list/b', moviesCount: 7, updatedAt: 2000 },
     { id: 'f1', source: 'javdb', type: 'favorite', name: '收藏清单C', externalId: 'ext-c', url: 'https://javdb.com/list/c', moviesCount: 1, updatedAt: 3000 },
+    { id: 'maker:AEO', source: 'javdb', type: 'maker', name: '片商AEO', externalId: 'AEO', url: 'https://javdb.com/makers/AEO', moviesCount: 2, updatedAt: 4000 },
+    { id: 'director:dekM', source: 'javdb', type: 'director', name: '導演dekM', externalId: 'dekM', url: 'https://javdb.com/directors/dekM', moviesCount: 1, updatedAt: 5000 },
   ];
 }
 
@@ -61,11 +63,15 @@ function mountFixture(): void {
       <div id="listsMineCount"></div>
       <div id="listsFavCount"></div>
       <div id="listsSeriesCount"></div>
+      <div id="listsMakersCount"></div>
+      <div id="listsDirectorsCount"></div>
       <div id="listsLocalContainer"></div>
       <div id="listsMineContainer"></div>
       <div id="listsFavContainer"></div>
       <div id="listsSeriesContainer"></div>
       <div id="listsLabelsContainer"></div>
+      <div id="listsMakersContainer"></div>
+      <div id="listsDirectorsContainer"></div>
       <div id="listsEmptyTip"></div>
     </div>`;
 }
@@ -151,6 +157,38 @@ describe('ListsTab 生命周期（S1-3）', () => {
     expect(document.querySelector('#listsLocalContainer')?.textContent).toContain('本地清单A');
   });
 
+  it('片商/導演 子 tab 切换渲染收藏条目（data-filter-id 对齐搜索令牌）', async () => {
+    const wrap = document.querySelector('#tab-lists') as HTMLElement;
+    const track = document.createElement('div');
+    track.className = 'lists-subtabs';
+    track.innerHTML = [
+      '<button class="lists-subtab active" data-subtab="lists"></button>',
+      '<button class="lists-subtab" data-subtab="series"></button>',
+      '<button class="lists-subtab" data-subtab="labels"></button>',
+      '<button class="lists-subtab" data-subtab="makers"></button>',
+      '<button class="lists-subtab" data-subtab="directors"></button>',
+    ].join('');
+    wrap.insertBefore(track, wrap.firstChild);
+
+    await initActiveTab();
+
+    (document.querySelector('.lists-subtab[data-subtab="makers"]') as HTMLButtonElement).click();
+    await flush(2);
+
+    const makers = document.querySelector('#listsMakersContainer');
+    expect(makers?.textContent).toContain('片商AEO');
+    expect(makers?.querySelector('.lists-item')?.getAttribute('data-filter-id')).toBe('AEO');
+    expect(document.querySelector('#listsMakersCount')?.textContent).toBe('1');
+
+    (document.querySelector('.lists-subtab[data-subtab="directors"]') as HTMLButtonElement).click();
+    await flush(2);
+
+    const directors = document.querySelector('#listsDirectorsContainer');
+    expect(directors?.textContent).toContain('導演dekM');
+    expect(directors?.querySelector('.lists-item')?.getAttribute('data-filter-id')).toBe('dekM');
+    expect(document.querySelector('#listsDirectorsCount')?.textContent).toBe('1');
+  });
+
   it('dispose 清空工作集（语义保持）', async () => {
     await initActiveTab();
 
@@ -158,5 +196,7 @@ describe('ListsTab 生命周期（S1-3）', () => {
     dashboardTabLifecycle.notify('dispose', TAB);
 
     expect(document.querySelector('#listsLocalContainer')?.childElementCount).toBe(0);
+    expect(document.querySelector('#listsMakersContainer')?.childElementCount).toBe(0);
+    expect(document.querySelector('#listsDirectorsContainer')?.childElementCount).toBe(0);
   });
 });

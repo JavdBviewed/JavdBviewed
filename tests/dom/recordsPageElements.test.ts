@@ -22,6 +22,8 @@ function setupRecordsDom() {
     <input id="listsFilterInput" /><div id="listsFilterDropdown"></div><input id="listsSearchInput" /><div id="listsFilterList"></div><div id="selectedListsContainer"></div>
     <input id="seriesFilterInput" /><div id="seriesFilterDropdown"></div><input id="seriesSearchInput" /><div id="seriesFilterList"></div><div id="selectedSeriesContainer"></div>
     <input id="labelsFilterInput" /><div id="labelsFilterDropdown"></div><input id="labelsSearchInput" /><div id="labelsFilterList"></div><div id="selectedLabelsContainer"></div>
+    <input id="makersFilterInput" /><div id="makersFilterDropdown"></div><input id="makersSearchInput" /><div id="makersFilterList"></div><div id="selectedMakersContainer"></div>
+    <input id="directorsFilterInput" /><div id="directorsFilterDropdown"></div><input id="directorsSearchInput" /><div id="directorsFilterList"></div><div id="selectedDirectorsContainer"></div>
     <button id="addConditionBtn"></button><button id="applyConditionsBtn"></button><button id="resetConditionsBtn"></button><div id="advConditions"></div>
     <select id="quickTimeField"></select><input id="quickTimeValue" /><select id="quickTimeUnit"></select><button id="addQuickTimeBtn"></button>
     <div id="searchSuggest"></div>
@@ -53,6 +55,10 @@ describe('records page elements', () => {
     expect(elements.required.videoList.id).toBe('videoList');
     expect(elements.required.paginationContainer.className).toBe('pagination');
     expect(elements.filters.tags.optionList.id).toBe('tagsFilterList');
+    expect(elements.filters.makers.optionList.id).toBe('makersFilterList');
+    expect(elements.filters.makers.selectedContainer.id).toBe('selectedMakersContainer');
+    expect(elements.filters.directors.optionList.id).toBe('directorsFilterList');
+    expect(elements.filters.directors.selectedContainer.id).toBe('selectedDirectorsContainer');
     expect(elements.advanced.quickTimeValue.id).toBe('quickTimeValue');
     expect(elements.batch.batchDeleteBtn.id).toBe('batchDeleteBtn');
     expect(elements.toolbar.myFavoritesBtn.id).toBe('myFavoritesBtn');

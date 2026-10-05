@@ -1,6 +1,8 @@
 import {
+  removeDirectorTokenFromSearchInput,
   removeLabelTokenFromSearchInput,
   removeListIdTokenFromSearchInput,
+  removeMakerTokenFromSearchInput,
   removeSeriesTokenFromSearchInput,
 } from './searchQueryModel';
 import {
@@ -15,6 +17,8 @@ export interface RecordsFilterControllersElements {
   lists: RecordsMultiSelectFilterElements;
   series: RecordsMultiSelectFilterElements;
   labels: RecordsMultiSelectFilterElements;
+  makers: RecordsMultiSelectFilterElements;
+  directors: RecordsMultiSelectFilterElements;
 }
 
 type TokenSelectionSetSource = Set<string> | (() => Set<string>);
@@ -25,14 +29,20 @@ export interface CreateRecordsFilterControllersOptions {
   selectedListIds: Set<string>;
   selectedSeriesIds: Set<string>;
   selectedLabelIds: Set<string>;
+  selectedMakerIds: Set<string>;
+  selectedDirectorIds: Set<string>;
   tokenSelectedListIds: TokenSelectionSetSource;
   tokenSelectedSeriesIds: TokenSelectionSetSource;
   tokenSelectedLabelIds: TokenSelectionSetSource;
+  tokenSelectedMakerIds: TokenSelectionSetSource;
+  tokenSelectedDirectorIds: TokenSelectionSetSource;
   getAllTags: () => string[];
   listNameById: Map<string, string>;
   listSourceById: Map<string, string>;
   seriesNameById: Map<string, string>;
   labelNameById: Map<string, string>;
+  makerNameById: Map<string, string>;
+  directorNameById: Map<string, string>;
   ensureListMetaLoaded: () => void;
   syncDropdownBackdrop: () => void;
   onChange: () => void;
@@ -44,6 +54,8 @@ export interface RecordsFilterControllers {
   lists: RecordsMultiSelectFilterController;
   series: RecordsMultiSelectFilterController;
   labels: RecordsMultiSelectFilterController;
+  makers: RecordsMultiSelectFilterController;
+  directors: RecordsMultiSelectFilterController;
 }
 
 function dispatchSearchInput(searchInput: HTMLInputElement): void {
@@ -133,5 +145,45 @@ export function createRecordsFilterControllers(options: CreateRecordsFilterContr
     },
   });
 
-  return { tags, lists, series, labels };
+  const makers = createRecordsMultiSelectFilterController({
+    elements: options.elements.makers,
+    selected: options.selectedMakerIds,
+    emptyText: '点击选择片商',
+    selectedText: (count) => `已选择 ${count} 个片商`,
+    optionAttribute: 'data-maker-id',
+    removeAttribute: 'data-maker-id',
+    getItems: () => Array.from(options.makerNameById.entries()).map(([id, name]) => ({ id: String(id), name: String(name || id) })),
+    onBeforeOpen: options.ensureListMetaLoaded,
+    onAfterToggleDropdown: options.syncDropdownBackdrop,
+    onChange: options.onChange,
+    escapeHtml: options.escapeHtml,
+    isTokenBackedItem: (id) => resolveTokenSelectionSet(options.tokenSelectedMakerIds).has(String(id)),
+    onRemoveTokenBackedItem: (id) => {
+      options.elements.searchInput.value = removeMakerTokenFromSearchInput(options.elements.searchInput.value, String(id));
+      dispatchSearchInput(options.elements.searchInput);
+      return true;
+    },
+  });
+
+  const directors = createRecordsMultiSelectFilterController({
+    elements: options.elements.directors,
+    selected: options.selectedDirectorIds,
+    emptyText: '点击选择導演',
+    selectedText: (count) => `已选择 ${count} 个導演`,
+    optionAttribute: 'data-director-id',
+    removeAttribute: 'data-director-id',
+    getItems: () => Array.from(options.directorNameById.entries()).map(([id, name]) => ({ id: String(id), name: String(name || id) })),
+    onBeforeOpen: options.ensureListMetaLoaded,
+    onAfterToggleDropdown: options.syncDropdownBackdrop,
+    onChange: options.onChange,
+    escapeHtml: options.escapeHtml,
+    isTokenBackedItem: (id) => resolveTokenSelectionSet(options.tokenSelectedDirectorIds).has(String(id)),
+    onRemoveTokenBackedItem: (id) => {
+      options.elements.searchInput.value = removeDirectorTokenFromSearchInput(options.elements.searchInput.value, String(id));
+      dispatchSearchInput(options.elements.searchInput);
+      return true;
+    },
+  });
+
+  return { tags, lists, series, labels, makers, directors };
 }

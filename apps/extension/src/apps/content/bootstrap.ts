@@ -29,6 +29,7 @@ import { listEnhancementManager } from '../../features/listEnhancement';
 import { resolveCategoryFilterEnabled } from '../../features/list-hiding';
 import { actorEnhancementManager, actorQuickActionsManager } from '../../features/actorEnhancement';
 import { categoryQuickActionsManager } from '../../features/categoryQuickActions';
+import { collectionQuickActionsManager } from '../../features/collectionQuick';
 import { isActorEnhancementEnabled } from '../../features/actorEnhancement/actorEnhancementGate';
 import { normalizeActorDefaultTags } from '../../features/actorEnhancement/defaultTagsSelection';
 import { isVideoEnhancementSubOn } from '../../features/videoDetail/videoEnhancementGate';
@@ -237,6 +238,8 @@ async function initialize(): Promise<void> {
         if (isVideoEnhancementSubOn(settings, 'enableCategoryQuickActions')) {
             preregisterBlueprints.push({ phase: 'high', label: 'categoryQuickActions:init', priority: 5, visibilityPolicy: 'background_allowed', dependsOn: ['videoStatus:initialSync'] });
         }
+        // 影片实体快捷收藏（影片页 high，无条件不门控；10-05-collection-makers-directors）
+        preregisterBlueprints.push({ phase: 'high', label: 'collectionQuickActions:init', priority: 5, visibilityPolicy: 'background_allowed', dependsOn: ['videoStatus:initialSync'] });
     }
 
     if (isActorPage) {
@@ -643,6 +646,11 @@ async function initialize(): Promise<void> {
             hideDelay: 200,
         });
         initOrchestrator.add('high', () => categoryQuickActionsManager.init(), { label: 'categoryQuickActions:init:actor', delayMs: 500, priority: 5, visibilityPolicy: 'background_allowed' });
+    }
+
+    // 初始化影片实体快捷收藏（影片页 high，无条件不门控；10-05-collection-makers-directors）
+    if (isVideoPage) {
+        initOrchestrator.add('high', () => collectionQuickActionsManager.ensureInit(), { label: 'collectionQuickActions:init', delayMs: 500, priority: 5, visibilityPolicy: 'background_allowed' });
     }
 
     // 初始化 Emby/Jellyfin 增强功能（延后执行）

@@ -1,6 +1,10 @@
 import type { ListRecord, VideoRecord, VideoStatus } from '../../../types';
 import {
+  getDirectorExternalIdFromUrl,
+  getMakerExternalIdFromUrl,
+  matchesDirectorRecord,
   matchesLabelRecord,
+  matchesMakerRecord,
   matchesSeriesRecord,
 } from '../../../shared/utils/listRecordHelpers';
 import {
@@ -16,8 +20,12 @@ export interface FilterAndSortRecordsInput {
   selectedListIds: Set<string>;
   selectedSeriesIds: Set<string>;
   selectedLabelIds: Set<string>;
+  selectedMakerIds: Set<string>;
+  selectedDirectorIds: Set<string>;
   seriesIdToRecord: Map<string, ListRecord>;
   labelIdToRecord: Map<string, ListRecord>;
+  makerIdToRecord: Map<string, ListRecord>;
+  directorIdToRecord: Map<string, ListRecord>;
   advancedConditions: RecordsAdvancedCondition[];
   favoritesFilterActive: boolean;
   sortValue: string;
@@ -77,6 +85,38 @@ function matchesSelectedLabels(
   });
 }
 
+function matchesSelectedMaker(
+  record: VideoRecord,
+  selectedMakerIds: Set<string>,
+  makerIdToRecord: Map<string, ListRecord>,
+): boolean {
+  if (selectedMakerIds.size === 0) return true;
+  return Array.from(selectedMakerIds).some((makerId) => {
+    const maker = makerIdToRecord.get(String(makerId));
+    if (maker) return matchesMakerRecord(record, maker);
+
+    const urlId = getMakerExternalIdFromUrl(record.makerUrl);
+    if (urlId && urlId === String(makerId)) return true;
+    return String(record.maker || '').trim().toLowerCase() === String(makerId).trim().toLowerCase();
+  });
+}
+
+function matchesSelectedDirector(
+  record: VideoRecord,
+  selectedDirectorIds: Set<string>,
+  directorIdToRecord: Map<string, ListRecord>,
+): boolean {
+  if (selectedDirectorIds.size === 0) return true;
+  return Array.from(selectedDirectorIds).some((directorId) => {
+    const director = directorIdToRecord.get(String(directorId));
+    if (director) return matchesDirectorRecord(record, director);
+
+    const urlId = getDirectorExternalIdFromUrl(record.directorUrl);
+    if (urlId && urlId === String(directorId)) return true;
+    return String(record.director || '').trim().toLowerCase() === String(directorId).trim().toLowerCase();
+  });
+}
+
 function sortRecords(records: VideoRecord[], sortValue: string): VideoRecord[] {
   return [...records].sort((a, b) => {
     try {
@@ -121,6 +161,8 @@ export function filterAndSortRecords(input: FilterAndSortRecordsInput): VideoRec
       matchesSelectedLists(record, input.selectedListIds) &&
       matchesSelectedSeries(record, input.selectedSeriesIds, input.seriesIdToRecord) &&
       matchesSelectedLabels(record, input.selectedLabelIds, input.labelIdToRecord) &&
+      matchesSelectedMaker(record, input.selectedMakerIds, input.makerIdToRecord) &&
+      matchesSelectedDirector(record, input.selectedDirectorIds, input.directorIdToRecord) &&
       matchesFavorite;
 
     if (!basicMatch) return false;
