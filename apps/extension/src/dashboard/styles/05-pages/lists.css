@@ -928,42 +928,54 @@
     }
 }
 
-/* ===== Sub-tabs（清单 / 系列 / 番号）===== */
+/* ===== Sub-tabs（清单 / 系列 / 番号）—— 分段轨道式（segmented track）===== */
 .lists-page .lists-subtabs {
     display: flex;
-    gap: 6px;
+    gap: 4px;
+    padding: 5px;
+    background: var(--lists-soft);
+    border: 1px solid var(--lists-border);
+    border-radius: 12px;
     margin-top: 14px;
 }
 
 .lists-page .lists-subtab {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 7px 16px;
-    border: 1px solid var(--lists-border);
-    border-radius: 999px;
-    background: var(--lists-soft);
-    color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: 700;
+    justify-content: center;
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 7px;
+    padding: 10px 14px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--lists-muted);
+    font-size: 14px;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.18s ease;
+    transition: all .18s ease;
 }
 
 .lists-page .lists-subtab:hover {
-    border-color: color-mix(in srgb, var(--lists-primary) 40%, var(--border-primary));
-    color: var(--text-primary);
+    color: var(--lists-primary);
+    background: color-mix(in srgb, var(--lists-primary) 8%, transparent);
 }
 
 .lists-page .lists-subtab.active {
     background: linear-gradient(135deg, var(--lists-primary), color-mix(in srgb, var(--lists-info) 70%, var(--lists-primary)));
     border-color: transparent;
     color: #fff;
-    box-shadow: 0 4px 14px color-mix(in srgb, var(--lists-primary) 28%, transparent);
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--lists-primary) 30%, transparent);
 }
 
 .lists-page .lists-subtab i {
-    font-size: 12px;
+    font-size: 13px;
+}
+
+.lists-page .lists-subtab:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--lists-primary) 55%, transparent);
+    outline-offset: 2px;
 }
 
 /* ===== Panel 显示切换 ===== */
