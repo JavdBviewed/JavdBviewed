@@ -405,6 +405,14 @@ function FilterRuleEditor({
       void toast('请输入关键词', 'warning');
       return;
     }
+    // 10-05 根因 A：对比方式为 早于/晚于/精确匹配 且指定日期为空时，checkDateRange 恒不命中，
+    // 规则静默失效（0 命中零提示）——阻止保存并要求补日期；between 双端均空=无日期约束，允许。
+    const range = draft.releaseDateRange;
+    const needsExactDate = range && (range.comparison ?? 'between') !== 'between' && !range.exactDate;
+    if (needsExactDate) {
+      void toast('请输入指定日期', 'warning');
+      return;
+    }
     onSave({ ...draft, name: draft.name.trim(), keyword: draft.keyword.trim() }, editor.index);
   };
 
@@ -452,6 +460,7 @@ function FilterRuleEditor({
                 {FILTER_RULE_FIELDS.map((field) => <option key={field.value} value={field.value}>{field.label}</option>)}
               </select>
               <p>按住 Ctrl/Shift 可多选。「番号」匹配卡片上的番号文本；「视频ID」匹配 /v/ 链接中的标识（非番号）</p>
+              <p className="enhancement-filter-rule-modal__field-note">注：列表卡片无演员/厂牌节点，「标签」无提取源——使用这些字段的规则在列表页永不命中；内容过滤仅作用于列表页。</p>
             </div>
             <div className="enhancement-filter-rule-modal__field-box">
               {hasKeywordField ? (
