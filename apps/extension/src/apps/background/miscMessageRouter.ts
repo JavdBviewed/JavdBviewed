@@ -344,6 +344,8 @@ export function registerMiscRouter(): void {
         case 'new-works-manual-commit':
         case 'new-works-manual-scan-status':
         case 'new-works-manual-scan-ack':
+        case 'new-works-manual-pending-fetch':
+        case 'new-works-manual-pending-consume':
         case 'new-works-scheduler-restart':
         case 'new-works-scheduler-status':
           return handleNewWorksRuntimeMessage(message, sendResponse);

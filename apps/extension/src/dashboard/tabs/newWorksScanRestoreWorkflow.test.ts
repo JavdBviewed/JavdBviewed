@@ -113,10 +113,10 @@ describe('restoreNewWorksScanState', () => {
 });
 
 describe('文案 builder（最终措辞由 coord 核版，机制已批）', () => {
-  it('done 摘要 toast 精确措辞（C-B）', () => {
+  it('done 摘要 toast 精确措辞（C-B；10-19 删「重新检查可入库」分句：pending>0 已改由恢复回填直接给出确认弹窗）', () => {
     expect(buildScanSummaryToastMessage('done', {
       discovered: 2, identifiedTotal: 3, pendingCount: 2, existingCount: 1, cancelled: false, errorCount: 0,
-    })).toBe('新作品检查已完成：已识别 3，可入库 2（刷新期间完成，未写入新作品库，重新检查可入库）');
+    })).toBe('新作品检查已完成：已识别 3，可入库 2（刷新期间完成，未写入新作品库）');
   });
 
   it('cancelled 摘要 toast 精确措辞（C-B 变体）', () => {
@@ -127,5 +127,59 @@ describe('文案 builder（最终措辞由 coord 核版，机制已批）', () =
 
   it('interrupted 提示精确措辞（一次性轻提示）', () => {
     expect(buildScanInterruptedToastMessage()).toBe('上一次新作品检查已中断（扩展后台服务重启），进度未保存');
+  });
+});
+
+
+describe('terminal + pendingCount>0 → 恢复回填确认（10-19）', () => {
+  const resultWithPending = { discovered: 2, identifiedTotal: 3, pendingCount: 2, existingCount: 1, cancelled: false, errorCount: 0 };
+
+  it('done + pendingCount>0 + dep 在位 → 摘要 toast 后调 restorePendingWorks(done, result) 逐字', async () => {
+    const restorePendingWorks = vi.fn(async () => undefined);
+    const runtimeDeps = deps({
+      queryStatus: vi.fn(async () => ({ status: 'done' as const, result: resultWithPending })),
+      restorePendingWorks,
+    });
+
+    await restoreNewWorksScanState(runtimeDeps);
+
+    expect(runtimeDeps.showSummaryToast).toHaveBeenCalledWith('done', resultWithPending);
+    expect(restorePendingWorks).toHaveBeenCalledTimes(1);
+    expect(restorePendingWorks).toHaveBeenCalledWith('done', resultWithPending);
+  });
+
+  it('cancelled + pendingCount>0 → restorePendingWorks(cancelled, result)', async () => {
+    const result = { discovered: 0, identifiedTotal: 3, pendingCount: 1, existingCount: 0, cancelled: true, errorCount: 0 };
+    const restorePendingWorks = vi.fn(async () => undefined);
+    const runtimeDeps = deps({
+      queryStatus: vi.fn(async () => ({ status: 'cancelled' as const, result })),
+      restorePendingWorks,
+    });
+
+    await restoreNewWorksScanState(runtimeDeps);
+
+    expect(restorePendingWorks).toHaveBeenCalledTimes(1);
+    expect(restorePendingWorks).toHaveBeenCalledWith('cancelled', result);
+  });
+
+  it('pendingCount=0 → 不调 restorePendingWorks（零漂移：现状摘要 toast 即收口）', async () => {
+    const restorePendingWorks = vi.fn();
+    const runtimeDeps = deps({
+      queryStatus: vi.fn(async () => ({ status: 'done' as const, result: { ...resultWithPending, pendingCount: 0 } })),
+      restorePendingWorks,
+    });
+
+    await restoreNewWorksScanState(runtimeDeps);
+
+    expect(restorePendingWorks).not.toHaveBeenCalled();
+  });
+
+  it('dep 未注入（旧调用方）→ 不崩，摘要 toast 照旧', async () => {
+    const runtimeDeps = deps({
+      queryStatus: vi.fn(async () => ({ status: 'cancelled' as const, result: resultWithPending })),
+    });
+
+    await expect(restoreNewWorksScanState(runtimeDeps)).resolves.toBeUndefined();
+    expect(runtimeDeps.showSummaryToast).toHaveBeenCalledTimes(1);
   });
 });

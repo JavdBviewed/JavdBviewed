@@ -54,6 +54,9 @@ import {
     type RestoreRunningScanState,
     type ScanStatusQueryResult,
 } from './newWorksScanRestoreWorkflow';
+import { runNewWorksRestoredPendingWorkflow } from './newWorksRestoredPendingWorkflow';
+import type { ManualPendingBatch } from '../../features/newWorks/newWorksManualPendingBatch';
+import type { ManualScanResultSummary } from '../../features/newWorks/newWorksScanState';
 import { renderNewWorksStatsRuntime } from './newWorksStatsRuntime';
 import {
     findSelectedBatchWorkById,
@@ -717,6 +720,7 @@ export class NewWorksTab {
                     logWarn: (message, error) => console.warn(message, error),
                     logError: (message, error) => console.error(message, error),
                     ackScanState: () => this.sendManualScanStateAck(),
+                    consumePendingBatch: () => this.sendManualPendingBatchConsume(),
                 },
             });
         } finally {
@@ -847,6 +851,9 @@ export class NewWorksTab {
             showSummaryToast: (status, result) => showMessage(buildScanSummaryToastMessage(status, result), 'info'),
             showInterruptedToast: () => showMessage(buildScanInterruptedToastMessage(), 'info'),
             logError: (message, error) => console.error('[NewWorks]', message, error),
+            restorePendingWorks: (status, result) => {
+                this.runRestoredPendingConfirmFlow(status, result);
+            },
         });
         if (!restoredRunning) return;
         // 二次查询：兜「首查与 UI 恢复之间扫描已结束、本页错过终态广播」窗口
@@ -892,6 +899,10 @@ export class NewWorksTab {
         this.hideProgressUIAfter(1500);
         if (!data.error && data.resultSummary) {
             showMessage(buildScanSummaryToastMessage(data.cancelled ? 'cancelled' : 'done', data.resultSummary), 'info');
+            // 10-19：终态收集数 > 0 → 取回 SW 持久化作品弹入库确认弹窗（刷新后回填页的终态收口路径）
+            if (typeof data.resultSummary.pendingCount === 'number' && data.resultSummary.pendingCount > 0) {
+                this.runRestoredPendingConfirmFlow(data.cancelled ? 'cancelled' : 'done', data.resultSummary);
+            }
         }
         this.sendManualScanStateAck();
     }
@@ -961,6 +972,49 @@ export class NewWorksTab {
                 void chrome.runtime.lastError;
             });
         } catch {}
+    }
+
+    /** 10-19：取回 SW 持久化的 pending 批次（只读不消费；SW 缺席/失败静默 null） */
+    private queryManualPendingBatchSafe(): Promise<ManualPendingBatch | null> {
+        return new Promise<ManualPendingBatch | null>((resolve) => {
+            try {
+                chrome.runtime.sendMessage({ type: 'new-works-manual-pending-fetch' }, (response: any) => {
+                    if (chrome.runtime.lastError || !response || response.success !== true) {
+                        resolve(null);
+                        return;
+                    }
+                    resolve(response.batch && typeof response.batch === 'object' ? response.batch : null);
+                });
+            } catch {
+                resolve(null);
+            }
+        });
+    }
+
+    /** 10-19：pending 批次清盘（fire-and-forget；SW 缺席/失败静默——SW 侧幂等，下一批次覆盖兜底） */
+    private sendManualPendingBatchConsume(): void {
+        try {
+            chrome.runtime.sendMessage({ type: 'new-works-manual-pending-consume' }, () => {
+                void chrome.runtime.lastError;
+            });
+        } catch {}
+    }
+
+    /**
+     * 10-19：terminal（done/cancelled）+ pendingCount>0 → 取回持久化作品喂入库确认弹窗（恢复回填）。
+     * 双路径入口：刷新回填（restoreManualScanState terminal 分支）/ 终态收口（onManualScanFinished）；
+     * 同一次页载至多一路径触发（首查 terminal 与 running 回填互斥），两页同开时先到者确认收口清盘，
+     * 后到者 fetch=null 自然 no-op（批次只弹一次）。
+     */
+    private runRestoredPendingConfirmFlow(status: 'done' | 'cancelled', result: ManualScanResultSummary): void {
+        void runNewWorksRestoredPendingWorkflow({
+            deps: {
+                fetchPendingBatch: () => this.queryManualPendingBatchSafe(),
+                confirmAndCommit: source => this.confirmAndCommitNewWorksManualResults(source),
+                consumePendingBatch: () => this.sendManualPendingBatchConsume(),
+                logError: (message, error) => console.error('[NewWorks]', message, error),
+            },
+        });
     }
 }
 

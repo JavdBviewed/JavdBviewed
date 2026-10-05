@@ -172,3 +172,34 @@ describe('toast 文案', () => {
     expect(buildCommitFailedToastMessage()).toBe('入库失败：未知错误');
   });
 });
+
+
+describe('sourceKind=restored 恢复回填脚注（10-19）', () => {
+  const baseSource = {
+    identifiedTotal: 8,
+    existingCount: 0,
+    breakdown: {},
+    pendingWorks: makeWorks(2),
+  };
+  const R1 = '本批次为页面刷新后的恢复回填：作品已在本次检查中收集，尚未写入新作品库。';
+
+  it('sourceKind=restored → 脚注末条追加恢复说明（逐字锁）', () => {
+    const s = buildNewWorksConfirmSummary({ ...baseSource, sourceKind: 'restored' });
+    expect(s.footnotes).toContain(R1);
+    expect(s.footnotes[s.footnotes.length - 1]).toBe(R1);
+  });
+
+  it('与 cancelled 叠加：恢复脚注仍在末位（取消说明之后）', () => {
+    const s = buildNewWorksConfirmSummary({ ...baseSource, cancelled: true, sourceKind: 'restored' });
+    expect(s.title).toBe('新作品检查已取消');
+    expect(s.footnotes[s.footnotes.length - 2]).toContain('取消 = 停止检查后续演员');
+    expect(s.footnotes[s.footnotes.length - 1]).toBe(R1);
+  });
+
+  it('sourceKind 缺省 / live → 脚注零漂移（与基线逐条相等，不含恢复说明）', () => {
+    const plain = buildNewWorksConfirmSummary(baseSource);
+    const live = buildNewWorksConfirmSummary({ ...baseSource, sourceKind: 'live' });
+    expect(plain.footnotes).not.toContain(R1);
+    expect(live.footnotes).toEqual(plain.footnotes);
+  });
+});

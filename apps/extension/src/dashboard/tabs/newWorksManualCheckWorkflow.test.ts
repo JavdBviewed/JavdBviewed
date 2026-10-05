@@ -229,3 +229,107 @@ describe('双扫描守卫拒绝 + 状态机 ack（issue#52）', () => {
     expect(runtimeDeps.showMessage).toHaveBeenCalledWith('检查完成！已识别 4，可入库 2，新增 1', 'success');
   });
 });
+
+
+describe('新链确认流程收口后清 pending 批次（10-19）', () => {
+  const pendingWorks = [
+    { id: 'ABC-001', title: '作品一', actorName: 'Alice' },
+    { id: 'ABC-002', title: '作品二', actorName: 'Bob' },
+  ];
+  const breakdown = { dateRange: 1, viewed: 0, browsed: 0, want: 0, ar: 0, categoryBlack: 0 };
+
+  function confirmDeps(overrides: Parameters<typeof deps>[0] = {}) {
+    return deps({
+      consumePendingBatch: vi.fn(),
+      confirmAndCommit: vi.fn(async () => undefined),
+      sendManualCheck: vi.fn(async () => ({
+        success: true,
+        result: {
+          identifiedTotal: 9,
+          effectiveTotal: 2,
+          discovered: 2,
+          errors: [],
+          pendingWorks,
+          breakdown,
+          existingCount: 0,
+        },
+      })),
+      ...overrides,
+    });
+  }
+
+  it('新链（pendingWorks 非空）+ consume dep → 确认交流程后清盘恰一次', async () => {
+    const runtimeDeps = confirmDeps();
+
+    await runNewWorksManualCheckWorkflow({ deps: runtimeDeps });
+
+    expect(runtimeDeps.confirmAndCommit).toHaveBeenCalledTimes(1);
+    expect(runtimeDeps.consumePendingBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('新链 pending=0（noPending 收口）→ 仍发清盘（批次幂等，防 SW 已落盘的空窗）', async () => {
+    const runtimeDeps = confirmDeps({
+      sendManualCheck: vi.fn(async () => ({
+        success: true,
+        result: {
+          identifiedTotal: 5,
+          effectiveTotal: 0,
+          discovered: 0,
+          errors: [],
+          pendingWorks: [],
+          breakdown,
+          existingCount: 5,
+        },
+      })),
+    });
+
+    await runNewWorksManualCheckWorkflow({ deps: runtimeDeps });
+
+    expect(runtimeDeps.confirmAndCommit).toHaveBeenCalledTimes(1);
+    expect(runtimeDeps.consumePendingBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('旧链（响应无 pendingWorks）→ 不发清盘（无确认流程收口可言）', async () => {
+    const runtimeDeps = deps({
+      consumePendingBatch: vi.fn(),
+      confirmAndCommit: vi.fn(async () => undefined),
+    });
+
+    await runNewWorksManualCheckWorkflow({ deps: runtimeDeps });
+
+    expect(runtimeDeps.confirmAndCommit).not.toHaveBeenCalled();
+    expect(runtimeDeps.consumePendingBatch).not.toHaveBeenCalled();
+  });
+
+  it('pendingWorks 在但 confirmAndCommit 未注入（回落旧直写提示）→ 不发清盘', async () => {
+    const runtimeDeps = deps({
+      consumePendingBatch: vi.fn(),
+      sendManualCheck: vi.fn(async () => ({
+        success: true,
+        result: {
+          identifiedTotal: 2,
+          effectiveTotal: 2,
+          discovered: 2,
+          errors: [],
+          pendingWorks,
+        },
+      })),
+    });
+
+    await runNewWorksManualCheckWorkflow({ deps: runtimeDeps });
+
+    expect(runtimeDeps.render).toHaveBeenCalledTimes(1);
+    expect(runtimeDeps.consumePendingBatch).not.toHaveBeenCalled();
+  });
+
+  it('后台检查失败（success=false）→ 不发清盘（确认流程未跑）', async () => {
+    const runtimeDeps = confirmDeps({
+      sendManualCheck: vi.fn(async () => ({ success: false, error: '后台失败' })),
+    });
+
+    await runNewWorksManualCheckWorkflow({ deps: runtimeDeps });
+
+    expect(runtimeDeps.confirmAndCommit).not.toHaveBeenCalled();
+    expect(runtimeDeps.consumePendingBatch).not.toHaveBeenCalled();
+  });
+});

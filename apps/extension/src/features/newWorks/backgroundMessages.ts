@@ -5,6 +5,7 @@
  */
 import { newWorksCollector, newWorksManager, newWorksScheduler } from './index';
 import { manualScanStore } from './newWorksScanState';
+import { manualPendingBatchStore } from './newWorksManualPendingBatch';
 import type { ManualScanResultSummary } from './newWorksScanState';
 import type { NewWorkRecord } from '../../types';
 
@@ -52,6 +53,22 @@ export function handleNewWorksRuntimeMessage(message: any, sendResponse: SendRes
         .then(() => sendResponse({ success: true }))
         .catch((error: any) => sendResponse({ success: false, error: error?.message || 'scan ack failed' }));
       return true;
+    case 'new-works-manual-pending-fetch':
+      // 10-19：只读回填通道（不消费）：刷新后页面取回终态未确认的完整作品（供入库确认弹窗）
+      (async () => {
+        try {
+          sendResponse({ success: true, batch: await manualPendingBatchStore.fetch() });
+        } catch (error: any) {
+          sendResponse({ success: false, error: error?.message || 'pending fetch failed' });
+        }
+      })();
+      return true;
+    case 'new-works-manual-pending-consume':
+      // 10-19：批次清盘（幂等）：确认流程收口（入库成功/不入库/pending=0/异常）后由页面发送
+      manualPendingBatchStore.consume()
+        .then(() => sendResponse({ success: true }))
+        .catch((error: any) => sendResponse({ success: false, error: error?.message || 'pending consume failed' }));
+      return true;
     case 'new-works-scheduler-restart':
       // 批 3a：dashboard 保存配置后发此消息；restart() 的 start() 会读内存配置定 alarm 周期，
       // 不先 reload 会拿到旧周期 → 先 reloadGlobalConfig 再 restart。
@@ -86,6 +103,7 @@ function handleManualCheck(sendResponse: SendResponse, confirmRequired = false):
       }
 
       manualCheckCancel.cancelled = false;
+      const scanStartedAt = Date.now();
 
       const config = await newWorksManager.getGlobalConfig();
       const subs = await newWorksManager.getSubscriptions();
@@ -266,6 +284,24 @@ function handleManualCheck(sendResponse: SendResponse, confirmRequired = false):
         errorCount: errors.length,
       };
       await manualScanStore.finish(scanSummary);
+      // 10-19：confirm 终态且 pending>0 → 完整作品落盘（storage.session）：
+      // 响应直达通道在页面刷新时死亡，落盘后刷新页可取回弹确认弹窗（不刷新时原页确认收口清盘）
+      if (confirmRequired && pendingWorks.length > 0) {
+        try {
+          await manualPendingBatchStore.save({
+            status: manualCheckCancel.cancelled ? 'cancelled' : 'done',
+            startedAt: scanStartedAt,
+            terminalAt: Date.now(),
+            pendingCount: pendingWorks.length,
+            identifiedTotal,
+            existingCount,
+            breakdown: { ...breakdown },
+            works: pendingWorks,
+          });
+        } catch (error: any) {
+          console.warn('[Background] 新作品 pending 批次持久化失败（不影响本次响应）:', error);
+        }
+      }
       // 终态广播：扫描期间离线的页面（刷新/隐藏页）收 finished 事件收口 UI + 一次性提示；
       // 发起页（在线）的进度监听收到后不重复处理（发起页由 sendResponse 结果走弹窗/直写提示）
       try {
