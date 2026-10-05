@@ -445,4 +445,34 @@ describe('EnhancementSettingsPage layout', () => {
     // 3) 深链目标 = enhancement-settings 的 list 子页 hash（内容过滤卡 ListTab）
     expect(popupBootstrap).toContain("'#tab-settings/enhancement-settings/list'");
   });
+
+  it('blocks saving a filter rule whose date comparison requires a specified date (10-05-contentfilter-fields-fix 根因 A)', () => {
+    // save() 校验：comparison=早于/晚于/精确匹配 且 exactDate 空 → warning toast 并阻止保存；
+    // between 双端均空 = 无日期约束（关键词仍有效）允许保存——校验不得扩面。
+    expect(pageSource).toContain('请输入指定日期');
+    // 守卫结构锁：条件引用 range/comparison/exactDate 三要素
+    expect(pageSource).toMatch(/needsExactDate/);
+    expect(pageSource).toMatch(/!range\.exactDate/);
+    // 位置锁：守卫在最终 onSave 保存调用之前
+    const guardIdx = pageSource.indexOf('needsExactDate');
+    const saveIdx = pageSource.indexOf('onSave({ ...draft');
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(saveIdx).toBeGreaterThan(guardIdx);
+  });
+
+  it('adds the field-availability note under the filter-rule fields selector (10-05-contentfilter-fields-fix, 机制锁)', () => {
+    // 机制：位置 = 作用字段多选提示行（Ctrl/Shift 可多选）之后紧邻；
+    // 样式 = 小灰字（复用 __section p 的 12px muted + __field-note 额外间距，既有规则零改）；
+    // 串必含「列表卡片无」「仅作用于列表页」两锚词（M2 定稿备选版逐字入锁，锚词机制保留）。
+    const hintIdx = pageSource.indexOf('按住 Ctrl/Shift 可多选');
+    const noteIdx = pageSource.indexOf('enhancement-filter-rule-modal__field-note');
+    expect(hintIdx).toBeGreaterThan(-1);
+    expect(noteIdx).toBeGreaterThan(-1);
+    expect(noteIdx - hintIdx).toBeGreaterThan(0);
+    expect(noteIdx - hintIdx).toBeLessThan(400);
+    const noteText = pageSource.slice(noteIdx, noteIdx + 400);
+    expect(noteText).toContain('列表卡片无');
+    expect(noteText).toContain('仅作用于列表页');
+    expect(pageStyleSource).toContain('.enhancement-filter-rule-modal__field-note');
+  });
 });

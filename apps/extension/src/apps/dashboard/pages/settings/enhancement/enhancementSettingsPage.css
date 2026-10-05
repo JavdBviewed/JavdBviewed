@@ -306,6 +306,7 @@
 .enhancement-filter-rule-modal__section:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
 .enhancement-filter-rule-modal__section label { display: block; margin-bottom: 7px; color: var(--color-fg); font-size: 13px; font-weight: 600; }
 .enhancement-filter-rule-modal__section p { margin: 4px 0 0; color: var(--color-fg-muted); font-size: 12px; }
+.enhancement-filter-rule-modal__field-note { margin-top: 8px; }
 .enhancement-filter-rule-modal__section input:not([type='checkbox']),
 .enhancement-filter-rule-modal__section select,
 .enhancement-filter-rule-modal__section textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--color-border); border-radius: 6px; padding: 8px 10px; background: var(--color-surface); color: var(--color-fg); caret-color: currentColor; font: inherit; }

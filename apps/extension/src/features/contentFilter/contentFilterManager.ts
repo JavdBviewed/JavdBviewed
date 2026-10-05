@@ -19,6 +19,7 @@ export class ContentFilterManager {
   private filteredElements: Map<HTMLElement, KeywordFilterRule> = new Map();
   private observer: MutationObserver | null = null;
   private isInitialized = false;
+  private dateMissingCount = 0;
   private filterStats = {
     hidden: 0,
     highlighted: 0,
@@ -183,6 +184,7 @@ export class ContentFilterManager {
 
       // 重置统计
       this.filterStats = { hidden: 0, highlighted: 0, blurred: 0, marked: 0 };
+      this.dateMissingCount = 0;
 
       // 首次初始化或显式配置变更才扫描完整页面；动态列表只处理 observer 收集的新卡片。
       const videoItems = items ? Array.from(new Set(items)).filter(item => item.isConnected) : this.findVideoItems();
@@ -222,6 +224,11 @@ export class ContentFilterManager {
       });
 
       log(`[ContentFilter] applyFilters DONE — hidden:${this.filterStats.hidden} highlighted:${this.filterStats.highlighted} blurred:${this.filterStats.blurred} marked:${this.filterStats.marked}`);
+      // 10-05 诊断：日期规则启用但卡上无发行日期的条目数（静默失效可观测，不改 toast/stats）
+      const activeDateRules = activeRules.filter((rule) => rule.releaseDateRange?.enabled).length;
+      if (activeDateRules > 0) {
+        log(`[ContentFilter] date rules: active=${activeDateRules} missing=${this.dateMissingCount}/${videoItems.length} items without extractable release date`);
+      }
     } catch (error) {
       log('Error applying filters:', error);
     } finally {
@@ -549,8 +556,9 @@ export class ContentFilterManager {
         data.studio = studioElement.textContent?.trim() || '';
       }
 
-      // 提取类别/标签
-      const genreElements = item.querySelectorAll('.genre, .tag, .category');
+      // 提取类别/标签（10-05：移除 .tag——站点 .tag 类是「含磁鏈/首發」等徽章而非类型，
+      // 徽章文本入 genre 会造成语义污染，真类型关键词永不命中）
+      const genreElements = item.querySelectorAll('.genre, .category');
       if (genreElements.length > 0) {
         data.genre = Array.from(genreElements)
           .map(el => el.textContent?.trim())
@@ -655,6 +663,8 @@ export class ContentFilterManager {
           log(`✓ Rule "${rule.name}" date range matched: ${releaseDate}`);
         } else {
           // 如果没有发行日期信息，且启用了日期过滤，则不匹配
+          // 10-05：累计 date-missing 诊断计数（applyFilters 末尾汇总日志）
+          this.dateMissingCount++;
           return false;
         }
       }
