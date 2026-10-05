@@ -616,7 +616,7 @@ describe('online availability helpers', () => {
     const getDocument = vi.spyOn(defaultHttpClient, 'getDocument').mockImplementation(async () =>
       new DOMParser().parseFromString('<html></html>', 'text/html'));
     document.body.innerHTML = `
-      <h2 class="title is-4"><strong>PROBE-1</strong></h2>
+      <h2 class="title is-4"><strong>PROBE-123</strong></h2>
       <nav class="panel movie-panel-info">
         <div class="review-buttons"></div>
       </nav>

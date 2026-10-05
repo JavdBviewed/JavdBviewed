@@ -4,9 +4,16 @@
  * @module platform/browser
  *
  * 基于 shared/utils/videoId 的提取逻辑，增加了 DOM 查询和日志支持。
+ *
+ * 提取语义（10-22-western-view-record 起）：
+ * - 方法1（标题）/方法2（旧 panel）仅采纳严格番号命中（含 western-dot 欧美点分码）；
+ *   严格未命中不再取首词兜底，落方法3（避免垃圾首词 ID 入库）。
+ * - 方法3 URL code 用原始大小写（JAV 正常页标题 strict 必中，方法3 不可达，零漂移；
+ *   仅标题+panel 双失败的退化边缘由大写 URL 码改为原始 URL 码）。
  */
 
 import { extractVideoId as extractSharedVideoId } from '../../shared/utils/videoId';
+import { getFirstVideoCodeFromText } from '../../shared/utils/videoCodeExtractor';
 
 function logVideoId(...args: any[]): void {
     try {
@@ -26,6 +33,15 @@ export function extractVideoId(rawText: string): string | null {
         ? `Extracted video ID: "${extracted}" from raw text: "${rawText}"`
         : `Failed to extract video ID from raw text: "${rawText}"`);
     return extracted;
+}
+
+
+// 严格番号提取（10-22）：getFirstVideoCodeFromText 命中即采纳（含 western-dot），未命中返回 null
+// —— 不做首词兜底；extractVideoIdFromPage 方法1/2 专用。
+function extractStrictVideoId(rawText: string): string | null {
+    const trimmed = rawText.trim();
+    if (!trimmed) return null;
+    return getFirstVideoCodeFromText(trimmed, { allowStandaloneFc2Number: true })?.display ?? null;
 }
 
 // 缓存提取结果，避免重复日志
@@ -54,7 +70,7 @@ export function extractVideoIdFromPage(): string | null {
                 return lastExtractedId;
             }
 
-            videoId = extractVideoId(rawText);
+            videoId = extractStrictVideoId(rawText);
 
             // 只在首次提取或内容变化时输出日志
             if (videoId && rawText !== lastRawText) {
@@ -73,7 +89,7 @@ export function extractVideoIdFromPage(): string | null {
             if (fullIdText) {
                 const rawText = fullIdText.textContent?.trim();
                 if (rawText && rawText !== lastRawText) {
-                    videoId = extractVideoId(rawText);
+                    videoId = extractStrictVideoId(rawText);
                     if (videoId) {
                         logVideoId(`Raw panel text: "${rawText}" -> Extracted ID: "${videoId}"`);
                         lastRawText = rawText;
@@ -90,7 +106,7 @@ export function extractVideoIdFromPage(): string | null {
         if (urlMatch) {
             const rawUrlId = urlMatch[1];
             if (rawUrlId !== lastRawText) {
-                videoId = extractVideoId(rawUrlId);
+                videoId = rawUrlId; // 10-22: URL code 原始大小写（不再经共享层大写）
                 if (videoId) {
                     logVideoId(`Raw URL ID: "${rawUrlId}" -> Extracted ID: "${videoId}"`);
                     lastRawText = rawUrlId;
