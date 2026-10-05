@@ -10,6 +10,7 @@ import {
   REPO_API_RELEASES_URL,
   REPO_JSDELIVR_PACKAGE_URL,
   REPO_RELEASES_LATEST_URL,
+  REPO_RELEASE_TAG_URL_PREFIX,
 } from '../../shared/repoIdentity';
 
 export interface UpdateCheckResult {
@@ -222,6 +223,48 @@ export async function fetchLatestRelease(includePrerelease = false): Promise<Git
   }
 }
 
+// jsDelivr tag 列表与 Release 发布状态无关：匿名访问不存在或 draft 的 Release 的 tag 页统一 404，
+// 已发布 Release 的 tag 页 200。回退路径上据此把「tag 存在」收紧为「已发布 Release 存在」。
+// 已知限制（登记不修）：/releases/tag 对已发布的 prerelease 也 200；本仓库当前发布流不用
+// prerelease，且 API 可达时主路径为准。
+const RELEASE_TAG_VERIFY_MAX = 3;
+const RELEASE_TAG_VERIFY_TIMEOUT_MS = 5000;
+
+async function verifyPublishedReleaseTag(tag: string): Promise<GitHubRelease | null> {
+  const encodedTag = encodeURIComponent(tag);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), RELEASE_TAG_VERIFY_TIMEOUT_MS);
+  try {
+    const resp = await fetch(`${REPO_RELEASE_TAG_URL_PREFIX}${encodedTag}`, {
+      signal: controller.signal,
+      redirect: 'follow',
+      cache: 'no-cache'
+    });
+    
+    if (!resp.ok) return null; // 404（或其它非 2xx）= 无已发布 Release，尝试下一个 tag
+    
+    return {
+      html_url: `${REPO_RELEASE_TAG_URL_PREFIX}${encodedTag}`,
+      tag_name: tag,
+      name: tag,
+      prerelease: false,
+      body: ''
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// 按原序最多校验 RELEASE_TAG_VERIFY_MAX 个 tag，命中即返回。
+// 校验请求异常（网络错/超时）不吞：向上传播到 jsDelivr 回退的 catch → 落第三回退。
+async function fetchFirstVerifiedReleaseFromTags(tags: string[]): Promise<GitHubRelease | null> {
+  for (const tag of tags.slice(0, RELEASE_TAG_VERIFY_MAX)) {
+    const release = await verifyPublishedReleaseTag(tag);
+    if (release) return release;
+  }
+  return null;
+}
+
 // 备用方案：从 jsdelivr 获取版本信息
 async function fetchLatestReleaseFromJsDelivr(): Promise<GitHubRelease | null> {
   try {
@@ -247,16 +290,15 @@ async function fetchLatestReleaseFromJsDelivr(): Promise<GitHubRelease | null> {
     const tags = data?.tags || data?.versions || [];
     
     if (tags && tags.length > 0) {
-      // 获取最新的 tag（通常是第一个）
-      const latestTag = tags[0];
+      // tag 与 Release 发布状态无关（tag 可能先于 Release 建成 draft 的窗口内推送），
+      // 直接取 tags[0] 会把 draft 报成可用更新（2.1.0 draft 事件根因）。
+      // 按原序逐个校验（最多 3 个）该 tag 是否有已发布 Release，命中即返回。
+      const release = await fetchFirstVerifiedReleaseFromTags(tags);
+      if (release) return release;
       
-      return {
-        html_url: REPO_RELEASES_LATEST_URL,
-        tag_name: latestTag,
-        name: latestTag,
-        prerelease: false,
-        body: ''
-      };
+      // 候选 tag 均无已发布 Release，尝试直接从 GitHub 页面抓取
+      console.warn('jsdelivr tags have no published release, trying GitHub page scraping...');
+      return await fetchLatestReleaseFromGitHubPage();
     }
     
     // 如果 jsdelivr 也失败，尝试直接从 GitHub 页面抓取
