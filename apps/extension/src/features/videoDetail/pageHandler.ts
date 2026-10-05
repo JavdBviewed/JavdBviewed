@@ -31,6 +31,7 @@ import { ensureDetailEnhancementPanel } from '../detailEnhancementPanel';
 
 import type { InitPhase } from '../../apps/content/orchestrator';
 import type { GlobalTaskVisibilityPolicy } from '../../shared/taskCenterTypes';
+import { getFirstVideoCodeFromText } from '../../shared/utils/videoCodeExtractor';
 import { actorManager } from '../actors';
 import { newWorksManager } from '../newWorks';
 import { actorExtraInfoService } from '../actorRemarks';
@@ -1603,6 +1604,20 @@ async function handleNewRecord(
     return undefined;
 }
 
+/**
+ * 判定视频 ID 是否为「JAV 形态」（10-22-western-view-record）。
+ *
+ * strict 代码命中且 kind ≠ western-dot → true：二次过滤（genre 标签与描述双空 → 拒存）照常生效；
+ * western-dot（欧美点分码，页面结构上无 genre/描述区块）与 strict 未命中（URL code 兜底）→ false：
+ * 跳过二次过滤，按已得字段入库（欧美页若照原过滤必被拒，用户报障即此）。
+ */
+export function isJavFormVideoId(videoId: string): boolean {
+    const trimmed = (videoId || '').trim();
+    if (!trimmed) return false;
+    const code = getFirstVideoCodeFromText(trimmed, { allowStandaloneFc2Number: true });
+    return !!code && code.kind !== 'western-dot';
+}
+
 // 提取视频数据的通用函数
 async function extractVideoData(videoId: string, options: { light?: boolean } = {}): Promise<Partial<VideoRecord> | null> {
     try {
@@ -1863,9 +1878,15 @@ async function extractVideoData(videoId: string, options: { light?: boolean } = 
         }
 
         // 二次过滤：当 tags 与 描述 同时为空时，不保存
-        if (tags.length === 0 && (!descriptionText || descriptionText.length === 0)) {
-            log('Secondary validation failed: both tags and description are empty. Skip saving.');
-            return null;
+        // 10-22: 仅对 JAV 形态 ID 生效；western-dot（欧美）与 URL code 兜底 ID 跳过过滤，
+        // 按已得字段入库（欧美页结构上无 genre/描述区块，原过滤恒拒）。
+        if (isJavFormVideoId(videoId)) {
+            if (tags.length === 0 && (!descriptionText || descriptionText.length === 0)) {
+                log('Secondary validation failed: both tags and description are empty. Skip saving.');
+                return null;
+            }
+        } else {
+            log(`Non-JAV-form video ID "${videoId}" (western-dot / URL code), skipping secondary filter`);
         }
 
         // 获取封面图片链接
