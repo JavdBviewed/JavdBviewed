@@ -153,6 +153,8 @@ export function showToast(message: string, type: 'info' | 'success' | 'error' | 
 
     const textElement = document.createElement('span');
     textElement.className = 'javdb-ext-toast-message';
+    // 10-05-list-filter-toast：支持多行消息（过滤 toast 两行）；无换行消息零影响
+    textElement.style.whiteSpace = 'pre-line';
     textElement.textContent = message;
 
     const countElement = document.createElement('span');

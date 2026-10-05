@@ -8,6 +8,7 @@
 
 import { STATE, log } from '../contentState';
 import { showToast } from '../../platform/browser/toast';
+import { collectListHidingStats } from '../list-hiding';
 import type { KeywordFilterRule, ContentFilterConfig } from '../../types';
 import { countContentPerformanceEvent, recordContentPerformanceDuration, runChunkedWork, saveSubtaskDetail, yieldToMainThread } from '../../platform/tasks';
 
@@ -999,17 +1000,39 @@ export class ContentFilterManager {
   }
 
   /**
-   * 显示过滤统计
+   * 显示过滤统计（10-05-list-filter-toast 两行）：
+   * 行1 隐藏=两机制（关键字规则 ∪ 列表隐藏）全页隐藏卡并集去重计数；
+   * 行2=各来源命中卡数明细（仅非零项、固定序，关键字与行1 同源不双计，仅作明细项）。
+   * 高亮/模糊/标记仍取既有 filterStats 计数器（显示过滤无此三动作，语义不变）。
    */
   private showFilterStats(): void {
     if (!this.config.showFilteredCount) return;
 
-    const total = this.filterStats.hidden + this.filterStats.highlighted + 
-                 this.filterStats.blurred + this.filterStats.marked;
+    const { hiddenBySource } = collectListHidingStats(document);
+    const keywordHidden = document.querySelectorAll('[data-hidden-by-filter="true"]').length;
+    const unionHidden = document.querySelectorAll('[data-hidden-by-filter="true"],[data-hidden-by-default="true"]').length;
+
+    const total = unionHidden + this.filterStats.highlighted +
+                  this.filterStats.blurred + this.filterStats.marked;
 
     if (total > 0) {
-      const message = `过滤: 隐藏${this.filterStats.hidden} 高亮${this.filterStats.highlighted} 模糊${this.filterStats.blurred} 标记${this.filterStats.marked}`;
-      showToast(message, 'info');
+      const message = `过滤: 隐藏${unionHidden} 高亮${this.filterStats.highlighted} 模糊${this.filterStats.blurred} 标记${this.filterStats.marked}`;
+      const detailItems: Array<[string, number]> = [
+        ['看过', hiddenBySource.viewed],
+        ['浏览', hiddenBySource.browsed],
+        ['想看', hiddenBySource.want],
+        ['VR', hiddenBySource.vr],
+        ['媒体库', hiddenBySource.mediaLibrary],
+        ['真实看过', hiddenBySource.realWatched],
+        ['演员', hiddenBySource.actor],
+        ['类别', hiddenBySource.category],
+        ['关键字', keywordHidden],
+      ];
+      const details = detailItems
+        .filter(([, count]) => count > 0)
+        .map(([label, count]) => `${label}${count}`)
+        .join(' · ');
+      showToast(details ? `${message}\n隐藏明细: ${details}` : message, 'info');
     }
   }
 

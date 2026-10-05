@@ -16,6 +16,8 @@
  * @module features/list-hiding
  */
 
+import { STATE } from '../contentState';
+
 /** 隐藏来源标记属性前缀。完整属性名为 `data-hide-src-${source}`。 */
 export const LIST_HIDE_SRC_ATTR = 'data-hide-src';
 
@@ -256,4 +258,47 @@ export function isStatusAggregatePage(pathname: string): boolean {
  */
 export function isCategoryFilterExemptPage(pathname: string, isSearchPage: boolean): boolean {
   return isSearchPage || isStatusAggregatePage(pathname);
+}
+
+/** 全部隐藏来源（顺序=展示口径：看过/浏览/想看/VR/媒体库/真实看过/演员/类别）。 */
+export const LIST_HIDING_SOURCES: ListHidingSource[] = [
+  'viewed',
+  'browsed',
+  'want',
+  'vr',
+  'mediaLibrary',
+  'realWatched',
+  'actor',
+  'category',
+];
+
+/** 列表隐藏统计（10-05-list-filter-toast：过滤 toast 两行明细）。 */
+export interface ListHidingStats {
+  /** 各来源命中卡数（来源已打标且该来源开关启用；同卡多来源各计一次——明细口径，可与 hiddenTotal 不等）。 */
+  hiddenBySource: Record<ListHidingSource, number>;
+  /** list-hiding 机制实际隐藏的卡片数（data-hidden-by-default='true' 去重计数）。 */
+  hiddenTotal: number;
+}
+
+/**
+ * 收集列表隐藏统计（10-05-list-filter-toast）：扫 data-hide-src-* ∩ 当前启用开关。
+ * 纯读取：不改 DOM、不改存储；开关口径复用 readListHidingEnablement(STATE.settings)。
+ */
+export function collectListHidingStats(root: ParentNode = document): ListHidingStats {
+  const hiddenBySource = {} as Record<ListHidingSource, number>;
+  for (const source of LIST_HIDING_SOURCES) {
+    hiddenBySource[source] = 0;
+  }
+
+  const enablement = readListHidingEnablement(STATE.settings);
+  const selector = LIST_HIDING_SOURCES.map(source => `[${LIST_HIDE_SRC_ATTR}-${source}]`).join(',');
+  root.querySelectorAll(selector).forEach(node => {
+    const item = node as HTMLElement;
+    for (const source of computeEffectiveHiding(item, enablement)) {
+      hiddenBySource[source]++;
+    }
+  });
+
+  const hiddenTotal = root.querySelectorAll(`[${LIST_HIDE_DEFAULT_ATTR}="true"]`).length;
+  return { hiddenBySource, hiddenTotal };
 }
