@@ -81,3 +81,22 @@ export async function handleDrive115Verify(message: any, sendResponse: SendRespo
     sendResponse({ success: false, error: error.message });
   }
 }
+
+/**
+ * 关闭当前标签页（锚点优化「關閉當前頁面」按钮，content 侧发 CLOSE_CURRENT_TAB）
+ * tabId 以 sender.tab.id 为权威来源（content 侧不可指定目标 tab）
+ */
+export async function handleCloseCurrentTab(sender: any, sendResponse: SendResponse): Promise<void> {
+  try {
+    const tabId = sender?.tab?.id;
+    if (!Number.isInteger(tabId)) {
+      sendResponse({ success: false, error: 'No tab id in sender' });
+      return;
+    }
+    await chrome.tabs.remove(tabId);
+    sendResponse({ success: true });
+  } catch (error: any) {
+    console.error('[Background] Failed to close current tab:', error);
+    sendResponse({ success: false, error: error.message });
+  }
+}
