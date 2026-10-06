@@ -5,9 +5,11 @@
  * 重算/恢复/开关读取语义（08-29-actor-passthrough-category-filter P1）。
  * @module features/list-hiding
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { STATE } from '../contentState';
 import {
   clearHidingSources,
+  collectListHidingStats,
   computeEffectiveHiding,
   getActiveHidingSources,
   isCategoryFilterExemptPage,
@@ -350,5 +352,95 @@ describe('readListHidingEnablement（display 媒体库两开关，09-30-media-li
     expect(e.mediaLibrary).toBe(true);
     expect(e.realWatched).toBe(false);
     expect(e.category).toBe(false);
+  });
+});
+
+describe('collectListHidingStats（10-05-list-filter-toast 纯函数）', () => {
+  const ALL_ON = {
+    display: {
+      hideViewed: true,
+      hideBrowsed: true,
+      hideWant: true,
+      hideVR: true,
+      hideInMediaLibrary: true,
+      hideRealWatched: true,
+    },
+    listEnhancement: {
+      hideBlacklistedActorsInList: true,
+      categoryFilter: { enabled: true, black: ['C1'] },
+      enableActorPenetration: true,
+    },
+  };
+
+  const ALL_SOURCES = ['viewed', 'browsed', 'want', 'vr', 'actor', 'category', 'mediaLibrary', 'realWatched'];
+
+  function makeItem(parent: ParentNode = document.body, sources: string[] = [], defaultHidden = false): HTMLElement {
+    const item = document.createElement('div');
+    item.className = 'item';
+    for (const s of sources) item.setAttribute(`data-hide-src-${s}`, 'true');
+    if (defaultHidden) item.setAttribute('data-hidden-by-default', 'true');
+    parent.appendChild(item);
+    return item;
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    STATE.settings = null;
+  });
+
+  it('8 来源逐项计数：各来源打标+开关开各计 1，hiddenTotal=去重卡数', () => {
+    STATE.settings = ALL_ON;
+    for (const s of ALL_SOURCES) makeItem(document.body, [s], true);
+    const stats = collectListHidingStats();
+    for (const s of ALL_SOURCES) expect(stats.hiddenBySource[s as keyof typeof stats.hiddenBySource]).toBe(1);
+    expect(stats.hiddenTotal).toBe(8);
+  });
+
+  it('同卡多来源各计一次（明细口径），hiddenTotal 去重为 1', () => {
+    STATE.settings = ALL_ON;
+    makeItem(document.body, ['viewed', 'actor', 'realWatched'], true);
+    const stats = collectListHidingStats();
+    expect(stats.hiddenBySource.viewed).toBe(1);
+    expect(stats.hiddenBySource.actor).toBe(1);
+    expect(stats.hiddenBySource.realWatched).toBe(1);
+    expect(stats.hiddenBySource.browsed).toBe(0);
+    expect(stats.hiddenTotal).toBe(1);
+  });
+
+  it('来源打标但开关关 → 该来源不计（开关=计数前提，与重算同口径）', () => {
+    STATE.settings = { display: { hideViewed: false, hideVR: true }, listEnhancement: {} };
+    makeItem(document.body, ['viewed', 'vr'], true);
+    const stats = collectListHidingStats();
+    expect(stats.hiddenBySource.viewed).toBe(0);
+    expect(stats.hiddenBySource.vr).toBe(1);
+    expect(stats.hiddenTotal).toBe(1);
+  });
+
+  it('无来源标记 → 8 来源全零（hiddenTotal 仍按属性计）', () => {
+    STATE.settings = ALL_ON;
+    makeItem(document.body, [], false);
+    const stats = collectListHidingStats();
+    for (const s of ALL_SOURCES) expect(stats.hiddenBySource[s as keyof typeof stats.hiddenBySource]).toBe(0);
+    expect(stats.hiddenTotal).toBe(0);
+  });
+
+  it('data-hidden-by-default 无来源标记（开关切换残留边）：hiddenTotal 计、bySource 全零', () => {
+    STATE.settings = ALL_ON;
+    makeItem(document.body, [], true);
+    const stats = collectListHidingStats();
+    expect(stats.hiddenTotal).toBe(1);
+    for (const s of ALL_SOURCES) expect(stats.hiddenBySource[s as keyof typeof stats.hiddenBySource]).toBe(0);
+  });
+
+  it('自定义 root：仅扫子树，外部标记不计', () => {
+    STATE.settings = ALL_ON;
+    makeItem(document.body, ['viewed'], true);
+    const sub = document.createElement('div');
+    document.body.appendChild(sub);
+    makeItem(sub, ['actor'], true);
+    const stats = collectListHidingStats(sub);
+    expect(stats.hiddenBySource.viewed).toBe(0);
+    expect(stats.hiddenBySource.actor).toBe(1);
+    expect(stats.hiddenTotal).toBe(1);
   });
 });
