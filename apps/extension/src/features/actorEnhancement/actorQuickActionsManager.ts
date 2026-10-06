@@ -6,6 +6,7 @@
 import { actorManager } from '../actors';
 import { newWorksManager } from '../newWorks';
 import { showToast } from '../../platform/browser/toast';
+import { collectActorOnSite } from './actorSiteCollect';
 import type { ActorRecord } from '../../types';
 
 interface ActorQuickActionsConfig {
@@ -336,6 +337,10 @@ class ActorQuickActionsManager {
             await actorManager.saveActor(newActor);
             showToast('收藏成功', 'success');
             emitActorStateChanged();
+            // 站点 collect（best-effort 单向；失败=轻 toast 不阻塞本地结果，10-05-actor-site-collect）
+            void collectActorOnSite(actorId).then((r) => {
+              if (!r.ok) showToast('站点收藏失败', 'error');
+            }).catch(() => {});
           }
 
           // 关闭提示框并刷新
