@@ -88,6 +88,57 @@ export async function setContentPagesScreenshotEnabled(enabled: boolean): Promis
 }
 
 /**
+ * 标题模糊子开关（10-06-site-privacy-blur）：仅内容页截图模糊启用时生效；
+ * 独立保存，不触发锁屏或密码流程。
+ */
+export async function setContentPagesBlurTitles(enabled: boolean): Promise<boolean> {
+  try {
+    const settings = await getSettings();
+    const current = settings.privacy?.screenshotMode?.contentPages;
+    settings.privacy.screenshotMode.contentPages = {
+      ...current,
+      blurTitles: enabled,
+      sites: {
+        javdb: current?.sites?.javdb !== false,
+        javbus: current?.sites?.javbus !== false,
+      },
+    };
+    await saveSettings(settings);
+    await toast(enabled ? '标题模糊已启用' : '标题模糊已禁用', 'success');
+    return true;
+  } catch (err) {
+    console.error('[PrivacySettings] toggle content-page title blur failed', err);
+    await toast('切换标题模糊失败', 'error');
+    return false;
+  }
+}
+
+/**
+ * 图片模糊子开关（10-06-site-privacy-blur）：口径同 setContentPagesBlurTitles。
+ */
+export async function setContentPagesBlurImages(enabled: boolean): Promise<boolean> {
+  try {
+    const settings = await getSettings();
+    const current = settings.privacy?.screenshotMode?.contentPages;
+    settings.privacy.screenshotMode.contentPages = {
+      ...current,
+      blurImages: enabled,
+      sites: {
+        javdb: current?.sites?.javdb !== false,
+        javbus: current?.sites?.javbus !== false,
+      },
+    };
+    await saveSettings(settings);
+    await toast(enabled ? '图片模糊已启用' : '图片模糊已禁用', 'success');
+    return true;
+  } catch (err) {
+    console.error('[PrivacySettings] toggle content-page image blur failed', err);
+    await toast('切换图片模糊失败', 'error');
+    return false;
+  }
+}
+
+/**
  * 更新模糊强度
  */
 export async function updateBlurIntensity(value: number): Promise<boolean> {

@@ -139,6 +139,9 @@ export const DEFAULT_PRIVACY_CONFIG: PrivacyConfig = {
         enabled: false,
         contentPages: {
             enabled: false,
+            // 10-06-site-privacy-blur：子开关默认双开（与 sites 默认开同语义，仅主闸默认关）
+            blurTitles: true,
+            blurImages: true,
             sites: { javdb: true, javbus: true },
         },
         autoBlurTrigger: 'manual',

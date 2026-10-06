@@ -15,6 +15,9 @@ export type PrivacyBlurAreaOption = {
 export type PrivacySettingsFormState = {
   screenshotEnabled: boolean;
   contentPagesScreenshotEnabled: boolean;
+  // 10-06-site-privacy-blur：内容页标题/图片子开关
+  contentPagesBlurTitles: boolean;
+  contentPagesBlurImages: boolean;
   blurIntensity: number;
   autoBlurTrigger: BlurTrigger | string;
   blurAreas: BlurArea[];
@@ -29,6 +32,8 @@ export type PrivacySettingsFormState = {
 export const DEFAULT_PRIVACY_SETTINGS_FORM: PrivacySettingsFormState = {
   screenshotEnabled: false,
   contentPagesScreenshotEnabled: false,
+  contentPagesBlurTitles: true,
+  contentPagesBlurImages: true,
   blurIntensity: 5,
   autoBlurTrigger: 'manual',
   blurAreas: [
@@ -93,6 +98,8 @@ export function mapSettingsToPrivacyForm(
   return {
     screenshotEnabled: !!screenshot.enabled,
     contentPagesScreenshotEnabled: screenshot.contentPages?.enabled === true,
+    contentPagesBlurTitles: screenshot.contentPages?.blurTitles !== false,
+    contentPagesBlurImages: screenshot.contentPages?.blurImages !== false,
     blurIntensity: parseIntSafe(screenshot.blurIntensity, DEFAULT_PRIVACY_SETTINGS_FORM.blurIntensity),
     autoBlurTrigger,
     blurAreas: [...blurAreas],

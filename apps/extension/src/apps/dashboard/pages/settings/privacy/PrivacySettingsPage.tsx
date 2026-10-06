@@ -19,6 +19,8 @@ import {
   loadRecoveryStatus,
   removePassword,
   setPassword,
+  setContentPagesBlurImages,
+  setContentPagesBlurTitles,
   setContentPagesScreenshotEnabled,
   setRequirePassword,
   setScreenshotModeEnabled,
@@ -92,6 +94,20 @@ export function PrivacySettingsPage() {
     setForm((current) => ({ ...current, contentPagesScreenshotEnabled: checked }));
     const ok = await setContentPagesScreenshotEnabled(checked);
     if (!ok) setForm((current) => ({ ...current, contentPagesScreenshotEnabled: previous }));
+  };
+
+  const onContentPagesBlurTitlesToggle = async (checked: boolean) => {
+    const previous = form.contentPagesBlurTitles;
+    setForm((current) => ({ ...current, contentPagesBlurTitles: checked }));
+    const ok = await setContentPagesBlurTitles(checked);
+    if (!ok) setForm((current) => ({ ...current, contentPagesBlurTitles: previous }));
+  };
+
+  const onContentPagesBlurImagesToggle = async (checked: boolean) => {
+    const previous = form.contentPagesBlurImages;
+    setForm((current) => ({ ...current, contentPagesBlurImages: checked }));
+    const ok = await setContentPagesBlurImages(checked);
+    if (!ok) setForm((current) => ({ ...current, contentPagesBlurImages: previous }));
   };
 
   const onAutoBlurTrigger = async (value: string) => {
@@ -198,6 +214,22 @@ export function PrivacySettingsPage() {
               description="仅模糊影片、搜索和演员内容，不启用锁屏或密码保护。"
               checked={form.contentPagesScreenshotEnabled}
               onChange={(v) => void onContentPagesScreenshotToggle(v)}
+            />
+
+            <SettingToggleRow
+              id="contentPagesBlurTitles"
+              label="模糊影片标题"
+              description="仅内容页截图模糊启用时生效。"
+              checked={form.contentPagesBlurTitles}
+              onChange={(v) => void onContentPagesBlurTitlesToggle(v)}
+            />
+
+            <SettingToggleRow
+              id="contentPagesBlurImages"
+              label="模糊影片图片"
+              description="仅内容页截图模糊启用时生效。"
+              checked={form.contentPagesBlurImages}
+              onChange={(v) => void onContentPagesBlurImagesToggle(v)}
             />
 
             <SettingField
