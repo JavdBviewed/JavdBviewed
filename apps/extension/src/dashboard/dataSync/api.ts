@@ -1923,8 +1923,10 @@ export class ApiClient {
 
         onProgress?.({ percentage: 0, message: '准备同步收藏片商...', stage: 'preparing' });
 
+        let lastPage: number | null = null;
         for (let page = 1; page <= 50; page++) {
             if (abortSignal?.aborted) throw new SyncCancelledError('同步已取消');
+            if (lastPage !== null && page > lastPage) break; // 末页已取完，不多取越界页
             const url = `${origin}/users/collection_makers?page=${page}`;
             onProgress?.({ percentage: Math.min(90, page * 10), message: `正在获取片商第 ${page} 页...`, stage: 'pages' });
             const res = await this.fetchWithRetry(url, { method: 'GET', credentials: 'include' });
@@ -1932,9 +1934,13 @@ export class ApiClient {
             const html = await res.text();
             const items = this.parseCollectionItemsFromHTML(html, 'makers');
             if (items.length === 0) break;
+            const pageLast = this.parseCollectionContainerLastPage(html, 'makers');
+            if (pageLast !== null) lastPage = pageLast;
+            let added = 0;
             for (const it of items) {
                 if (seen.has(it.id)) continue;
                 seen.add(it.id);
+                added++;
                 records.push(normalizeCollectionRecord({
                     id: it.id,
                     externalId: it.id,
@@ -1947,6 +1953,8 @@ export class ApiClient {
                     updatedAt: now
                 }));
             }
+            if (added === 0) break; // 本页条目全部已见（重复页）→ 终止
+            if (lastPage !== null && page >= lastPage) break; // 本页即末页
             if (page > 1) await this.delay(requestInterval);
         }
 
@@ -1976,8 +1984,10 @@ export class ApiClient {
 
         onProgress?.({ percentage: 0, message: '准备同步收藏導演...', stage: 'preparing' });
 
+        let lastPage: number | null = null;
         for (let page = 1; page <= 50; page++) {
             if (abortSignal?.aborted) throw new SyncCancelledError('同步已取消');
+            if (lastPage !== null && page > lastPage) break; // 末页已取完，不多取越界页
             const url = `${origin}/users/collection_directors?page=${page}`;
             onProgress?.({ percentage: Math.min(90, page * 10), message: `正在获取導演第 ${page} 页...`, stage: 'pages' });
             const res = await this.fetchWithRetry(url, { method: 'GET', credentials: 'include' });
@@ -1985,9 +1995,13 @@ export class ApiClient {
             const html = await res.text();
             const items = this.parseCollectionItemsFromHTML(html, 'directors');
             if (items.length === 0) break;
+            const pageLast = this.parseCollectionContainerLastPage(html, 'directors');
+            if (pageLast !== null) lastPage = pageLast;
+            let added = 0;
             for (const it of items) {
                 if (seen.has(it.id)) continue;
                 seen.add(it.id);
+                added++;
                 records.push(normalizeCollectionRecord({
                     id: it.id,
                     externalId: it.id,
@@ -2000,6 +2014,8 @@ export class ApiClient {
                     updatedAt: now
                 }));
             }
+            if (added === 0) break; // 本页条目全部已见（重复页）→ 终止
+            if (lastPage !== null && page >= lastPage) break; // 本页即末页
             if (page > 1) await this.delay(requestInterval);
         }
 
@@ -2053,11 +2069,26 @@ export class ApiClient {
             const normalizeId = (raw: string) => (mode === 'labels' ? raw.trim().toUpperCase() : raw.trim());
 
             // Primary: #series .box (series-eb7x) or #codes .box (code-MISM);
-            // makers/directors 收藏页结构尚未锁定，直接走 fallback 锚点扫描（D1 真机复核后如需可补 primary）
-            const sectionSel = mode === 'series' ? '#series' : mode === 'labels' ? '#codes' : '';
-            const idPrefix = mode === 'series' ? 'series-' : mode === 'labels' ? 'code-' : '';
+            // makers/directors 真机锁定结构（2026-10-06，10-06-mk-dir-sync-pagination）：
+            // 容器 = div#makers / div#directors（.section-container），条目 = 容器内 .box（id=makers-*/directors-* 或盒内锚点 href）；
+            // 空态 = 容器内仅一个无实体链接的 .box；容器外（顶部导航）恒有 /makers/uncensored 等带 ID 段骨架链接 →
+            // makers/directors 永不整页回退（fail-closed），防骨架垃圾经 replaceCollectionListRecords 整替入 DB
+            const sectionSel =
+                mode === 'series' ? '#series'
+                : mode === 'labels' ? '#codes'
+                : mode === 'makers' ? '#makers'
+                : mode === 'directors' ? '#directors'
+                : '';
+            const idPrefix =
+                mode === 'series' ? 'series-'
+                : mode === 'labels' ? 'code-'
+                : mode === 'makers' ? 'makers-'
+                : mode === 'directors' ? 'directors-'
+                : '';
+            const containerScoped = mode === 'makers' || mode === 'directors';
             if (sectionSel) {
-                const boxes = doc.querySelectorAll(`${sectionSel} .box`);
+                const section = doc.querySelector(sectionSel);
+                const boxes = section ? section.querySelectorAll('.box') : [];
                 if (boxes.length > 0) {
                     for (const box of Array.from(boxes)) {
                         let id = box.id?.startsWith(idPrefix) ? normalizeId(box.id.slice(idPrefix.length)) : '';
@@ -2073,6 +2104,12 @@ export class ApiClient {
                         const mc = spanText.match(/(\d+)/);
                         items.push({ id, name, moviesCount: mc ? Number(mc[1]) : undefined });
                     }
+                    // series/labels：primary 命中即返回（既有行为零改动）
+                    // makers/directors：空态页容器内仅空态 box（无实体链接）→ items 空集，直接返回，不整页回退
+                    return items;
+                }
+                if (containerScoped) {
+                    logAsync('WARN', `parseCollectionItemsFromHTML(${mode}) 容器 ${sectionSel} 无可解析 .box（结构漂移），fail-closed 返回空集，不整页回退`, {});
                     return items;
                 }
             }
@@ -2093,6 +2130,31 @@ export class ApiClient {
             logAsync('WARN', `parseCollectionItemsFromHTML(${mode}) 解析出错`, { error: String(e) });
         }
         return items;
+    }
+
+    /**
+     * 解析收藏页（makers/directors）的末页页码（容器内分页）
+     * 范围限定集合容器区（.user-container，兜底 #makers/#directors）：越界页 navbar 分页会回显请求页码，
+     * 整页扫描会被骗 → 永不整页扫。范围内无 page= 链接（单页收藏）→ null（由空态页自然终止）。
+     */
+    private parseCollectionContainerLastPage(html: string, mode: 'makers' | 'directors'): number | null {
+        try {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            const scope = doc.querySelector('.user-container') || doc.getElementById(mode);
+            if (!scope) return null;
+            let maxPage: number | null = null;
+            for (const a of Array.from(scope.querySelectorAll('a'))) {
+                const m = ((a as HTMLAnchorElement).getAttribute('href') || '').match(/[?&]page=(\d+)/);
+                if (m) {
+                    const n = Number(m[1]);
+                    if (maxPage === null || n > maxPage) maxPage = n;
+                }
+            }
+            return maxPage;
+        } catch (e) {
+            logAsync('WARN', `parseCollectionContainerLastPage(${mode}) 解析出错`, { error: String(e) });
+            return null;
+        }
     }
 }
 
