@@ -27,6 +27,7 @@ import {
 import {
   handleDrive115Push,
   handleDrive115Verify,
+  handleCloseCurrentTab,
   handleOpenTabBackground,
 } from './tabMessageHandlers';
 import { enqueueWatchedForCleanup } from '../../features/drive115/v2/drive115CleanupActions';
@@ -90,7 +91,7 @@ async function log(level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG', message: string, 
 
 export function registerMiscRouter(): void {
   try {
-    chrome.runtime.onMessage.addListener((message: any, _sender, sendResponse): boolean | void => {
+    chrome.runtime.onMessage.addListener((message: any, sender, sendResponse): boolean | void => {
       if (!message || typeof message !== 'object') return false;
       switch (message.type) {
         case 'ping':
@@ -155,6 +156,10 @@ export function registerMiscRouter(): void {
         }
         case 'OPEN_TAB_BACKGROUND': {
           handleOpenTabBackground(message, sendResponse);
+          return true;
+        }
+        case 'CLOSE_CURRENT_TAB': {
+          handleCloseCurrentTab(sender, sendResponse);
           return true;
         }
         case 'fetch-external-data':
@@ -370,7 +375,7 @@ export function registerMiscRouter(): void {
         }
         case 'orchestrator:saveTaskDetail': {
           // 保存任务详细信息
-          handleSaveTaskDetail(message.taskDetail, _sender)
+          handleSaveTaskDetail(message.taskDetail, sender)
             .then(() => sendResponse({ success: true }))
             .catch((error) => sendResponse({ success: false, error: error.message }));
           return true;

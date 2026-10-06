@@ -23,6 +23,7 @@ export interface AnchorButton {
   target: string; // CSS selector or anchor
   enabled: boolean;
   order: number;
+  iconOnly?: boolean; // 纯图标按钮（无文字 label，title 悬浮显示文案）；默认 false 保持原 label 形态
 }
 
 export class AnchorOptimizationManager {
@@ -160,7 +161,7 @@ export class AnchorOptimizationManager {
     this.optimizedButtons.className = 'optimized-anchor-buttons';
     this.optimizedButtons.style.cssText = this.getButtonContainerStyles();
 
-    // 添加默认按钮（包括预览图、磁链、TOP）
+    // 添加默认按钮（包括预览图、磁链、TOP、关闭当前页面）
     this.addDefaultButtons();
 
     // 添加自定义按钮
@@ -205,6 +206,7 @@ export class AnchorOptimizationManager {
         target: '.preview-images, .tile-images',
         enabled: true,
         order: 1,
+        iconOnly: true,
       });
       if (previewButton) buttons.push(previewButton);
     }
@@ -218,6 +220,7 @@ export class AnchorOptimizationManager {
         target: '#magnet-links',
         enabled: true,
         order: 2,
+        iconOnly: true,
       });
       if (magnetButton) buttons.push(magnetButton);
     }
@@ -230,8 +233,21 @@ export class AnchorOptimizationManager {
       target: 'top',
       enabled: true,
       order: 3,
+      iconOnly: true,
     });
     if (topButton) buttons.push(topButton);
+
+    // 4. 关闭当前页面按钮 - 总是显示（纯图标，点击经 background 执行 chrome.tabs.remove）
+    const closeButton = this.createButton({
+      id: 'close-current',
+      label: '關閉當前頁面',
+      icon: '✖️',
+      target: 'close-current',
+      enabled: true,
+      order: 4,
+      iconOnly: true,
+    });
+    if (closeButton) buttons.push(closeButton);
 
     // 按顺序添加所有按钮
     buttons.forEach(button => {
@@ -313,25 +329,44 @@ export class AnchorOptimizationManager {
     button.className = 'optimized-anchor-btn';
     button.setAttribute('data-target', config.target);
     
-    // 设置按钮样式
-    button.style.cssText = `
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 80px;
-      height: 40px;
-      border-radius: 20px;
-      text-decoration: none;
-      font-size: 12px;
-      font-weight: 500;
-      transition: all 0.3s ease;
-      cursor: pointer;
-      padding: 0 12px;
-      gap: 4px;
-      backdrop-filter: blur(10px);
-    `;
+    // 设置按钮样式（iconOnly=纯图标 40x40 近正方形，title 悬浮显示文案；否则保持原 label 形态）
+    if (config.iconOnly) {
+      button.title = config.label;
+      button.classList.add('optimized-anchor-btn-icon-only');
+      button.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+        border-radius: 12px;
+        text-decoration: none;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        padding: 0;
+        backdrop-filter: blur(10px);
+      `;
+    } else {
+      button.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 80px;
+        height: 40px;
+        border-radius: 20px;
+        text-decoration: none;
+        font-size: 12px;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        padding: 0 12px;
+        gap: 4px;
+        backdrop-filter: blur(10px);
+      `;
+    }
 
-    // 添加内容
+    // 添加内容（iconOnly 仅 icon span；否则 icon span + label span 原形态）
     if (config.icon) {
       const icon = document.createElement('span');
       icon.textContent = config.icon;
@@ -339,9 +374,11 @@ export class AnchorOptimizationManager {
       button.appendChild(icon);
     }
 
-    const label = document.createElement('span');
-    label.textContent = config.label;
-    button.appendChild(label);
+    if (!config.iconOnly) {
+      const label = document.createElement('span');
+      label.textContent = config.label;
+      button.appendChild(label);
+    }
 
     // 添加点击事件
     button.addEventListener('click', (e) => {
@@ -406,6 +443,10 @@ export class AnchorOptimizationManager {
       .optimized-anchor-btn-icon {
         font-size: 14px;
       }
+
+      .optimized-anchor-btn-icon-only .optimized-anchor-btn-icon {
+        font-size: 18px;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -415,6 +456,14 @@ export class AnchorOptimizationManager {
    */
   private handleButtonClick(target: string): void {
     try {
+      if (target === 'close-current') {
+        // 关闭当前页面：content 无 chrome.tabs 权限，经 background 执行 chrome.tabs.remove
+        chrome.runtime.sendMessage({ type: 'CLOSE_CURRENT_TAB' }).catch((error) => {
+          log('Close current tab failed:', error);
+          showToast('關閉當前頁面失敗', 'error');
+        });
+        return;
+      }
       if (target === 'top') {
         // 返回顶部
         window.scrollTo({ top: 0, behavior: 'smooth' });
