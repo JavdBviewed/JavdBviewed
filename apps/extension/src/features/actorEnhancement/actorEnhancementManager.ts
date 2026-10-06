@@ -15,6 +15,7 @@ import { parseReleaseDateText } from './releaseDateParser';
 import { showToast } from '../../platform/browser/toast';
 import type { ActorRecord } from '../../types';
 import { actorManager } from '../actors';
+import { readSiteCollectedState } from './actorSiteCollect';
 import { newWorksManager } from '../newWorks';
 import { actorExtraInfoService } from '../actorRemarks';
 import { getSettings } from '../../utils/storage';
@@ -779,6 +780,31 @@ class ActorEnhancementManager {
   }
 
   /**
+   * 页载对齐（10-05-actor-site-collect）：站点已收藏 ∧ 本地未收藏 → 补进本地。
+   * 仅 collect 方向（站点取消收藏不联动本地）；静默无 toast（console 留痕）。
+   * ActorRecord.favorited 缺省=已收藏（!== false 纪律）。
+   */
+  private async backfillLocalIfSiteCollected(): Promise<void> {
+    try {
+      if (!this.currentActorId) return;
+      if (readSiteCollectedState(document) !== true) return;
+      const existing = await actorManager.getActorById(this.currentActorId);
+      if (existing && existing.favorited !== false) return; // 缺省=已收藏
+      if (!existing) {
+        const parsed = this.parseActorFromPage();
+        if (!parsed) return;
+        await actorManager.saveActor(parsed);
+        console.log('[ActorEnhancement] 站点收藏态补齐本地演员库（页载对齐，静默）:', this.currentActorId);
+        return;
+      }
+      await actorManager.saveActor({ ...existing, favorited: true, updatedAt: Date.now() });
+      console.log('[ActorEnhancement] 站点收藏态补齐本地演员库（favorited false→true，静默）:', this.currentActorId);
+    } catch (e) {
+      console.warn('[ActorEnhancement] 站点收藏态补齐失败（静默，不影响页面）:', e);
+    }
+  }
+
+  /**
    * 若演员在库内，后台静默同步基本信息和 wiki 数据
    */
   private async syncActorIfInLibrary(): Promise<void> {
@@ -891,6 +917,11 @@ class ActorEnhancementManager {
 
     // 后台静默同步：若演员在库内，更新基本信息和 wiki 数据
     setTimeout(() => this.syncActorIfInLibrary(), 1500);
+
+    // 页载对齐：站点已收藏 ∧ 本地未收藏 → 静默补进本地（仅 collect 方向，10-05-actor-site-collect）
+    setTimeout(() => {
+      void this.backfillLocalIfSiteCollected();
+    }, 1500);
   }
 
   private parseAvailableTags(): void {
