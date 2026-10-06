@@ -70,7 +70,7 @@
                 <div id="toggleHideSubscribedActorsContainer"></div>
             </div>
 
-            <div class="full-row">
+            <div class="full-row full-row-split">
                 <!-- 音量控制 -->
                 <div class="volume-control-section">
                     <div class="volume-control-header">
@@ -87,6 +87,17 @@
                         </button>
                         <input type="range" id="volumeSlider" class="volume-slider"
                                min="0" max="100" value="50" step="1">
+                    </div>
+                </div>
+                <!-- 隐私模糊（10-06-site-privacy-blur）：总开关，与音量同行（音量收窄） -->
+                <div class="privacy-blur-section">
+                    <div class="control-header">
+                        <span class="control-icon">🛡️</span>
+                        <span class="control-label">隐私模糊</span>
+                        <button class="help-icon-btn" title="开启后，JavDB/JavBus 普通内容页的影片标题与图片将被模糊，防止截图泄露隐私">
+                            <i class="fas fa-question-circle"></i>
+                        </button>
+                        <span id="privacyBlurToggleContainer"></span>
                     </div>
                 </div>
             </div>

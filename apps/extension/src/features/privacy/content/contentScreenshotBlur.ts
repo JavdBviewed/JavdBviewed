@@ -19,6 +19,9 @@ export interface ContentScreenshotSettings {
         javbus?: boolean;
     };
     blurIntensity?: number;
+    // 10-06-site-privacy-blur：标题/图片子开关（缺省即双开）
+    blurTitles?: boolean;
+    blurImages?: boolean;
 }
 
 export function resolveContentScreenshotSettings(settings: {
@@ -33,12 +36,17 @@ export function resolveContentScreenshotSettings(settings: {
     const screenshotMode = settings?.privacy?.screenshotMode;
     const contentPages = screenshotMode?.contentPages;
     return {
-        enabled: screenshotMode?.enabled === true && contentPages?.enabled === true,
+        // 10-06-site-privacy-blur 语义翻转：内容页模糊仅由 contentPages 子范围决定
+        // （不再 AND 截图模式总闸）；dashboard 侧 blurAreas/protectedElements/
+        // autoBlurTrigger 仍随总闸（另链，零改动）。
+        enabled: contentPages?.enabled === true,
         sites: {
             javdb: contentPages?.sites?.javdb !== false,
             javbus: contentPages?.sites?.javbus !== false,
         },
         blurIntensity: screenshotMode?.blurIntensity,
+        blurTitles: contentPages?.blurTitles !== false,
+        blurImages: contentPages?.blurImages !== false,
     };
 }
 
@@ -51,10 +59,30 @@ const STYLE_ID = 'jdb-content-privacy-blur-style';
 const SELECTORS: Record<ContentPageKind, readonly string[]> = {
     'javdb-list': ['.movie-list .item', '.grid-item', '.search-result'],
     'javdb-detail': ['.video-detail', '.movie-panel-info', '.preview-images', '.sample-waterfall'],
-    'javdb-actor': ['.actor-section', '.actor-list .item', '.performer-list'],
+    'javdb-actor': ['.movie-list .item', 'h2.title.is-4'], // 10-06：三死选择器（前置核实证 no-op）替换为实活选择器
     'javbus-list': ['.movie-box', '.item', '.search-result'],
     'javbus-detail': ['.movie', '.movie-box', '.sample-box'],
     'javbus-actor': ['.star-box', '.star-photo', '.star-info'],
+};
+
+// 10-06-site-privacy-blur：单开模式的标题/图片选择器组（双开仍走 legacy 全集，零变化）。
+// javbus 三型保守不拆：两组=全集（单开=全集，报备延续）。
+const SELECTOR_GROUPS: Record<ContentPageKind, { titles: readonly string[]; images: readonly string[] }> = {
+    'javdb-list': {
+        titles: ['.movie-list .item .video-title'],
+        images: ['.movie-list .item .cover'],
+    },
+    'javdb-detail': {
+        titles: ['.movie-panel-info', 'h2.title.is-4'],
+        images: ['.preview-images', '.sample-waterfall', '.video-cover'],
+    },
+    'javdb-actor': {
+        titles: ['h2.title.is-4', '.movie-list .item .video-title'],
+        images: ['.movie-list .item .cover'],
+    },
+    'javbus-list': { titles: SELECTORS['javbus-list'], images: SELECTORS['javbus-list'] },
+    'javbus-detail': { titles: SELECTORS['javbus-detail'], images: SELECTORS['javbus-detail'] },
+    'javbus-actor': { titles: SELECTORS['javbus-actor'], images: SELECTORS['javbus-actor'] },
 };
 
 const JAVDB_HOSTS = new Set(['javdb.com', 'javdb570.com', 'javdb575.com', 'javdb36.com']);
@@ -88,6 +116,14 @@ export function getContentPageBlurSelectors(location: ContentLocation): readonly
     return pageKind ? SELECTORS[pageKind] : [];
 }
 
+export function getContentPageBlurSelectorGroups(location: ContentLocation): {
+    titles: readonly string[];
+    images: readonly string[];
+} | null {
+    const pageKind = getContentPageKind(location);
+    return pageKind ? SELECTOR_GROUPS[pageKind] : null;
+}
+
 export function isContentScreenshotEnabled(settings: ContentScreenshotSettings | undefined): boolean {
     return settings?.enabled === true;
 }
@@ -112,7 +148,19 @@ export class ContentScreenshotBlurController {
         const siteEnabled = site ? settings?.sites?.[site] !== false : false;
         if (!pageKind || !isContentScreenshotEnabled(settings) || !siteEnabled) return false;
 
-        this.selectors = getContentPageBlurSelectors(this.location);
+        // 10-06-site-privacy-blur L3 模式选择：双开=legacy 全集（与现网逐位一致，存量零变化）；
+        // 仅标题=titles 组；仅图片=images 组；双关=空集（子范围 enabled 但无保护目标）。
+        const titlesOn = settings?.blurTitles !== false;
+        const imagesOn = settings?.blurImages !== false;
+        const groups = getContentPageBlurSelectorGroups(this.location);
+        this.selectors =
+            titlesOn && imagesOn
+                ? getContentPageBlurSelectors(this.location)
+                : titlesOn
+                    ? (groups?.titles ?? [])
+                    : imagesOn
+                        ? (groups?.images ?? [])
+                        : [];
         this.blurRadius = this.getBlurRadius(settings?.blurIntensity);
         this.injectStyles();
         this.protectMatchingElements(this.document);

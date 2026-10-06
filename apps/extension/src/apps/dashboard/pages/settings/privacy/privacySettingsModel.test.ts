@@ -74,4 +74,25 @@ describe('privacySettingsModel', () => {
     expect(next).toContain('home-page');
     expect(toggleBlurArea(next, 'navigation', false)).not.toContain('navigation');
   });
+
+  // 10-06-site-privacy-blur：内容页标题/图片子开关（默认双开，显式 false 尊重）
+  it('defaults content-page blur sub-toggles to on', () => {
+    expect(DEFAULT_PRIVACY_SETTINGS_FORM.contentPagesBlurTitles).toBe(true);
+    expect(DEFAULT_PRIVACY_SETTINGS_FORM.contentPagesBlurImages).toBe(true);
+    const form = mapSettingsToPrivacyForm(undefined);
+    expect(form.contentPagesBlurTitles).toBe(true);
+    expect(form.contentPagesBlurImages).toBe(true);
+  });
+
+  it('maps explicit false sub-toggles', () => {
+    const form = mapSettingsToPrivacyForm({
+      privacy: {
+        screenshotMode: {
+          contentPages: { enabled: true, sites: { javdb: true, javbus: true }, blurTitles: false },
+        },
+      },
+    } as any);
+    expect(form.contentPagesBlurTitles).toBe(false);
+    expect(form.contentPagesBlurImages).toBe(true);
+  });
 });

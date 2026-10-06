@@ -190,6 +190,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const containerWidthValue = document.getElementById('containerWidthValue') as HTMLSpanElement;
     const resetListDisplayBtn = document.getElementById('resetListDisplayBtn') as HTMLButtonElement;
     const moreFiltersLink = document.getElementById('moreFiltersLink') as HTMLAnchorElement | null;
+    // 10-06-site-privacy-blur：隐私模糊总开关容器（.privacy-blur-section 内，与音量同行）
+    const privacyBlurToggleContainer = document.getElementById('privacyBlurToggleContainer') as HTMLDivElement;
 
     // 检测当前网站可用性
     async function checkSiteAvailability() {
@@ -488,6 +490,54 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
             });
+        });
+
+        container.innerHTML = '';
+        container.appendChild(button);
+    }
+
+    // 10-06-site-privacy-blur：隐私模糊总开关——控制 contentPages.enabled（内容页范围总闸）。
+    // 即时生效链：saveSettings → chrome.storage.onChanged（content 侧单链路）→ controller.update；
+    // 不发 tabs.reload / sendMessage（内容脚本监听 storage 变更即生效，无需刷新）。
+    async function createPrivacyBlurToggle(container: HTMLElement) {
+        const button = document.createElement('button');
+        button.className = 'toggle-button';
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'toggle-label';
+        const textSpan = document.createElement('span');
+        textSpan.textContent = '隐私模糊';
+        labelSpan.append(textSpan);
+        const switchSpan = document.createElement('span');
+        switchSpan.className = 'toggle-switch';
+        switchSpan.setAttribute('aria-hidden', 'true');
+        button.replaceChildren(switchSpan, labelSpan);
+
+        const updateState = (isEnabled: boolean) => {
+            const stateText = isEnabled ? '隐私模糊已开启' : '隐私模糊已关闭';
+            button.title = stateText;
+            button.setAttribute('aria-label', `隐私模糊，${stateText}`);
+            button.setAttribute('aria-pressed', String(isEnabled));
+            button.classList.toggle('active', isEnabled);
+        };
+
+        const initialSettings = await getSettingsSafely();
+        if (initialSettings) {
+            updateState(initialSettings.privacy?.screenshotMode?.contentPages?.enabled === true);
+        }
+
+        button.addEventListener('click', async () => {
+            const settings = await getSettingsSafely();
+            if (!settings) {
+                console.error('[Popup] Failed to get settings for privacy blur');
+                return;
+            }
+            const next = !(settings.privacy?.screenshotMode?.contentPages?.enabled === true);
+            settings.privacy.screenshotMode.contentPages = {
+                ...settings.privacy.screenshotMode.contentPages,
+                enabled: next,
+            };
+            await saveSettings(settings);
+            updateState(next);
         });
 
         container.innerHTML = '';
@@ -946,6 +996,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         await createListEnhancementToggle('hideBlacklistedActorsInList', toggleHideBlacklistedActorsContainer, '隐藏含黑名单演员', '显示含黑名单演员', '黑名单演员');
         await createListEnhancementToggle('hideNonFavoritedActorsInList', toggleHideNonFavoritedActorsContainer, '隐藏未收藏演员的作品', '显示未收藏演员的作品', '未收藏演员');
         await createListEnhancementToggle('hideSubscribedActorsInList', toggleHideSubscribedActorsContainer, '隐藏已订阅演员的作品', '显示已订阅演员的作品', '已订阅演员');
+
+        // 10-06-site-privacy-blur：隐私模糊总开关（读 contentPages.enabled）
+        await createPrivacyBlurToggle(privacyBlurToggleContainer);
 
         await setupVolumeControl();
         await setupListDisplayControl();

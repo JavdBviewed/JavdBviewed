@@ -31,6 +31,9 @@ export interface ContentPagesScreenshotConfig {
     javdb: boolean;
     javbus: boolean;
   };
+  // 10-06-site-privacy-blur：标题/图片子开关（可选，缺省即双开）
+  blurTitles?: boolean;
+  blurImages?: boolean;
 }
 
 // 模糊区域类型

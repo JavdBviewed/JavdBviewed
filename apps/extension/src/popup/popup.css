@@ -371,7 +371,8 @@ button {
 
 .main-controls,
 .volume-control-section,
-.list-display-control-section {
+.list-display-control-section,
+.privacy-blur-section {
     padding: 13px;
     border: 1px solid var(--border-primary);
     border-radius: var(--radius-lg);
@@ -381,11 +382,17 @@ button {
 
 [data-theme="dark"] .main-controls,
 [data-theme="dark"] .volume-control-section,
-[data-theme="dark"] .list-display-control-section {
+[data-theme="dark"] .list-display-control-section,
+[data-theme="dark"] .privacy-blur-section {
     background: var(--surface-primary);
     border-color: var(--border-primary);
     box-shadow: var(--shadow-md);
 }
+
+/* 10-06-site-privacy-blur：隐私模糊与音量同行（音量收窄），新规则不动 .full-row 本体 */
+.main-grid .full-row.full-row-split { display: flex; gap: 12px; align-items: stretch; }
+.main-grid .full-row-split .volume-control-section { flex: 1 1 0; min-width: 0; }
+.main-grid .full-row-split .privacy-blur-section { flex: 0 0 230px; }
 
 .main-controls {
     display: flex;
