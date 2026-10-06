@@ -2380,6 +2380,11 @@
     color: var(--text-primary);
 }
 
+/* 编辑弹窗「收藏此影片」原生 checkbox 暗态跟随主题（无 color-scheme 时暗态保持 light scheme 白盒/蓝 accent） */
+[data-theme="dark"] .checkbox-group input[type="checkbox"] {
+    color-scheme: dark;
+}
+
 [data-theme="dark"] .field-lock.unlocked {
     color: #6c757d;
 }
