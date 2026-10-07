@@ -736,6 +736,34 @@
     box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.3);
 }
 
+/* 媒体库状态筛选 chip（10-24：已入库 / 真实已看；server 分页模式禁用+降级 tooltip） */
+.search-and-filter.records-toolbar #mediaLibraryFilterBtn.button-like,
+.search-and-filter.records-toolbar #realWatchedFilterBtn.button-like {
+    background: var(--surface-secondary, #f3f4f6);
+    color: var(--text-primary, #111827);
+    border: 1px solid var(--border-color, #e5e7eb);
+}
+
+.search-and-filter.records-toolbar #mediaLibraryFilterBtn.button-like:hover:not(:disabled),
+.search-and-filter.records-toolbar #realWatchedFilterBtn.button-like:hover:not(:disabled) {
+    border-color: var(--records-primary, #2563eb);
+    color: var(--records-primary, #2563eb);
+}
+
+.search-and-filter.records-toolbar #mediaLibraryFilterBtn.button-like.active,
+.search-and-filter.records-toolbar #realWatchedFilterBtn.button-like.active {
+    background: linear-gradient(135deg, var(--records-primary, #2563eb), var(--records-info, #0891b2));
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 3px 10px rgba(37, 99, 235, 0.3);
+}
+
+.search-and-filter.records-toolbar #mediaLibraryFilterBtn.button-like:disabled,
+.search-and-filter.records-toolbar #realWatchedFilterBtn.button-like:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 /* 显示/隐藏封面按钮配色与状态 */
 #toggleCoversBtn.button-like {
     background: var(--surface-secondary, #f3f4f6);

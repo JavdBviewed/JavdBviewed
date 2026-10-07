@@ -18,6 +18,7 @@ import { createRecordsStatsController } from './records/statsController';
 import { createRecordsListMetaController } from './records/listMetaController';
 import { createRecordsSearchResultCountController } from './records/searchResultCountController';
 import { createRecordsRenderCoordinator } from './records/renderCoordinator';
+import { createMediaStateFilterRuntime, type MediaStateFilterRuntime } from './records/mediaStateFilterRuntime';
 import { bindAdvancedSearchToggleDelegation } from './records/advancedSearchToggleBinding';
 import { collectRecordsPageElements, ensureUntrackedStatusOption } from './records/pageElements';
 import { refreshRecordsSingleRecord } from './records/refreshRecordService';
@@ -124,10 +125,14 @@ export function initRecordsTab(): void {
         toggleCoversBtn,
         toggleViewModeBtn,
         myFavoritesBtn,
+        mediaLibraryFilterBtn,
+        realWatchedFilterBtn,
         batchImportBtn,
     } = pageElements.toolbar;
     let currentViewMode: 'list' | 'card' = STATE.settings.recordsViewMode || 'list'; // 从设置中读取，默认列表视图
     let favoritesFilterActive = false;
+    let inLibraryFilterActive = false;
+    let realWatchedFilterActive = false;
 
     const coverRuntimeController = createRecordsCoverRuntimeController({
         fallbackUrl: chrome.runtime.getURL('assets/alternate-search.png'),
@@ -237,6 +242,7 @@ export function initRecordsTab(): void {
     let stateRefreshController: RecordsStateRefreshController;
     let filterRuntime: RecordsFilterRuntime;
     let batchOperationsRuntime: RecordsBatchOperationsRuntime;
+    let mediaStateFilterRuntime: MediaStateFilterRuntime | null = null;
     const searchResultCountController = createRecordsSearchResultCountController({
         container: searchResultCount,
         searchInput,
@@ -398,6 +404,20 @@ export function initRecordsTab(): void {
         setFavoritesActive: (active) => {
             favoritesFilterActive = active;
         },
+        mediaLibraryButton: mediaLibraryFilterBtn,
+        realWatchedButton: realWatchedFilterBtn,
+        getInLibraryActive: () => inLibraryFilterActive,
+        setInLibraryActive: (active) => {
+            inLibraryFilterActive = active;
+        },
+        getRealWatchedActive: () => realWatchedFilterActive,
+        setRealWatchedActive: (active) => {
+            realWatchedFilterActive = active;
+        },
+        getMediaStateFilterEnabled: () => !serverModeActive,
+        onMediaStateFilterToggled: () => {
+            void mediaStateFilterRuntime?.ensureLoaded();
+        },
         persistSettings: () => {
             chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: STATE.settings });
         },
@@ -445,7 +465,15 @@ export function initRecordsTab(): void {
         queryRecords: dbViewedQuery,
         pageRecords: dbViewedPage,
         setServerModeActive: (active) => {
+            const enteringServer = active && !serverModeActive;
             serverModeActive = active;
+            // 10-24 自保：切入 server 分页模式时清除激活的媒体库状态筛选，防「看着滤了实际没滤」
+            if (enteringServer && (inLibraryFilterActive || realWatchedFilterActive)) {
+                inLibraryFilterActive = false;
+                realWatchedFilterActive = false;
+                showMessage('媒体库状态筛选仅本地模式可用，已关闭相关筛选', 'info');
+            }
+            viewToolbarController.update();
         },
         setServerPageItems: (items) => {
             serverPageItems = items;
@@ -467,7 +495,15 @@ export function initRecordsTab(): void {
         videoList,
         shouldUseIDB: queryRuntime.shouldUseIDB,
         setServerModeActive: (active) => {
+            const enteringServer = active && !serverModeActive;
             serverModeActive = active;
+            // 10-24 自保：切入 server 分页模式时清除激活的媒体库状态筛选，防「看着滤了实际没滤」
+            if (enteringServer && (inLibraryFilterActive || realWatchedFilterActive)) {
+                inLibraryFilterActive = false;
+                realWatchedFilterActive = false;
+                showMessage('媒体库状态筛选仅本地模式可用，已关闭相关筛选', 'info');
+            }
+            viewToolbarController.update();
         },
         renderServerPage: queryRuntime.renderServerPage,
         updateFilteredRecords,
@@ -493,6 +529,18 @@ export function initRecordsTab(): void {
         updateFilteredRecords,
         render,
         updateBatchUI,
+    });
+
+    mediaStateFilterRuntime = createMediaStateFilterRuntime({
+        getRecords: () => STATE.records,
+        getInLibraryActive: () => inLibraryFilterActive,
+        getRealWatchedActive: () => realWatchedFilterActive,
+        onIndicesChanged: () => {
+            stateRefreshController.resetAndRender();
+        },
+        logWarning: (message, error) => {
+            console.warn(message, error ?? '');
+        },
     });
 
     let batchImportCancelRequested = false;
@@ -745,6 +793,9 @@ export function initRecordsTab(): void {
         ensureListMetaLoaded,
         getAdvancedConditions: () => advConditions,
         isFavoritesFilterActive: () => favoritesFilterActive,
+        getMediaStateHits: () => mediaStateFilterRuntime?.getHits() ?? null,
+        isInLibraryFilterActive: () => inLibraryFilterActive,
+        isRealWatchedFilterActive: () => realWatchedFilterActive,
         setFilteredRecords: (records) => {
             filteredRecords = records;
         },
@@ -879,7 +930,13 @@ export function initRecordsTab(): void {
     }
 
     recordsLifecycleUnregister = dashboardTabLifecycle.register('tab-records', {
-        onActive: () => { recordsActive = true; },
+        onActive: () => {
+            recordsActive = true;
+            // 10-24：媒体库状态 chip 激活期间回到本 tab → 刷新索引（版本变更则重算重滤）
+            if (inLibraryFilterActive || realWatchedFilterActive) {
+                void mediaStateFilterRuntime?.ensureLoaded();
+            }
+        },
         onRestore: () => {
             recordsActive = true;
             if (shouldRenderRecordsOnRestore({
@@ -911,6 +968,7 @@ export function initRecordsTab(): void {
         onDispose: () => {
             recordsActive = false;
             queryRuntime.invalidate();
+            mediaStateFilterRuntime?.dispose();
             coverRuntimeController.teardownObserver();
             recordsLifecycleUnregister?.();
             recordsLifecycleUnregister = null;

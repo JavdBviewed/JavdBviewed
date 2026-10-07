@@ -14,6 +14,19 @@ export interface CreateRecordsViewToolbarControllerOptions {
   persistSettings: () => void;
   onFilterChanged: () => void;
   onRender: () => void;
+  /**
+   * 媒体库状态筛选 chip（10-24，可选）：server 分页模式下 disabled + 降级 tooltip。
+   * 降级态点击不生效；激活态切换后回调 onMediaStateFilterToggled（触发索引懒载）+ onFilterChanged。
+   */
+  mediaLibraryButton?: HTMLButtonElement | null;
+  realWatchedButton?: HTMLButtonElement | null;
+  getInLibraryActive?: () => boolean;
+  setInLibraryActive?: (active: boolean) => void;
+  getRealWatchedActive?: () => boolean;
+  setRealWatchedActive?: (active: boolean) => void;
+  /** false = server 分页模式（chip 禁用）。缺省视为可用。 */
+  getMediaStateFilterEnabled?: () => boolean;
+  onMediaStateFilterToggled?: () => void;
 }
 
 export interface RecordsViewToolbarController {
@@ -63,13 +76,45 @@ function updateFavoritesButton(button: HTMLButtonElement | null | undefined, act
   button.title = active ? '取消收藏筛选' : '只看收藏番号';
 }
 
+function updateMediaStateButton(
+  button: HTMLButtonElement | null | undefined,
+  active: boolean,
+  enabled: boolean,
+  idleTitle: string,
+  activeTitle: string,
+): void {
+  if (!button) return;
+  const shownActive = active && enabled;
+  button.classList.toggle('active', shownActive);
+  button.disabled = !enabled;
+  button.setAttribute('aria-pressed', String(shownActive));
+  button.title = !enabled ? '媒体库状态筛选仅本地模式可用' : (shownActive ? activeTitle : idleTitle);
+}
+
 export function createRecordsViewToolbarController(
   options: CreateRecordsViewToolbarControllerOptions,
 ): RecordsViewToolbarController {
+  const mediaStateEnabled = (): boolean => options.getMediaStateFilterEnabled?.() ?? true;
+
   const update = () => {
     updateCoverButton(options.toggleCoversBtn, options.getCoversEnabled());
     updateViewModeButton(options.toggleViewModeBtn, options.videoList, options.getViewMode());
     updateFavoritesButton(options.favoritesButton, options.getFavoritesActive());
+    const enabled = mediaStateEnabled();
+    updateMediaStateButton(
+      options.mediaLibraryButton,
+      options.getInLibraryActive?.() ?? false,
+      enabled,
+      '仅看媒体库已入库',
+      '取消「已入库」筛选',
+    );
+    updateMediaStateButton(
+      options.realWatchedButton,
+      options.getRealWatchedActive?.() ?? false,
+      enabled,
+      '仅看媒体库真实已看',
+      '取消「真实已看」筛选',
+    );
   };
 
   const bind = () => {
@@ -97,6 +142,32 @@ export function createRecordsViewToolbarController(
       update();
       options.onFilterChanged();
     });
+
+    const bindMediaStateButton = (
+      button: HTMLButtonElement | null | undefined,
+      isActive: () => boolean,
+      setActive: (active: boolean) => void,
+    ): void => {
+      if (!button) return;
+      button.addEventListener('click', () => {
+        if (!mediaStateEnabled()) return;
+        const next = !isActive();
+        setActive(next);
+        update();
+        options.onFilterChanged();
+        options.onMediaStateFilterToggled?.();
+      });
+    };
+    bindMediaStateButton(
+      options.mediaLibraryButton,
+      () => options.getInLibraryActive?.() ?? false,
+      (active) => options.setInLibraryActive?.(active),
+    );
+    bindMediaStateButton(
+      options.realWatchedButton,
+      () => options.getRealWatchedActive?.() ?? false,
+      (active) => options.setRealWatchedActive?.(active),
+    );
   };
 
   return { bind, update };

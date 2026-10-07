@@ -1,4 +1,5 @@
 import type { ListRecord, VideoRecord, VideoStatus } from '../../../types';
+import { getMediaStateRecordKey, type MediaStateHit } from './mediaStateFilterModel';
 import {
   getDirectorExternalIdFromUrl,
   getMakerExternalIdFromUrl,
@@ -29,6 +30,13 @@ export interface FilterAndSortRecordsInput {
   advancedConditions: RecordsAdvancedCondition[];
   favoritesFilterActive: boolean;
   sortValue: string;
+  /**
+   * 媒体库状态筛选（10-24，可选）：缺省（未传或两开关皆 false）= 零行为变化。
+   * mediaStateHits 以记录主键（getMediaStateRecordKey）为键；缺记录的维度视为不命中。
+   */
+  mediaStateHits?: ReadonlyMap<string, MediaStateHit>;
+  inLibraryFilterActive?: boolean;
+  realWatchedFilterActive?: boolean;
 }
 
 function matchesSearch(record: VideoRecord, searchTerm: string, tagsLower: string[]): boolean {
@@ -153,6 +161,10 @@ export function filterAndSortRecords(input: FilterAndSortRecordsInput): VideoRec
     const tagsLower = [...tags, ...userTags].map(tag => String(tag).toLowerCase());
     const matchesStatus = input.status === 'all' || record.status === input.status;
     const matchesFavorite = !input.favoritesFilterActive || record.isFavorite === true;
+    const mediaStateKey = getMediaStateRecordKey(record);
+    const mediaHit = mediaStateKey ? input.mediaStateHits?.get(mediaStateKey) : undefined;
+    const matchesInLibrary = !input.inLibraryFilterActive || Boolean(mediaHit?.inLibrary);
+    const matchesRealWatched = !input.realWatchedFilterActive || Boolean(mediaHit?.realWatched);
 
     const basicMatch =
       matchesSearch(record, searchTerm, tagsLower) &&
@@ -163,7 +175,9 @@ export function filterAndSortRecords(input: FilterAndSortRecordsInput): VideoRec
       matchesSelectedLabels(record, input.selectedLabelIds, input.labelIdToRecord) &&
       matchesSelectedMaker(record, input.selectedMakerIds, input.makerIdToRecord) &&
       matchesSelectedDirector(record, input.selectedDirectorIds, input.directorIdToRecord) &&
-      matchesFavorite;
+      matchesFavorite &&
+      matchesInLibrary &&
+      matchesRealWatched;
 
     if (!basicMatch) return false;
     return input.advancedConditions.length === 0 ||

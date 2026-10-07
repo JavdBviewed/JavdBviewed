@@ -13,6 +13,7 @@ import {
   createRecordsLocalFilterRuntime,
   type RecordsLocalFilterRuntime,
 } from './localFilterRuntime';
+import type { MediaStateHit } from './mediaStateFilterModel';
 import type { RecordsFilterElements } from './pageElements';
 
 export interface RecordsFilterRuntimeElements {
@@ -63,6 +64,10 @@ export interface CreateRecordsFilterRuntimeOptions {
   directorIdToRecord: Map<string, any>;
   ensureListMetaLoaded: () => void;
   getAdvancedConditions: () => RecordsAdvancedCondition[];
+  /** 媒体库状态筛选（10-24，可选；缺省=零行为变化）。 */
+  getMediaStateHits?: () => ReadonlyMap<string, MediaStateHit> | null;
+  isInLibraryFilterActive?: () => boolean;
+  isRealWatchedFilterActive?: () => boolean;
   isFavoritesFilterActive: () => boolean;
   setFilteredRecords: (records: VideoRecord[]) => void;
   onFilterChanged: () => void;
@@ -168,6 +173,9 @@ export function createRecordsFilterRuntime(options: CreateRecordsFilterRuntimeOp
     directorIdToRecord: options.directorIdToRecord,
     getAdvancedConditions: options.getAdvancedConditions,
     isFavoritesFilterActive: options.isFavoritesFilterActive,
+    getMediaStateHits: options.getMediaStateHits,
+    isInLibraryFilterActive: options.isInLibraryFilterActive,
+    isRealWatchedFilterActive: options.isRealWatchedFilterActive,
     refreshTags: () => { try { filterControllers.tags.refresh(); } catch {} },
     refreshLists: () => { try { filterControllers.lists.refresh(); } catch {} },
     refreshSeries: () => { try { filterControllers.series.refresh(); } catch {} },
