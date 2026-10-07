@@ -15,7 +15,7 @@ export interface PrivacyConfig {
 // 截图模式配置
 export interface ScreenshotModeConfig {
   enabled: boolean;                    // 是否启用截图模式
-  contentPages: ContentPagesScreenshotConfig; // 普通 JavDB/JavBus 内容页范围
+  contentPages: ContentPagesScreenshotConfig; // 普通 JavDB 内容页范围（runtime 保留 javbus 选择器代码，属未生效遗留，待后续线）
   autoBlurTrigger: BlurTrigger;       // 自动模糊触发条件
   blurIntensity: number;              // 模糊强度 (1-10)
   protectedElements: string[];        // 需要保护的元素选择器

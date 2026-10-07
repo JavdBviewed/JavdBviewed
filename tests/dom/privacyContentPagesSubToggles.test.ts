@@ -83,3 +83,65 @@ describe('privacy page content-page blur sub-toggles (10-06-site-privacy-blur)',
     expect(imagesBody, 'Images 函数体').toContain('current?.sites?.javbus !== false');
   });
 });
+
+/**
+ * 线 10-23-privacy-popup-toggle-ux 新增锁（既有 4 it 零改动）：
+ * - 块2 文案：功能行 label 改 JavDB 口径 + 旧串「JavDB / JavBus」零残留
+ * - 块3 主次重塑：五件套收进视觉嵌套子块（border-l + surface-2 底子卡）；
+ *   master 关或功能行关时整体降权（opacity-55，控件仍可点击=逻辑零动）
+ */
+describe('privacy page screenshot-mode hierarchy rework (10-23-privacy-popup-toggle-ux)', () => {
+  const WRAPPER_TOKENS = [
+    'border-l-2',
+    'bg-[var(--color-surface-2)]',
+    'transition-opacity',
+  ] as const;
+
+  function extractNestedWrapper(src: string): string {
+    const featureIdx = src.indexOf('id="contentPagesScreenshotEnabled"');
+    expect(featureIdx, '功能行在位').toBeGreaterThan(-1);
+    const featureEnd = src.indexOf('/>', featureIdx);
+    expect(featureEnd, '功能行闭合').toBeGreaterThan(featureIdx);
+    const titlesIdx = src.indexOf('id="contentPagesBlurTitles"');
+    expect(titlesIdx, '标题行在位').toBeGreaterThan(featureEnd);
+    const wrapperStart = src.lastIndexOf('<div', titlesIdx);
+    expect(wrapperStart, '嵌套子块 div 在功能行之后、标题行之前').toBeGreaterThan(featureEnd);
+    const wrapperEndMarker = src.indexOf('选择要模糊的区域', wrapperStart);
+    expect(wrapperEndMarker, 'blur-areas 块在嵌套子块内').toBeGreaterThan(wrapperStart);
+    const wrapperEnd = src.indexOf('</div>', src.lastIndexOf('<div', wrapperEndMarker));
+    expect(wrapperEnd, '嵌套子块闭合').toBeGreaterThan(wrapperEndMarker);
+    return src.slice(wrapperStart, wrapperEnd + 6);
+  }
+
+  it('labels the content-page row JavDB-only and leaves no legacy JavDB / JavBus string', () => {
+    expect(pageSrc).toContain('label="普通内容页截图模糊（JavDB）"');
+    expect(pageSrc, '旧串「JavDB / JavBus」零残留').not.toContain('JavDB / JavBus');
+    expect(pageSrc, '功能行 description 零改动').toContain('仅模糊影片、搜索和演员内容，不启用锁屏或密码保护。');
+  });
+
+  it('wraps the five sub-items in one nested visual block after the content-page feature row', () => {
+    const wrapper = extractNestedWrapper(pageSrc);
+    for (const token of WRAPPER_TOKENS) {
+      expect(wrapper, `嵌套子块含样式 token ${token}`).toContain(token);
+    }
+    // 五件套全部在嵌套子块内
+    for (const id of ['contentPagesBlurTitles', 'contentPagesBlurImages', 'blurIntensity', 'autoBlurTrigger']) {
+      expect(wrapper, `五件套 id=${id} 在嵌套子块内`).toContain(`id="${id}"`);
+    }
+    expect(wrapper, 'blur-areas 块在嵌套子块内').toContain('选择要模糊的区域');
+    // master 行与功能行仍在嵌套子块之外（容器顶部，视觉权重最高）
+    const featureIdx = pageSrc.indexOf('id="contentPagesScreenshotEnabled"');
+    const wrapperStart = pageSrc.lastIndexOf('<div', pageSrc.indexOf('id="contentPagesBlurTitles"'));
+    expect(pageSrc.indexOf('id="screenshotModeEnabled"'), 'master 行在位').toBeGreaterThan(-1);
+    expect(featureIdx, 'master/功能行都在嵌套子块之前').toBeLessThan(wrapperStart);
+  });
+
+  it('dims the nested block when master or content-page scope is off (controls stay clickable)', () => {
+    const wrapper = extractNestedWrapper(pageSrc);
+    expect(wrapper, '降权 class 在位').toContain('opacity-55');
+    expect(
+      wrapper,
+      '降权条件=master 关 或 功能行 关（双态 && 驱动）',
+    ).toContain('form.screenshotEnabled && form.contentPagesScreenshotEnabled');
+  });
+});

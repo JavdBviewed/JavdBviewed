@@ -63,7 +63,8 @@ export async function setScreenshotModeEnabled(enabled: boolean): Promise<boolea
 }
 
 /**
- * 普通 JavDB/JavBus 内容页的截图模糊范围独立保存，不触发锁屏或密码流程。
+ * 普通 JavDB 内容页的截图模糊范围独立保存，不触发锁屏或密码流程。
+ * （runtime 保留 javbus 选择器代码，属未生效遗留，待后续线。）
  */
 export async function setContentPagesScreenshotEnabled(enabled: boolean): Promise<boolean> {
   try {
