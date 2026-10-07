@@ -4,6 +4,7 @@ import { filterAndSortRecords } from './filterModel';
 import type { RecordsSearchTokens } from './searchQueryModel';
 import { parseRecordsSearchTokens } from './searchQueryModel';
 import { syncRecordsTokenSelections } from './tokenSelectionModel';
+import type { MediaStateHit } from './mediaStateFilterModel';
 
 export interface UpdateRecordsLocalFilterStateInput {
   searchText: string;
@@ -29,6 +30,10 @@ export interface UpdateRecordsLocalFilterStateInput {
   directorIdToRecord: Map<string, any>;
   advancedConditions: RecordsAdvancedCondition[];
   favoritesFilterActive: boolean;
+  /** 媒体库状态筛选（10-24，可选；缺省=零行为变化）。 */
+  mediaStateHits?: ReadonlyMap<string, MediaStateHit>;
+  inLibraryFilterActive?: boolean;
+  realWatchedFilterActive?: boolean;
   refreshTags: () => void;
   refreshLists: () => void;
   refreshSeries: () => void;
@@ -100,6 +105,9 @@ export function updateRecordsLocalFilterState(
       directorIdToRecord: input.directorIdToRecord,
       advancedConditions: input.advancedConditions,
       favoritesFilterActive: input.favoritesFilterActive,
+      mediaStateHits: input.mediaStateHits,
+      inLibraryFilterActive: input.inLibraryFilterActive,
+      realWatchedFilterActive: input.realWatchedFilterActive,
       sortValue: input.sortValue,
     });
 

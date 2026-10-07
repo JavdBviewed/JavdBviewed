@@ -44,6 +44,8 @@ export interface RecordsToolbarElements {
   toggleCoversBtn: HTMLButtonElement;
   toggleViewModeBtn: HTMLButtonElement;
   myFavoritesBtn: HTMLButtonElement;
+  mediaLibraryFilterBtn: HTMLButtonElement;
+  realWatchedFilterBtn: HTMLButtonElement;
   batchImportBtn: HTMLButtonElement;
 }
 
@@ -172,6 +174,8 @@ export function collectRecordsPageElements(documentRef: Document = document): Re
       toggleCoversBtn: getById<HTMLButtonElement>('toggleCoversBtn'),
       toggleViewModeBtn: getById<HTMLButtonElement>('toggleViewModeBtn'),
       myFavoritesBtn: getById<HTMLButtonElement>('myFavoritesBtn'),
+      mediaLibraryFilterBtn: getById<HTMLButtonElement>('mediaLibraryFilterBtn'),
+      realWatchedFilterBtn: getById<HTMLButtonElement>('realWatchedFilterBtn'),
       batchImportBtn: getById<HTMLButtonElement>('batchImportBtn'),
     },
   };

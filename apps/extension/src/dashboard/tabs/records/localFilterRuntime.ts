@@ -4,6 +4,7 @@ import {
   updateRecordsLocalFilterState,
   type UpdateRecordsLocalFilterStateResult,
 } from './localFilterUpdater';
+import type { MediaStateHit } from './mediaStateFilterModel';
 
 type UpdateLocalFilterState = typeof updateRecordsLocalFilterState;
 
@@ -37,6 +38,10 @@ export interface CreateRecordsLocalFilterRuntimeOptions {
   directorIdToRecord: Map<string, any>;
   getAdvancedConditions: () => RecordsAdvancedCondition[];
   isFavoritesFilterActive: () => boolean;
+  /** 媒体库状态筛选（10-24，可选；缺省=零行为变化）。 */
+  getMediaStateHits?: () => ReadonlyMap<string, MediaStateHit> | null;
+  isInLibraryFilterActive?: () => boolean;
+  isRealWatchedFilterActive?: () => boolean;
   refreshTags: () => void;
   refreshLists: () => void;
   refreshSeries: () => void;
@@ -97,6 +102,9 @@ export function createRecordsLocalFilterRuntime(
         directorIdToRecord: options.directorIdToRecord,
         advancedConditions: options.getAdvancedConditions(),
         favoritesFilterActive: options.isFavoritesFilterActive(),
+        mediaStateHits: options.getMediaStateHits?.() ?? undefined,
+        inLibraryFilterActive: options.isInLibraryFilterActive?.() ?? false,
+        realWatchedFilterActive: options.isRealWatchedFilterActive?.() ?? false,
         refreshTags: options.refreshTags,
         refreshLists: options.refreshLists,
         refreshSeries: options.refreshSeries,
