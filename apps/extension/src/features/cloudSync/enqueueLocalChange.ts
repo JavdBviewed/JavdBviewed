@@ -59,6 +59,18 @@ export async function enqueueListChanges(records: ListRecord[]): Promise<void> {
   if (list.length) await upsertCloudPending(list);
 }
 
+export async function enqueueListDeletions(records: ListRecord[]): Promise<void> {
+  // 清单删除墓碑：顶层 deletedAt 一等公民实体（storage_item 墓碑先例形态）；服务端按墓碑存储，拉取侧软删回写
+  const list = (records || [])
+    .filter((r) => !!r?.id)
+    .map((r) => {
+      const deletedAt = Number(r.deletedAt) || Date.now();
+      return { ...toSyncEntity('list', String(r.id), r, deletedAt), deletedAt };
+    });
+  if (!list.length) return;
+  await upsertCloudPending(list);
+}
+
 export async function enqueueNewWorkChange(record: NewWorkRecord): Promise<void> {
   const e = newWorkToSyncEntity(record);
   if (e) await upsertCloudPending([e]);

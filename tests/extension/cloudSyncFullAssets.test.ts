@@ -26,6 +26,7 @@ const idbMock = vi.hoisted(() => ({
     }),
   })),
   putCalls: [] as PutCall[],
+  listsDelete: vi.fn(),
   bulk: {
     videos: [] as unknown[],
     actors: [] as unknown[],
@@ -51,6 +52,7 @@ vi.mock('../../apps/extension/src/platform/storage/indexedDb', () => ({
   viewedGet: vi.fn(),
   actorsGet: vi.fn(),
   listsGet: vi.fn(),
+  listsDelete: idbMock.listsDelete,
   newWorksGet: vi.fn(),
 }));
 
@@ -62,6 +64,7 @@ describe('Cloud 全量资产同步', () => {
   beforeEach(() => {
     resetChromeMock();
     idbMock.initDB.mockClear();
+    idbMock.listsDelete.mockClear();
     idbMock.stores = {};
     idbMock.putCalls = [];
     idbMock.bulk = {
@@ -509,4 +512,60 @@ describe('Cloud 全量资产同步', () => {
     expect(Object.keys(snapshot[STORAGE_KEYS.MEDIA_CLEANUP_STATE].items).sort()).toEqual(['AAA-001', 'BBB-002']);
     expect(Object.keys(snapshot[STORAGE_KEYS.MEDIA_DELETION_HISTORY].records).sort()).toEqual(['local-history', 'remote-history']);
   });
+  it('采集软删清单时补顶层 deletedAt（墓碑随全量推送；活记录不受影响）', async () => {
+    idbMock.stores = {
+      lists: [
+        { id: 'list-live', name: 'L', type: 'label', source: 'javdb', createdAt: 100, updatedAt: 120 },
+        { id: 'list-tomb', name: 'T', type: 'label', source: 'javdb', createdAt: 100, updatedAt: 500, deletedAt: 500 },
+      ],
+    };
+    const { collectLocalSyncEntities } = await import(
+      '../../apps/extension/src/features/cloudSync/extensionEntityStore'
+    );
+    const entities = await collectLocalSyncEntities();
+    const live = entities.find((e) => e.type === 'list' && e.id === 'list-live');
+    const tomb = entities.find((e) => e.type === 'list' && e.id === 'list-tomb');
+    expect(live).toBeDefined();
+    expect(live?.deletedAt).toBeUndefined();
+    expect(tomb?.id).toBe('list-tomb');
+    expect(tomb?.updatedAt).toBe(500);
+    expect(tomb?.deletedAt).toBe(500);
+    expect(tomb?.payload).toMatchObject({ id: 'list-tomb', deletedAt: 500 });
+  });
+
+  it('应用远端 list 墓碑时软写回本地（零硬删，重复应用幂等）', async () => {
+    const { createExtensionEntityStore } = await import(
+      '../../apps/extension/src/features/cloudSync/extensionEntityStore'
+    );
+    const store = createExtensionEntityStore();
+    const tombEntity: SyncEntity = {
+      id: 'list-tomb',
+      type: 'list',
+      revision: 2,
+      updatedAt: 500,
+      deletedAt: 500,
+      payload: {
+        id: 'list-tomb',
+        name: 'T',
+        type: 'label',
+        source: 'javdb',
+        createdAt: 100,
+        updatedAt: 500,
+        deletedAt: 500,
+      },
+    };
+    await store.applyRemote([tombEntity]);
+    const written = (idbMock.bulk.lists as Array<Record<string, unknown>>).find(
+      (r) => r.id === 'list-tomb',
+    );
+    expect(written).toMatchObject({ id: 'list-tomb', deletedAt: 500 });
+    expect(idbMock.listsDelete).not.toHaveBeenCalled();
+
+    await store.applyRemote([tombEntity]);
+    expect(idbMock.listsDelete).not.toHaveBeenCalled();
+    expect(
+      (idbMock.bulk.lists as Array<Record<string, unknown>>).filter((r) => r.id === 'list-tomb'),
+    ).toHaveLength(2);
+  });
+
 });
