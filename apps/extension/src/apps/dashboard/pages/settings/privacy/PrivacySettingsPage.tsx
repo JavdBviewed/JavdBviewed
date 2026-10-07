@@ -210,77 +210,85 @@ export function PrivacySettingsPage() {
 
             <SettingToggleRow
               id="contentPagesScreenshotEnabled"
-              label="普通内容页截图模糊（JavDB / JavBus）"
+              label="普通内容页截图模糊（JavDB）"
               description="仅模糊影片、搜索和演员内容，不启用锁屏或密码保护。"
               checked={form.contentPagesScreenshotEnabled}
               onChange={(v) => void onContentPagesScreenshotToggle(v)}
             />
 
-            <SettingToggleRow
-              id="contentPagesBlurTitles"
-              label="模糊影片标题"
-              description="仅内容页截图模糊启用时生效。"
-              checked={form.contentPagesBlurTitles}
-              onChange={(v) => void onContentPagesBlurTitlesToggle(v)}
-            />
-
-            <SettingToggleRow
-              id="contentPagesBlurImages"
-              label="模糊影片图片"
-              description="仅内容页截图模糊启用时生效。"
-              checked={form.contentPagesBlurImages}
-              onChange={(v) => void onContentPagesBlurImagesToggle(v)}
-            />
-
-            <SettingField
-              id="blurIntensity"
-              label={
-                <span>
-                  模糊强度: <span id="blurIntensityValue">{form.blurIntensity}</span>
-                </span>
-              }
-              description="范围 1-10，数值越大模糊越强。"
+            {/* 10-23-privacy-popup-toggle-ux：五件套收进视觉嵌套子块（缩进 + 左侧边线 + 浅底子卡）；
+                master 关 或 功能行 关时整体降权（控件仍可点击，逻辑零动） */}
+            <div
+              className={`mt-1 flex flex-col gap-0.5 border-l-2 border-[var(--color-border)] bg-[var(--color-surface-2)] py-2.5 pl-3 pr-1.5 transition-opacity duration-150 ${
+                form.screenshotEnabled && form.contentPagesScreenshotEnabled ? '' : 'opacity-55'
+              }`}
             >
-              <input
+              <SettingToggleRow
+                id="contentPagesBlurTitles"
+                label="模糊影片标题"
+                description="仅内容页截图模糊启用时生效。"
+                checked={form.contentPagesBlurTitles}
+                onChange={(v) => void onContentPagesBlurTitlesToggle(v)}
+              />
+
+              <SettingToggleRow
+                id="contentPagesBlurImages"
+                label="模糊影片图片"
+                description="仅内容页截图模糊启用时生效。"
+                checked={form.contentPagesBlurImages}
+                onChange={(v) => void onContentPagesBlurImagesToggle(v)}
+              />
+
+              <SettingField
                 id="blurIntensity"
-                type="range"
-                min={1}
-                max={10}
-                value={form.blurIntensity}
-                className="w-full accent-[var(--color-primary)]"
-                onChange={(e) => void onBlurIntensity(e.currentTarget.value)}
-              />
-            </SettingField>
+                label={
+                  <span>
+                    模糊强度: <span id="blurIntensityValue">{form.blurIntensity}</span>
+                  </span>
+                }
+                description="范围 1-10，数值越大模糊越强。"
+              >
+                <input
+                  id="blurIntensity"
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={form.blurIntensity}
+                  className="w-full accent-[var(--color-primary)]"
+                  onChange={(e) => void onBlurIntensity(e.currentTarget.value)}
+                />
+              </SettingField>
 
-            <SettingField id="autoBlurTrigger" label="自动模糊触发条件">
-              <SettingSelect
-                id="autoBlurTrigger"
-                value={String(form.autoBlurTrigger)}
-                options={[...AUTO_BLUR_TRIGGER_OPTIONS]}
-                onChange={(v) => void onAutoBlurTrigger(v)}
-              />
-            </SettingField>
+              <SettingField id="autoBlurTrigger" label="自动模糊触发条件">
+                <SettingSelect
+                  id="autoBlurTrigger"
+                  value={String(form.autoBlurTrigger)}
+                  options={[...AUTO_BLUR_TRIGGER_OPTIONS]}
+                  onChange={(v) => void onAutoBlurTrigger(v)}
+                />
+              </SettingField>
 
-            <div className="px-2 py-2">
-              <div className="mb-2 text-[13.5px] font-semibold text-[var(--color-fg)]">
-                选择要模糊的区域
-              </div>
-              <div className="grid gap-1 sm:grid-cols-2">
-                {BLUR_AREA_OPTIONS.map((opt) => (
-                  <label
-                    key={opt.id}
-                    className="flex items-center gap-2 rounded-[var(--radius-2)] px-2 py-1.5 text-[13px] text-[var(--color-fg)] hover:bg-[var(--color-surface-2)]"
-                  >
-                    <input
-                      id={opt.id}
-                      type="checkbox"
-                      data-area={opt.area}
-                      checked={form.blurAreas.includes(opt.area)}
-                      onChange={(e) => void onBlurArea(opt.area, e.currentTarget.checked)}
-                    />
-                    {opt.label}
-                  </label>
-                ))}
+              <div className="px-2 py-2">
+                <div className="mb-2 text-[13.5px] font-semibold text-[var(--color-fg)]">
+                  选择要模糊的区域
+                </div>
+                <div className="grid gap-1 sm:grid-cols-2">
+                  {BLUR_AREA_OPTIONS.map((opt) => (
+                    <label
+                      key={opt.id}
+                      className="flex items-center gap-2 rounded-[var(--radius-2)] px-2 py-1.5 text-[13px] text-[var(--color-fg)] hover:bg-[var(--color-surface-2)]"
+                    >
+                      <input
+                        id={opt.id}
+                        type="checkbox"
+                        data-area={opt.area}
+                        checked={form.blurAreas.includes(opt.area)}
+                        onChange={(e) => void onBlurArea(opt.area, e.currentTarget.checked)}
+                      />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
               </div>
             </div>
           </SettingSection>
