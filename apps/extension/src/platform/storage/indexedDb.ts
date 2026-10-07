@@ -625,12 +625,33 @@ export async function listsGetAll(): Promise<ListRecord[]> {
 
 export async function listsClear(): Promise<void> {
   const db = await initDB();
-  await db.clear('lists');
+  const all = (await db.getAll('lists')) as ListRecord[];
+  if (!all.length) return;
+  // 软删语义（对齐 viewed/actor）：逐条墓碑 + 批量云墓碑入队；不再 db.clear（否则本地不留墓碑、云端无从得知「删除」）
+  const now = Date.now();
+  const tombstones: ListRecord[] = all.map((r) => ({ ...r, deletedAt: now, updatedAt: now }));
+  for (const t of tombstones) await db.put('lists', t);
+  try {
+    const { scheduleEnqueue, enqueueListDeletions } = await import('../../features/cloudSync/enqueueLocalChange');
+    scheduleEnqueue(() => enqueueListDeletions(tombstones));
+  } catch { /* Cloud 可选 */ }
 }
 
+/**
+ * 软删（对齐 viewed/actor）：保留记录补 deletedAt；抬 updatedAt 使墓碑在服务端 LWW 下确定性最新
+ * （list 无回收站 UI，防幽灵复活）；入队带顶层 deletedAt 的墓碑实体
+ */
 export async function listsDelete(id: string): Promise<void> {
   const db = await initDB();
-  await db.delete('lists', id);
+  const record = await db.get('lists', id);
+  if (!record) return;
+  const now = Date.now();
+  const tombstone: ListRecord = { ...(record as ListRecord), deletedAt: now, updatedAt: now };
+  await db.put('lists', tombstone);
+  try {
+    const { scheduleEnqueue, enqueueListDeletions } = await import('../../features/cloudSync/enqueueLocalChange');
+    scheduleEnqueue(() => enqueueListDeletions([tombstone]));
+  } catch { /* Cloud 可选 */ }
 }
 
 /**
@@ -645,7 +666,8 @@ function normalizeListRecord(r: any): ListRecord {
  */
 export async function listsGetAllNormalized(): Promise<ListRecord[]> {
   const records = await listsGetAll();
-  return records.map(normalizeListRecord);
+  // 10-25：读面过滤软删（墓碑）记录；raw listsGetAll 保留真相源（collect 需要墓碑实体）
+  return records.filter((r) => !r?.deletedAt).map(normalizeListRecord);
 }
 
 /**
@@ -653,7 +675,7 @@ export async function listsGetAllNormalized(): Promise<ListRecord[]> {
  */
 export async function listsGetNormalized(id: string): Promise<ListRecord | undefined> {
   const record = await listsGet(id);
-  if (!record) return undefined;
+  if (!record || record.deletedAt) return undefined;
   return normalizeListRecord(record);
 }
 
@@ -665,7 +687,8 @@ export async function listsGetBySource(source: 'javdb' | 'local'): Promise<ListR
   const idx = db.transaction('lists').store.index('by_source');
   // @ts-ignore
   const records = await idx.getAll(IDBKeyRange.only(source));
-  return records.map(normalizeListRecord);
+  // 10-25：读面过滤软删（墓碑）记录
+  return records.filter((r) => !r?.deletedAt).map(normalizeListRecord);
 }
 
 /** viewedPatchListIds 结果 */

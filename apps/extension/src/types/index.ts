@@ -142,6 +142,7 @@ export interface ListRecord {
   url?: string;
   createdAt: number;
   updatedAt: number;
+  deletedAt?: number;                                 // 软删时间（10-25：云同步墓碑，对齐 VideoRecord/ActorRecord）
 }
 
 // ============================================================

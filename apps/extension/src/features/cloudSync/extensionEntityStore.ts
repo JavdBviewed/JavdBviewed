@@ -18,7 +18,6 @@ import {
   actorsGet,
   initDB,
   listsBulkPut,
-  listsDelete,
   listsGet,
   newWorksBulkPut,
   newWorksDelete,
@@ -229,7 +228,11 @@ export async function collectLocalSyncEntities(): Promise<SyncEntity[]> {
     const lists = (await db.getAll('lists')) as ListRecord[];
     for (const l of lists) {
       if (!l?.id) continue;
-      out.push(toEntity('list', String(l.id), l, Number(l.updatedAt) || Number(l.createdAt) || Date.now()));
+      const ts = Number(l.updatedAt) || Number(l.createdAt) || Date.now();
+      const entity = toEntity('list', String(l.id), l, ts);
+      // 软删清单补顶层 deletedAt：服务端墓碑稳定，全量/增量同内容推送 merged no-op（幂等）
+      if (l.deletedAt) entity.deletedAt = l.deletedAt;
+      out.push(entity);
     }
   } catch {
     // 忽略：本地资产缺失不阻断全量同步
@@ -342,13 +345,7 @@ export async function collectLocalSyncEntities(): Promise<SyncEntity[]> {
   return out;
 }
 
-/** 本地清单/新作品为硬删除语义：远端墓碑批量删除 */
-async function listsDeleteMany(ids: string[]): Promise<void> {
-  for (const id of ids) {
-    await listsDelete(id);
-  }
-}
-
+/** 本地新作品为硬删除语义：远端墓碑批量删除 */
 async function newWorksDeleteMany(ids: string[]): Promise<void> {
   for (const id of ids) {
     await newWorksDelete(id);
@@ -520,7 +517,6 @@ export function createExtensionEntityStore(): LocalEntityStore {
       const actors: ActorRecord[] = [];
       const lists: ListRecord[] = [];
       const works: NewWorkRecord[] = [];
-      const listDeletes: string[] = [];
       const workDeletes: string[] = [];
       const others: SyncEntity[] = [];
 
@@ -534,12 +530,10 @@ export function createExtensionEntityStore(): LocalEntityStore {
           if (e.deletedAt) rec.deletedAt = e.deletedAt;
           actors.push(rec);
         } else if (e.type === 'list') {
-          if (e.deletedAt) {
-            // 本地清单是硬删除语义：远端墓碑直接删除
-            listDeletes.push(e.id);
-          } else {
-            lists.push({ ...(asRecord(e.payload) as unknown as ListRecord), id: e.id });
-          }
+          // 软删语义（对齐 video/actor）：远端墓碑本地软写回；同 id 新 put 覆盖即复活（LWW）
+          const rec: ListRecord = { ...(asRecord(e.payload) as unknown as ListRecord), id: e.id };
+          if (e.deletedAt) rec.deletedAt = e.deletedAt;
+          lists.push(rec);
         } else if (e.type === 'new_work') {
           if (e.deletedAt) {
             // 本地新作品是硬删除语义：远端墓碑直接删除
@@ -559,7 +553,6 @@ export function createExtensionEntityStore(): LocalEntityStore {
       if (actors.length) await actorsBulkPut(actors, { skipCloudEnqueue: true });
       if (lists.length) await listsBulkPut(lists, { skipCloudEnqueue: true });
       if (works.length) await newWorksBulkPut(works, { skipCloudEnqueue: true });
-      if (listDeletes.length) await listsDeleteMany(listDeletes);
       if (workDeletes.length) await newWorksDeleteMany(workDeletes);
       for (const e of others) {
         await applyOne(e);

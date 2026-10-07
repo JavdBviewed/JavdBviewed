@@ -75,7 +75,7 @@ describe('createExtensionEntityStore().applyRemote', () => {
     );
   });
 
-  it('hard-deletes list/new_work tombstones (local hard-delete semantics) without bulkPut', async () => {
+  it('soft-writes-back list tombstones, hard-deletes new_work tombstones (10-25: list 对齐 viewed/actor 软删)', async () => {
     const { createExtensionEntityStore } = await import('./extensionEntityStore');
     const store = createExtensionEntityStore();
 
@@ -84,9 +84,15 @@ describe('createExtensionEntityStore().applyRemote', () => {
       { type: 'new_work', id: 'nw-del-1', payload: { title: 'W' }, updatedAt: 1, deletedAt: 2 },
     ]);
 
-    expect(spies.listsBulkPut).not.toHaveBeenCalled();
+    // list：远端墓碑软写回（保留墓碑实体），listsDelete 零调用
+    expect(spies.listsBulkPut).toHaveBeenCalledTimes(1);
+    expect(spies.listsBulkPut).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: 'list-del-1', title: 'L', deletedAt: 2 })],
+      { skipCloudEnqueue: true },
+    );
+    expect(spies.listsDelete).not.toHaveBeenCalled();
+    // new_work：本地硬删除语义不变
     expect(spies.newWorksBulkPut).not.toHaveBeenCalled();
-    expect(spies.listsDelete).toHaveBeenCalledWith('list-del-1');
     expect(spies.newWorksDelete).toHaveBeenCalledWith('nw-del-1');
   });
 });
