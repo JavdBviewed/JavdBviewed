@@ -11,7 +11,8 @@ import { actorIndexSnapshot } from './actorIndexSnapshot';
 import { handleInsightsMessage } from './dbInsightsMessageHandlers';
 import { handleLogMessage } from './dbLogMessageHandlers';
 import { handleMagnetPushLogMessage } from './dbMagnetPushLogMessageHandlers';
-import { handleGetAllTags } from './dbTagsMessageHandlers';
+import { handleGetAllTags, getLegacyViewedRecordsFromStorage } from './dbTagsMessageHandlers';
+import { migrateViewedBatch } from '../../platform/storage/migrations';
 
 export function registerDbMessageRouter(): void {
   try { initDB().catch(() => {}); } catch {}
@@ -23,6 +24,21 @@ export function registerDbMessageRouter(): void {
         const record = message?.payload?.record;
         idbViewedPut(record).then((result) => sendResponse(result))
           .catch((e) => sendResponse({ success: false, error: e?.message || 'idb put failed' }));
+        return true; // async
+      }
+      if (message.type === 'DB:VIEWED_FALLBACK_MIGRATE') {
+        // 10-08 兜底：IDB viewed 空 + 老键有数据（旗标已置后数据同步/备份恢复写入老键）→ 补迁移并置旗标
+        (async () => {
+          const total = await idbViewedCount().catch(() => 0);
+          if (total > 0) return { success: true, migrated: 0 };
+          const legacy = await getLegacyViewedRecordsFromStorage();
+          const records = Object.values(legacy) as Array<Record<string, any>>;
+          if (records.length === 0) return { success: true, migrated: 0 };
+          const migrated = await migrateViewedBatch(records);
+          return { success: true, migrated };
+        })()
+          .then((result) => sendResponse(result))
+          .catch((e) => sendResponse({ success: false, error: e?.message || 'fallback migrate failed' }));
         return true; // async
       }
       if (message.type === 'DB:VIEWED_BULK_PUT') {

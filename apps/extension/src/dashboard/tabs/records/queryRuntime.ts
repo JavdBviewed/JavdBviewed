@@ -39,6 +39,8 @@ export interface CreateRecordsQueryRuntimeOptions {
     total: number;
     durationMs: number;
   }>;
+  /** 10-08：IDB 兜底补迁移（best-effort），resolve 迁移条数；不注入则行为不变 */
+  fallbackMigrate?: () => Promise<number>;
 }
 
 export interface RecordsQueryRuntime {
@@ -51,6 +53,8 @@ export interface RecordsQueryRuntime {
 export function createRecordsQueryRuntime(options: CreateRecordsQueryRuntimeOptions): RecordsQueryRuntime {
   const loadServerPage = options.loadServerPage || loadRecordsServerPage;
   let requestGeneration = 0;
+  // 10-08：per-tab 实例一次性兜底守卫（同一 runtime 实例至多触发一次，防循环）
+  let fallbackAttempted = false;
 
   const isCurrentRequest = (generation: number): boolean => (
     generation === requestGeneration && (options.isActive?.() ?? true)
@@ -93,6 +97,25 @@ export function createRecordsQueryRuntime(options: CreateRecordsQueryRuntimeOpti
 
       // 页面切走后，旧查询结果不得重新装配列表和图片。
       if (!isCurrentRequest(generation)) return;
+
+      // 10-08 兜底：第 1 页 + 0 行 + 本实例未触发过 → 尝试 IDB 空/老键有数据的补迁移，成功后重查一次
+      if (
+        pageResult.items.length === 0
+        && options.getCurrentPage() === 1
+        && !fallbackAttempted
+        && typeof options.fallbackMigrate === 'function'
+      ) {
+        fallbackAttempted = true;
+        let migrated = 0;
+        try {
+          migrated = await options.fallbackMigrate();
+        } catch {
+          migrated = 0;
+        }
+        if (migrated > 0 && isCurrentRequest(generation)) {
+          return renderServerPage();
+        }
+      }
 
       options.setLastQueryDurationMs(pageResult.durationMs);
       options.setServerPageItems(pageResult.items);

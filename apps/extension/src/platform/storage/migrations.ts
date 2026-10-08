@@ -13,6 +13,24 @@ import { initDB, viewedBulkPut as idbViewedBulkPut, viewedCount as idbViewedCoun
 import { getValue, setValue } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../utils/config';
 
+/**
+ * 10-08：兜底补迁移主体（启动路径与 DB:VIEWED_FALLBACK_MIGRATE 路由复用）。
+ * - 将 viewed 记录按 500 条分批写入 IDB，末尾置 idb_migrated 旗标（保持启动路径「首次 0 条也置旗标」语义；兜底路由仅在老键非空时调用本函数）
+ * - 写入失败向上抛：启动路径吞掉（不阻塞扩展启动），路由侧响应 success:false
+ */
+export async function migrateViewedBatch(records: any[]): Promise<number> {
+  await initDB();
+  const all = records || [];
+  const BATCH = 500;
+  for (let i = 0; i < all.length; i += BATCH) {
+    const slice = all.slice(i, i + BATCH);
+    await idbViewedBulkPut(slice);
+    console.info('[Background] Migrated batch', { from: i, to: Math.min(i + BATCH, all.length) });
+  }
+  await setValue(STORAGE_KEYS.IDB_MIGRATED, true);
+  return all.length;
+}
+
 async function ensureIDBMigrated(): Promise<void> {
   try {
     await initDB();
@@ -23,21 +41,14 @@ async function ensureIDBMigrated(): Promise<void> {
     const all = Object.values(viewedObj || {});
     console.info('[Background] Starting initial migration to IndexedDB...', { count: all.length });
 
-    const BATCH = 500;
-    for (let i = 0; i < all.length; i += BATCH) {
-      const slice = all.slice(i, i + BATCH);
-      await idbViewedBulkPut(slice);
-      console.info('[Background] Migrated batch', { from: i, to: Math.min(i + BATCH, all.length) });
-    }
-
-
-    await setValue(STORAGE_KEYS.IDB_MIGRATED, true);
+    await migrateViewedBatch(all);
     const cnt = await idbViewedCount().catch(() => -1);
     console.info('[Background] Migration finished', { total: all.length, idbCount: cnt });
   } catch (e) {
     console.warn('[Background] Migration failed (will not block extension)', (e as any)?.message);
   }
 }
+
 
 async function ensureIDBLogsMigrated(): Promise<void> {
   try {

@@ -3,7 +3,7 @@ import { VIDEO_STATUS, STORAGE_KEYS } from '../../utils/config';
 import type { VideoRecord, VideoStatus } from '../../types';
 import { showMessage } from '../ui/toast';
 import { showConfirmationModal } from '../ui/modal';
-import { dbViewedPage, dbViewedStats, dbViewedDelete, dbViewedBulkDelete, dbViewedQuery, dbViewedPut, dbViewedGet } from '../dbClient';
+import { dbViewedPage, dbViewedStats, dbViewedDelete, dbViewedBulkDelete, dbViewedQuery, dbViewedPut, dbViewedGet, dbViewedFallbackMigrate } from '../dbClient';
 import { dbListsGetAllNormalized, dbViewedPatchList, dbViewedBulkPatchList } from '../dbClient';
 import {
     parseRecordsSearchTokens,
@@ -488,6 +488,8 @@ export function initRecordsTab(): void {
         renderPagination,
         updateSearchResultCount,
         showMessage,
+        // 10-08：IDB 分页路径首屏 0 行时兜底补迁移（老键有数据→IDB），一次性、best-effort
+        fallbackMigrate: async () => (await dbViewedFallbackMigrate()).migrated,
         isActive: () => recordsActive,
     });
 
