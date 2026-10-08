@@ -20,7 +20,7 @@ import { reportEmbyPlaybackProgress } from '../domain/embyPlaystate';
 import { fetchEmbyItemDetail } from '../domain/embyItemDetail';
 import { EMBY_LIBRARY_REQUEST_TIMEOUT_MS, fetchWithTimeout } from '../domain/fetchWithTimeout';
 import { embyLog, mediaLog, playerLog } from '../mediaLibraryLogger';
-import { reportWatchProgress } from '../../media/mediaWatchEvidence';
+import { reportWatchProgressWithRecordSourceSync } from '../../media/videoRecordSource';
 import { processPersistedEmbySyncCleanup } from '../../mediaCleanup/mediaCleanupStorage';
 import type {
   EmbyLibraryFolderOption,
@@ -212,7 +212,7 @@ async function saveExternalWatchEvidenceForEntry(input: {
   forceWatched?: boolean;
 }): Promise<void> {
   try {
-    await reportWatchProgress({
+    await reportWatchProgressWithRecordSourceSync({
       code: input.code,
       source: input.entry.serverType,
       sourceItemId: input.entry.itemId,

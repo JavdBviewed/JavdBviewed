@@ -161,6 +161,14 @@ export interface LogEntry {
 /** 视频状态类型 */
 export type VideoStatus = 'viewed' | 'browsed' | 'want' | 'untracked';
 
+/**
+ * 媒体源类型 wire 值（与客户端 SourceType.kt 对齐；仅收录拓展实际会产出的子集）。
+ * 进存储/同步 payload 的值必须是 wire 原文。
+ * - emby/jellyfin：与 EmbyServerType 逐字一致
+ * - m115drive：拓展内部 drive115 的 wire 落值
+ */
+export type VideoRecordSourceWire = 'emby' | 'jellyfin' | 'm115drive';
+
 /** 视频记录 —— IndexedDB `videos` 表的核心数据结构 */
 export interface VideoRecord {
   id: string;
@@ -201,6 +209,16 @@ export interface VideoRecord {
   favoriteIndexed?: number;
   listIds?: string[];                                 // 所属清单 ID 列表
   favoritedAt?: number;                               // 收藏时间戳
+  /** 媒体源类型（wire 值）；仅观看/播放事件源可知时写入，源未知省略，禁猜默认 */
+  sourceType?: VideoRecordSourceWire;
+  /** 提供方侧唯一 id（emby/jellyfin itemId、115 源级 id）；与 sourceType 成对出现 */
+  sourceId?: string;
+  /** 播放进度位置（毫秒）；客户端播放进度心跳写入，缺=无进度，零回补（追加派单 10-08） */
+  positionMs?: number;
+  /** 播放内容总时长（毫秒）；与上方 duration（分钟，详情页元数据）语义不同 */
+  durationMs?: number;
+  /** 观映完成标记；客户端「观映完成」映射协议既有 status='viewed'（无 'watched'，追加派单 10-08） */
+  completed?: boolean;
   enhancedData?: { coverImage?: string; [key: string]: any };
 }
 

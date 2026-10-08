@@ -68,6 +68,7 @@ import {
 import { handleClearAllRecords } from './clearRecordsHandler';
 import { getBackgroundAlarmDiagnosticsSnapshot } from './alarmRouter';
 import { reportWatchProgress } from '../../features/media/mediaWatchEvidence';
+import { syncVideoRecordSourceForCode } from '../../features/media/videoRecordSource';
 
 export { registerEmbyDynamicScripts };
 
@@ -290,6 +291,11 @@ export function registerMiscRouter(): void {
                 fileName: message?.fileName,
                 forceWatched: message?.forceWatched === true,
               });
+              try {
+                await syncVideoRecordSourceForCode(String(message?.code || ''));
+              } catch (error) {
+                console.warn('[videoRecordSource] 媒体源字段写入失败（不影响证据写入）', error);
+              }
               let cleanupAdded = false;
               if (evidence.watched && copyId) {
                 try {
