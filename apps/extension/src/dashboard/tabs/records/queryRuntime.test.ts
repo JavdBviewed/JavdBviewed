@@ -179,4 +179,90 @@ describe('records query runtime', () => {
     expect(options.renderPagination).not.toHaveBeenCalled();
     expect(options.updateSearchResultCount).not.toHaveBeenCalled();
   });
+  // 10-08 兜底补迁移：per-tab 实例一次性守卫（第 1 页 + 0 行触发，重查一次，不循环）
+  describe('IDB 兜底补迁移守卫（10-08）', () => {
+    it('第 1 页 0 行 → 触发一次 fallback，迁移成功后重查一次并出数据', async () => {
+      const loadServerPage = vi.fn()
+        .mockResolvedValueOnce({ items: [], total: 0, durationMs: 1 })
+        .mockResolvedValueOnce({ items: [record('RESTORED-1')], total: 1, durationMs: 2 });
+      const fallbackMigrate = vi.fn().mockResolvedValue(1);
+      const { runtime, options, state } = createRuntime({
+        getCurrentPage: () => 1,
+        loadServerPage,
+        fallbackMigrate,
+      });
+
+      await runtime.renderServerPage();
+
+      expect(fallbackMigrate).toHaveBeenCalledTimes(1);
+      expect(loadServerPage).toHaveBeenCalledTimes(2);
+      expect(state.serverPageItems.map((item) => item.id)).toEqual(['RESTORED-1']);
+      expect(state.serverTotal).toBe(1);
+      // 重查路径：首趟 0 行不渲染（防闪烁），仅重查后渲染一次
+      expect(options.renderVideoList).toHaveBeenCalledTimes(1);
+    });
+
+    it('migrated=0 → 不重查；同实例二次进入不再触发（一次性守卫）', async () => {
+      const loadServerPage = vi.fn().mockResolvedValue({ items: [], total: 0, durationMs: 1 });
+      const fallbackMigrate = vi.fn().mockResolvedValue(0);
+      const { runtime } = createRuntime({ getCurrentPage: () => 1, loadServerPage, fallbackMigrate });
+
+      await runtime.renderServerPage();
+      await runtime.renderServerPage();
+
+      // 两次显式进入各查一次；fallback 不产生额外重查
+      expect(fallbackMigrate).toHaveBeenCalledTimes(1);
+      expect(loadServerPage).toHaveBeenCalledTimes(2);
+    });
+
+    it('非第 1 页 0 行 → 不触发 fallback', async () => {
+      const loadServerPage = vi.fn().mockResolvedValue({ items: [], total: 0, durationMs: 1 });
+      const fallbackMigrate = vi.fn().mockResolvedValue(5);
+      const { runtime } = createRuntime({ loadServerPage, fallbackMigrate }); // 默认 getCurrentPage=2
+
+      await runtime.renderServerPage();
+
+      expect(fallbackMigrate).not.toHaveBeenCalled();
+      expect(loadServerPage).toHaveBeenCalledTimes(1);
+    });
+
+    it('新实例（新 tab）→ 允许再次触发（per-tab 语义）', async () => {
+      const loadServerPageA = vi.fn().mockResolvedValue({ items: [], total: 0, durationMs: 1 });
+      const fallbackMigrateA = vi.fn().mockResolvedValue(0);
+      const first = createRuntime({ getCurrentPage: () => 1, loadServerPage: loadServerPageA, fallbackMigrate: fallbackMigrateA });
+      await first.runtime.renderServerPage();
+
+      const loadServerPageB = vi.fn().mockResolvedValue({ items: [], total: 0, durationMs: 1 });
+      const fallbackMigrateB = vi.fn().mockResolvedValue(0);
+      const second = createRuntime({ getCurrentPage: () => 1, loadServerPage: loadServerPageB, fallbackMigrate: fallbackMigrateB });
+      await second.runtime.renderServerPage();
+
+      expect(fallbackMigrateA).toHaveBeenCalledTimes(1);
+      expect(fallbackMigrateB).toHaveBeenCalledTimes(1);
+    });
+
+    it('fallbackMigrate 未注入 → 空页行为不变（无报错、不重查）', async () => {
+      const loadServerPage = vi.fn().mockResolvedValue({ items: [], total: 0, durationMs: 1 });
+      const { runtime, options, state } = createRuntime({ getCurrentPage: () => 1, loadServerPage });
+
+      await runtime.renderServerPage();
+
+      expect(loadServerPage).toHaveBeenCalledTimes(1);
+      expect(state.serverPageItems).toEqual([]);
+      expect(options.showMessage).not.toHaveBeenCalled();
+    });
+
+    it('fallbackMigrate 抛错 → 静默降级为普通空页渲染（best-effort）', async () => {
+      const loadServerPage = vi.fn().mockResolvedValue({ items: [], total: 0, durationMs: 1 });
+      const fallbackMigrate = vi.fn().mockRejectedValue(new Error('sw offline'));
+      const { runtime, options, state } = createRuntime({ getCurrentPage: () => 1, loadServerPage, fallbackMigrate });
+
+      await runtime.renderServerPage();
+
+      expect(fallbackMigrate).toHaveBeenCalledTimes(1);
+      expect(loadServerPage).toHaveBeenCalledTimes(1);
+      expect(state.serverPageItems).toEqual([]);
+      expect(options.showMessage).not.toHaveBeenCalled();
+    });
+  });
 });

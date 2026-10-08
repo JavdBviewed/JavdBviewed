@@ -164,6 +164,17 @@ export async function dbViewedCount(status?: VideoRecord['status']): Promise<num
   return resp.total || 0;
 }
 
+export interface ViewedFallbackMigrateResult {
+  success: boolean;
+  migrated: number;
+  error?: string;
+}
+
+// 10-08：IDB viewed 空 + 老键有数据 → 后台补迁移（幂等、一次性），返回迁移条数
+export async function dbViewedFallbackMigrate(): Promise<ViewedFallbackMigrateResult> {
+  return sendMessage<ViewedFallbackMigrateResult>('DB:VIEWED_FALLBACK_MIGRATE');
+}
+
 export async function dbViewedPage(params: ViewedPageParams): Promise<{ items: VideoRecord[]; total: number }>{
   const resp = await sendMessage<{ success: true; items: VideoRecord[]; total: number }>('DB:VIEWED_PAGE', params);
   // @ts-ignore
