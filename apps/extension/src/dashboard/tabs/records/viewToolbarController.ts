@@ -1,3 +1,8 @@
+import {
+  MEDIA_STATE_SELECT_VALUES,
+  isMediaStateSelectValue,
+} from './filterModel';
+
 export type RecordsViewMode = 'list' | 'card';
 
 export interface CreateRecordsViewToolbarControllerOptions {
@@ -15,18 +20,12 @@ export interface CreateRecordsViewToolbarControllerOptions {
   onFilterChanged: () => void;
   onRender: () => void;
   /**
-   * 媒体库状态筛选 chip（10-24，可选）：server 分页模式下 disabled + 降级 tooltip。
-   * 降级态点击不生效；激活态切换后回调 onMediaStateFilterToggled（触发索引懒载）+ onFilterChanged。
+   * 媒体库状态筛选（10-08 换绑 #filterSelect）：server 分页模式下两媒体 option disabled。
+   * false = server 分页模式（禁用）。缺省视为可用。
    */
-  mediaLibraryButton?: HTMLButtonElement | null;
-  realWatchedButton?: HTMLButtonElement | null;
-  getInLibraryActive?: () => boolean;
-  setInLibraryActive?: (active: boolean) => void;
-  getRealWatchedActive?: () => boolean;
-  setRealWatchedActive?: (active: boolean) => void;
-  /** false = server 分页模式（chip 禁用）。缺省视为可用。 */
   getMediaStateFilterEnabled?: () => boolean;
-  onMediaStateFilterToggled?: () => void;
+  /** #filterSelect（含 optgroup「媒体库」两 option）：server 模式置 disabled。 */
+  filterSelect?: HTMLSelectElement | null;
 }
 
 export interface RecordsViewToolbarController {
@@ -76,19 +75,15 @@ function updateFavoritesButton(button: HTMLButtonElement | null | undefined, act
   button.title = active ? '取消收藏筛选' : '只看收藏番号';
 }
 
-function updateMediaStateButton(
-  button: HTMLButtonElement | null | undefined,
-  active: boolean,
+function updateMediaStateOptions(
+  filterSelect: HTMLSelectElement | null | undefined,
   enabled: boolean,
-  idleTitle: string,
-  activeTitle: string,
 ): void {
-  if (!button) return;
-  const shownActive = active && enabled;
-  button.classList.toggle('active', shownActive);
-  button.disabled = !enabled;
-  button.setAttribute('aria-pressed', String(shownActive));
-  button.title = !enabled ? '媒体库状态筛选仅本地模式可用' : (shownActive ? activeTitle : idleTitle);
+  if (!filterSelect) return;
+  for (const value of MEDIA_STATE_SELECT_VALUES) {
+    const option = Array.from(filterSelect.options).find(item => item.value === value) as HTMLOptionElement | undefined;
+    if (option) option.disabled = !enabled;
+  }
 }
 
 export function createRecordsViewToolbarController(
@@ -101,20 +96,7 @@ export function createRecordsViewToolbarController(
     updateViewModeButton(options.toggleViewModeBtn, options.videoList, options.getViewMode());
     updateFavoritesButton(options.favoritesButton, options.getFavoritesActive());
     const enabled = mediaStateEnabled();
-    updateMediaStateButton(
-      options.mediaLibraryButton,
-      options.getInLibraryActive?.() ?? false,
-      enabled,
-      '仅看媒体库已入库',
-      '取消「已入库」筛选',
-    );
-    updateMediaStateButton(
-      options.realWatchedButton,
-      options.getRealWatchedActive?.() ?? false,
-      enabled,
-      '仅看媒体库真实已看',
-      '取消「真实已看」筛选',
-    );
+    updateMediaStateOptions(options.filterSelect, enabled);
   };
 
   const bind = () => {
@@ -143,32 +125,22 @@ export function createRecordsViewToolbarController(
       options.onFilterChanged();
     });
 
-    const bindMediaStateButton = (
-      button: HTMLButtonElement | null | undefined,
-      isActive: () => boolean,
-      setActive: (active: boolean) => void,
-    ): void => {
-      if (!button) return;
-      button.addEventListener('click', () => {
-        if (!mediaStateEnabled()) return;
-        const next = !isActive();
-        setActive(next);
-        update();
-        options.onFilterChanged();
-        options.onMediaStateFilterToggled?.();
-      });
-    };
-    bindMediaStateButton(
-      options.mediaLibraryButton,
-      () => options.getInLibraryActive?.() ?? false,
-      (active) => options.setInLibraryActive?.(active),
-    );
-    bindMediaStateButton(
-      options.realWatchedButton,
-      () => options.getRealWatchedActive?.() ?? false,
-      (active) => options.setRealWatchedActive?.(active),
-    );
   };
 
   return { bind, update };
+}
+
+/**
+ * 10-24 自保语义（10-08 换绑 #filterSelect）：进入 server 分页模式时当前值为媒体库项
+ * → 复位 'all'（媒体库状态筛选仅本地模式可用）。返回是否发生复位（调用方负责 toast）。
+ * 结构化类型不绑 DOM：单测可喂 { value } 普通对象。
+ */
+export function applyServerModeMediaStateReset(
+  filterSelect: { value: string } | null | undefined,
+  enteringServer: boolean,
+): boolean {
+  if (!enteringServer || !filterSelect) return false;
+  if (!isMediaStateSelectValue(filterSelect.value)) return false;
+  filterSelect.value = 'all';
+  return true;
 }

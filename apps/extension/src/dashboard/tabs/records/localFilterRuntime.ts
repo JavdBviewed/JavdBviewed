@@ -5,6 +5,7 @@ import {
   type UpdateRecordsLocalFilterStateResult,
 } from './localFilterUpdater';
 import type { MediaStateHit } from './mediaStateFilterModel';
+import { parseMediaStateSelectValue } from './filterModel';
 
 type UpdateLocalFilterState = typeof updateRecordsLocalFilterState;
 
@@ -80,7 +81,7 @@ export function createRecordsLocalFilterRuntime(
       const records = options.getRecords();
       const result = updateLocalFilterState({
         searchText: options.searchInput.value,
-        filterValue: options.filterSelect.value as VideoRecord['status'] | 'all',
+        filterValue: parseMediaStateSelectValue(options.filterSelect.value).status,
         sortValue: options.sortSelect.value,
         records: Array.isArray(records) ? records : [],
         selectedTags: options.selectedTags,

@@ -60,6 +60,7 @@ export function createRecordsLifecycleRuntime(
       syncDropdownBackdrop: options.syncDropdownBackdrop,
       triggerSuggest: options.triggerSuggest,
       triggerFilter: options.triggerFilter,
+      onFilterSelectChanged: options.onFilterSelectChanged,
       viewToolbar: options.viewToolbar,
       batchToolbar: options.batchToolbar,
       searchSuggest: options.searchSuggest,

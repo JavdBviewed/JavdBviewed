@@ -149,6 +149,38 @@ function sortRecords(records: VideoRecord[], sortValue: string): VideoRecord[] {
   });
 }
 
+/**
+ * #filterSelect 媒体库状态项值域（10-08：chip 按钮 → 下拉 optgroup「媒体库」）。
+ * 单一事实源：records.html 的 option value、映射、自保判定、disabled 面均从此取。
+ */
+export const MEDIA_STATE_SELECT_VALUES = ['inLibrary', 'realWatched'] as const;
+export type MediaStateSelectValue = (typeof MEDIA_STATE_SELECT_VALUES)[number];
+
+export function isMediaStateSelectValue(value: string | null | undefined): value is MediaStateSelectValue {
+  return value === 'inLibrary' || value === 'realWatched';
+}
+
+export interface ParsedMediaStateSelectValue {
+  /** 媒体项 → 'all'（媒体维度不吞状态谓词，谓词口径零改）；其余值原样透传。 */
+  status: 'all' | VideoStatus;
+  inLibraryFilterActive: boolean;
+  realWatchedFilterActive: boolean;
+}
+
+/**
+ * #filterSelect 值 → (status, 媒体库双开关) 映射（10-08）。
+ * 单选互斥由 select 结构天然保证（同时只有一个值）；「所有状态」=复位项。
+ */
+export function parseMediaStateSelectValue(value: string | null | undefined): ParsedMediaStateSelectValue {
+  if (value === 'inLibrary') {
+    return { status: 'all', inLibraryFilterActive: true, realWatchedFilterActive: false };
+  }
+  if (value === 'realWatched') {
+    return { status: 'all', inLibraryFilterActive: false, realWatchedFilterActive: true };
+  }
+  return { status: (value || 'all') as 'all' | VideoStatus, inLibraryFilterActive: false, realWatchedFilterActive: false };
+}
+
 export function filterAndSortRecords(input: FilterAndSortRecordsInput): VideoRecord[] {
   const searchTerm = input.searchTerm.toLowerCase();
   const records = Array.isArray(input.records) ? input.records : [];

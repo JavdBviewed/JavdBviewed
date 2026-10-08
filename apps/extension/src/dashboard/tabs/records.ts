@@ -10,7 +10,8 @@ import {
 } from './records/searchQueryModel';
 import { createRecordsCoverRuntimeController } from './records/coverRuntimeController';
 import { createRecordsAdvancedConditionsController } from './records/advancedConditionsController';
-import { createRecordsViewToolbarController } from './records/viewToolbarController';
+import { applyServerModeMediaStateReset, createRecordsViewToolbarController } from './records/viewToolbarController';
+import { isMediaStateSelectValue, parseMediaStateSelectValue } from './records/filterModel';
 import { createRecordsBatchSelectionController } from './records/batchSelectionController';
 import { createRecordsExportController } from './records/exportController';
 import { createRecordsSearchSuggestController } from './records/searchSuggestController';
@@ -125,14 +126,11 @@ export function initRecordsTab(): void {
         toggleCoversBtn,
         toggleViewModeBtn,
         myFavoritesBtn,
-        mediaLibraryFilterBtn,
-        realWatchedFilterBtn,
         batchImportBtn,
     } = pageElements.toolbar;
     let currentViewMode: 'list' | 'card' = STATE.settings.recordsViewMode || 'list'; // 从设置中读取，默认列表视图
     let favoritesFilterActive = false;
-    let inLibraryFilterActive = false;
-    let realWatchedFilterActive = false;
+    // 10-08：媒体库状态筛选并入 #filterSelect（optgroup 媒体库），激活态=select 值派生，无独立 flag
 
     const coverRuntimeController = createRecordsCoverRuntimeController({
         fallbackUrl: chrome.runtime.getURL('assets/alternate-search.png'),
@@ -404,20 +402,8 @@ export function initRecordsTab(): void {
         setFavoritesActive: (active) => {
             favoritesFilterActive = active;
         },
-        mediaLibraryButton: mediaLibraryFilterBtn,
-        realWatchedButton: realWatchedFilterBtn,
-        getInLibraryActive: () => inLibraryFilterActive,
-        setInLibraryActive: (active) => {
-            inLibraryFilterActive = active;
-        },
-        getRealWatchedActive: () => realWatchedFilterActive,
-        setRealWatchedActive: (active) => {
-            realWatchedFilterActive = active;
-        },
+        filterSelect,
         getMediaStateFilterEnabled: () => !serverModeActive,
-        onMediaStateFilterToggled: () => {
-            void mediaStateFilterRuntime?.ensureLoaded();
-        },
         persistSettings: () => {
             chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: STATE.settings });
         },
@@ -467,10 +453,8 @@ export function initRecordsTab(): void {
         setServerModeActive: (active) => {
             const enteringServer = active && !serverModeActive;
             serverModeActive = active;
-            // 10-24 自保：切入 server 分页模式时清除激活的媒体库状态筛选，防「看着滤了实际没滤」
-            if (enteringServer && (inLibraryFilterActive || realWatchedFilterActive)) {
-                inLibraryFilterActive = false;
-                realWatchedFilterActive = false;
+            // 10-24 自保（10-08 换绑 #filterSelect）：切入 server 分页模式时当前值为媒体库项 → 复位 all
+            if (applyServerModeMediaStateReset(filterSelect, enteringServer)) {
                 showMessage('媒体库状态筛选仅本地模式可用，已关闭相关筛选', 'info');
             }
             viewToolbarController.update();
@@ -499,10 +483,8 @@ export function initRecordsTab(): void {
         setServerModeActive: (active) => {
             const enteringServer = active && !serverModeActive;
             serverModeActive = active;
-            // 10-24 自保：切入 server 分页模式时清除激活的媒体库状态筛选，防「看着滤了实际没滤」
-            if (enteringServer && (inLibraryFilterActive || realWatchedFilterActive)) {
-                inLibraryFilterActive = false;
-                realWatchedFilterActive = false;
+            // 10-24 自保（10-08 换绑 #filterSelect）：切入 server 分页模式时当前值为媒体库项 → 复位 all
+            if (applyServerModeMediaStateReset(filterSelect, enteringServer)) {
                 showMessage('媒体库状态筛选仅本地模式可用，已关闭相关筛选', 'info');
             }
             viewToolbarController.update();
@@ -535,8 +517,9 @@ export function initRecordsTab(): void {
 
     mediaStateFilterRuntime = createMediaStateFilterRuntime({
         getRecords: () => STATE.records,
-        getInLibraryActive: () => inLibraryFilterActive,
-        getRealWatchedActive: () => realWatchedFilterActive,
+        // 10-08：触发源换绑 select（runtime 契约零改，派生在线接层）
+        getInLibraryActive: () => parseMediaStateSelectValue(filterSelect?.value).inLibraryFilterActive,
+        getRealWatchedActive: () => parseMediaStateSelectValue(filterSelect?.value).realWatchedFilterActive,
         onIndicesChanged: () => {
             stateRefreshController.resetAndRender();
         },
@@ -796,8 +779,8 @@ export function initRecordsTab(): void {
         getAdvancedConditions: () => advConditions,
         isFavoritesFilterActive: () => favoritesFilterActive,
         getMediaStateHits: () => mediaStateFilterRuntime?.getHits() ?? null,
-        isInLibraryFilterActive: () => inLibraryFilterActive,
-        isRealWatchedFilterActive: () => realWatchedFilterActive,
+        isInLibraryFilterActive: () => parseMediaStateSelectValue(filterSelect?.value).inLibraryFilterActive,
+        isRealWatchedFilterActive: () => parseMediaStateSelectValue(filterSelect?.value).realWatchedFilterActive,
         setFilteredRecords: (records) => {
             filteredRecords = records;
         },
@@ -858,7 +841,7 @@ export function initRecordsTab(): void {
         },
         getFilteredRecords: () => filteredRecords,
         getSearchText: () => (searchInput?.value || '').trim(),
-        getStatus: () => (filterSelect?.value || 'all') as 'all' | VideoStatus,
+        getStatus: () => parseMediaStateSelectValue(filterSelect?.value).status,
         getSort: () => queryRuntime.parseSort(),
         getAdvancedConditions: () => advConditions,
         queryRecords: dbViewedQuery,
@@ -921,6 +904,12 @@ export function initRecordsTab(): void {
         handleExportRecords: () => viewRuntime.handleExportRecords(),
         updateBatchUI,
         debounce,
+        // 10-08：媒体库项选中 → 索引懒载（等价 10-24 chip 的 onMediaStateFilterToggled 触发时机）
+        onFilterSelectChanged: () => {
+            if (isMediaStateSelectValue(filterSelect?.value)) {
+                void mediaStateFilterRuntime?.ensureLoaded();
+            }
+        },
     }).bind();
 
     function handleRecordSelection(recordId: string, isSelected: boolean) {
@@ -934,8 +923,8 @@ export function initRecordsTab(): void {
     recordsLifecycleUnregister = dashboardTabLifecycle.register('tab-records', {
         onActive: () => {
             recordsActive = true;
-            // 10-24：媒体库状态 chip 激活期间回到本 tab → 刷新索引（版本变更则重算重滤）
-            if (inLibraryFilterActive || realWatchedFilterActive) {
+            // 10-24（10-08 换绑 select）：媒体库状态筛选激活期间回到本 tab → 刷新索引（版本变更则重算重滤）
+            if (isMediaStateSelectValue(filterSelect?.value)) {
                 void mediaStateFilterRuntime?.ensureLoaded();
             }
         },

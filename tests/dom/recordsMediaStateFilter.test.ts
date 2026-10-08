@@ -1,18 +1,51 @@
 /**
  * @file recordsMediaStateFilter.test.ts
- * @description records 媒体库状态筛选 chip（10-24）：默认关 / toggle / server 模式降级禁用
+ * @description records 媒体库状态筛选并入 #filterSelect（10-08）：
+ * 选项结构源码锁（7 项+optgroup、all 最前、chip 负锁）/ controller option 禁用面 /
+ * server 自保复位 / 工具栏其余按钮零回归。
  * @module tests/dom
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { createRecordsViewToolbarController } from '../../apps/extension/src/dashboard/tabs/records/viewToolbarController';
+import {
+  applyServerModeMediaStateReset,
+  createRecordsViewToolbarController,
+} from '../../apps/extension/src/dashboard/tabs/records/viewToolbarController';
+
+const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const RECORDS_HTML = join(PROJECT_ROOT, 'apps/extension/src/dashboard/partials/tabs/records.html');
+const RECORDS_CSS = join(PROJECT_ROOT, 'apps/extension/src/dashboard/styles/05-pages/records.css');
+
+function extractFilterSelectBlock(html: string): string {
+  const start = html.indexOf('<select id="filterSelect">');
+  expect(start).toBeGreaterThan(-1);
+  const end = html.indexOf('</select>', start);
+  expect(end).toBeGreaterThan(start);
+  return html.slice(start, end + '</select>'.length);
+}
+
+function optionValuesInBlock(block: string): string[] {
+  return Array.from(block.matchAll(/<option[^>]*value="([^"]*)"/g)).map(match => match[1]);
+}
 
 function setupDom() {
   document.body.innerHTML = `
     <button id="toggleCoversBtn"></button>
     <button id="toggleViewModeBtn"><i class="view-icon"></i><span class="view-text"></span></button>
     <button id="myFavoritesBtn"></button>
-    <button id="mediaLibraryFilterBtn"><i class="fas fa-database"></i> 已入库</button>
-    <button id="realWatchedFilterBtn"><i class="fas fa-check-double"></i> 真实已看</button>
+    <select id="filterSelect">
+      <option value="all">所有状态</option>
+      <option value="untracked">未标记</option>
+      <option value="viewed">已观看</option>
+      <option value="browsed">已浏览</option>
+      <option value="want">我想看</option>
+      <optgroup label="媒体库">
+        <option value="inLibrary">已入库</option>
+        <option value="realWatched">真实已看</option>
+      </optgroup>
+    </select>
     <ul id="videoList"></ul>
   `;
 
@@ -20,19 +53,18 @@ function setupDom() {
     toggleCoversBtn: document.getElementById('toggleCoversBtn') as HTMLButtonElement,
     toggleViewModeBtn: document.getElementById('toggleViewModeBtn') as HTMLButtonElement,
     favoritesButton: document.getElementById('myFavoritesBtn') as HTMLButtonElement,
-    mediaLibraryButton: document.getElementById('mediaLibraryFilterBtn') as HTMLButtonElement,
-    realWatchedButton: document.getElementById('realWatchedFilterBtn') as HTMLButtonElement,
+    filterSelect: document.getElementById('filterSelect') as HTMLSelectElement,
     videoList: document.getElementById('videoList') as HTMLUListElement,
   };
 }
 
+function mediaOptions(filterSelect: HTMLSelectElement): HTMLOptionElement[] {
+  return Array.from(filterSelect.options)
+    .filter(option => option.value === 'inLibrary' || option.value === 'realWatched') as HTMLOptionElement[];
+}
+
 function makeController(overrides: Record<string, unknown> = {}) {
   const elements = setupDom();
-  const state = {
-    inLibraryActive: false,
-    realWatchedActive: false,
-    enabled: true,
-  };
   const controller = createRecordsViewToolbarController({
     ...elements,
     getCoversEnabled: () => false,
@@ -44,161 +76,135 @@ function makeController(overrides: Record<string, unknown> = {}) {
     persistSettings: vi.fn(),
     onFilterChanged: vi.fn(),
     onRender: vi.fn(),
-    mediaLibraryButton: elements.mediaLibraryButton,
-    realWatchedButton: elements.realWatchedButton,
-    getInLibraryActive: () => state.inLibraryActive,
-    setInLibraryActive: (active: boolean) => { state.inLibraryActive = active; },
-    getRealWatchedActive: () => state.realWatchedActive,
-    setRealWatchedActive: (active: boolean) => { state.realWatchedActive = active; },
-    getMediaStateFilterEnabled: () => state.enabled,
-    onMediaStateFilterToggled: vi.fn(),
+    filterSelect: elements.filterSelect,
+    getMediaStateFilterEnabled: () => true,
     ...overrides,
   } as never);
-  return { controller, elements, state, options: (controller as never as Record<string, unknown>) };
+  return { controller, elements };
 }
 
-describe('records 媒体库状态筛选 chip（viewToolbarController）', () => {
-  it('两 chip 在位、默认关、本地模式可点', () => {
+describe('records 媒体库状态筛选 #filterSelect（10-08）', () => {
+  it('records.html 源码锁：7 项、all 最前、媒体库 optgroup 两 option 在位、chip 负锁', () => {
+    const html = readFileSync(RECORDS_HTML, 'utf8');
+
+    // chip 负锁：两独立按钮删净
+    expect(html).not.toContain('mediaLibraryFilterBtn');
+    expect(html).not.toContain('realWatchedFilterBtn');
+
+    const block = extractFilterSelectBlock(html);
+    const values = optionValuesInBlock(block);
+    expect(values).toHaveLength(7);
+    expect(values[0]).toBe('all');
+    expect(values).toContain('inLibrary');
+    expect(values).toContain('realWatched');
+    // 状态五项全保留（既有断言零删减）
+    for (const value of ['untracked', 'viewed', 'browsed', 'want']) {
+      expect(values).toContain(value);
+    }
+    // optgroup 包裹两媒体项
+    const groupStart = block.indexOf('<optgroup label="媒体库">');
+    expect(groupStart).toBeGreaterThan(-1);
+    const groupEnd = block.indexOf('</optgroup>');
+    expect(groupEnd).toBeGreaterThan(groupStart);
+    const group = block.slice(groupStart, groupEnd);
+    expect(group).toContain('value="inLibrary"');
+    expect(group).toContain('value="realWatched"');
+    expect(group).not.toContain('value="all"');
+  });
+
+  it('records.css 源码负锁：chip 专属样式删净', () => {
+    const css = readFileSync(RECORDS_CSS, 'utf8');
+    expect(css).not.toContain('#mediaLibraryFilterBtn');
+    expect(css).not.toContain('#realWatchedFilterBtn');
+  });
+
+  it('本地模式：两媒体 option 在位且 enabled、默认选中 all', () => {
     const { controller, elements } = makeController();
     controller.bind();
     controller.update();
 
-    for (const [btn, title] of [[elements.mediaLibraryButton, '仅看媒体库已入库'], [elements.realWatchedButton, '仅看媒体库真实已看']] as const) {
-      expect(btn).not.toBeNull();
-      expect(btn.disabled).toBe(false);
-      expect(btn.classList.contains('active')).toBe(false);
-      expect(btn.getAttribute('aria-pressed')).toBe('false');
-      expect(btn.title).toBe(title);
+    const options = mediaOptions(elements.filterSelect);
+    expect(options).toHaveLength(2);
+    for (const option of options) {
+      expect(option.disabled).toBe(false);
     }
+    expect(elements.filterSelect.value).toBe('all');
   });
 
-  it('点击 toggle → 激活态 + onFilterChanged/onMediaStateFilterToggled', () => {
-    const elements = setupDom();
+  it('server 模式：两媒体 option disabled（select 结构天然单选互斥）', () => {
+    const { controller, elements } = makeController({
+      getMediaStateFilterEnabled: () => false,
+    });
+    controller.bind();
+    controller.update();
+
+    const options = mediaOptions(elements.filterSelect);
+    expect(options).toHaveLength(2);
+    for (const option of options) {
+      expect(option.disabled).toBe(true);
+    }
+    // 非媒体项不受影响
+    const viewedOption = Array.from(elements.filterSelect.options)
+      .find(option => option.value === 'viewed') as HTMLOptionElement;
+    expect(viewedOption.disabled).toBe(false);
+  });
+
+  it('server 自保：进入 server 且当前值=媒体项 → 复位 all；状态项不动', () => {
+    const { elements } = makeController();
+
+    elements.filterSelect.value = 'inLibrary';
+    expect(applyServerModeMediaStateReset(elements.filterSelect, true)).toBe(true);
+    expect(elements.filterSelect.value).toBe('all');
+
+    elements.filterSelect.value = 'realWatched';
+    expect(applyServerModeMediaStateReset(elements.filterSelect, true)).toBe(true);
+    expect(elements.filterSelect.value).toBe('all');
+
+    elements.filterSelect.value = 'viewed';
+    expect(applyServerModeMediaStateReset(elements.filterSelect, true)).toBe(false);
+    expect(elements.filterSelect.value).toBe('viewed');
+
+    elements.filterSelect.value = 'inLibrary';
+    expect(applyServerModeMediaStateReset(elements.filterSelect, false)).toBe(false);
+    expect(elements.filterSelect.value).toBe('inLibrary');
+  });
+
+  it('工具栏其余按钮零回归（covers 切换 / favorites 激活回调）', () => {
+    const setCoversEnabled = vi.fn();
+    const setFavoritesActive = vi.fn();
     const onFilterChanged = vi.fn();
-    const onMediaStateFilterToggled = vi.fn();
-    const state = { inLibraryActive: false, realWatchedActive: false };
+    const elements = setupDom();
+    const state = { covers: false, favorites: false };
     const controller = createRecordsViewToolbarController({
-      toggleCoversBtn: null,
-      toggleViewModeBtn: null,
-      favoritesButton: null,
-      videoList: elements.videoList,
-      getCoversEnabled: () => false,
-      setCoversEnabled: vi.fn(),
+      ...elements,
+      getCoversEnabled: () => state.covers,
+      setCoversEnabled: (enabled: boolean) => {
+        state.covers = enabled;
+        setCoversEnabled(enabled);
+      },
       getViewMode: () => 'list',
       setViewMode: vi.fn(),
-      getFavoritesActive: () => false,
-      setFavoritesActive: vi.fn(),
+      getFavoritesActive: () => state.favorites,
+      setFavoritesActive: (active: boolean) => {
+        state.favorites = active;
+        setFavoritesActive(active);
+      },
       persistSettings: vi.fn(),
       onFilterChanged,
       onRender: vi.fn(),
-      mediaLibraryButton: elements.mediaLibraryButton,
-      realWatchedButton: elements.realWatchedButton,
-      getInLibraryActive: () => state.inLibraryActive,
-      setInLibraryActive: (active: boolean) => { state.inLibraryActive = active; },
-      getRealWatchedActive: () => state.realWatchedActive,
-      setRealWatchedActive: (active: boolean) => { state.realWatchedActive = active; },
+      filterSelect: elements.filterSelect,
       getMediaStateFilterEnabled: () => true,
-      onMediaStateFilterToggled,
     } as never);
     controller.bind();
+    controller.update();
 
-    elements.mediaLibraryButton.click();
+    elements.toggleCoversBtn.click();
+    expect(setCoversEnabled).toHaveBeenCalledWith(true);
+    expect(elements.toggleCoversBtn.classList.contains('toggle-on')).toBe(true);
 
-    expect(state.inLibraryActive).toBe(true);
-    expect(elements.mediaLibraryButton.getAttribute('aria-pressed')).toBe('true');
-    expect(elements.mediaLibraryButton.classList.contains('active')).toBe(true);
-    expect(elements.mediaLibraryButton.title).toBe('取消「已入库」筛选');
+    elements.favoritesButton.click();
+    expect(setFavoritesActive).toHaveBeenCalledWith(true);
     expect(onFilterChanged).toHaveBeenCalledTimes(1);
-    expect(onMediaStateFilterToggled).toHaveBeenCalledTimes(1);
-    // 另一 chip 不受影响
-    expect(state.realWatchedActive).toBe(false);
-    expect(elements.realWatchedButton.getAttribute('aria-pressed')).toBe('false');
-
-    elements.realWatchedButton.click();
-    expect(state.realWatchedActive).toBe(true);
-    expect(onFilterChanged).toHaveBeenCalledTimes(2);
-
-    // 再点取消
-    elements.mediaLibraryButton.click();
-    expect(state.inLibraryActive).toBe(false);
-    expect(elements.mediaLibraryButton.getAttribute('aria-pressed')).toBe('false');
-  });
-
-  it('server 模式 → disabled + 降级 tooltip + 非激活渲染', () => {
-    const elements = setupDom();
-    const state = { inLibraryActive: true, realWatchedActive: false };
-    const controller = createRecordsViewToolbarController({
-      toggleCoversBtn: null,
-      toggleViewModeBtn: null,
-      favoritesButton: null,
-      videoList: elements.videoList,
-      getCoversEnabled: () => false,
-      setCoversEnabled: vi.fn(),
-      getViewMode: () => 'list',
-      setViewMode: vi.fn(),
-      getFavoritesActive: () => false,
-      setFavoritesActive: vi.fn(),
-      persistSettings: vi.fn(),
-      onFilterChanged: vi.fn(),
-      onRender: vi.fn(),
-      mediaLibraryButton: elements.mediaLibraryButton,
-      realWatchedButton: elements.realWatchedButton,
-      getInLibraryActive: () => state.inLibraryActive,
-      setInLibraryActive: vi.fn(),
-      getRealWatchedActive: () => state.realWatchedActive,
-      setRealWatchedActive: vi.fn(),
-      getMediaStateFilterEnabled: () => false,
-      onMediaStateFilterToggled: vi.fn(),
-    } as never);
-    controller.bind();
-    controller.update();
-
-    for (const btn of [elements.mediaLibraryButton, elements.realWatchedButton]) {
-      expect(btn.disabled).toBe(true);
-      expect(btn.title).toBe('媒体库状态筛选仅本地模式可用');
-      expect(btn.getAttribute('aria-pressed')).toBe('false');
-      expect(btn.classList.contains('active')).toBe(false);
-    }
-    // 降级态即使状态为激活也不渲染 active（防御：激活态应已被上层清除）
-    expect(elements.mediaLibraryButton.classList.contains('active')).toBe(false);
-  });
-
-  it('server 模式（disabled）点击不触发状态变更', () => {
-    const elements = setupDom();
-    const state = { inLibraryActive: false };
-    const setInLibraryActive = vi.fn();
-    const onFilterChanged = vi.fn();
-    const controller = createRecordsViewToolbarController({
-      toggleCoversBtn: null,
-      toggleViewModeBtn: null,
-      favoritesButton: null,
-      videoList: elements.videoList,
-      getCoversEnabled: () => false,
-      setCoversEnabled: vi.fn(),
-      getViewMode: () => 'list',
-      setViewMode: vi.fn(),
-      getFavoritesActive: () => false,
-      setFavoritesActive: vi.fn(),
-      persistSettings: vi.fn(),
-      onFilterChanged,
-      onRender: vi.fn(),
-      mediaLibraryButton: elements.mediaLibraryButton,
-      realWatchedButton: elements.realWatchedButton,
-      getInLibraryActive: () => state.inLibraryActive,
-      setInLibraryActive,
-      getRealWatchedActive: () => false,
-      setRealWatchedActive: vi.fn(),
-      getMediaStateFilterEnabled: () => false,
-      onMediaStateFilterToggled: vi.fn(),
-    } as never);
-    controller.bind();
-    controller.update();
-
-    expect(elements.mediaLibraryButton.disabled).toBe(true);
-    elements.mediaLibraryButton.click(); // disabled：jsdom 不派发 click
-
-    expect(setInLibraryActive).not.toHaveBeenCalled();
-    expect(onFilterChanged).not.toHaveBeenCalled();
-    expect(state.inLibraryActive).toBe(false);
+    expect(elements.favoritesButton.getAttribute('aria-pressed')).toBe('true');
   });
 });

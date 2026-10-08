@@ -29,12 +29,6 @@
                 <button id="myFavoritesBtn" class="button-like" title="查看我的收藏">
                     <i class="fas fa-heart"></i> 我的收藏
                 </button>
-                <button id="mediaLibraryFilterBtn" class="button-like" title="仅看媒体库已入库">
-                    <i class="fas fa-database"></i> 已入库
-                </button>
-                <button id="realWatchedFilterBtn" class="button-like" title="仅看媒体库真实已看">
-                    <i class="fas fa-check-double"></i> 真实已看
-                </button>
                 <button id="advancedSearchToggle" class="button-like" title="显示/隐藏高级搜索">
                     <i class="fas fa-search-plus"></i> 高级搜索
                 </button>
@@ -85,6 +79,10 @@
                 <option value="viewed">已观看</option>
                 <option value="browsed">已浏览</option>
                 <option value="want">我想看</option>
+                <optgroup label="媒体库">
+                    <option value="inLibrary">已入库</option>
+                    <option value="realWatched">真实已看</option>
+                </optgroup>
             </select>
             <div class="tags-filter-container">
                 <input type="text" id="tagsFilterInput" placeholder="搜索标签..." readonly>
