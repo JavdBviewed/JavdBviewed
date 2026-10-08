@@ -39,6 +39,11 @@ export interface RecordsPageLifecycleOptions {
   syncDropdownBackdrop: () => void;
   triggerSuggest: () => void;
   triggerFilter: () => void;
+  /**
+   * #filterSelect change 附加钩子（10-08）：媒体库状态项选中时触发索引懒载
+   * （等价 10-24 chip 时代 onMediaStateFilterToggled 的触发时机）。不传=零行为变化。
+   */
+  onFilterSelectChanged?: () => void;
   viewToolbar: { bind: () => void; update: () => void };
   batchToolbar: SimpleController;
   searchSuggest: SimpleController;
@@ -113,6 +118,7 @@ export function bindRecordsPageLifecycle(options: RecordsPageLifecycleOptions): 
     options.resetCurrentPage();
     options.updateFilteredRecords();
     options.render();
+    options.onFilterSelectChanged?.();
   });
   elements.sortSelect.addEventListener('change', () => {
     options.resetCurrentPage();

@@ -3,6 +3,7 @@ import type { ViewedPageParams, ViewedQueryParams } from '../../dbClient';
 import type { RecordsAdvancedCondition } from './advancedConditionModel';
 import { loadRecordsServerPage, type LoadRecordsServerPageInput } from './serverPageProvider';
 import { parseRecordsSortValue, type RecordsSort } from './queryModel';
+import { parseMediaStateSelectValue } from './filterModel';
 
 type ToastType = 'info' | 'warn' | 'warning' | 'error' | 'success';
 
@@ -76,7 +77,7 @@ export function createRecordsQueryRuntime(options: CreateRecordsQueryRuntimeOpti
     try {
       options.setServerModeActive(true);
       const sort = parseSort();
-      const statusVal = (options.filterSelect?.value || 'all') as 'all' | VideoStatus;
+      const statusVal = parseMediaStateSelectValue(options.filterSelect?.value).status;
 
       try { options.videoList.innerHTML = '<li class="empty-list">加载中...</li>'; } catch {}
 
