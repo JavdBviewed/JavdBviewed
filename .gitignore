@@ -127,3 +127,15 @@ docs/superpowers/
 .test-profiles/
 .test-tools/
 test-results/
+
+# 一次性探针/诊断脚本（agent 调试线产物，不入库；2026-10-05 清理登记）
+scripts/_tmp*
+scripts/probe*
+scripts/diag*
+scripts/minirepro.ts
+scripts/perfS0MemoryAttribution.ts
+scripts/buildNomf.ts
+scripts/shootDashboardTabs.ts
+scripts/readSettingsProbe.mts
+scripts/siteverify/
+tests/extension-e2e/_tmp*

@@ -125,6 +125,7 @@ describe('release announcement state', () => {
 
   it('ships user-facing release notes for recent versions', () => {
     expect(RELEASE_NOTES.map(note => note.version)).toEqual([
+      '2.1.2',
       '2.1.1',
       '2.1.0',
       '2.0.1',
@@ -140,6 +141,13 @@ describe('release announcement state', () => {
     ]);
     const highlightsFor = (version: string) => RELEASE_NOTES.find(note => note.version === version)?.highlights;
 
+    // 2.1.2 发版（2026-10-09，用户过目定稿）：7 条，数据锁随数据先例
+    expect(highlightsFor('2.1.2')?.length).toBe(7);
+    expect(highlightsFor('2.1.2')).toEqual(expect.arrayContaining([
+      '内容页支持截图模式：可选择模糊标题/番号或模糊图片，截图保护隐私更方便（目前仅支持 JavDB 页面）。',
+      '已看记录页新增「已入库」「真实已看」两个筛选，与其他状态筛选同级，随时可选。',
+      '内容过滤：修复「发行日期」规则不生效的问题，并对全部过滤字段逐一真机验证。',
+    ]));
     // 2.1.1 发版（2026-10-04，用户过目定稿）：4 项用户可见修复，数据锁随数据先例
     expect(highlightsFor('2.1.1')?.length).toBe(5);
     expect(highlightsFor('2.1.1')).toEqual(expect.arrayContaining([

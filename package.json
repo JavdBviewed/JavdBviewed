@@ -2,7 +2,7 @@
   "name": "javdbviewed",
   "private": true,
   "type": "module",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "license": "AGPL-3.0-only",
   "description": "JavdBviewed monorepo — browser extension + shared sync packages",
   "scripts": {
