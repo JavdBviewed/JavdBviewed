@@ -3,7 +3,7 @@ import type { ViewedPageParams, ViewedQueryParams } from '../../dbClient';
 import type { RecordsAdvancedCondition } from './advancedConditionModel';
 import { loadRecordsServerPage, type LoadRecordsServerPageInput } from './serverPageProvider';
 import { parseRecordsSortValue, type RecordsSort } from './queryModel';
-import { parseMediaStateSelectValue } from './filterModel';
+import { isMediaStateSelectValue, parseMediaStateSelectValue } from './filterModel';
 
 type ToastType = 'info' | 'warn' | 'warning' | 'error' | 'success';
 
@@ -62,10 +62,12 @@ export function createRecordsQueryRuntime(options: CreateRecordsQueryRuntimeOpti
   );
 
   const shouldUseIDB = (): boolean => {
+    // 媒体库状态项（inLibrary/realWatched）是外部索引谓词，IDB 分页索引无法表达 → 强制全量滤路径（与系列多选同构）
     return options.selectedSeriesIds.size === 0
       && options.selectedLabelIds.size === 0
       && options.selectedMakerIds.size === 0
-      && options.selectedDirectorIds.size === 0;
+      && options.selectedDirectorIds.size === 0
+      && !isMediaStateSelectValue(options.filterSelect?.value);
   };
 
   const parseSort = (): RecordsSort | null => {

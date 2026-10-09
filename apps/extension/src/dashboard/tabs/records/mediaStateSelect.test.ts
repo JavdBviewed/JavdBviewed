@@ -1,7 +1,7 @@
 /**
  * @file mediaStateSelect.test.ts
- * @description records 媒体库状态筛选并入 #filterSelect（10-08）：
- * 值域映射纯函数 parseMediaStateSelectValue / 自保复位 applyServerModeMediaStateReset /
+ * @description records 媒体库状态筛选并入 #filterSelect（10-08，288 拉平修订）：
+ * 值域映射纯函数 parseMediaStateSelectValue /
  * 经 filterAndSortRecords 的过滤行为（单选互斥、复位、与 tags AND 叠加）。
  * @module apps/extension/src/dashboard/tabs/records
  */
@@ -12,7 +12,6 @@ import {
   isMediaStateSelectValue,
   parseMediaStateSelectValue,
 } from './filterModel';
-import { applyServerModeMediaStateReset } from './viewToolbarController';
 import { filterAndSortRecords } from './filterModel';
 import { getMediaStateRecordKey } from './mediaStateFilterModel';
 import type { MediaStateHit } from './mediaStateFilterModel';
@@ -83,37 +82,6 @@ describe('parseMediaStateSelectValue（#filterSelect 值域映射，10-08）', (
     expect(isMediaStateSelectValue('viewed')).toBe(false);
     expect(isMediaStateSelectValue('')).toBe(false);
     expect(isMediaStateSelectValue(undefined)).toBe(false);
-  });
-});
-
-describe('applyServerModeMediaStateReset（server 分页自保，10-24 语义换绑 select）', () => {
-  it('进入 server 且当前值=inLibrary → 复位 all + 返回 true', () => {
-    const select = { value: 'inLibrary' };
-    expect(applyServerModeMediaStateReset(select, true)).toBe(true);
-    expect(select.value).toBe('all');
-  });
-
-  it('进入 server 且当前值=realWatched → 复位 all + 返回 true', () => {
-    const select = { value: 'realWatched' };
-    expect(applyServerModeMediaStateReset(select, true)).toBe(true);
-    expect(select.value).toBe('all');
-  });
-
-  it('进入 server 但当前值=状态项 → 不动 + 返回 false', () => {
-    const select = { value: 'viewed' };
-    expect(applyServerModeMediaStateReset(select, true)).toBe(false);
-    expect(select.value).toBe('viewed');
-  });
-
-  it('非进入 server（切回本地/初始） → 不动 + 返回 false', () => {
-    const select = { value: 'inLibrary' };
-    expect(applyServerModeMediaStateReset(select, false)).toBe(false);
-    expect(select.value).toBe('inLibrary');
-  });
-
-  it('select 缺失 → false 不抛', () => {
-    expect(applyServerModeMediaStateReset(null, true)).toBe(false);
-    expect(applyServerModeMediaStateReset(undefined, true)).toBe(false);
   });
 });
 

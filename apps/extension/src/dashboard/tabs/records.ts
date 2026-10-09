@@ -3,14 +3,14 @@ import { VIDEO_STATUS, STORAGE_KEYS } from '../../utils/config';
 import type { VideoRecord, VideoStatus } from '../../types';
 import { showMessage } from '../ui/toast';
 import { showConfirmationModal } from '../ui/modal';
-import { dbViewedPage, dbViewedStats, dbViewedDelete, dbViewedBulkDelete, dbViewedQuery, dbViewedPut, dbViewedGet, dbViewedFallbackMigrate } from '../dbClient';
+import { dbViewedPage, dbViewedStats, dbViewedDelete, dbViewedBulkDelete, dbViewedQuery, dbViewedPut, dbViewedGet, dbViewedFallbackMigrate, dbViewedCount } from '../dbClient';
 import { dbListsGetAllNormalized, dbViewedPatchList, dbViewedBulkPatchList } from '../dbClient';
 import {
     parseRecordsSearchTokens,
 } from './records/searchQueryModel';
 import { createRecordsCoverRuntimeController } from './records/coverRuntimeController';
 import { createRecordsAdvancedConditionsController } from './records/advancedConditionsController';
-import { applyServerModeMediaStateReset, createRecordsViewToolbarController } from './records/viewToolbarController';
+import { createRecordsViewToolbarController } from './records/viewToolbarController';
 import { isMediaStateSelectValue, parseMediaStateSelectValue } from './records/filterModel';
 import { createRecordsBatchSelectionController } from './records/batchSelectionController';
 import { createRecordsExportController } from './records/exportController';
@@ -19,6 +19,7 @@ import { createRecordsStatsController } from './records/statsController';
 import { createRecordsListMetaController } from './records/listMetaController';
 import { createRecordsSearchResultCountController } from './records/searchResultCountController';
 import { createRecordsRenderCoordinator } from './records/renderCoordinator';
+import { createRecordsDataBackfill } from './records/recordsDataBackfill';
 import { createMediaStateFilterRuntime, type MediaStateFilterRuntime } from './records/mediaStateFilterRuntime';
 import { bindAdvancedSearchToggleDelegation } from './records/advancedSearchToggleBinding';
 import { collectRecordsPageElements, ensureUntrackedStatusOption } from './records/pageElements';
@@ -241,12 +242,16 @@ export function initRecordsTab(): void {
     let filterRuntime: RecordsFilterRuntime;
     let batchOperationsRuntime: RecordsBatchOperationsRuntime;
     let mediaStateFilterRuntime: MediaStateFilterRuntime | null = null;
+    // 10-08 修复（288，A1a 竞态）：空命中映射一次性修复位（首次索引载先于回填完成 → 钉死空表；
+    // 本地媒体渲染时若「空表 + 数据源非空」→ 一次性 invalidate 重算，防再渲染循环）
+    let mediaHitsEmptyRepaired = false;
     const searchResultCountController = createRecordsSearchResultCountController({
         container: searchResultCount,
         searchInput,
         filterSelect,
         getTotalCount: () => serverModeActive ? serverTotal : filteredRecords.length,
-        getDurationMs: () => lastQueryDurationMs,
+        // 10-08 扩项（288）：本地路径无真实查询耗时 → null（横幅不渲染耗时文案）
+        getDurationMs: () => (serverModeActive ? lastQueryDurationMs : null),
         getSelectedTagsCount: () => selectedTags.size,
         getSelectedListIdsCount: () => selectedListIds.size,
         getSelectedSeriesIdsCount: () => selectedSeriesIds.size,
@@ -402,8 +407,6 @@ export function initRecordsTab(): void {
         setFavoritesActive: (active) => {
             favoritesFilterActive = active;
         },
-        filterSelect,
-        getMediaStateFilterEnabled: () => !serverModeActive,
         persistSettings: () => {
             chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: STATE.settings });
         },
@@ -451,12 +454,7 @@ export function initRecordsTab(): void {
         queryRecords: dbViewedQuery,
         pageRecords: dbViewedPage,
         setServerModeActive: (active) => {
-            const enteringServer = active && !serverModeActive;
             serverModeActive = active;
-            // 10-24 自保（10-08 换绑 #filterSelect）：切入 server 分页模式时当前值为媒体库项 → 复位 all
-            if (applyServerModeMediaStateReset(filterSelect, enteringServer)) {
-                showMessage('媒体库状态筛选仅本地模式可用，已关闭相关筛选', 'info');
-            }
             viewToolbarController.update();
         },
         setServerPageItems: (items) => {
@@ -477,24 +475,42 @@ export function initRecordsTab(): void {
         isActive: () => recordsActive,
     });
 
+    // 10-08 扩项（288）：全量滤路径数据源一次性回填（IDB 非空主用户态 bootstrap STATE.records=[] 为设计 → 本地滤路径 0 行）
+    const recordsDataBackfill = createRecordsDataBackfill({
+        dbViewedCount: () => dbViewedCount(),
+        dbViewedQueryAll: (limit) => dbViewedQuery({ limit }),
+        setRecords: (items) => { STATE.records = items; },
+        onError: (error) => { console.warn('[records] 数据回填失败（本次渲染照常）:', error); },
+    });
+
     const renderCoordinator = createRecordsRenderCoordinator({
         videoList,
         shouldUseIDB: queryRuntime.shouldUseIDB,
         setServerModeActive: (active) => {
-            const enteringServer = active && !serverModeActive;
             serverModeActive = active;
-            // 10-24 自保（10-08 换绑 #filterSelect）：切入 server 分页模式时当前值为媒体库项 → 复位 all
-            if (applyServerModeMediaStateReset(filterSelect, enteringServer)) {
-                showMessage('媒体库状态筛选仅本地模式可用，已关闭相关筛选', 'info');
-            }
             viewToolbarController.update();
         },
         renderServerPage: queryRuntime.renderServerPage,
         updateFilteredRecords,
         renderVideoList,
         renderPagination,
+        updateSearchResultCount,
         updateStats,
         isActive: () => recordsActive,
+        ensureLocalRecordsLoaded: () => recordsDataBackfill.ensureLoaded(),
+        // 10-08 修复（288，A1a 竞态）：媒体索引懒载由渲染编排拥有（回填后、过滤前），
+        // 不再在 select change 时 fire-and-forget（recompute 依赖 STATE.records，先载=钉死空表）
+        prepareMediaState: async () => {
+            if (!isMediaStateSelectValue(filterSelect?.value)) return;
+            const rt = mediaStateFilterRuntime;
+            if (!rt) return;
+            const hits = rt.getHits();
+            if (hits && hits.size === 0 && STATE.records.length > 0 && !mediaHitsEmptyRepaired) {
+                mediaHitsEmptyRepaired = true;
+                rt.invalidate();
+            }
+            await rt.ensureLoaded();
+        },
     });
 
     function render() {
@@ -904,11 +920,10 @@ export function initRecordsTab(): void {
         handleExportRecords: () => viewRuntime.handleExportRecords(),
         updateBatchUI,
         debounce,
-        // 10-08：媒体库项选中 → 索引懒载（等价 10-24 chip 的 onMediaStateFilterToggled 触发时机）
+        // 10-08 修复（288，A1a 竞态）：索引懒载移至 renderCoordinator 本地分支（回填后、过滤前 await）；
+        // 此处若先载，recompute 以空 STATE.records 计算并把空命中映射钉死（gap 态首选媒体项 0 行）
         onFilterSelectChanged: () => {
-            if (isMediaStateSelectValue(filterSelect?.value)) {
-                void mediaStateFilterRuntime?.ensureLoaded();
-            }
+            // no-op（保留钩位；触发源=select change 的 reset+filter+render 流不受影响）
         },
     }).bind();
 
