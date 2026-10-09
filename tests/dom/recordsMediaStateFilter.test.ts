@@ -1,22 +1,22 @@
 /**
  * @file recordsMediaStateFilter.test.ts
- * @description records 媒体库状态筛选并入 #filterSelect（10-08）：
- * 选项结构源码锁（7 项+optgroup、all 最前、chip 负锁）/ controller option 禁用面 /
- * server 自保复位 / 工具栏其余按钮零回归。
+ * @description records 媒体库状态筛选并入 #filterSelect（10-08，288 拉平修订）：
+ * 选项结构源码锁（7 平级 option、optgroup 负锁、all 最前、chip 负锁）/
+ * 媒体 option 恒可用（无 disabled 机制，源级负锁）/ 自保链删除负锁 /
+ * 工具栏其余按钮零回归。
  * @module tests/dom
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  applyServerModeMediaStateReset,
-  createRecordsViewToolbarController,
-} from '../../apps/extension/src/dashboard/tabs/records/viewToolbarController';
+import { createRecordsViewToolbarController } from '../../apps/extension/src/dashboard/tabs/records/viewToolbarController';
 
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const RECORDS_HTML = join(PROJECT_ROOT, 'apps/extension/src/dashboard/partials/tabs/records.html');
 const RECORDS_CSS = join(PROJECT_ROOT, 'apps/extension/src/dashboard/styles/05-pages/records.css');
+const VIEW_TOOLBAR_TS = join(PROJECT_ROOT, 'apps/extension/src/dashboard/tabs/records/viewToolbarController.ts');
+const RECORDS_TS = join(PROJECT_ROOT, 'apps/extension/src/dashboard/tabs/records.ts');
 
 function extractFilterSelectBlock(html: string): string {
   const start = html.indexOf('<select id="filterSelect">');
@@ -41,10 +41,8 @@ function setupDom() {
       <option value="viewed">已观看</option>
       <option value="browsed">已浏览</option>
       <option value="want">我想看</option>
-      <optgroup label="媒体库">
-        <option value="inLibrary">已入库</option>
-        <option value="realWatched">真实已看</option>
-      </optgroup>
+      <option value="inLibrary">已入库</option>
+      <option value="realWatched">真实已看</option>
     </select>
     <ul id="videoList"></ul>
   `;
@@ -76,18 +74,16 @@ function makeController(overrides: Record<string, unknown> = {}) {
     persistSettings: vi.fn(),
     onFilterChanged: vi.fn(),
     onRender: vi.fn(),
-    filterSelect: elements.filterSelect,
-    getMediaStateFilterEnabled: () => true,
     ...overrides,
   } as never);
   return { controller, elements };
 }
 
-describe('records 媒体库状态筛选 #filterSelect（10-08）', () => {
-  it('records.html 源码锁：7 项、all 最前、媒体库 optgroup 两 option 在位、chip 负锁', () => {
+describe('records 媒体库状态筛选 #filterSelect（10-08，288 拉平修订）', () => {
+  it('records.html 源码锁：7 平级 option、all 最前、optgroup 负锁、chip 负锁', () => {
     const html = readFileSync(RECORDS_HTML, 'utf8');
 
-    // chip 负锁：两独立按钮删净
+    // chip 负锁：两独立按钮删净（既有断言零删减）
     expect(html).not.toContain('mediaLibraryFilterBtn');
     expect(html).not.toContain('realWatchedFilterBtn');
 
@@ -101,15 +97,9 @@ describe('records 媒体库状态筛选 #filterSelect（10-08）', () => {
     for (const value of ['untracked', 'viewed', 'browsed', 'want']) {
       expect(values).toContain(value);
     }
-    // optgroup 包裹两媒体项
-    const groupStart = block.indexOf('<optgroup label="媒体库">');
-    expect(groupStart).toBeGreaterThan(-1);
-    const groupEnd = block.indexOf('</optgroup>');
-    expect(groupEnd).toBeGreaterThan(groupStart);
-    const group = block.slice(groupStart, groupEnd);
-    expect(group).toContain('value="inLibrary"');
-    expect(group).toContain('value="realWatched"');
-    expect(group).not.toContain('value="all"');
+    // 拉平负锁：无 optgroup 包裹（媒体项与状态项同级）
+    expect(block).not.toContain('<optgroup');
+    expect(block).not.toContain('</optgroup>');
   });
 
   it('records.css 源码负锁：chip 专属样式删净', () => {
@@ -118,7 +108,19 @@ describe('records 媒体库状态筛选 #filterSelect（10-08）', () => {
     expect(css).not.toContain('#realWatchedFilterBtn');
   });
 
-  it('本地模式：两媒体 option 在位且 enabled、默认选中 all', () => {
+  it('源码负锁：disabled 机制与 server 自保链删净（viewToolbarController/records 源级）', () => {
+    const toolbar = readFileSync(VIEW_TOOLBAR_TS, 'utf8');
+    expect(toolbar).not.toContain('applyServerModeMediaStateReset');
+    expect(toolbar).not.toContain('getMediaStateFilterEnabled');
+    expect(toolbar).not.toContain('updateMediaStateOptions');
+
+    const records = readFileSync(RECORDS_TS, 'utf8');
+    expect(records).not.toContain('applyServerModeMediaStateReset');
+    expect(records).not.toContain('getMediaStateFilterEnabled');
+    expect(records).not.toContain('媒体库状态筛选仅本地模式可用');
+  });
+
+  it('默认态（无多选，server 分页路径）：两媒体 option 恒可用、默认选中 all', () => {
     const { controller, elements } = makeController();
     controller.bind();
     controller.update();
@@ -129,44 +131,6 @@ describe('records 媒体库状态筛选 #filterSelect（10-08）', () => {
       expect(option.disabled).toBe(false);
     }
     expect(elements.filterSelect.value).toBe('all');
-  });
-
-  it('server 模式：两媒体 option disabled（select 结构天然单选互斥）', () => {
-    const { controller, elements } = makeController({
-      getMediaStateFilterEnabled: () => false,
-    });
-    controller.bind();
-    controller.update();
-
-    const options = mediaOptions(elements.filterSelect);
-    expect(options).toHaveLength(2);
-    for (const option of options) {
-      expect(option.disabled).toBe(true);
-    }
-    // 非媒体项不受影响
-    const viewedOption = Array.from(elements.filterSelect.options)
-      .find(option => option.value === 'viewed') as HTMLOptionElement;
-    expect(viewedOption.disabled).toBe(false);
-  });
-
-  it('server 自保：进入 server 且当前值=媒体项 → 复位 all；状态项不动', () => {
-    const { elements } = makeController();
-
-    elements.filterSelect.value = 'inLibrary';
-    expect(applyServerModeMediaStateReset(elements.filterSelect, true)).toBe(true);
-    expect(elements.filterSelect.value).toBe('all');
-
-    elements.filterSelect.value = 'realWatched';
-    expect(applyServerModeMediaStateReset(elements.filterSelect, true)).toBe(true);
-    expect(elements.filterSelect.value).toBe('all');
-
-    elements.filterSelect.value = 'viewed';
-    expect(applyServerModeMediaStateReset(elements.filterSelect, true)).toBe(false);
-    expect(elements.filterSelect.value).toBe('viewed');
-
-    elements.filterSelect.value = 'inLibrary';
-    expect(applyServerModeMediaStateReset(elements.filterSelect, false)).toBe(false);
-    expect(elements.filterSelect.value).toBe('inLibrary');
   });
 
   it('工具栏其余按钮零回归（covers 切换 / favorites 激活回调）', () => {
@@ -192,8 +156,6 @@ describe('records 媒体库状态筛选 #filterSelect（10-08）', () => {
       persistSettings: vi.fn(),
       onFilterChanged,
       onRender: vi.fn(),
-      filterSelect: elements.filterSelect,
-      getMediaStateFilterEnabled: () => true,
     } as never);
     controller.bind();
     controller.update();

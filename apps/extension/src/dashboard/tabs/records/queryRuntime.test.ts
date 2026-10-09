@@ -102,6 +102,33 @@ describe('records query runtime', () => {
     expect(runtime.shouldUseIDB()).toBe(false);
   });
 
+  it('media state select value forces full-filter path (shouldUseIDB=false, 288)', () => {
+    const { runtime, options, selectedSeriesIds, selectedLabelIds, selectedMakerIds, selectedDirectorIds } = createRuntime();
+
+    // 媒体项 + 四多选全空（用户默认态）→ 强制全量滤路径
+    options.filterSelect.value = 'inLibrary';
+    expect(runtime.shouldUseIDB()).toBe(false);
+
+    options.filterSelect.value = 'realWatched';
+    expect(runtime.shouldUseIDB()).toBe(false);
+
+    // 非媒体值 + 四多选全空 → IDB 分页路径（既有语义不变）
+    options.filterSelect.value = 'all';
+    expect(runtime.shouldUseIDB()).toBe(true);
+
+    // 媒体项 + series 非空 → 仍 false（AND 叠加既有语义）
+    options.filterSelect.value = 'inLibrary';
+    selectedSeriesIds.add('series-1');
+    expect(runtime.shouldUseIDB()).toBe(false);
+
+    // 清理：恢复默认态，避免影响后续用例
+    selectedSeriesIds.clear();
+    selectedLabelIds.clear();
+    selectedMakerIds.clear();
+    selectedDirectorIds.clear();
+    options.filterSelect.value = 'viewed';
+  });
+
   it('parses sort value from the current sort select', () => {
     const { runtime, options } = createRuntime();
 
