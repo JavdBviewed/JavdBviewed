@@ -18,6 +18,7 @@ import {
   removeMatchUrlAt,
   removeMediaServerAt,
   clearMediaServerUserSession,
+  logoutMediaServerAt,
   updateMatchUrlAt,
   updateMediaServerAt,
   validateEmbyForm,
@@ -196,6 +197,44 @@ describe('embySettingsModel', () => {
     expect(cleared.password).toBe('saved-password');
     expect(cleared.accessToken).toBeUndefined();
     expect(cleared.userId).toBeUndefined();
+  });
+
+  it('logout replaces the whole server entry: four session fields cleared, password kept (P6b)', () => {
+    const servers = normalizeMediaServers([
+      {
+        id: 'saved-login',
+        type: 'emby',
+        name: 'Home',
+        url: 'http://media.local:38098',
+        apiKey: 'api-key',
+        username: 'ryen',
+        password: 'saved-password',
+        accessToken: 'session-token',
+        userId: 'user-1',
+        userDisplayName: 'Ryen',
+        tokenObtainedAt: 1700000000000,
+        enabled: true,
+      },
+    ]);
+
+    const next = logoutMediaServerAt(servers, 0);
+
+    expect(next).toHaveLength(1);
+    expect(next[0].id).toBe('saved-login');
+    expect(next[0].name).toBe('Home');
+    expect(next[0].url).toBe('http://media.local:38098');
+    expect(next[0].apiKey).toBe('api-key');
+    expect(next[0].username).toBe('ryen');
+    expect(next[0].password).toBe('saved-password');
+    // 4 会话字段清除（合并式更新会让旧条目 spread 使其幸存 = P6b 根因）
+    expect(next[0].accessToken).toBeUndefined();
+    expect(next[0].userId).toBeUndefined();
+    expect(next[0].userDisplayName).toBeUndefined();
+    expect(next[0].tokenObtainedAt).toBeUndefined();
+    // 原数组不变异
+    expect(servers[0].accessToken).toBe('session-token');
+    // 越界索引 = 无操作
+    expect(logoutMediaServerAt(servers, 9)).toBe(servers);
   });
 
   it('validates form urls and servers', () => {

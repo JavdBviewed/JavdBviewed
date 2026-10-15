@@ -33,7 +33,7 @@ import {
 import {
   addMatchUrl,
   addMediaServer,
-  clearMediaServerUserSession,
+  logoutMediaServerAt,
   createEmptyMediaServerDraft,
   DEFAULT_EMBY_SETTINGS_FORM,
   LINK_BEHAVIOR_OPTIONS,
@@ -261,11 +261,7 @@ export function EmbySettingsPage() {
         if (!current) return prev;
         return {
           ...prev,
-          mediaServers: updateMediaServerAt(
-            prev.mediaServers,
-            index,
-            clearMediaServerUserSession(current),
-          ),
+          mediaServers: logoutMediaServerAt(prev.mediaServers, index),
         };
       },
       true,

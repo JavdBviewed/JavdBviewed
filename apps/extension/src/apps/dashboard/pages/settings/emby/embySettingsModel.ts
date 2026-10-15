@@ -632,6 +632,20 @@ export function clearMediaServerUserSession(server: EmbyMediaServer): EmbyMediaS
 }
 
 /**
+ * 媒体服务器用户登出：按位整体替换（P6b 根因：合并式 patch 的 spread 无法删键，
+ * 被剔除的 accessToken/userId/userDisplayName/tokenObtainedAt 会从旧条目幸存并被规范化器读回）
+ */
+export function logoutMediaServerAt(
+  servers: EmbyMediaServer[],
+  index: number,
+): EmbyMediaServer[] {
+  if (index < 0 || index >= servers.length) return servers;
+  const next = [...servers];
+  next[index] = clearMediaServerUserSession(next[index]);
+  return next;
+}
+
+/**
  * 更新匹配 URL
  */
 export function updateMatchUrlAt(urls: string[], index: number, value: string): string[] {

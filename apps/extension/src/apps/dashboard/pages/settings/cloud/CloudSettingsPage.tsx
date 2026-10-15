@@ -457,6 +457,24 @@ export function CloudSettingsPage() {
     });
   };
 
+  const onLogout = () =>
+    void withBusy('logout', async () => {
+      try {
+        const state = await facade.logout();
+        setSettings(state.settings);
+        setAutoSync(state.autoSync);
+        setSession(state.session);
+        setDevices(state.devices);
+        setSyncReport(null);
+        setStatus('已退出本机 Cloud 会话', 'ok');
+        await toast('已退出登录', 'info');
+      } catch (e) {
+        const msg = humanizeCloudError(e);
+        setStatus(msg, 'err');
+        await toast(msg, 'error');
+      }
+    });
+
   const onRefreshDevices = () =>
     void withBusy('devices', async () => {
       try {
@@ -474,7 +492,7 @@ export function CloudSettingsPage() {
   const onRevokeDevice = async (device: DeviceInfo): Promise<void> => {
     if (!settings) return;
     if (device.id === settings.deviceId) {
-      setStatus('不能移除本机设备', 'warn');
+      setStatus('不能移除本机设备，请使用「退出登录」', 'warn');
       void toast('不能踢出本机设备', 'warning');
       return;
     }
@@ -766,6 +784,7 @@ export function CloudSettingsPage() {
           onClose={closeConnectionEditor}
           onSave={onSaveConnection}
           onTestConnection={onTestConnection}
+          onLogout={onLogout}
         />
       </SettingSection>
 
@@ -773,7 +792,7 @@ export function CloudSettingsPage() {
       <SettingSection
         id={CLOUD_SECTION_IDS.devices}
         title="已登录设备"
-        description="同一 Cloud 账号下的客户端。可移除其它设备；本机设备保持连接配置。"
+        description="同一 Cloud 账号下的客户端。可踢出其它设备（本机请用退出登录）。"
       >
         <div className="flex flex-wrap gap-2 px-2 py-1">
           <Button
@@ -1001,6 +1020,7 @@ function CloudConnectionEditDialog(props: {
   onClose: () => void;
   onSave: () => void;
   onTestConnection: () => void;
+  onLogout: () => void;
 }) {
   const connectionBusy = props.busyAction != null;
 
@@ -1102,6 +1122,11 @@ function CloudConnectionEditDialog(props: {
                 <dd className="m-0 mt-0.5 font-semibold text-[var(--color-success,#1e8449)]">本机会话有效</dd>
               </div>
             </dl>
+            <div className="mt-3">
+              <Button type="button" variant="ghost" size="sm" disabled={connectionBusy} onClick={props.onLogout}>
+                {props.busyAction === 'logout' ? '退出中…' : '退出登录'}
+              </Button>
+            </div>
             <p className="mt-2 mb-0 text-[11.5px] leading-relaxed text-[var(--color-fg-muted)]">
               修改账号或密码后，请先测试连接并保存配置。Cloud 改密会使旧会话失效。
             </p>
