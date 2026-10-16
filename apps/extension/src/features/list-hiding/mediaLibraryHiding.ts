@@ -130,20 +130,25 @@ export function markDrive115LibraryHiding(
   registeredItems.set(item, videoId);
   attachStorageListener();
 
-  return get115LibraryState()
-    .then((state) => {
-      if (!item.isConnected) {
-        registeredItems.delete(item);
-        return;
-      }
-      if (!hasDrive115Hit(state, videoId)) return;
-      setHidingSource(item, 'mediaLibrary', true);
-      recomputeListHiding(item, readListHidingEnablement(STATE.settings));
-    })
-    .catch((error) => {
-      // 读取失败不打标记（零命中零误隐），等待下一次变化再试
+  const applyState = (state: Drive115LibraryIndexState) => {
+    if (!item.isConnected) {
       registeredItems.delete(item);
-      console.warn('[mediaLibraryHiding] 读取 115 网盘索引失败:', error);
+      return;
+    }
+    if (!hasDrive115Hit(state, videoId)) return;
+    setHidingSource(item, 'mediaLibrary', true);
+    recomputeListHiding(item, readListHidingEnablement(STATE.settings));
+  };
+
+  // 10-15 A1-4：瞬态读取失败（如 SW 冷启动期 IDB 争用）→ 有界单次重试
+  // （单飞缓存失败即清，重试重读最新索引；仍失败 → 按现状注销不打标记，
+  // 零命中零误隐语义不变；单飞/存储失效模式不动）。
+  const firstTry: Promise<void> = get115LibraryState().then(applyState);
+  return firstTry
+    .catch(() => get115LibraryState().then(applyState))
+    .catch((error) => {
+      registeredItems.delete(item);
+      console.warn('[mediaLibraryHiding] 读取 115 网盘索引失败（含一次重试）:', error);
     });
 }
 

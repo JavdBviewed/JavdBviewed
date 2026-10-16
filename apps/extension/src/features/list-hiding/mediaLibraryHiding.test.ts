@@ -264,6 +264,38 @@ describe('markDrive115LibraryHiding（115 异步侧）', () => {
     expect(item.hasAttribute('data-hide-src-mediaLibrary')).toBe(false);
     warn.mockRestore();
   });
+
+  it('瞬态读取失败 → 有界单次重试恢复后正常打标（A1-4）', async () => {
+    const { markDrive115LibraryHiding, STATE } = await loadFreshModules();
+    const item = mkItem();
+    STATE.isSearchPage = false;
+    STATE.settings = baseSettings({ hideInMediaLibrary: true });
+    loadDrive115LibraryStateMock
+      .mockRejectedValueOnce(new Error('idb busy'))
+      .mockResolvedValueOnce({ entries: [{ code: 'BBB-002' }], updatedAt: 2 });
+
+    await markDrive115LibraryHiding(item, 'BBB-002', STATE.settings);
+
+    expect(item.hasAttribute('data-hide-src-mediaLibrary')).toBe(true);
+    expect(item.style.display).toBe('none');
+    expect(loadDrive115LibraryStateMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('持续读取失败 → 至多重试一次后注销（零命中零误隐、不抛错）（A1-4 边界）', async () => {
+    const { markDrive115LibraryHiding, STATE } = await loadFreshModules();
+    const item = mkItem();
+    STATE.isSearchPage = false;
+    STATE.settings = baseSettings({ hideInMediaLibrary: true });
+    loadDrive115LibraryStateMock.mockRejectedValue(new Error('storage down'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(markDrive115LibraryHiding(item, 'BBB-002', STATE.settings)).resolves.toBeUndefined();
+
+    expect(item.hasAttribute('data-hide-src-mediaLibrary')).toBe(false);
+    expect(item.style.display).not.toBe('none');
+    expect(loadDrive115LibraryStateMock).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
 });
 
 describe('refreshRegisteredMediaLibraryHiding（索引变化重算）', () => {

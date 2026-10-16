@@ -42,11 +42,13 @@ import {
 /** processListItems per-card 同步段分块大小（S1-2a，与 S1-1b 冷启动 enhance 分块同值）。 */
 const LIST_PROCESS_CHUNK_SIZE = DEFAULT_EXISTING_ITEMS_CHUNK_SIZE;
 
-export function processVisibleItems(options: ListProcessingOptions = {}): void {
+export function processVisibleItems(options: ListProcessingOptions = {}): boolean {
     // 首先检查页面是否正常加载
     if (!isPageProperlyLoaded()) {
         log('Page not properly loaded (no navbar-item found), skipping list processing to avoid data corruption');
-        return;
+        // 10-15 A1-1：显式返回 false，让调用方（EMBY 广播 re-mark 路径）能判别
+        // 「本次 pass 被门控整批跳过」从而调度有界重试；门控语义本身零改动。
+        return false;
     }
 
     const items = document.querySelectorAll<HTMLElement>(SELECTORS.MOVIE_LIST_ITEM);
@@ -64,6 +66,7 @@ export function processVisibleItems(options: ListProcessingOptions = {}): void {
     }
 
     processListItems([...items], options);
+    return true;
 }
 
 /**

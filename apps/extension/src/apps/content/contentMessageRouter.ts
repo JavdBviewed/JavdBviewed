@@ -8,6 +8,7 @@ import { STORAGE_KEYS } from '../../utils/config';
 import { STATE, log } from '../../features/contentState';
 import { isVideoEnhancementSubOn } from '../../features/videoDetail/videoEnhancementGate';
 import { processVisibleItems } from '../../features/listEnhancement/content/itemProcessor';
+import { scheduleEmbyStateRerun } from '../../features/listEnhancement/content/embyStateRerun';
 import { showToast } from '../../platform/browser/toast';
 import { extractVideoIdFromPage } from '../../platform/browser';
 import { videoDetailEnhancer } from '../../features/videoDetail';
@@ -164,7 +165,13 @@ export function installContentMessageRouter(): void {
             getValue<EmbyLibraryState>(STORAGE_KEYS.EMBY_LIBRARY_STATE, { entries: {}, updatedAt: 0 })
                 .then((state) => {
                     STATE.embyLibraryState = state;
-                    processVisibleItems({ force: true });
+                    const processed = processVisibleItems({ force: true });
+                    if (!processed) {
+                        // 10-15 A1-1/A1-2：首次 pass 被页面就绪门控整批拦截（广播落在页面未就绪窗）
+                        // → 有界重跑（400/1500/4000ms 自门控，新广播重置，末次 recomputeAllListHiding 兜底），
+                        // 修复「隐藏已入库」概率性幻视；健康页零成本。
+                        scheduleEmbyStateRerun();
+                    }
                     const videoId = extractVideoIdFromPage();
                     if (videoId) {
                         renderDetailLibraryStatus(videoId);

@@ -84,7 +84,11 @@ async function broadcastLibraryStateUpdated(): Promise<void> {
     if (!tab.id) return;
     try {
       await chrome.tabs.sendMessage(tab.id, { type: 'EMBY_LIBRARY_STATE_UPDATED' });
-    } catch {}
+    } catch (error) {
+      // 10-15 A1-3：单 tab 投递失败（tab 已关/未注入）不得静默吞，留 warn 供幻视排查；
+      // 不阻塞其余 tab（Promise.all 逐 tab 隔离）。
+      console.warn(`[embyLibrary] EMBY_LIBRARY_STATE_UPDATED 广播投递失败（tab=${tab.id}）:`, error);
+    }
   }));
 }
 

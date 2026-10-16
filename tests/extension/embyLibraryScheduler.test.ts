@@ -131,6 +131,36 @@ describe('Emby library scheduler', () => {
     ]);
   });
 
+  it('单 tab 广播失败不阻塞其余 tab 且留 warn 日志（A1-3）', async () => {
+    const { handleEmbyLibraryStateStorageChange } = await import('../../apps/extension/src/features/embyLibrary/background/scheduler');
+    vi.mocked(chrome.tabs.query).mockResolvedValueOnce([
+      { id: 1, url: 'https://javdb.com/' } as chrome.tabs.Tab,
+      { id: 2, url: 'https://javdb.com/' } as chrome.tabs.Tab,
+    ]);
+    const sent: Array<{ tabId: number; type: string }> = [];
+    vi.mocked(chrome.tabs.sendMessage).mockImplementation(async (tabId, _message, callback) => {
+      sent.push({ tabId, type: String((_message as any).type) });
+      if (tabId === 2) throw new Error('tab was closed');
+      callback?.({ ok: true, success: true } as never);
+      return { ok: true, success: true } as never;
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    handleEmbyLibraryStateStorageChange({
+      [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { oldValue: undefined, newValue: { entries: {}, updatedAt: 1 } },
+    }, 'local');
+    await vi.advanceTimersByTimeAsync(50);
+
+    // tab 1 广播正常送达、tab 2 尝试后失败，失败不得静默吞（现状 catch {} 无日志）
+    expect(sent).toEqual([
+      { tabId: 1, type: 'EMBY_LIBRARY_STATE_UPDATED' },
+      { tabId: 2, type: 'EMBY_LIBRARY_STATE_UPDATED' },
+    ]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain('2');
+    warn.mockRestore();
+  });
+
   it('does not notify content tabs for ordinary settings changes', async () => {
     const { handleEmbyLibraryStateStorageChange } = await import('../../apps/extension/src/features/embyLibrary/background/scheduler');
 
