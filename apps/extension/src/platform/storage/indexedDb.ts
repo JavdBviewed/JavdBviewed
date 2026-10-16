@@ -963,7 +963,14 @@ export async function viewedDelete(videoId: string): Promise<void> {
   const db = await initDB();
   const record = await db.get('viewedRecords', videoId) as VideoRecord | undefined;
   if (record) {
-    await db.put('viewedRecords', { ...record, deletedAt: Date.now() } as VideoRecord);
+    const now = Date.now();
+    // C1-1：墓碑抬 updatedAt=now（服务端 updatedAt LWW 下确定性最新）+ 入云 pending 队列
+    const tombstone = { ...record, deletedAt: now, updatedAt: now } as VideoRecord;
+    await db.put('viewedRecords', tombstone);
+    try {
+      const { scheduleEnqueue, enqueueVideoChange } = await import('../../features/cloudSync/enqueueLocalChange');
+      scheduleEnqueue(() => enqueueVideoChange(tombstone));
+    } catch { /* Cloud 可选 */ }
   }
 }
 
@@ -971,11 +978,21 @@ export async function viewedBulkDelete(videoIds: string[]): Promise<void> {
   if (!videoIds || videoIds.length === 0) return;
   const db = await initDB();
   const now = Date.now();
+  const tombstones: VideoRecord[] = [];
   for (const id of videoIds) {
     const record = await db.get('viewedRecords', id) as VideoRecord | undefined;
     if (record) {
-      await db.put('viewedRecords', { ...record, deletedAt: now } as VideoRecord);
+      // C1-1：墓碑抬 updatedAt=now（同 viewedDelete）
+      const tombstone = { ...record, deletedAt: now, updatedAt: now } as VideoRecord;
+      await db.put('viewedRecords', tombstone);
+      tombstones.push(tombstone);
     }
+  }
+  if (tombstones.length) {
+    try {
+      const { scheduleEnqueue, enqueueVideoChanges } = await import('../../features/cloudSync/enqueueLocalChange');
+      scheduleEnqueue(() => enqueueVideoChanges(tombstones));
+    } catch { /* Cloud 可选 */ }
   }
 }
 
@@ -985,7 +1002,13 @@ export async function viewedRestore(videoId: string): Promise<void> {
   const record = await db.get('viewedRecords', videoId) as VideoRecord | undefined;
   if (record && record.deletedAt) {
     const { deletedAt, ...rest } = record;
-    await db.put('viewedRecords', rest as VideoRecord);
+    // C1-1/S2：恢复抬 updatedAt=now（恢复需新于 deletedAt 才压过远端墓碑）+ 复活实体入队
+    const revived = { ...rest, updatedAt: Date.now() } as VideoRecord;
+    await db.put('viewedRecords', revived);
+    try {
+      const { scheduleEnqueue, enqueueVideoChange } = await import('../../features/cloudSync/enqueueLocalChange');
+      scheduleEnqueue(() => enqueueVideoChange(revived));
+    } catch { /* Cloud 可选 */ }
   }
 }
 
@@ -993,12 +1016,22 @@ export async function viewedRestore(videoId: string): Promise<void> {
 export async function viewedBulkRestore(videoIds: string[]): Promise<void> {
   if (!videoIds || videoIds.length === 0) return;
   const db = await initDB();
+  const revivedList: VideoRecord[] = [];
   for (const id of videoIds) {
     const record = await db.get('viewedRecords', id) as VideoRecord | undefined;
     if (record && record.deletedAt) {
       const { deletedAt, ...rest } = record;
-      await db.put('viewedRecords', rest as VideoRecord);
+      // C1-1/S2：同 viewedRestore
+      const revived = { ...rest, updatedAt: Date.now() } as VideoRecord;
+      await db.put('viewedRecords', revived);
+      revivedList.push(revived);
     }
+  }
+  if (revivedList.length) {
+    try {
+      const { scheduleEnqueue, enqueueVideoChanges } = await import('../../features/cloudSync/enqueueLocalChange');
+      scheduleEnqueue(() => enqueueVideoChanges(revivedList));
+    } catch { /* Cloud 可选 */ }
   }
 }
 
@@ -1683,7 +1716,14 @@ export async function actorsDelete(id: string): Promise<void> {
   const db = await initDB();
   const record = await db.get('actors', id) as ActorRecord | undefined;
   if (record) {
-    await db.put('actors', { ...record, deletedAt: Date.now() } as ActorRecord);
+    const now = Date.now();
+    // C1-1：墓碑抬 updatedAt=now + 入云 pending 队列（同 viewedDelete）
+    const tombstone = { ...record, deletedAt: now, updatedAt: now } as ActorRecord;
+    await db.put('actors', tombstone);
+    try {
+      const { scheduleEnqueue, enqueueActorChange } = await import('../../features/cloudSync/enqueueLocalChange');
+      scheduleEnqueue(() => enqueueActorChange(tombstone));
+    } catch { /* Cloud 可选 */ }
   }
 }
 
@@ -1693,7 +1733,13 @@ export async function actorsRestore(id: string): Promise<void> {
   const record = await db.get('actors', id) as ActorRecord | undefined;
   if (record && record.deletedAt) {
     const { deletedAt, ...rest } = record;
-    await db.put('actors', rest as ActorRecord);
+    // C1-1/S2：同 viewedRestore
+    const revived = { ...rest, updatedAt: Date.now() } as ActorRecord;
+    await db.put('actors', revived);
+    try {
+      const { scheduleEnqueue, enqueueActorChange } = await import('../../features/cloudSync/enqueueLocalChange');
+      scheduleEnqueue(() => enqueueActorChange(revived));
+    } catch { /* Cloud 可选 */ }
   }
 }
 
@@ -1701,12 +1747,22 @@ export async function actorsRestore(id: string): Promise<void> {
 export async function actorsBulkRestore(ids: string[]): Promise<void> {
   if (!ids || ids.length === 0) return;
   const db = await initDB();
+  const revivedList: ActorRecord[] = [];
   for (const id of ids) {
     const record = await db.get('actors', id) as ActorRecord | undefined;
     if (record && record.deletedAt) {
       const { deletedAt, ...rest } = record;
-      await db.put('actors', rest as ActorRecord);
+      // C1-1/S2：同 actorsRestore
+      const revived = { ...rest, updatedAt: Date.now() } as ActorRecord;
+      await db.put('actors', revived);
+      revivedList.push(revived);
     }
+  }
+  if (revivedList.length) {
+    try {
+      const { scheduleEnqueue, enqueueActorChanges } = await import('../../features/cloudSync/enqueueLocalChange');
+      scheduleEnqueue(() => enqueueActorChanges(revivedList));
+    } catch { /* Cloud 可选 */ }
   }
 }
 

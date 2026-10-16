@@ -208,7 +208,11 @@ export async function collectLocalSyncEntities(): Promise<SyncEntity[]> {
     const videos = (await db.getAll('viewedRecords')) as VideoRecord[];
     for (const v of videos) {
       if (!v?.id) continue;
-      out.push(toEntity('video', String(v.id), v, Number(v.updatedAt) || Number(v.createdAt) || Date.now()));
+      const entity = toEntity('video', String(v.id), v, Number(v.updatedAt) || Number(v.createdAt) || Date.now());
+      // C1-1：软删墓碑提升顶层 deletedAt（与 list 分支同口径）
+      const d = Number(v.deletedAt);
+      if (Number.isFinite(d) && d > 0) entity.deletedAt = d;
+      out.push(entity);
     }
   } catch {
     // 忽略：本地库可能缺少该表
@@ -218,7 +222,11 @@ export async function collectLocalSyncEntities(): Promise<SyncEntity[]> {
     const actors = (await db.getAll('actors')) as ActorRecord[];
     for (const a of actors) {
       if (!a?.id) continue;
-      out.push(toEntity('actor', String(a.id), a, Number(a.updatedAt) || Number(a.createdAt) || Date.now()));
+      const entity = toEntity('actor', String(a.id), a, Number(a.updatedAt) || Number(a.createdAt) || Date.now());
+      // C1-1：软删墓碑提升顶层 deletedAt（与 list 分支同口径）
+      const d = Number(a.deletedAt);
+      if (Number.isFinite(d) && d > 0) entity.deletedAt = d;
+      out.push(entity);
     }
   } catch {
     // 忽略：本地资产缺失不阻断全量同步

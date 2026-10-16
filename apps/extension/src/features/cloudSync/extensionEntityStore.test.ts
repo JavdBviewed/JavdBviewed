@@ -96,3 +96,33 @@ describe('createExtensionEntityStore().applyRemote', () => {
     expect(spies.newWorksDelete).toHaveBeenCalledWith('nw-del-1');
   });
 });
+
+describe('collectLocalSyncEntities tombstone envelope (C1-1)', () => {
+  it('promotes soft-deleted viewed/actor/list records to entity.deletedAt; live records stay clean', async () => {
+    const fakeDb = {
+      getAll: vi.fn(async (store: string) => {
+        if (store === 'viewedRecords') {
+          return [
+            { id: 'V1', title: 't1', status: 'viewed', createdAt: 1, updatedAt: 10, deletedAt: 111 },
+            { id: 'V2', title: 't2', status: 'viewed', createdAt: 2, updatedAt: 12 },
+          ];
+        }
+        if (store === 'actors') return [{ id: 'A1', name: 'n', updatedAt: 20, deletedAt: 222 }];
+        if (store === 'lists') return [{ id: 'L1', title: 'l', updatedAt: 30, deletedAt: 333 }];
+        if (store === 'newWorks') return [{ id: 'W1', discoveredAt: 40 }];
+        return [];
+      }),
+    };
+    vi.mocked(spies.initDB).mockResolvedValue(fakeDb as any);
+    const { collectLocalSyncEntities } = await import('./extensionEntityStore');
+    const entities = await collectLocalSyncEntities();
+    const byKey = (t: string, id: string) => entities.find((e) => e.type === t && e.id === id);
+
+    expect(byKey('video', 'V1')?.deletedAt).toBe(111);
+    expect(byKey('video', 'V2')?.deletedAt).toBeUndefined();
+    expect(byKey('actor', 'A1')?.deletedAt).toBe(222);
+    expect(byKey('list', 'L1')?.deletedAt).toBe(333);
+    // new_work：NewWorkRecord 无 deletedAt 字段（物理删不产墓碑，登记不修）
+    expect(byKey('new_work', 'W1')?.deletedAt).toBeUndefined();
+  });
+});
