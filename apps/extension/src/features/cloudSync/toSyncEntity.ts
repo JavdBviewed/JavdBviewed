@@ -25,33 +25,49 @@ export function toSyncEntity(
   };
 }
 
+/** 软删墓碑提升：deletedAt 有限且 >0 → 顶层实体字段（服务端 S2 墓碑语义裁决键）；其余=不带 */
+function withTombstone(e: SyncEntity, rec: { deletedAt?: number } | null | undefined): SyncEntity {
+  const ts = Number(rec?.deletedAt);
+  if (Number.isFinite(ts) && ts > 0) e.deletedAt = ts;
+  return e;
+}
+
 export function videoToSyncEntity(v: VideoRecord): SyncEntity | null {
   if (!v?.id) return null;
-  return toSyncEntity(
-    'video',
-    String(v.id),
+  return withTombstone(
+    toSyncEntity(
+      'video',
+      String(v.id),
+      v,
+      Number(v.updatedAt) || Number(v.createdAt) || Date.now(),
+    ),
     v,
-    Number(v.updatedAt) || Number(v.createdAt) || Date.now(),
   );
 }
 
 export function actorToSyncEntity(a: ActorRecord): SyncEntity | null {
   if (!a?.id) return null;
-  return toSyncEntity(
-    'actor',
-    String(a.id),
+  return withTombstone(
+    toSyncEntity(
+      'actor',
+      String(a.id),
+      a,
+      Number(a.updatedAt) || Number(a.createdAt) || Date.now(),
+    ),
     a,
-    Number(a.updatedAt) || Number(a.createdAt) || Date.now(),
   );
 }
 
 export function listToSyncEntity(l: ListRecord): SyncEntity | null {
   if (!l?.id) return null;
-  return toSyncEntity(
-    'list',
-    String(l.id),
+  return withTombstone(
+    toSyncEntity(
+      'list',
+      String(l.id),
+      l,
+      Number(l.updatedAt) || Number(l.createdAt) || Date.now(),
+    ),
     l,
-    Number(l.updatedAt) || Number(l.createdAt) || Date.now(),
   );
 }
 
