@@ -155,8 +155,12 @@ describe('CloudSettingsPage copy', () => {
     expect(pageSource).toContain('包含 Cloud 处理与响应等待');
   });
 
-  it('uses persisted account credentials without a logout or passwordless device-access path', () => {
-    expect(pageSource).not.toContain('退出登录');
+  it('locks persisted-account copy with the logout entry and no passwordless device-access path', () => {
+    expect(pageSource).toContain('退出登录');
+    expect(pageSource).toContain('退出中…');
+    expect(pageSource).toContain('已退出本机 Cloud 会话');
+    expect(pageSource).toContain('已退出登录');
+    expect(pageSource).toContain('同一 Cloud 账号下的客户端。可踢出其它设备（本机请用退出登录）。');
     expect(pageSource).not.toContain('申请设备接入');
     expect(pageSource).not.toContain('检查允许结果');
     expect(pageSource).not.toContain('取消本机申请');

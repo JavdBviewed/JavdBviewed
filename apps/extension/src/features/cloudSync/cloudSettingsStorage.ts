@@ -4,6 +4,7 @@
  * @module features/cloudSync
  */
 import { getSettings } from '../../utils/storage';
+import { CLOUD_CURSORS_STORAGE_KEY } from './chromeCursorStore';
 
 export const CLOUD_SETTINGS_STORAGE_KEY = 'cloud_sync_settings_v1';
 
@@ -111,6 +112,16 @@ export async function loadCloudSettings(): Promise<CloudConnectionSettings> {
   });
 }
 
+function removeCloudCursors(): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.remove([CLOUD_CURSORS_STORAGE_KEY], () => resolve());
+    } catch {
+      resolve();
+    }
+  });
+}
+
 export async function saveCloudSettings(
   patch: Partial<CloudConnectionSettings>,
 ): Promise<CloudConnectionSettings> {
@@ -132,6 +143,11 @@ export async function saveCloudSettings(
     deviceId: nextDeviceId,
     updatedAt: Date.now(),
   };
+  // 连接身份（地址/账号）变更 = 切换到另一个云账号/服务器：旧游标对新服务端无意义，
+  // 重置后下次同步按首次同步做全量首推+全量拉取；同账号重登不清游标。
+  if (next.baseUrl !== current.baseUrl || next.accountIdentifier !== current.accountIdentifier) {
+    await removeCloudCursors();
+  }
   return new Promise((resolve) => {
     try {
       chrome.storage.local.set({ [CLOUD_SETTINGS_STORAGE_KEY]: next }, () => resolve(next));

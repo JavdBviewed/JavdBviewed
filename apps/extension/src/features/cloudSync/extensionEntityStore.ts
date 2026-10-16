@@ -39,7 +39,7 @@ import {
 import { markCloudStorageWrite } from './storageChangeGate';
 import { shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
 import { mergeMediaCleanupStorageValue } from '../mediaCleanup';
-import { filterEmbyImportedMediaServers } from '../../shared/embyDeletedServers';
+import { mergeEmbyMediaServersForPull, stripEmbySessionFieldsFromValue } from '../../shared/embyMediaServerSync';
 
 export const EXTENSION_SYNC_ENTITY_TYPES: readonly SyncEntityType[] = [
   'video',
@@ -329,11 +329,13 @@ export async function collectLocalSyncEntities(): Promise<SyncEntity[]> {
     const allStorage = await readAllChromeStorage();
     for (const [key, value] of Object.entries(allStorage)) {
       if (!shouldSyncStorageItemKey(key)) continue;
+      // X2：settings 整 blob 上云前剥离 emby 会话字段（本地 storage 不动；drive115 会话保留=用户 10-15 定案）
+      const pushValue = key === STORAGE_KEYS.SETTINGS ? stripEmbySessionFieldsFromValue(value) : value;
       out.push(
         toEntity(
           STORAGE_ITEM_TYPE,
           key,
-          { key, value },
+          { key, value: pushValue },
           timestampFromPayload(value, ['updatedAt', 'createdAt', 'savedAt']),
         ),
       );
@@ -487,10 +489,10 @@ async function applyOne(entity: SyncEntity): Promise<void> {
         return;
       }
       const localValue = await getValue<unknown>(key, undefined);
-      // settings 键：导入侧按 local∪remote 墓碑过滤 mediaServers，防已删源复活
+      // settings 键（X2）：按源 id 并集合并 + 丢弃远端会话 + 墓碑前移到 pull 应用层（替换整 blob LWW）
       const mergedValue =
         key === STORAGE_KEYS.SETTINGS
-          ? filterEmbyImportedMediaServers(localValue, value)
+          ? mergeEmbyMediaServersForPull(localValue, value)
           : mergeMediaCleanupStorageValue(key, localValue, value);
       markCloudStorageWrite(key, mergedValue);
       await setValue(key, mergedValue);

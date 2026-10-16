@@ -250,4 +250,30 @@ describe('chromePendingStore', () => {
       expect(await listCloudPending()).toEqual([{ type: 'video', id: 'ABP-X' }]);
     });
   });
+
+  describe('ensureInitialPending first-sync seeding gate', () => {
+    const CURSORS_KEY = 'cloud_sync_cursors_v1';
+
+    it('still first-pushes the full local snapshot when the device has never synced (cursors empty)', async () => {
+      const { ensureInitialPending, listCloudPending } = await import('./chromePendingStore');
+
+      const enqueued = await ensureInitialPending([{ type: 'video', id: 'ABP-LOCAL' }] as any);
+
+      expect(enqueued).toBe(1);
+      expect(await listCloudPending()).toEqual([{ type: 'video', id: 'ABP-LOCAL' }]);
+    });
+
+    it('does not reseed the full base once cursors exist, so a quiet sync cannot re-push the stale settings blob', async () => {
+      storedValues[CURSORS_KEY] = { storage_item: 829, video: 77 };
+      const { ensureInitialPending, listCloudPending } = await import('./chromePendingStore');
+
+      const enqueued = await ensureInitialPending([
+        { type: 'video', id: 'ABP-LOCAL' },
+        { type: 'storage_item', id: 'settings' },
+      ] as any);
+
+      expect(enqueued).toBe(0);
+      expect(await listCloudPending()).toEqual([]);
+    });
+  });
 });

@@ -6,6 +6,7 @@ import type { ExtensionSettings } from '../types';
 import { log } from './logController';
 import { dedupeSearchEngines, migrateSearchEngineTemplateIcon } from './searchEngines';
 import { applyEmbyDeletedServerTombstones } from '../shared/embyDeletedServers';
+import { stampEmbyMediaServerUpdateTimes } from '../shared/embyMediaServerSync';
 import { backfillSiteAdRemovalSettings } from '../features/siteAdRemoval';
 import { createChromeStorage } from '../platform/storage/chromeStorage';
 
@@ -381,6 +382,8 @@ export async function saveSettings(settings: ExtensionSettings): Promise<void> {
     if (settings && typeof settings === 'object') {
       const prev = await getValue<unknown>(STORAGE_KEYS.SETTINGS, undefined);
       applyEmbyDeletedServerTombstones(prev, settings as unknown as Record<string, unknown>);
+      // X2：条目级 updatedAt 戳（同 id 冲突 last-write 依据；与墓碑钩点同址，fail-open）
+      stampEmbyMediaServerUpdateTimes(prev, settings as unknown as Record<string, unknown>);
     }
   } catch (error) {
     log.storage('Emby deletedServerIds tombstone apply failed (fail-open)', error);

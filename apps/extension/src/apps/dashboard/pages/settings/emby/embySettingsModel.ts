@@ -4,6 +4,7 @@
  * @module apps/dashboard/pages/settings/emby
  */
 import type { ExtensionSettings } from '../../../../../types';
+import { readEmbyDeletedServerIds } from '../../../../../shared/embyDeletedServers';
 import type {
   EmbyLibraryStatusSettings,
   EmbyMediaServer,
@@ -332,16 +333,67 @@ export function formToEmbySettings(form: EmbySettingsFormState): Record<string, 
 }
 
 /**
- * 合并表单回完整设置对象
+ * 合并表单回完整设置对象（id-aware 合并，X2 修复）
+ *
+ * 表单只建模用户挂载页面时看到的 mediaServers；后台云同步可能已把新源拉落
+ * 持久化设置，表单态相对 current 可能已陈旧。整对象替换会让下一次保存丢出
+ * 拉取来的源，saveSettings 的墓碑 diff 钩子再把「保存时消失」记为永久墓碑
+ * 并 push 传播双端。合并语义：
+ * - 表单行（用户意图）优先；
+ * - current-only 且未被用户显式移除（removedServerIds）、未被本地墓碑的源
+ *   保留（后台 pull 拉取来的源不因表单陈旧而丢失）；
+ * - 表单残留的本地已墓碑行不复活（防陈旧表单把已删源重新写回）；
+ * - deletedServerIds 原样携带（diff 钩子会按 prev/next 重算，携带为 fail-open
+ *   保底，不丢墓碑）；
+ * - 保留条目内容不变 → stamp 钩子零漂移。
  */
 export function applyEmbyFormToSettings(
   current: ExtensionSettings,
   form: EmbySettingsFormState,
+  removedServerIds?: ReadonlySet<string>,
 ): ExtensionSettings {
-  return {
-    ...current,
-    emby: formToEmbySettings(form),
-  };
+  const emby: Record<string, unknown> = { ...formToEmbySettings(form) };
+
+  const currentEmby =
+    current &&
+    typeof current === 'object' &&
+    current.emby &&
+    typeof current.emby === 'object'
+      ? (current.emby as Record<string, unknown>)
+      : null;
+  const currentTombstones = new Set(readEmbyDeletedServerIds(currentEmby));
+  const currentServers = Array.isArray(currentEmby?.mediaServers)
+    ? (currentEmby!.mediaServers as EmbyMediaServer[])
+    : [];
+
+  const formServers = Array.isArray(emby.mediaServers)
+    ? (emby.mediaServers as EmbyMediaServer[])
+    : [];
+  const normId = (server: EmbyMediaServer | null | undefined): string =>
+    server && typeof server.id === 'string' ? server.id.trim() : '';
+  const formIds = new Set(formServers.map(normId).filter(Boolean));
+
+  const keptForm = formServers.filter((server) => {
+    const id = normId(server);
+    return !id || !currentTombstones.has(id);
+  });
+  const preserved = currentServers.filter((server) => {
+    const id = normId(server);
+    return (
+      id.length > 0 &&
+      !formIds.has(id) &&
+      !removedServerIds?.has(id) &&
+      !currentTombstones.has(id)
+    );
+  });
+
+  if (keptForm.length !== formServers.length || preserved.length > 0) {
+    emby.mediaServers = [...keptForm, ...preserved];
+  }
+  if (Array.isArray(currentEmby?.deletedServerIds)) {
+    emby.deletedServerIds = currentEmby!.deletedServerIds;
+  }
+  return { ...current, emby };
 }
 
 /**
@@ -629,6 +681,20 @@ export function clearMediaServerUserSession(server: EmbyMediaServer): EmbyMediaS
     ...rest
   } = server;
   return normalizeMediaServer(rest);
+}
+
+/**
+ * 媒体服务器用户登出：按位整体替换（P6b 根因：合并式 patch 的 spread 无法删键，
+ * 被剔除的 accessToken/userId/userDisplayName/tokenObtainedAt 会从旧条目幸存并被规范化器读回）
+ */
+export function logoutMediaServerAt(
+  servers: EmbyMediaServer[],
+  index: number,
+): EmbyMediaServer[] {
+  if (index < 0 || index >= servers.length) return servers;
+  const next = [...servers];
+  next[index] = clearMediaServerUserSession(next[index]);
+  return next;
 }
 
 /**

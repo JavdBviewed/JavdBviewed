@@ -125,7 +125,7 @@ describe('EmbySettingsPage media server layout', () => {
 
   it('persists a confirmed deletion before closing its dialogs', () => {
     expect(pageSource).toContain('await flush(formRef.current)');
-    expect(pageSource).toContain('await persistEmbyForm(nextForm)');
+    expect(pageSource).toContain('await persistEmbyForm(nextForm, removedServerIdsRef.current)');
     expect(pageSource).toContain('setDeleteTarget(null)');
     expect(pageSource).toContain('setEditingServerIndex(null)');
   });

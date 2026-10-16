@@ -87,6 +87,7 @@ export type ExtensionCloudFacade = {
   fetchCloudVersion(baseUrl?: string): Promise<CloudVersionInfo | null>;
   register(input: CloudLoginInput): Promise<void>;
   login(input: CloudLoginInput): Promise<CloudFacadeState>;
+  logout(): Promise<CloudFacadeState>;
   listDevices(): Promise<DeviceInfo[]>;
   revokeDevice(deviceId: string): Promise<DeviceInfo[]>;
   syncNow(options?: CloudSyncNowOptions): Promise<CloudSyncNowResult>;
@@ -287,6 +288,26 @@ export function createExtensionCloudFacade(
     return loadState();
   }
 
+  async function logout(): Promise<CloudFacadeState> {
+    const settings = await loadCloudSettings();
+    // C′（10-13 裁决）：登出连带清已存密码（保留 baseUrl+账号）；
+    // 修复①（四跑根因）：密码清写必须先落盘再清 session——
+    // session 移除事件会并发触发 ensure-session 恢复（storage.onChanged → alarm
+    // 再评估 → recoverCloudAuthSession），其 settings 新鲜读必须见空密码
+    // （no-credentials，不重登），闭合「session 已清、密码未清」竞态窗
+    await saveCloudSettings({ accountPassword: '' });
+    const { api } = await createExtensionCloudClient(settings, {
+      transport: options.transport,
+    });
+    try {
+      await api.logout();
+    } catch {
+      await api.tokens.clear();
+    }
+    await setupAlarm(options);
+    return loadState();
+  }
+
   async function listDevices(): Promise<DeviceInfo[]> {
     const settings = await loadCloudSettings();
     const { api } = await createExtensionCloudClient(settings, {
@@ -298,7 +319,7 @@ export function createExtensionCloudFacade(
   async function revokeDevice(deviceId: string): Promise<DeviceInfo[]> {
     const settings = await loadCloudSettings();
     if (deviceId === settings.deviceId) {
-      throw new Error('不能移除本机设备');
+      throw new Error('不能移除本机设备，请使用「退出登录」');
     }
     const { api } = await createExtensionCloudClient(settings, {
       transport: options.transport,
@@ -322,6 +343,7 @@ export function createExtensionCloudFacade(
     fetchCloudVersion,
     register,
     login,
+    logout,
     listDevices,
     revokeDevice,
     syncNow(syncOptions) {
