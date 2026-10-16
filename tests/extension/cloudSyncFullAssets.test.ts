@@ -210,13 +210,18 @@ describe('Cloud 全量资产同步', () => {
             expect.objectContaining({
               id: 'srv-1',
               apiKey: 'emby-key',
-              accessToken: 'emby-token',
               password: 'emby-password',
             }),
           ],
         },
       },
     });
+    // X2（10-13）：采集快照剥离 emby 4 会话字段（不上云）；凭据类字段（apiKey/password）保留
+    const collectedServer = (settingsEntity?.payload.value as any).emby.mediaServers[0];
+    expect(collectedServer.accessToken).toBeUndefined();
+    expect(collectedServer.userId).toBeUndefined();
+    expect(collectedServer.userDisplayName).toBeUndefined();
+    expect(collectedServer.tokenObtainedAt).toBeUndefined();
     const cloudSettingsEntity = entities.find(
       (e) => e.type === 'storage_item' && e.id === 'cloud_sync_settings_v1',
     );
@@ -394,12 +399,17 @@ describe('Cloud 全量资产同步', () => {
           expect.objectContaining({
             id: 'srv-1',
             apiKey: 'emby-key',
-            accessToken: 'emby-token',
             password: 'emby-password',
           }),
         ],
       },
     });
+    // X2（10-13）：会话隔离——远端 blob 的 emby 会话字段永不落本地（验收 1）
+    const pulledServer = (getChromeStorageSnapshot()[STORAGE_KEYS.SETTINGS] as any).emby.mediaServers[0];
+    expect(pulledServer.accessToken).toBeUndefined();
+    expect(pulledServer.userId).toBeUndefined();
+    expect(pulledServer.userDisplayName).toBeUndefined();
+    expect(pulledServer.tokenObtainedAt).toBeUndefined();
   });
 
   it('应用远端 Cloud 连接配置时保留本机 deviceId', async () => {

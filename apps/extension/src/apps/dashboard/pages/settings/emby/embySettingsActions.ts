@@ -171,7 +171,10 @@ export async function loginEmbyUser(params: {
 /**
  * 持久化 Emby 表单（含校验、STATE 同步、tabs 通知）
  */
-export async function persistEmbyForm(form: EmbySettingsFormState): Promise<{
+export async function persistEmbyForm(
+  form: EmbySettingsFormState,
+  removedServerIds?: ReadonlySet<string>,
+): Promise<{
   ok: boolean;
   error?: string;
 }> {
@@ -182,7 +185,7 @@ export async function persistEmbyForm(form: EmbySettingsFormState): Promise<{
   }
   try {
     const current = await getSettings();
-    const next = applyEmbyFormToSettings(current, form);
+    const next = applyEmbyFormToSettings(current, form, removedServerIds);
     await saveSettings(next);
     await syncDashboardState(next);
     notifyTabsSettingsUpdated(next);
@@ -268,8 +271,9 @@ export function normalizeLibrarySyncServerResults(value: unknown): LibrarySyncSe
  */
 export async function runManualLibrarySync(
   form: EmbySettingsFormState,
+  removedServerIds?: ReadonlySet<string>,
 ): Promise<{ ui: LibrarySyncUiState; toast?: { message: string; type: 'success' | 'warning' | 'error' } }> {
-  const saved = await persistEmbyForm(form);
+  const saved = await persistEmbyForm(form, removedServerIds);
   if (!saved.ok) {
     await toast(saved.error || '保存设置失败', 'error');
     return {
@@ -353,6 +357,7 @@ export function buildLibraryCheckMatches(
 export async function runLibraryCheck(
   form: EmbySettingsFormState,
   codeRaw: string,
+  removedServerIds?: ReadonlySet<string>,
 ): Promise<{ ui: LibraryCheckUiState }> {
   const code = codeRaw.trim();
   if (!code) {
@@ -360,7 +365,7 @@ export async function runLibraryCheck(
     return { ui: { kind: 'idle' } };
   }
 
-  const saved = await persistEmbyForm(form);
+  const saved = await persistEmbyForm(form, removedServerIds);
   if (!saved.ok) {
     await toast(saved.error || '保存设置失败', 'error');
     return {

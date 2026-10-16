@@ -22,6 +22,8 @@ import {
   videoToSyncEntity,
   CLOUD_PREFERENCE_KEYS,
 } from './toSyncEntity';
+import { STORAGE_KEYS } from '../../utils/config';
+import { stripEmbySessionFieldsFromValue } from '../../shared/embyMediaServerSync';
 
 export async function enqueueSyncEntities(entities: SyncEntity[]): Promise<void> {
   const list = entities.filter(Boolean);
@@ -140,7 +142,9 @@ export async function enqueueMagnetPushLogChanges(entries: Array<Record<string, 
 }
 
 export async function enqueueStorageItemChange(key: string, value: unknown): Promise<void> {
-  const e = storageItemToSyncEntity(key, value, Date.now());
+  // X2：settings 增量入队前剥离 emby 会话字段（与全量快照同口径；本地 storage 不动）
+  const sanitized = key === STORAGE_KEYS.SETTINGS ? stripEmbySessionFieldsFromValue(value) : value;
+  const e = storageItemToSyncEntity(key, sanitized, Date.now());
   if (e) await upsertCloudPending([e]);
 }
 

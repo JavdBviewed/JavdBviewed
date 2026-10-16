@@ -77,9 +77,12 @@ export function EmbySettingsPage() {
   const [checkStatus, setCheckStatus] = useState<LibraryCheckUiState>({ kind: 'idle' });
   const formRef = useRef(form);
   formRef.current = form;
+  // 本会话（自挂载起）用户显式删除的媒体服务器 id：id-aware 合并时
+  // 不得经「current-only 保留」路径复活这些源
+  const removedServerIdsRef = useRef<Set<string>>(new Set());
 
   const persist = useCallback(async (nextForm: EmbySettingsFormState) => {
-    const result = await persistEmbyForm(nextForm);
+    const result = await persistEmbyForm(nextForm, removedServerIdsRef.current);
     if (!result.ok) {
       setSaveError(result.error || '保存失败');
       await toast(result.error || '保存失败', 'error');
@@ -103,6 +106,7 @@ export function EmbySettingsPage() {
         if (cancelled) return;
         const next = mapSettingsToEmbyForm(settings);
         formRef.current = next;
+        removedServerIdsRef.current.clear();
         setForm(next);
       } catch (err) {
         console.error('[EmbySettingsPage] load failed', err);
@@ -207,11 +211,15 @@ export function EmbySettingsPage() {
     setDeletingServer(true);
     try {
       await flush(formRef.current);
+      const removedId = deleteTarget.server.id;
+      if (typeof removedId === 'string' && removedId.trim()) {
+        removedServerIdsRef.current.add(removedId.trim());
+      }
       const nextForm = {
         ...formRef.current,
         mediaServers: removeMediaServerAt(formRef.current.mediaServers, deleteTarget.index),
       };
-      const result = await persistEmbyForm(nextForm);
+      const result = await persistEmbyForm(nextForm, removedServerIdsRef.current);
       if (!result.ok) {
         setSaveError(result.error || '删除来源失败');
         await toast(result.error || '删除来源失败', 'error');
@@ -324,7 +332,7 @@ export function EmbySettingsPage() {
     try {
       // 同步前先 flush 当前表单
       await flush(formRef.current);
-      const result = await runManualLibrarySync(formRef.current);
+      const result = await runManualLibrarySync(formRef.current, removedServerIdsRef.current);
       setSyncStatus(result.ui);
     } finally {
       setSyncing(false);
@@ -342,7 +350,7 @@ export function EmbySettingsPage() {
     setCheckStatus({ kind: 'loading' });
     try {
       await flush(formRef.current);
-      const result = await runLibraryCheck(formRef.current, code);
+      const result = await runLibraryCheck(formRef.current, code, removedServerIdsRef.current);
       setCheckStatus(result.ui);
     } finally {
       setChecking(false);

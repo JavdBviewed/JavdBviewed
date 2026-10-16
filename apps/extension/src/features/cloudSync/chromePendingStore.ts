@@ -6,6 +6,7 @@
 import type { SyncEntity } from '@javdb/sync-protocol';
 import { CLOUD_SESSION_STORAGE_KEY } from './chromeTokenStore';
 import { CLOUD_SETTINGS_STORAGE_KEY } from './cloudSettingsStorage';
+import { CLOUD_CURSORS_STORAGE_KEY } from './chromeCursorStore';
 
 export const CLOUD_PENDING_STORAGE_KEY = 'cloud_sync_pending_v1';
 export const CLOUD_PENDING_DELTA_STORAGE_KEY = 'cloud_sync_pending_delta_v1';
@@ -172,12 +173,32 @@ export async function clearCloudPending(
 }
 
 /**
- * 首次同步：若 pending 为空，把当前本地全量实体入队，便于首推到空 Cloud。
+ * 本设备是否已有同步游标（engine 在成功完成 session 后写入）：
+ * 有游标 = 已与当前云账号完成过同步，不再是「首次同步」。
+ */
+async function hasSyncCursors(): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.get([CLOUD_CURSORS_STORAGE_KEY], (res) => {
+        const v = res?.[CLOUD_CURSORS_STORAGE_KEY];
+        resolve(!!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0);
+      });
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * 首次同步：pending 为空且本设备尚无同步游标时，把当前本地全量实体入队，便于首推到空 Cloud。
+ * 已完成过同步（有游标）的设备不再重播全量 base：否则 pending 每次同步清空后，
+ * 每次静默同步都会整包重推本地状态，陈旧 settings 整 blob 会以 LWW 冲掉其它设备的新变更。
  */
 export async function ensureInitialPending(snapshot: SyncEntity[]): Promise<number> {
   return enqueuePendingMutation(async () => {
     const pending = await readPendingStorage();
     if (mergePending(pending.base, pending.delta).length > 0) return 0;
+    if (await hasSyncCursors()) return 0;
     if (!snapshot.length) return 0;
     await writePending({
       [CLOUD_PENDING_STORAGE_KEY]: [...snapshot],

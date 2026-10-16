@@ -682,3 +682,129 @@ describe('embySettingsModel: disabled servers are excluded from save validation'
     expect(v.message).toContain('API Key / 访问令牌 / 用户名+密码');
   });
 });
+
+describe('embySettingsModel: applyEmbyFormToSettings id-aware merge (X2 防陈旧表单整替丢源)', () => {
+  const s1Row = {
+    id: 's1',
+    type: 'emby' as const,
+    name: 'Main',
+    url: 'http://10.0.0.1:8096/',
+    apiKey: 'k',
+    enabled: true,
+  };
+  const pulledP = {
+    id: 'p',
+    type: 'emby' as const,
+    name: 'Pulled',
+    url: 'http://10.0.0.2:8096',
+    enabled: true,
+  };
+  const baseForm = {
+    ...DEFAULT_EMBY_SETTINGS_FORM,
+    recognitionEnabled: true,
+    libraryEnabled: false,
+    mediaServers: [s1Row],
+  };
+
+  const idsOf = (settings: any) =>
+    ((settings?.emby?.mediaServers ?? []) as any[]).map((s) => s?.id ?? '');
+
+  it('T1 keeps current-only servers pulled in background (stale form must not drop them)', () => {
+    const current = {
+      emby: {
+        enabled: true,
+        mediaServers: [
+          { ...s1Row, url: 'http://10.0.0.1:8096' },
+          pulledP,
+        ],
+      },
+    };
+    const next = applyEmbyFormToSettings(current as any, baseForm);
+    expect(idsOf(next)).toContain('s1');
+    expect(idsOf(next)).toContain('p');
+  });
+
+  it('T2 does not preserve current-only servers the user explicitly removed', () => {
+    const current = {
+      emby: {
+        enabled: true,
+        mediaServers: [
+          { ...s1Row, url: 'http://10.0.0.1:8096' },
+          pulledP,
+        ],
+      },
+    };
+    const next = applyEmbyFormToSettings(current as any, baseForm, new Set(['p']));
+    expect(idsOf(next)).toContain('s1');
+    expect(idsOf(next)).not.toContain('p');
+  });
+
+  it('T3 does not resurrect a locally tombstoned server left over in the stale form', () => {
+    const form = {
+      ...baseForm,
+      mediaServers: [
+        s1Row,
+        { ...pulledP, id: 'gone', name: 'Gone' },
+      ],
+    };
+    const current = {
+      emby: {
+        enabled: true,
+        mediaServers: [{ ...s1Row, url: 'http://10.0.0.1:8096' }],
+        deletedServerIds: ['gone'],
+      },
+    };
+    const next = applyEmbyFormToSettings(current as any, form);
+    expect(idsOf(next)).not.toContain('gone');
+    expect(idsOf(next)).toContain('s1');
+  });
+
+  it('T4 same id: form row wins over current entry (regression lock)', () => {
+    const current = {
+      emby: {
+        enabled: true,
+        mediaServers: [{ ...s1Row, name: 'MainOld', legacyExtra: 'x' }],
+      },
+    };
+    const next = applyEmbyFormToSettings(current as any, baseForm);
+    const s1 = (next.emby.mediaServers as any[]).find((s) => s.id === 's1');
+    expect(s1?.name).toBe('Main');
+    expect(idsOf(next)).toEqual(['s1']);
+  });
+
+  it('T5 carries current deletedServerIds through unchanged', () => {
+    const current = {
+      emby: {
+        enabled: true,
+        mediaServers: [{ ...s1Row, url: 'http://10.0.0.1:8096' }],
+        deletedServerIds: ['ghost', 'old2'],
+      },
+    };
+    const next = applyEmbyFormToSettings(current as any, baseForm);
+    expect(next.emby.deletedServerIds).toEqual(['ghost', 'old2']);
+  });
+
+  it('T6 filters empty-url draft rows via normalizeMediaServers (regression lock)', () => {
+    const draft = createEmptyMediaServerDraft();
+    const form = {
+      ...baseForm,
+      mediaServers: [s1Row, { ...draft, url: '' }],
+    };
+    const next = applyEmbyFormToSettings({} as any, form);
+    expect(idsOf(next)).toEqual(['s1']);
+  });
+
+  it('T7 does not preserve current entries without an id', () => {
+    const current = {
+      emby: {
+        enabled: true,
+        mediaServers: [
+          { ...s1Row, url: 'http://10.0.0.1:8096' },
+          { type: 'emby', name: 'NoId', url: 'http://10.0.0.9:8096', enabled: true },
+        ],
+      },
+    };
+    const next = applyEmbyFormToSettings(current as any, baseForm);
+    expect(idsOf(next)).toEqual(['s1']);
+  });
+});
