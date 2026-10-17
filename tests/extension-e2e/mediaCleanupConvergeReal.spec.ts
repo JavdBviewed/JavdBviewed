@@ -426,7 +426,7 @@ test.describe('media cleanup dirty-data converge (real container)', () => {
       expect(entries.filter(([, copy]) => copy?.status === 'pending' || copy?.status === 'deleting')).toHaveLength(0);
       expect(entries.filter(([, copy]) => copy?.status === 'skipped')).toHaveLength(4);
       for (const [, copy] of entries.filter(([, c]) => c?.status === 'skipped')) {
-        expect(copy.message).toBe('重新扫描时该文件已不在媒体库中，记录已合并');
+        expect(copy.message).toBe('重新扫描时该文件已不在资料库中，记录已合并');
       }
       expect(copies[baseId]?.status).toBe('deleted');
     } finally {

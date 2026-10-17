@@ -558,13 +558,13 @@
                                         <!-- 09-30-media-library-hide-filter：媒体库隐藏两开关（生产 DOM 由 React ListTab 渲染） -->
                                         <div class="form-group-checkbox">
                                             <input type="checkbox" id="hideInMediaLibrary">
-                                            <label for="hideInMediaLibrary">隐藏媒体库已入库的影片</label>
-                                            <p class="input-description">按番号匹配：影片已存在于 Emby/Jellyfin 媒体库索引或 115 网盘扫描索引时隐藏（与原站「已看」标记无关）。需媒体库同步/扫描完成后生效；索引为空时本开关不生效。</p>
+                                            <label for="hideInMediaLibrary">隐藏资料库已入库的影片</label>
+                                            <p class="input-description">按番号匹配：影片已存在于 Emby/Jellyfin 媒体库索引或 115 网盘扫描索引时隐藏（与原站「已看」标记无关）。需资料库同步/扫描完成后生效；索引为空时本开关不生效。</p>
                                         </div>
                                         <div class="form-group-checkbox">
                                             <input type="checkbox" id="hideRealWatched">
                                             <label for="hideRealWatched">隐藏真实已看的影片</label>
-                                            <p class="input-description">影片在 Emby/Jellyfin 播放进度达到 90% 或已标记看完时判为「真实已看」并隐藏（与原站「已看」标记无关）。需媒体库同步完成后生效。</p>
+                                            <p class="input-description">影片在 Emby/Jellyfin 播放进度达到 90% 或已标记看完时判为「真实已看」并隐藏（与原站「已看」标记无关）。需资料库同步完成后生效。</p>
                                         </div>
                                         <div class="form-group-checkbox">
                                             <input type="checkbox" id="hideBlacklistedActorsInList">
@@ -888,7 +888,7 @@
                                                 <button class="enhancement-toggle" data-target="enableLibraryMatchStatus"></button>
                                             </div>
                                         </label>
-                                        <p class="input-description">统一显示 115、Emby/Jellyfin 等本地媒体库来源的精确匹配结果，标签保留来源名称。</p>
+                                        <p class="input-description">统一显示 115、Emby/Jellyfin 等本地资料库来源的精确匹配结果，标签保留来源名称。</p>
                                         <div class="enhancement-risk-notice" role="note">
                                             <strong>调用限制提示</strong>
                                             <span>115 接口和目录结构可能导致匹配不完整。当前只读取本地索引；如日后启用实时查询，连续浏览可能触发 115 调用限流。</span>

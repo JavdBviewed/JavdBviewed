@@ -15,7 +15,7 @@ export const SETTINGS_SEARCH_ALIASES: Record<string, string[]> = {
   代理: ['网络', 'proxy', '连通性'],
   ai: ['模型', 'api', '翻译', 'openai'],
   数据洞察: ['报告', '月报', '统计', 'insights'],
-  emby: ['jellyfin', '媒体库', '入库状态'],
+  emby: ['jellyfin', '媒体库', '资料库', '资料库来源', '入库状态'],
   openlist: ['115', '授权', '扫码授权'],
   搜索引擎: ['外部搜索', '搜索网站'],
 };

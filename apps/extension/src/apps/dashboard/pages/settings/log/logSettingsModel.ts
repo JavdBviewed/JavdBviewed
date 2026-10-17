@@ -132,7 +132,7 @@ export const LOG_MODULE_FIELDS: {
   { key: 'sync', id: 'logModuleSync', label: '数据同步', tag: '[SYNC]', description: 'WebDAV、云端备份与恢复', group: '业务功能' },
   { key: 'newworks', id: 'logModuleNewWorks', label: '新作品', tag: '[NEWWORKS]', description: '新作品订阅、采集、状态同步', group: '业务功能' },
   { key: 'drive115', id: 'logModuleDrive115', label: '115网盘', tag: '[115]', description: '115网盘离线下载、文件管理', group: '扩展功能' },
-  { key: 'media', id: 'logModuleMedia', label: '媒体库', tag: '[MEDIA]/[EMBY]', description: 'Emby/JF 同步、详情、播放取流', group: '扩展功能' },
+  { key: 'media', id: 'logModuleMedia', label: '资料库', tag: '[MEDIA]/[EMBY]', description: 'Emby/JF 同步、详情、播放取流', group: '扩展功能' },
   { key: 'privacy', id: 'logModulePrivacy', label: '隐私保护', tag: '[PRIVACY]', description: '隐私模式、密码锁、数据加密', group: '扩展功能' },
   { key: 'ai', id: 'logModuleAI', label: 'AI功能', tag: '[AI]', description: 'AI对话、智能分析、推荐', group: '扩展功能' },
   { key: 'enhancement', id: 'logModuleEnhancement', label: '功能增强', tag: '[ENHANCEMENT]', description: '列表增强、视频增强、预览', group: '扩展功能' },

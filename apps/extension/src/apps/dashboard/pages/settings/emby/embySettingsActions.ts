@@ -297,7 +297,7 @@ export async function runManualLibrarySync(
         ui: {
           kind: 'setup',
           summary: '还没有可同步的媒体服务器',
-          hint: '请先添加服务器并填写 API Key，确认启用后再同步媒体库。',
+          hint: '请先添加服务器并填写 API Key，确认启用后再同步资料库。',
         },
         toast: { message: '还没有可同步的媒体服务器', type: 'warning' },
       };
@@ -327,10 +327,10 @@ export async function runManualLibrarySync(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await toast(`媒体库同步失败：${message}`, 'error');
+    await toast(`资料库同步失败：${message}`, 'error');
     return {
       ui: { kind: 'error', summary: `同步失败：${message}`, serverResults: [] },
-      toast: { message: `媒体库同步失败：${message}`, type: 'error' },
+      toast: { message: `资料库同步失败：${message}`, type: 'error' },
     };
   }
 }

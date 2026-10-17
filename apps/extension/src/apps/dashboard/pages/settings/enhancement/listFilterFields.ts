@@ -25,14 +25,14 @@ export const DISPLAY_FILTER_FIELDS: ListFilterField[] = [
   {
     key: 'hideInMediaLibrary',
     id: 'hideInMediaLibrary',
-    label: '隐藏媒体库已入库的影片',
-    description: '按番号匹配：影片已存在于 Emby/Jellyfin 媒体库索引或 115 网盘扫描索引时隐藏（与原站「已看」标记无关）。需媒体库同步/扫描完成后生效；索引为空时本开关不生效。',
+    label: '隐藏资料库已入库的影片',
+    description: '按番号匹配：影片已存在于 Emby/Jellyfin 媒体库索引或 115 网盘扫描索引时隐藏（与原站「已看」标记无关）。需资料库同步/扫描完成后生效；索引为空时本开关不生效。',
   },
   {
     key: 'hideRealWatched',
     id: 'hideRealWatched',
     label: '隐藏真实已看的影片',
-    description: '影片在 Emby/Jellyfin 播放进度达到 90% 或已标记看完时判为「真实已看」并隐藏（与原站「已看」标记无关）。需媒体库同步完成后生效。',
+    description: '影片在 Emby/Jellyfin 播放进度达到 90% 或已标记看完时判为「真实已看」并隐藏（与原站「已看」标记无关）。需资料库同步完成后生效。',
   },
 ];
 

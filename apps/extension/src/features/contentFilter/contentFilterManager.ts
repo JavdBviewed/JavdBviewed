@@ -1022,7 +1022,7 @@ export class ContentFilterManager {
         ['浏览', hiddenBySource.browsed],
         ['想看', hiddenBySource.want],
         ['VR', hiddenBySource.vr],
-        ['媒体库', hiddenBySource.mediaLibrary],
+        ['资料库', hiddenBySource.mediaLibrary],
         ['真实看过', hiddenBySource.realWatched],
         ['演员', hiddenBySource.actor],
         ['类别', hiddenBySource.category],

@@ -237,7 +237,7 @@ export function readListHidingEnablement(settings: unknown): ListHidingEnablemen
     vr: !!s.display?.hideVR,
     actor,
     category,
-    // 09-30-media-library-hide-filter：媒体库来源读 display.*（零回填，缺省 false）
+    // 09-30-media-library-hide-filter：资料库来源读 display.*（零回填，缺省 false）
     mediaLibrary: !!s.display?.hideInMediaLibrary,
     realWatched: !!s.display?.hideRealWatched,
   };

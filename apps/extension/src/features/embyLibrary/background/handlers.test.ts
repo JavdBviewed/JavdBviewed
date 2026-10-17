@@ -799,8 +799,10 @@ describe('emby library background handlers', () => {
     expect(reportWatchProgress).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith({
       success: false,
-      error: '请在媒体库来源中配置用户名或登录用户账号后再写回观看状态',
+      error: '请在资料库来源中配置用户名或登录用户账号后再写回观看状态',
     });
+    // 负锁（10-15 更名）：错误串旧词「媒体库来源」不得残留
+    expect(String(sendResponse.mock.calls[0]?.[0]?.error)).not.toContain('媒体库');
   });
 
   it('writes played flag via user session PlayedItems', async () => {

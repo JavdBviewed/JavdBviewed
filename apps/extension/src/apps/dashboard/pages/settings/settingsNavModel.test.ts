@@ -35,7 +35,9 @@ describe('settingsNavModel', () => {
     // 2026-10-03 IA 裁决：emby-settings → media-library-settings，零数据迁移
     expect(SETTINGS_NAV_ITEMS.some((i) => i.id === 'emby-settings')).toBe(false);
     const card = SETTINGS_NAV_ITEMS.find((i) => i.id === 'media-library-settings');
-    expect(card?.title).toBe('媒体库设置');
+    expect(card?.title).toBe('资料库设置');
+    // 负锁（10-15 更名）：旧串「媒体库设置」不得残留
+    expect(SETTINGS_NAV_ITEMS.some((i) => i.title === '媒体库设置')).toBe(false);
     expect(card?.description).toBe('Emby/Jellyfin 媒体服务器配置');
     expect(card?.icon).toBe('fa-film');
     expect(card?.beta).toBe(true);

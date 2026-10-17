@@ -176,8 +176,8 @@ export function renderDetailLibraryStatus(videoId: string): void {
 
     const hint = document.createElement('span');
     hint.className = 'tag is-warning is-light emby-library-sync-hint';
-    hint.textContent = '媒体库未同步';
-    hint.title = '请先在设置页同步 Emby/Jellyfin 媒体库';
+    hint.textContent = '资料库未同步';
+    hint.title = '请先在设置页同步 Emby/Jellyfin 资料库';
     wrapper.appendChild(hint);
     firstBlock.appendChild(wrapper);
     return;

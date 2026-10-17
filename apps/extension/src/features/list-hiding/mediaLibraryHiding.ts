@@ -54,7 +54,7 @@ export function hasDrive115Hit(
   return lookupByCode(state, videoCode).length > 0;
 }
 
-/** 当前页是否豁免媒体库来源标记（搜索页 / 状态聚合页；jsdom 无 location 时按豁免处理）。 */
+/** 当前页是否豁免资料库来源标记（搜索页 / 状态聚合页；jsdom 无 location 时按豁免处理）。 */
 function isMediaLibraryHidingExempt(): boolean {
   try {
     return STATE.isSearchPage === true || isStatusAggregatePage(window.location.pathname);

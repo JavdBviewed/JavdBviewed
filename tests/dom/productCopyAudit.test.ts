@@ -40,7 +40,9 @@ describe('product copy audit', () => {
 
     expect(source).toContain('媒体库');
     // 媒体库首次使用引导应明确告诉用户下一步，而不是暴露内部预览实现。
-    expect(source).toContain('尚未同步媒体库');
+    expect(source).toContain('尚未同步资料库');
+    // 负锁（10-15 更名）：旧引导串不得残留（页面名「媒体库」仍在位，上一行 toContain 保留）
+    expect(source).not.toContain('尚未同步媒体库');
     expect(source).toContain('生成自己的月报时');
     expect(source).toContain('Markdown 导出还在整理中，目前可先导出 HTML 报告');
     expect(source).toContain('解析测试暂未开放');

@@ -1157,8 +1157,8 @@ export function Drive115SettingsPage() {
     { id: DRIVE115_SECTION_IDS.download, label: '下载设置', shortLabel: '下载' },
     {
       id: DRIVE115_SECTION_IDS.mediaLibrary,
-      label: '媒体库',
-      shortLabel: '媒体库',
+      label: '资料库',
+      shortLabel: '资料库',
       badge: 'Beta',
     },
     { id: DRIVE115_SECTION_IDS.logs, label: '115 网盘日志', shortLabel: '日志' },
@@ -1167,7 +1167,7 @@ export function Drive115SettingsPage() {
   return (
     <SettingsPageFrame
       title="115 网盘"
-      description="授权、离线下载，以及媒体库片库目录。片库依赖你已整理的封面与 NFO；扩展只做限频索引，不在线深刮。"
+      description="授权、离线下载，以及资料库片库目录。片库依赖你已整理的封面与 NFO；扩展只做限频索引，不在线深刮。"
       rootId="drive115-settings"
       sectionNavItems={sectionNavItems}
       rootDataAttrs={{ 'data-drive115-settings-react': '1' }}
@@ -1644,7 +1644,7 @@ export function Drive115SettingsPage() {
             <Drive115Field
               id="drive115DownloadDir"
               label="默认下载目录"
-              description="离线下载保存目录，也是手动推送跳过目录选择时的目标。可与媒体库片库目录相同，但字段独立。"
+              description="离线下载保存目录，也是手动推送跳过目录选择时的目标。可与资料库片库目录相同，但字段独立。"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <div
@@ -1751,7 +1751,7 @@ export function Drive115SettingsPage() {
             </div>
           </Drive115Group>
 
-          <Drive115Group title="媒体库" navId={DRIVE115_SECTION_IDS.mediaLibrary} beta>
+          <Drive115Group title="资料库" navId={DRIVE115_SECTION_IDS.mediaLibrary} beta>
             <p className="m-0 px-2 text-[12.5px] leading-relaxed text-[var(--color-fg-muted)]">
               配置你已自备刮削的片库根目录（典型：每部影片一个文件夹，内含视频 + 封面 + NFO）。
               扩展只做浅层限频索引，不会在线深刮章节/相似/海报。片库目录与上方「下载目录」独立，可以相同。
