@@ -20,6 +20,7 @@ import {
   getSettings,
   useDebouncedSettingsSave,
 } from '../shared/settingsPersist';
+import { STORAGE_KEYS } from '../../../../../utils/config';
 import {
   getLibrarySyncDiagnosis,
   loginEmbyUser,
@@ -34,12 +35,14 @@ import {
   addMatchUrl,
   addMediaServer,
   logoutMediaServerAt,
+  canonicalEmbyFormJson,
   createEmptyMediaServerDraft,
   DEFAULT_EMBY_SETTINGS_FORM,
   LINK_BEHAVIOR_OPTIONS,
   mapSettingsToEmbyForm,
   removeMatchUrlAt,
   removeMediaServerAt,
+  resolveEmbyFormExternalChange,
   SERVER_TYPE_OPTIONS,
   serverCredentialCapabilityLines,
   serverCredentialMode,
@@ -80,6 +83,47 @@ export function EmbySettingsPage() {
   // 本会话（自挂载起）用户显式删除的媒体服务器 id：id-aware 合并时
   // 不得经「current-only 保留」路径复活这些源
   const removedServerIdsRef = useRef<Set<string>>(new Set());
+  // 跨设备变更实时刷新：hydration 完成 / 挂起快照 / 未保存编辑标记
+  const hydratedRef = useRef(false);
+  const remotePendingRef = useRef<EmbySettingsFormState | null>(null);
+  const dirtyRef = useRef(false);
+  // 三弹窗打开态 render 同步 refs（handler 防旧闭包；关闭点显式置空后再延迟应用）
+  const serverDraftRef = useRef<ServerDraft>(null);
+  serverDraftRef.current = serverDraft;
+  const deleteTargetRef = useRef<ServerDeleteTarget>(null);
+  deleteTargetRef.current = deleteTarget;
+  const editingServerIndexRef = useRef<number | null>(null);
+  editingServerIndexRef.current = editingServerIndex;
+
+  // 远程快照直接刷表单（不回写、不触发保存）；canonical 等价则 no-op
+  const applyRemoteSnapshot = useCallback((snapshot: EmbySettingsFormState) => {
+    if (canonicalEmbyFormJson(formRef.current) === canonicalEmbyFormJson(snapshot)) {
+      return;
+    }
+    formRef.current = snapshot;
+    setForm(snapshot);
+  }, []);
+
+  // 挂起快照延迟应用：仍 dirty 或任一弹窗打开时继续挂起（弹窗内索引基准未变）
+  const tryApplyPendingRemote = useCallback(() => {
+    const pending = remotePendingRef.current;
+    if (!pending || dirtyRef.current) return;
+    if (
+      serverDraftRef.current !== null ||
+      deleteTargetRef.current !== null ||
+      editingServerIndexRef.current !== null
+    ) {
+      return;
+    }
+    remotePendingRef.current = null;
+    applyRemoteSnapshot(pending);
+  }, [applyRemoteSnapshot]);
+
+  // 保存 settle：清 dirty 并尝试释放挂起的远程快照
+  const markSaved = useCallback(() => {
+    dirtyRef.current = false;
+    tryApplyPendingRemote();
+  }, [tryApplyPendingRemote]);
 
   const persist = useCallback(async (nextForm: EmbySettingsFormState) => {
     const result = await persistEmbyForm(nextForm, removedServerIdsRef.current);
@@ -90,8 +134,10 @@ export function EmbySettingsPage() {
     }
     setSaveError(null);
     await toast('设置已保存', 'success');
+    // 保存 settle：当前表单身份命中才释放挂起（规避 flush 早于 formRef 更新的次序陷阱）
+    if (formRef.current === nextForm) markSaved();
     return result;
-  }, []);
+  }, [markSaved]);
 
   const { scheduleSave, flush } = useDebouncedSettingsSave({
     delayMs: AUTO_SAVE_MS,
@@ -108,6 +154,7 @@ export function EmbySettingsPage() {
         formRef.current = next;
         removedServerIdsRef.current.clear();
         setForm(next);
+        hydratedRef.current = true;
       } catch (err) {
         console.error('[EmbySettingsPage] load failed', err);
       } finally {
@@ -119,11 +166,53 @@ export function EmbySettingsPage() {
     };
   }, []);
 
+  // 跨设备变更实时刷新：local 区 settings 键被其他设备/标签页变更时跟随 UI
+  // （对齐 115 设置页既有惯例；自存回显由 canonical 等价判定 skip）
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) return;
+    const handler = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName: string,
+    ) => {
+      if (areaName !== 'local' || !changes[STORAGE_KEYS.SETTINGS]) return;
+      if (!hydratedRef.current) return;
+      const incoming = mapSettingsToEmbyForm(
+        changes[STORAGE_KEYS.SETTINGS].newValue || {},
+      );
+      const decision = resolveEmbyFormExternalChange({
+        currentForm: formRef.current,
+        incoming,
+        editing:
+          serverDraftRef.current !== null ||
+          deleteTargetRef.current !== null ||
+          editingServerIndexRef.current !== null,
+        dirty: dirtyRef.current,
+        removedIds: removedServerIdsRef.current,
+      });
+      if (decision.action === 'skip') return;
+      if (decision.action === 'defer') {
+        // 有未保存编辑/弹窗打开：快照挂起，保存 settle 或弹窗关闭后再应用（不静默覆盖）
+        remotePendingRef.current = decision.snapshot;
+        return;
+      }
+      applyRemoteSnapshot(decision.snapshot);
+    };
+    chrome.storage.onChanged.addListener(handler);
+    return () => {
+      try {
+        chrome.storage.onChanged.removeListener(handler);
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [applyRemoteSnapshot]);
+
   const updateForm = useCallback(
     (patch: Partial<EmbySettingsFormState>, immediate = false) => {
       const next = { ...formRef.current, ...patch };
       formRef.current = next;
       setForm(next);
+      dirtyRef.current = true;
       if (immediate) void flush(next);
       else scheduleSave(next);
     },
@@ -135,6 +224,7 @@ export function EmbySettingsPage() {
       const next = updater(formRef.current);
       formRef.current = next;
       setForm(next);
+      dirtyRef.current = true;
       if (immediate) void flush(next);
       else scheduleSave(next);
     },
@@ -154,6 +244,18 @@ export function EmbySettingsPage() {
     }, 30);
   };
 
+  const onCloseEditDialog = () => {
+    editingServerIndexRef.current = null;
+    setEditingServerIndex(null);
+    tryApplyPendingRemote();
+  };
+
+  const onCloseDeleteConfirm = () => {
+    deleteTargetRef.current = null;
+    setDeleteTarget(null);
+    tryApplyPendingRemote();
+  };
+
   const onAddServer = () => {
     if (serverDraft) {
       focusCreateUrl();
@@ -165,7 +267,9 @@ export function EmbySettingsPage() {
   };
 
   const onCancelCreate = () => {
+    serverDraftRef.current = null;
     setServerDraft(null);
+    tryApplyPendingRemote();
   };
 
   const onConfirmCreate = async () => {
@@ -182,6 +286,7 @@ export function EmbySettingsPage() {
       username: (serverDraft.username || '').trim(),
       password: (serverDraft.password || '').trim(),
     };
+    serverDraftRef.current = null;
     setFormAndSchedule(
       (prev) => ({
         ...prev,
@@ -210,6 +315,8 @@ export function EmbySettingsPage() {
     if (!deleteTarget || deletingServer) return;
     setDeletingServer(true);
     try {
+      deleteTargetRef.current = null;
+      editingServerIndexRef.current = null;
       await flush(formRef.current);
       const removedId = deleteTarget.server.id;
       if (typeof removedId === 'string' && removedId.trim()) {
@@ -230,6 +337,7 @@ export function EmbySettingsPage() {
       setSaveError(null);
       setDeleteTarget(null);
       setEditingServerIndex(null);
+      tryApplyPendingRemote();
       await toast('媒体服务器来源已删除', 'success');
     } finally {
       setDeletingServer(false);
@@ -259,6 +367,7 @@ export function EmbySettingsPage() {
 
     formRef.current = nextForm;
     setForm(nextForm);
+    markSaved();
     return saved;
   };
 
@@ -432,7 +541,7 @@ export function EmbySettingsPage() {
             <MediaServerEditDialog
               server={editingServer}
               index={editingServerIndex}
-              onClose={() => setEditingServerIndex(null)}
+              onClose={onCloseEditDialog}
               onChange={(index, patch) => onServerField(index, patch)}
               onRemove={requestRemoveServer}
               onLoginSuccess={(index, patch) => onServerLoginSuccess(index, patch)}
@@ -442,7 +551,7 @@ export function EmbySettingsPage() {
             <MediaServerDeleteConfirmDialog
               target={deleteTarget}
               deleting={deletingServer}
-              onCancel={() => setDeleteTarget(null)}
+              onCancel={onCloseDeleteConfirm}
               onConfirm={() => void onConfirmRemoveServer()}
             />
 

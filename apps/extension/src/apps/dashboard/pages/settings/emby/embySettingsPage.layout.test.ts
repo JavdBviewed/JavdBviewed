@@ -166,3 +166,34 @@ describe('EmbySettingsPage media server layout', () => {
     expect(pageSource).not.toMatch(/id="add-emby-media-server"[\s\S]{0,160}disabled=\{!enabled\}/);
   });
 });
+
+
+describe('EmbySettingsPage cross-device live refresh (storage.onChanged)', () => {
+  it('subscribes to local storage changes on the settings key and wires the decision into the form', () => {
+    // 对齐 115 页既有惯例：local 区 + settings 键监听，listener 挂载/清理成对
+    expect(pageSource).toContain('chrome.storage.onChanged');
+    expect(pageSource).toContain('addListener(handler)');
+    expect(pageSource).toContain('removeListener(handler)');
+    expect(pageSource).toContain('STORAGE_KEYS.SETTINGS');
+    expect(pageSource).toContain("areaName !== 'local'");
+    // 三态判定接线 + removedIds 过滤入参
+    expect(pageSource).toContain('resolveEmbyFormExternalChange');
+    expect(pageSource).toContain('removedServerIdsRef.current');
+    expect(pageSource).toContain("decision.action === 'skip'");
+    expect(pageSource).toContain("decision.action === 'defer'");
+  });
+
+  it('defers while dirty/editing and settles after save or dialog close, without any page reload', () => {
+    // 有未保存编辑不静默覆盖：defer 挂起 → 保存 settle / 弹窗关闭后延迟应用
+    expect(pageSource).toContain('remotePendingRef');
+    expect(pageSource).toContain('dirtyRef');
+    expect(pageSource).toContain('hydratedRef');
+    expect(pageSource).toContain('tryApplyPendingRemote');
+    expect(pageSource).toContain('markSaved');
+    expect(pageSource).toContain('applyRemoteSnapshot');
+    // 自存回显守卫：等价判定防自身保存触发刷新
+    expect(pageSource).toContain('canonicalEmbyFormJson');
+    expect(pageSource).not.toContain('location.reload');
+    expect(pageSource).not.toContain('window.location.reload');
+  });
+});
