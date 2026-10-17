@@ -12,9 +12,10 @@
  *   3. 操作记录 tab 中展示完整失败原因，并提供「重试删除」入口；
  *   4. 服务端条目与磁盘文件保持原样（绝不误删）。
  *
- * 环境要求（缺失时自动 skip，不影响 CI）：
- *   - 测试容器可达（默认 http://localhost:38097，可用 EMBY_E2E_URL 覆盖）
- *   - 容器内存在非管理员账号 normaluser / norm-pw-123（可用环境变量覆盖）
+ * 环境要求（fixtures/embyRealEnv.ts 两级 preflight，失败=显式 skip 带原因）：
+ *   - 测试容器可达并实读版本（默认 http://127.0.0.1:38098，可用 EMBY_E2E_URL 覆盖）
+ *   - 容器内存在非管理员账号 normaluser / norm-pw-123（可用环境变量覆盖；登录失败=skip 带原因）
+ *   - 扫库轮询=90s 上限 + 401 快速失败（此 build /Tasks 404，任务态查询不可行）
  */
 import { expect, test, type BrowserContext } from '@playwright/test';
 import fs from 'node:fs';
@@ -30,9 +31,15 @@ import {
 } from '../../scripts/extensionHarness';
 import { STORAGE_KEYS } from '../../apps/extension/src/utils/config';
 
-const EMBY_URL = (process.env.EMBY_E2E_URL ?? 'http://localhost:38097').replace(/\/+$/, '');
-const EMBY_API_KEY = process.env.EMBY_E2E_API_KEY ?? '13f76fe3bea74b76921de6521b16164f';
-const MEDIA_ROOT = process.env.EMBY_E2E_MEDIA_ROOT ?? '/home/ryen/emby-test/media/Movies';
+import {
+  EMBY_E2E_MEDIA_ROOT as MEDIA_ROOT,
+  EMBY_E2E_URL as EMBY_URL,
+  INDEX_POLL_TIMEOUT_MS,
+  embyJson,
+  embyPreflight,
+  getEmbyAuthSet,
+} from './fixtures/embyRealEnv';
+
 const NORMAL_USER_NAME = process.env.EMBY_E2E_NORMAL_USER ?? 'normaluser';
 const NORMAL_USER_PASSWORD = process.env.EMBY_E2E_NORMAL_PASSWORD ?? 'norm-pw-123';
 const MOVIE_NAME = 'E2EAV-PERM-1';
@@ -40,33 +47,10 @@ const MOVIE_NAME = 'E2EAV-PERM-1';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ---------------------------------------------------------------------------
-// 容器侧辅助
+// 容器侧辅助（Node 环境直连测试容器；凭据/请求统一走 fixtures/embyRealEnv.ts，
+// 凭据不可用=显式 skip 带原因，不再静默空转）
 // ---------------------------------------------------------------------------
 
-function embyApiUrl(pathAndQuery: string): string {
-  const sep = pathAndQuery.includes('?') ? '&' : '?';
-  return `${EMBY_URL}${pathAndQuery}${sep}api_key=${encodeURIComponent(EMBY_API_KEY)}`;
-}
-
-async function embyJson(pathAndQuery: string, init?: RequestInit): Promise<{ status: number; body: any }> {
-  const response = await fetch(embyApiUrl(pathAndQuery), {
-    ...init,
-    headers: { Accept: 'application/json', ...(init?.headers || {}) },
-  });
-  const text = await response.text().catch(() => '');
-  let body: any = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-  return { status: response.status, body };
-}
-
-async function embyReachable(): Promise<boolean> {
-  try {
-    const { status } = await embyJson('/System/Info');
-    return status === 200;
-  } catch {
-    return false;
-  }
-}
 
 const DEVICE_HEADERS: Record<string, string> = {
   'X-Emby-Device-Id': 'e2e-perm-test',
@@ -76,14 +60,17 @@ const DEVICE_HEADERS: Record<string, string> = {
   'X-Emby-Authorization': 'MediaBrowser Client=E2E-Perm, Device=E2E-Perm, DeviceId=e2e-perm-test, Version=4.9.5',
 };
 
-/** 登录非管理员账号，返回 { userId, token }；失败返回 null。 */
+/** 登录非管理员账号，返回 { userId, token }；失败返回 null（裸请求，不携带主凭据）。 */
 async function loginNormalUser(): Promise<{ userId: string; token: string } | null> {
   try {
-    const { status, body } = await embyJson(
-      `/Users/AuthenticateByName?UserName=${encodeURIComponent(NORMAL_USER_NAME)}&Pw=${encodeURIComponent(NORMAL_USER_PASSWORD)}`,
-      { method: 'POST', headers: DEVICE_HEADERS },
-    );
-    if (status !== 200 || typeof body?.AccessToken !== 'string' || !body.User?.Id) return null;
+    const response = await fetch(`${EMBY_URL}/Users/AuthenticateByName`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...DEVICE_HEADERS },
+      body: JSON.stringify({ Username: NORMAL_USER_NAME, Pw: NORMAL_USER_PASSWORD, Password: NORMAL_USER_PASSWORD }),
+    });
+    if (!response.ok) return null;
+    const body: any = await response.json().catch(() => null);
+    if (typeof body?.AccessToken !== 'string' || !body.User?.Id) return null;
     return { userId: String(body.User.Id), token: body.AccessToken };
   } catch {
     return null;
@@ -94,6 +81,7 @@ async function findMovieId(name: string): Promise<string | null> {
   const { status, body } = await embyJson(
     `/Items?IncludeItemTypes=Movie&Recursive=true&SearchTerm=${encodeURIComponent(name)}`,
   );
+  if (status === 401) throw new Error('Emby 凭据失效（/Items 401），快速失败而非空转轮询');
   if (status !== 200) return null;
   const items = Array.isArray(body?.Items) ? body.Items : [];
   const hit = items.find((item: any) => item?.Name === name);
@@ -146,13 +134,24 @@ async function ensureIndexedMovie(name: string): Promise<string> {
   let itemId = await findMovieId(name);
   if (itemId) return itemId;
   ensureMediaFolder(name);
-  await embyJson('/Library/Refresh', { method: 'POST' });
-  for (let attempt = 0; attempt < 36; attempt += 1) {
-    await sleep(5_000);
+  // /Library/Refresh 为 admin 端点：token 模式恒用 admin 凭据（root 哨兵/admin env 用户）
+  const set = await getEmbyAuthSet();
+  if (!set) throw new Error('防御性：preflight 已核凭据，此处不应为空');
+  const refresh = await embyJson('/Library/Refresh', { method: 'POST' }, set.admin);
+  if (refresh.status === 401) throw new Error('Emby admin 凭据失效（/Library/Refresh 401），快速失败而非空转轮询');
+  if (refresh.status !== 200 && refresh.status !== 204) {
+    throw new Error(`测试容器 /Library/Refresh 返回 HTTP ${refresh.status}，无法触发扫库`);
+  }
+  // 90s 上限 + 401 快速失败（PRD ④；此 build /Tasks 404，任务态查询不可行）
+  const deadline = Date.now() + INDEX_POLL_TIMEOUT_MS;
+  for (;;) {
     itemId = await findMovieId(name);
     if (itemId) return itemId;
+    if (Date.now() >= deadline) {
+      throw new Error(`扫库后 ${name} 仍未被 Emby 索引（达 ${INDEX_POLL_TIMEOUT_MS / 1000}s 上限）`);
+    }
+    await sleep(5_000);
   }
-  throw new Error(`扫库后 ${name} 仍未被 Emby 索引（测试容器扫库超时）`);
 }
 
 // ---------------------------------------------------------------------------
@@ -163,8 +162,9 @@ test.describe('media cleanup Emby no-delete-permission (real container)', () => 
   test.setTimeout(300_000);
 
   async function skipIfContainerDown(): Promise<void> {
-    if (!(await embyReachable())) {
-      test.skip(true, `Emby 测试容器不可达（${EMBY_URL}），跳过真实容器用例`);
+    const pf = await embyPreflight();
+    if (!pf.ok) {
+      test.skip(true, `${pf.reason}，跳过真实容器用例`);
     }
   }
 
