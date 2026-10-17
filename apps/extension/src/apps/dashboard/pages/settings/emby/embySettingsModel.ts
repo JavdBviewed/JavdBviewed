@@ -723,3 +723,67 @@ export function removeMatchUrlAt(urls: string[], index: number): string[] {
 export function addMatchUrl(urls: string[], value = ''): string[] {
   return [...urls, value];
 }
+
+/**
+ * 跨设备变更实时刷新（storage.onChanged 外部变更判定）
+ * ------------------------------------------------------------------
+ * 纯函数面：canonical 等价判定 + skip/defer/apply 三态决策。
+ * 页面层负责挂起/延迟应用（有未保存编辑时不静默覆盖）。
+ */
+
+/** 深度键排序（数组保序），使同值对象在任何键序下得到同一 JSON 串 */
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value && typeof value === 'object') {
+    const src = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(src).sort()) {
+      out[key] = sortKeysDeep(src[key]);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
+ * 生成表单的规范化 JSON（键序无关）：用于「同值不同键序」等价判定，
+ * 作为自存回显守卫（自身保存触发的 onChanged 不视为外部变更）
+ */
+export function canonicalEmbyFormJson(form: EmbySettingsFormState): string {
+  return JSON.stringify(sortKeysDeep(form));
+}
+
+/** 外部变更判定结果：skip=同值跳过 / defer=挂起等本地编辑 settle / apply=直接刷新 */
+export type EmbyFormRefreshDecision =
+  | { action: 'skip' }
+  | { action: 'defer'; snapshot: EmbySettingsFormState }
+  | { action: 'apply'; snapshot: EmbySettingsFormState };
+
+/**
+ * 外部 storage 变更到达时的表单策略：
+ * 1) incoming 先过滤本会话显式删除的服务器 id（不复活，与 removedServerIdsRef 意图一致）；
+ * 2) 与当前表单 canonical 等价 → skip（自存回显/零漂移）；
+ * 3) 正在编辑（弹窗打开）或有未保存编辑 → defer（快照挂起，不静默覆盖）；
+ * 4) 其余 → apply（直接刷新，不回写、不触发保存）。
+ */
+export function resolveEmbyFormExternalChange(input: {
+  currentForm: EmbySettingsFormState;
+  incoming: EmbySettingsFormState;
+  editing: boolean;
+  dirty: boolean;
+  removedIds: ReadonlySet<string>;
+}): EmbyFormRefreshDecision {
+  const filtered: EmbySettingsFormState = {
+    ...input.incoming,
+    mediaServers: input.incoming.mediaServers.filter(
+      (s) => !input.removedIds.has(s.id),
+    ),
+  };
+  if (canonicalEmbyFormJson(input.currentForm) === canonicalEmbyFormJson(filtered)) {
+    return { action: 'skip' };
+  }
+  if (input.editing || input.dirty) {
+    return { action: 'defer', snapshot: filtered };
+  }
+  return { action: 'apply', snapshot: filtered };
+}
