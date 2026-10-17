@@ -338,7 +338,9 @@ test.describe('JavdBviewed extension browser smoke', () => {
 
       await expect(page.locator('.ml-view-shell')).toBeVisible();
       await expect(page.locator('.ml-view-summary')).toContainText('项');
-      await expect(page.getByRole('button', { name: '同步媒体库' })).toBeVisible();
+      await expect(page.getByRole('button', { name: '同步资料库' })).toBeVisible();
+      // 负断言（10-15 更名）：旧按钮名不得残留
+      await expect(page.getByRole('button', { name: '同步媒体库' })).toHaveCount(0);
       await expect(page.locator('.ml-view-command-group').getByRole('button', { name: '刷新' })).toHaveCount(0);
       await expect(page.locator('.ml-view-command-group').getByRole('button', { name: '115' })).toHaveCount(0);
       await expect(page.locator('.ml-view-command-group').getByRole('button', { name: '清理' })).toHaveCount(0);
@@ -373,7 +375,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
       ));
       expect(cleanupStateAfterCancel.items['E2E-CLEANUP'].copies['115:file-e2e-cleanup'].status).toBe('pending');
       await page.locator('.ui-overlay-shell__win-btn--close').last().click();
-      await page.getByRole('button', { name: '同步媒体库' }).click();
+      await page.getByRole('button', { name: '同步资料库' }).click();
       await expect(page.locator('[data-media-sync-panel="1"]')).toBeVisible();
       const syncPanel = page.locator('[data-media-sync-panel="1"]');
       await expect(syncPanel.getByText('全选', { exact: true })).toBeVisible();

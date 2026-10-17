@@ -90,7 +90,7 @@ describe('列表页过滤 toast 两行（10-05-list-filter-toast）', () => {
     );
   });
 
-  it('仅显示过滤命中：行1=隐藏N+三零、行2=媒体库明细，toast 必弹', async () => {
+  it('仅显示过滤命中：行1=隐藏N+三零、行2=资料库明细，toast 必弹', async () => {
     const list = makeList();
     const a = createMovieCard('ML-001 title');
     a.setAttribute('data-hide-src-mediaLibrary', 'true');
@@ -104,7 +104,9 @@ describe('列表页过滤 toast 两行（10-05-list-filter-toast）', () => {
     });
 
     expect(showToast).toHaveBeenCalledTimes(1);
-    expect(showToast).toHaveBeenCalledWith('过滤: 隐藏1 高亮0 模糊0 标记0\n隐藏明细: 媒体库1', 'info');
+    expect(showToast).toHaveBeenCalledWith('过滤: 隐藏1 高亮0 模糊0 标记0\n隐藏明细: 资料库1', 'info');
+    // 负锁（10-15 更名）：toast 文案旧词「媒体库」不得残留
+    expect(String(showToast.mock.calls[0]?.[0])).not.toContain('媒体库');
   });
 
   it('行1 隐藏=0 且无高亮/模糊/标记 → 不弹（门控不变）', async () => {

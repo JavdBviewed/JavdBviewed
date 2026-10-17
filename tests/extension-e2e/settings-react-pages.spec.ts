@@ -160,7 +160,7 @@ test.describe('settings React pages in Chromium', () => {
       await expect(page.locator('a[href="#tab-settings/emby-settings"]')).toHaveCount(0);
       await expect(page.locator('a[href="#tab-settings/media-library-settings"]')).toHaveCount(1);
       await expect(page.locator('a[href="#tab-settings/advanced-settings"]')).toHaveCount(1);
-      await expect(page.locator('.si-card').filter({ hasText: '媒体库设置' })).toHaveCount(1);
+      await expect(page.locator('.si-card').filter({ hasText: '资料库设置' })).toHaveCount(1);
       await expect(page.locator('.si-card').filter({ hasText: '原始配置编辑与全局数据操作' })).toHaveCount(1);
 
       // 10-03 IA 线：display-settings React 页退役，旧 hash 当场重定向到增强列表子 tab；

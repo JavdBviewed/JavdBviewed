@@ -403,7 +403,7 @@ export class EmbySettings extends BaseSettingsPanel {
                 </div>
                 <div class="emby-server-libraries">
                     <div class="emby-server-libraries-head">
-                        <span class="setting-title">同步媒体库（可多选；不选=整库，兼容旧配置）</span>
+                        <span class="setting-title">同步资料库（可多选；不选=整库，兼容旧配置）</span>
                         <button type="button" class="btn btn-secondary emby-refresh-libraries" title="从服务器拉取媒体库列表">
                             <i class="fas fa-folder-open"></i> 拉取媒体库
                         </button>
@@ -926,7 +926,7 @@ export class EmbySettings extends BaseSettingsPanel {
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.renderLibrarySyncResult('error', `同步失败：${message}`, []);
-            showMessage(`媒体库同步失败：${message}`, 'error');
+            showMessage(`资料库同步失败：${message}`, 'error');
         } finally {
             this.syncLibraryBtn.disabled = false;
         }
@@ -934,7 +934,7 @@ export class EmbySettings extends BaseSettingsPanel {
 
     private renderLibrarySyncLoading(): void {
         this.syncStatusEl.className = 'emby-library-sync-status is-loading';
-        this.syncStatusEl.textContent = '正在同步媒体库...';
+        this.syncStatusEl.textContent = '正在同步资料库...';
     }
 
     private renderLibrarySyncSetupHint(): void {
@@ -944,7 +944,7 @@ export class EmbySettings extends BaseSettingsPanel {
                 <i class="fas fa-exclamation-triangle"></i>
                 <span>还没有可同步的媒体服务器</span>
             </div>
-            <div class="emby-library-sync-hint">请先添加服务器并填写 API Key，确认启用后再同步媒体库。</div>
+            <div class="emby-library-sync-hint">请先添加服务器并填写 API Key，确认启用后再同步资料库。</div>
         `;
     }
 

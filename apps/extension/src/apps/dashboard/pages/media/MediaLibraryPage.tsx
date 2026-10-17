@@ -1282,10 +1282,10 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
                   type="button"
                   className="ml-view-btn ml-view-btn-primary ml-sync-btn"
                   disabled={syncing}
-                  title="同步媒体库与播放状态"
+                  title="同步资料库与播放状态"
                   onClick={openSyncPanel}
                 >
-                  {syncing ? '同步中…' : '同步媒体库'}
+                  {syncing ? '同步中…' : '同步资料库'}
                 </button>
                 <span className="ml-sync-meta">{lastSyncLabel}</span>
               </div>
@@ -1341,7 +1341,7 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
 
       <OverlayShell
         open={showSyncPanel}
-        title="同步媒体库"
+        title="同步资料库"
         size="lg"
         onClose={() => setShowSyncPanel(false)}
       >
@@ -1762,7 +1762,7 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
             title="还没有同步任何媒体库内容"
             description={
               usingPreview
-                ? '请先配置一个媒体库来源，再回到这里点击「同步媒体库」。你也可以同时使用 Emby / Jellyfin 和 115。'
+                ? '请先配置一个资料库来源，再回到这里点击「同步资料库」。你也可以同时使用 Emby / Jellyfin 和 115。'
                 : filter === '115'
                   ? '115 筛选下无条目。请到 115 设置配置片库根目录并点击「立即索引」。'
                   : '当前筛选下无结果，可切换来源或清空搜索。'
@@ -1826,7 +1826,7 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
 
       <div className="ml-note" role="note">
         {usingPreview
-          ? '尚未同步媒体库。配置来源后，点击上方「同步媒体库」即可开始建立本地索引。'
+          ? '尚未同步资料库。配置来源后，点击上方「同步资料库」即可开始建立本地索引。'
           : '当前展示本地媒体库索引。点卡片打开扩展内详情，点播放在弹窗播放器中播放（令牌取流）。'}
       </div>
     </div>

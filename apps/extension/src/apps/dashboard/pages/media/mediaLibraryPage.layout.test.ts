@@ -267,8 +267,10 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(source).toContain('className="ml-view-controls"');
     expect(source).toContain('className="ml-view-command-group"');
     expect(source).toContain('视图');
-    expect(source).toContain('同步媒体库与播放状态');
-    expect(source).toContain('同步媒体库');
+    expect(source).toContain('同步资料库与播放状态');
+    expect(source).toContain('同步资料库');
+    // 负锁（10-15 更名）：源中旧串「同步媒体库」不得残留
+    expect(source).not.toContain('同步媒体库');
     expect(source).toContain('媒体库工具');
     expect(source).toContain('115 手动播放');
     expect(source).toContain('已看影片整理');
@@ -376,7 +378,7 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(source).toContain('syncTargets');
     expect(source).toContain('selectedSyncTargetKeys');
     expect(source).toContain('showSyncPanel');
-    expect(source).toContain('title="同步媒体库"');
+    expect(source).toContain('title="同步资料库"');
     expect(source).toContain('data-media-sync-panel="1"');
     expect(source).toContain('同步全部来源');
     expect(source).toContain('同步已选来源（');

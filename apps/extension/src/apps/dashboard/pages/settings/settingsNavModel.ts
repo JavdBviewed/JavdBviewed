@@ -64,13 +64,13 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   },  {
     id: 'drive115-settings',
     title: '115网盘',
-    description: '授权、离线下载与媒体库片库',
+    description: '授权、离线下载与资料库片库',
     icon: 'fa-cloud-download-alt',
   },
   {
     // 2026-10-03 IA 裁决：emby-settings 改名 media-library-settings（旧 hash 在路由层归一化）
     id: 'media-library-settings',
-    title: '媒体库设置',
+    title: '资料库设置',
     description: 'Emby/Jellyfin 媒体服务器配置',
     icon: 'fa-film',
     beta: true,

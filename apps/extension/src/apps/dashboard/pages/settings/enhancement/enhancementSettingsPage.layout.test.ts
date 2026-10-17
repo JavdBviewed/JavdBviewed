@@ -409,13 +409,19 @@ describe('EnhancementSettingsPage layout', () => {
       expect(popupHtml, `popup.html has #${container}`).toContain(`id="${container}"`);
       expect(popupBootstrap, `bootstrap wires #${container}`).toContain(`getElementById('${container}')`);
     }
-    expect(popupBootstrap).toContain("'已入媒体库'");
+    expect(popupBootstrap).toContain("'已入资料库'");
+    // 负锁（10-15 更名）：popup 旧串不得残留
+    expect(popupBootstrap).not.toContain("'已入媒体库'");
     expect(popupBootstrap).toContain("'真实已看'");
-    for (const label of ['隐藏媒体库已入库的影片', '隐藏真实已看的影片']) {
+    for (const label of ['隐藏资料库已入库的影片', '隐藏真实已看的影片']) {
       expect(fieldsSource).toContain(`label: '${label}'`);
       expect(popupBootstrap).toContain(`'${label}'`);
     }
-    expect(popupBootstrap).toContain("'显示媒体库已入库的影片'");
+    // 负锁（10-15 更名）：旧串不得残留（「隐藏真实已看的影片」不动）
+    expect(fieldsSource).not.toContain('隐藏媒体库已入库的影片');
+    expect(popupBootstrap).not.toContain('隐藏媒体库已入库的影片');
+    expect(popupBootstrap).toContain("'显示资料库已入库的影片'");
+    expect(popupBootstrap).not.toContain("'显示媒体库已入库的影片'");
     expect(popupBootstrap).toContain("'显示真实已看的影片'");
   });
 

@@ -582,7 +582,9 @@ describe('baseCopyId / convergeStaleDuplicateCopies', () => {
     const copies = result.state.items['AAA-001'].copies;
     expect(result.convergedCount).toBe(1);
     expect(copies['emby:http://home:item-1::rev3'].status).toBe('pending');
-    expect(copies['emby:http://home:item-1::rev3'].message).toBe('重新扫描发现文件仍在媒体库中，已重新入队');
+    expect(copies['emby:http://home:item-1::rev3'].message).toBe('重新扫描发现文件仍在资料库中，已重新入队');
+    // 负锁（10-15 更名）：模型消息体旧词「媒体库」不得残留
+    expect(String(copies['emby:http://home:item-1::rev3'].message)).not.toContain('媒体库');
     expect(copies['emby:http://home:item-1::rev3'].error).toBeUndefined();
     // deleted 终态保持原样
     expect(copies['emby:http://home:item-1']).toMatchObject({ status: 'deleted' });
@@ -616,8 +618,10 @@ describe('baseCopyId / convergeStaleDuplicateCopies', () => {
     expect(result.convergedCount).toBe(2);
     expect(copies['115:file-1']).toMatchObject({
       status: 'skipped',
-      message: '重新扫描时该文件已不在媒体库中，记录已合并',
+      message: '重新扫描时该文件已不在资料库中，记录已合并',
     });
+    // 负锁（10-15 更名）
+    expect(String(copies['115:file-1'].message)).not.toContain('媒体库');
     expect(copies['115:file-1::rev2'].status).toBe('skipped');
     // deleted 终态保持原样
     expect(copies['115:file-1::rev3'].status).toBe('deleted');

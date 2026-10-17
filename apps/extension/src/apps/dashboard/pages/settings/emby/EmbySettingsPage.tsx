@@ -299,7 +299,7 @@ export function EmbySettingsPage() {
     // 必须明确告知「先登录」，避免保存后同步/详情/播放静默 401
     if (serverCredentialMode(nextServer) === 'account') {
       await toast(
-        '服务器已添加。登录用户账号前，媒体库同步/详情/播放不可用，请在编辑中先「登录并保存令牌」',
+        '服务器已添加。登录用户账号前，资料库同步/详情/播放不可用，请在编辑中先「登录并保存令牌」',
         'warning',
       );
     }
@@ -477,7 +477,7 @@ export function EmbySettingsPage() {
   return (
     <SettingsPageFrame
       title="Emby/Jellyfin 增强设置"
-      description="两个独立能力：番号识别/转 JavDB 链接（无需 API Key），以及媒体库同步/入库状态（需已启用服务器）。"
+      description="两个独立能力：番号识别/转 JavDB 链接（无需 API Key），以及资料库同步/入库状态（需已启用服务器）。"
       sectionNavItems={sectionNavItems}
       rootDataAttrs={{ 'data-media-library-settings-react': '1' }}
     >
@@ -486,7 +486,7 @@ export function EmbySettingsPage() {
       ) : (
         <div className="flex flex-col gap-4" id="media-library-settings">
           <SettingsHighlightNotice title="Emby/Jellyfin 功能仍在测试中">
-            影音增强、媒体库同步和播放状态写回仍在持续打磨。遇到识别、同步或播放异常，可以到{' '}
+            影音增强、资料库同步和播放状态写回仍在持续打磨。遇到识别、同步或播放异常，可以到{' '}
             <a
               href="https://github.com/JavdBviewed/JavdBviewed/issues"
               target="_blank"
@@ -504,7 +504,7 @@ export function EmbySettingsPage() {
           >
             <SettingToggleRow
               id="emby-library-enabled"
-              label="启用媒体库同步与入库状态"
+              label="启用资料库同步与入库状态"
               description="启用后，后台会按间隔同步已启用服务器的媒体库，并在 JavDB 列表/详情页显示入库状态。"
               checked={form.libraryEnabled}
               onChange={(v) => updateForm({ libraryEnabled: v, libraryStatusEnabled: v })}
@@ -570,7 +570,7 @@ export function EmbySettingsPage() {
                 onClick={() => void onManualSync()}
               >
                 <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
-                {syncing ? '同步中…' : '立即同步媒体库'}
+                {syncing ? '同步中…' : '立即同步资料库'}
               </Button>
             </div>
 
@@ -729,7 +729,7 @@ export function EmbySettingsPage() {
             <SettingToggleRow
               id="emby-library-status-enabled"
               label="显示 Emby/Jellyfin 入库状态"
-              description="在 JavDB 列表页和详情页显示本地媒体服务器是否已入库（依赖上方“媒体库同步与入库状态”总开关）。"
+              description="在 JavDB 列表页和详情页显示本地媒体服务器是否已入库（依赖上方“资料库同步与入库状态”总开关）。"
               checked={form.libraryEnabled}
               onChange={(v) => updateForm({ libraryEnabled: v, libraryStatusEnabled: v })}
             />
@@ -762,7 +762,7 @@ export function EmbySettingsPage() {
             <SettingField
               id="emby-library-sync-interval"
               label="自动同步间隔（分钟）"
-              description="后台自动同步会按此间隔使用本地保存的 API Key 请求已启用服务器的影片列表，并把入库索引保存到扩展本地；点击“立即同步媒体库”会马上执行一次。"
+              description="后台自动同步会按此间隔使用本地保存的 API Key 请求已启用服务器的影片列表，并把入库索引保存到扩展本地；点击“立即同步资料库”会马上执行一次。"
             >
               <Input
                 id="emby-library-sync-interval"
@@ -1577,7 +1577,7 @@ function LibrarySyncStatusPanel({ status }: { status: LibrarySyncUiState }) {
         className="emby-library-sync-status is-loading mx-2 mb-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[13px] text-[var(--color-fg-muted)]"
         aria-live="polite"
       >
-        正在同步媒体库...
+        正在同步资料库...
       </div>
     );
   }

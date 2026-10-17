@@ -91,7 +91,9 @@ describe('Emby library status badges', () => {
     renderDetailLibraryStatus('ABC-301');
 
     const hint = document.querySelector('.emby-library-sync-hint');
-    expect(hint?.textContent).toBe('媒体库未同步');
+    expect(hint?.textContent).toBe('资料库未同步');
+    // 负锁（10-15 更名）：hint 旧串不得残留
+    expect(hint?.textContent).not.toContain('媒体库');
   });
 
   it('renders only entries from currently configured media servers', () => {

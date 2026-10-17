@@ -403,7 +403,7 @@ async function resolveConfiguredWatchUserId(
   ));
   const resolvedUserId = String(matched?.Id || '').trim();
   if (!resolvedUserId) {
-    throw new Error(`未找到观看数据用户「${username}」，请在媒体库来源中重新登录`);
+    throw new Error(`未找到观看数据用户「${username}」，请在资料库来源中重新登录`);
   }
   return resolvedUserId;
 }
@@ -844,7 +844,7 @@ export async function handleEmbyLibrarySetPlayed(
       if (!scopedServer.userId) {
         sendResponse({
           success: false,
-          error: '请在媒体库来源中配置用户名或登录用户账号后再写回观看状态',
+          error: '请在资料库来源中配置用户名或登录用户账号后再写回观看状态',
         });
         return;
       }

@@ -356,7 +356,7 @@ function processItem(item: HTMLElement): string | null {
             setHidingSource(item, statusSource, true);
             log(`Marked status source ${statusSource} for: ${videoId}`);
         }
-        // 09-30-media-library-hide-filter：媒体库来源同步侧（Emby/JF 索引内存判定；
+        // 09-30-media-library-hide-filter：资料库来源同步侧（Emby/JF 索引内存判定；
         // 两开关全关时内部直接返回，零成本；搜索页/聚合页豁免在函数内复核）
         markMediaLibraryHiding(item, videoId, STATE.settings);
     }

@@ -175,7 +175,7 @@ function createLibraryHint(): HTMLSpanElement {
   const hint = document.createElement('span');
   hint.className = 'jdb-review-code-library-hint';
   hint.textContent = '已入库';
-  hint.title = '本地媒体库已有匹配';
+  hint.title = '本地资料库已有匹配';
   return hint;
 }
 

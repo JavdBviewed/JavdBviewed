@@ -413,7 +413,7 @@ export function LogSettingsPage() {
                 后台任务诊断
               </summary>
               <p className="mb-2 mt-1 leading-relaxed">
-                包含新作品检查、媒体库同步及其它已启用后台任务的最近执行状态。
+                包含新作品检查、资料库同步及其它已启用后台任务的最近执行状态。
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button

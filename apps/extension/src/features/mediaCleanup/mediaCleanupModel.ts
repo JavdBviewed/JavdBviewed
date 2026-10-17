@@ -350,7 +350,7 @@ export function convergeStaleDuplicateCopies(
           copyId: keep.key,
           status: 'pending',
           error: undefined,
-          message: '重新扫描发现文件仍在媒体库中，已重新入队',
+          message: '重新扫描发现文件仍在资料库中，已重新入队',
           updatedAt: now,
         };
         groupChanged = true;
@@ -365,7 +365,7 @@ export function convergeStaleDuplicateCopies(
         if (copy.status === 'deleted') continue;
         const message = fileStillPresent
           ? '历史重复记录，已随重新扫描合并'
-          : '重新扫描时该文件已不在媒体库中，记录已合并';
+          : '重新扫描时该文件已不在资料库中，记录已合并';
         copies[key] = {
           ...copy,
           copyId: key,

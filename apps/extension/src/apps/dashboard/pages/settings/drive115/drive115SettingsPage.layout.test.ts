@@ -29,7 +29,9 @@ const legacyPaneSource = readFileSync(
 
 describe('Drive115SettingsPage layout', () => {
   it('marks the media library group as beta', () => {
-    expect(pageSource).toContain('<Drive115Group title="媒体库" navId={DRIVE115_SECTION_IDS.mediaLibrary} beta>');
+    expect(pageSource).toContain('<Drive115Group title="资料库" navId={DRIVE115_SECTION_IDS.mediaLibrary} beta>');
+    // 负锁（10-15 更名）：React 页旧组名不得残留
+    expect(pageSource).not.toContain('<Drive115Group title="媒体库"');
     expect(pageSource).toContain('<Badge tone="warning" className="shrink-0">');
     expect(pageSource).toContain('Beta</Badge>');
   });

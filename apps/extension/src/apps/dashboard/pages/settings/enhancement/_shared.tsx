@@ -51,7 +51,7 @@ const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
     icon: '🗂️',
     status: '可选',
     tone: 'available',
-    effect: '统一展示 115、Emby/Jellyfin 等本地媒体库来源的精确匹配结果，并保留来源名称。',
+    effect: '统一展示 115、Emby/Jellyfin 等本地资料库来源的精确匹配结果，并保留来源名称。',
     usageHelp: [
       '先在 115 设置中配置媒体库根目录并完成一次索引。',
       '列表卡片只在本地索引精确匹配番号时显示“115 已有”。',
