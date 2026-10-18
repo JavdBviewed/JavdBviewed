@@ -113,6 +113,17 @@ describe('data asset registry guard', () => {
       expect.arrayContaining([
         expect.objectContaining({ path: 'webdav.password', currentCloudPolicy: 'allowed' }),
         expect.objectContaining({ path: 'drive115.authToken', currentCloudPolicy: 'allowed' }),
+        // 10-13 线：v2 会话键补登记（用户裁决：115 会话有意跨设备云同步，与 emby 方向相反）
+        expect.objectContaining({
+          path: 'drive115.v2AccessToken',
+          currentCloudPolicy: 'allowed',
+          futurePolicy: 'vault-candidate',
+        }),
+        expect.objectContaining({
+          path: 'drive115.v2RefreshToken',
+          currentCloudPolicy: 'allowed',
+          futurePolicy: 'vault-candidate',
+        }),
         expect.objectContaining({ path: 'ai.providers.*.apiKey', currentCloudPolicy: 'allowed' }),
         expect.objectContaining({
           path: 'emby.mediaServers.*.password',

@@ -66,6 +66,20 @@ export const SETTINGS_SENSITIVE_PATH_POLICIES: readonly SettingsSensitivePathPol
     reason: '115 凭据当前随完整 settings 同步，未来如需剥离再单独迁移。',
   },
   {
+    path: 'drive115.v2AccessToken',
+    assetClass: 'vault',
+    currentCloudPolicy: 'allowed',
+    futurePolicy: 'vault-candidate',
+    reason: '用户裁决（10-13 线）：115 会话有意跨设备云同步（与 emby 四键方向相反）；当前随完整 settings 进入用户自建 Cloud，未来如迁 vault 单独迁移。',
+  },
+  {
+    path: 'drive115.v2RefreshToken',
+    assetClass: 'vault',
+    currentCloudPolicy: 'allowed',
+    futurePolicy: 'vault-candidate',
+    reason: '用户裁决（10-13 线）：115 会话有意跨设备云同步（与 emby 四键方向相反）；当前随完整 settings 进入用户自建 Cloud，未来如迁 vault 单独迁移。',
+  },
+  {
     path: 'ai.providers.*.apiKey',
     assetClass: 'vault',
     currentCloudPolicy: 'allowed',
