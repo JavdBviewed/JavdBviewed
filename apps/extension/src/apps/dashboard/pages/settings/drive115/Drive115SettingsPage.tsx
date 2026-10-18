@@ -16,9 +16,14 @@ import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessa
 import { STORAGE_KEYS } from '../../../../../utils/config';
 import { getValue } from '../../../../../utils/storage';
 import type {
+  Drive115IndexDirManifest,
   Drive115IndexReport,
   Drive115IndexSkipReason,
 } from '../../../../../features/drive115/mediaLibrary/types';
+import {
+  isDrive115IndexDirManifestUsable,
+  loadDrive115IndexDirManifest,
+} from '../../../../../features/drive115/mediaLibrary/store';
 import {
   getSettings,
   useDebouncedSettingsSave,
@@ -521,6 +526,8 @@ export function Drive115SettingsPage() {
   const [indexReport, setIndexReport] = useState<Drive115IndexReport | null>(null);
   const [indexHistory, setIndexHistory] = useState<Drive115IndexReport[]>([]);
   const [indexResumeAt, setIndexResumeAt] = useState(0);
+  const [rescanDirectoryStructure, setRescanDirectoryStructure] = useState(false);
+  const [dirManifest, setDirManifest] = useState<Drive115IndexDirManifest | null>(null);
   const [indexResumeNow, setIndexResumeNow] = useState(() => Date.now());
   const [indexDialogMode, setIndexDialogMode] = useState<'latest' | 'history' | null>(null);
   const [logLines, setLogLines] = useState<string[]>([]);
@@ -587,6 +594,12 @@ export function Drive115SettingsPage() {
       } catch {
         /* ignore */
       }
+      try {
+        const manifest = await loadDrive115IndexDirManifest();
+        if (!cancelled) setDirManifest(manifest);
+      } catch {
+        /* ignore */
+      }
     })();
 
     const onChanged = (
@@ -613,6 +626,10 @@ export function Drive115SettingsPage() {
       const checkpointKey = STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_CHECKPOINT;
       if (changes[checkpointKey]) {
         setIndexResumeAt(readIndexResumeAt(changes[checkpointKey].newValue));
+      }
+      const manifestKey = STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_DIR_MANIFEST;
+      if (changes[manifestKey]) {
+        void loadDrive115IndexDirManifest().then((next) => setDirManifest(next));
       }
     };
     try {
@@ -1034,7 +1051,10 @@ export function Drive115SettingsPage() {
     setIndexingMediaLibrary(true);
     setIndexProgressText('正在限频索引…');
     try {
-      const resp: any = await sendRuntimeMessage({ type: 'DRIVE115_MEDIA_LIBRARY_INDEX' });
+      const resp: any = await sendRuntimeMessage({
+        type: 'DRIVE115_MEDIA_LIBRARY_INDEX',
+        rescanDirectoryStructure,
+      });
       // 刷新表单中的 lastIndex 元数据
       try {
         const settings = await getSettings();
@@ -1103,6 +1123,23 @@ export function Drive115SettingsPage() {
       return String(ts);
     }
   }, [form.mediaLibraryLastIndexAt]);
+  const dirManifestStatusLine = useMemo(() => {
+    if (rescanDirectoryStructure) {
+      return '目录清单：已勾选重扫，本轮将重建全部目录结构';
+    }
+    if (dirManifest) {
+      const enabledCids = (form.mediaLibraryRoots || [])
+        .filter((r) => r.enabled !== false)
+        .map((r) => r.cid);
+      if (isDrive115IndexDirManifestUsable(dirManifest, enabledCids, form.mediaLibraryScanDepth)) {
+        const pending = dirManifest.items.filter((item) => item.status === 'pending').length;
+        const expiresLabel = new Date(dirManifest.expiresAt).toLocaleString();
+        return `目录清单：已缓存 ${dirManifest.items.length} 个目录（待解析 ${pending}），到期 ${expiresLabel}；未勾选重扫时默认复用`;
+      }
+      return '目录清单：已过期或与当前目录配置不一致，本轮将重建';
+    }
+    return '目录清单：未缓存，本轮将建立新清单（24 小时内重索引默认复用）';
+  }, [rescanDirectoryStructure, dirManifest, form.mediaLibraryRoots, form.mediaLibraryScanDepth]);
   const indexResumePending = indexResumeAt > 0;
   const indexResumeRemainingSec = Math.max(0, Math.ceil((indexResumeAt - indexResumeNow) / 1000));
   const indexResumeAtLabel = useMemo(() => {
@@ -1875,7 +1912,22 @@ export function Drive115SettingsPage() {
                 ) : null}
                 <span className="text-[11.5px]">
                   串行限频：先按页发现目录（115 单页最多 1150 项），再逐个扫描。遇到访问上限会保存目录清单和当前位置，冷却后从未完成位置继续。
+                  产品观察到近 15 分钟约 200 次调用后可能出现访问频繁（非 115 官方公开限额）；连续受限时冷却时间递增，恢复成功后逐步回落。
                 </span>
+                <label
+                  className="flex cursor-pointer select-none items-center gap-1.5 text-[11.5px]"
+                  title="勾选后忽略 24 小时目录清单缓存，重新发现全部目录结构"
+                >
+                  <input
+                    id="drive115RescanDirectoryStructure"
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-[var(--color-primary,#e67e22)]"
+                    checked={rescanDirectoryStructure}
+                    disabled={disabled || indexingMediaLibrary || !!indexProgress?.running}
+                    onChange={(e) => setRescanDirectoryStructure(e.target.checked)}
+                  />
+                  本次重新扫描目录结构
+                </label>
               </div>
 
               <div
@@ -1910,6 +1962,7 @@ export function Drive115SettingsPage() {
                   上次索引：
                   <span className="text-[var(--color-fg)]">{mediaLibraryLastIndexLabel}</span>
                 </div>
+                <div className="text-[11.5px] text-[var(--color-fg-muted)]">{dirManifestStatusLine}</div>
                 {indexRunActive && indexProgress ? (
                   <div className="space-y-1 text-[var(--color-fg)]">
                     <div>{indexProgress.message || indexProgressText || '正在限频索引…'}</div>

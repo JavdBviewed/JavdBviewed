@@ -363,6 +363,14 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
     '115 片库索引记录用于本机回看完成、暂停与失败原因，不参与跨端同步。',
   ),
   chromeStorage(
+    'storage.drive115LibraryIndexDirManifest',
+    STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_DIR_MANIFEST,
+    'cache',
+    { backup: false, restore: false, restoreMode: 'skip' },
+    { full: false, incremental: false },
+    '115 目录结构缓存可重新扫描再生成。',
+  ),
+  chromeStorage(
     'storage.media115CleanupList',
     STORAGE_KEYS.MEDIA_115_CLEANUP_LIST,
     'legacy-compat',

@@ -157,6 +157,10 @@ export type Drive115IndexResult = {
   state: Drive115LibraryIndexState;
   /** 本轮结果明细报告 */
   report?: Drive115IndexReport;
+  /** 本轮构建/复用的目录清单；handlers 收尾时持久化（空清单不返回，避免覆盖有效缓存）。 */
+  manifest?: Drive115IndexDirManifest;
+  /** 本轮是否复用了 24 小时目录清单。 */
+  manifestReused?: boolean;
   /** 限流或临时访问错误时保留，供后台冷却后续扫。 */
   checkpoint?: Drive115IndexCheckpoint;
   /** 本轮已暂停且可继续，而非永久失败。 */
@@ -178,10 +182,51 @@ export type Drive115IndexCheckpoint = {
   stats: Drive115LibraryIndexStats;
   containerFoldersSeen: number;
   report: Drive115IndexReport;
+  /** 连续受限冷却次数；恢复成功后检查点清除，计数归零，下次从第 1 步重起。 */
+  consecutiveBackoffs?: number;
   resumeAt: number;
   createdAt: number;
   updatedAt: number;
 };
+
+/** 递增冷却步长（毫秒）：第 n 次连续受限取第 n 步，超出表长取末步封顶。 */
+export const DRIVE115_INDEX_RESUME_BACKOFF_STEPS_MS: readonly number[] = [
+  1 * 60_000,
+  5 * 60_000,
+  10 * 60_000,
+  30 * 60_000,
+  60 * 60_000,
+  120 * 60_000,
+];
+
+/** 目录清单内单个已发现目录项。 */
+export type Drive115IndexDirManifestItem = {
+  cid: string;
+  name: string;
+  parentCid: string;
+  depth: number;
+  rootCid: string;
+  /** pending=已发现未列目录；processed=已完成列目录。 */
+  status: 'pending' | 'processed';
+};
+
+/**
+ * 24 小时目录清单缓存：一次发现（完整或中断）后的目录结构快照。
+ * 未过期且根目录/深度与当前配置一致时，重索引默认复用（已完成目录零请求）。
+ */
+export type Drive115IndexDirManifest = {
+  version: 1;
+  rootCids: string[];
+  scanDepth: number;
+  discoveredAt: number;
+  expiresAt: number;
+  /** 每个根目录的发现分页游标（完成态 + 未读完 offset）。 */
+  rootListings: Record<string, { listingComplete: boolean; offset: number }>;
+  items: Drive115IndexDirManifestItem[];
+};
+
+/** 目录清单缓存有效期（24 小时）。 */
+export const DRIVE115_INDEX_DIR_MANIFEST_TTL_MS = 24 * 60 * 60_000;
 
 /** 写入 storage 的索引进度快照，供设置页实时展示 */
 export type Drive115IndexProgressSnapshot = Drive115IndexProgress & {
