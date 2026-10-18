@@ -40,6 +40,7 @@ import { markCloudStorageWrite } from './storageChangeGate';
 import { shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
 import { mergeMediaCleanupStorageValue } from '../mediaCleanup';
 import { mergeEmbyMediaServersForPull, stripEmbySessionFieldsFromValue } from '../../shared/embyMediaServerSync';
+import { mergeDrive115SessionForPull } from '../../shared/drive115SessionSync';
 
 export const EXTENSION_SYNC_ENTITY_TYPES: readonly SyncEntityType[] = [
   'video',
@@ -498,9 +499,10 @@ async function applyOne(entity: SyncEntity): Promise<void> {
       }
       const localValue = await getValue<unknown>(key, undefined);
       // settings 键（X2）：按源 id 并集合并 + 丢弃远端会话 + 墓碑前移到 pull 应用层（替换整 blob LWW）
+      // settings 键（10-13）：115 会话逐键方向性保护——local 非空 + 远端空 → 保 local（防另一台设备无关设置写抹会话）
       const mergedValue =
         key === STORAGE_KEYS.SETTINGS
-          ? mergeEmbyMediaServersForPull(localValue, value)
+          ? mergeDrive115SessionForPull(localValue, mergeEmbyMediaServersForPull(localValue, value))
           : mergeMediaCleanupStorageValue(key, localValue, value);
       markCloudStorageWrite(key, mergedValue);
       await setValue(key, mergedValue);
