@@ -17,10 +17,12 @@
  *     （该路由在 4.9.5.0 规范中不存在，恒 404）→ 永远判"已删除"→ 假成功。
  *     本用例验证修复后走 GET /Items?Ids={id} 空列表判定。
  *
- * 环境要求（缺失时自动 skip，不影响 CI）：
- *   - 测试容器可达（默认 http://localhost:38097，可用 EMBY_E2E_URL 覆盖）
- *   - 媒体目录可写（默认 /home/ryen/emby-test/media/Movies，可用 EMBY_E2E_MEDIA_ROOT 覆盖）
- *   - 媒体文件缺失时用 Playwright 自带 ffmpeg 自动重建并触发扫库
+ * 环境要求（fixtures/embyRealEnv.ts 两级 preflight，失败=显式 skip 带原因）：
+ *   - 测试容器可达并实读版本（默认 http://127.0.0.1:38098，可用 EMBY_E2E_URL 覆盖）
+ *   - 凭据可用：EMBY_E2E_USERNAME/EMBY_E2E_PASSWORD 登录或 root 哨兵；
+ *     用例 1（token+userId）需 token 凭据，用例 2（仅 apiKey）无有效 api_key 时显式 skip
+ *   - 媒体目录可写（默认 /home/ryen/emby-b1/media/Movies，可用 EMBY_E2E_MEDIA_ROOT 覆盖）
+ *   - 媒体文件缺失时用 Playwright 自带 ffmpeg 自动重建并触发扫库（90s 上限 + 401 快速失败）
  */
 import { expect, test, type BrowserContext } from '@playwright/test';
 import fs from 'node:fs';
@@ -36,11 +38,17 @@ import {
 } from '../../scripts/extensionHarness';
 import { STORAGE_KEYS } from '../../apps/extension/src/utils/config';
 
-const EMBY_URL = (process.env.EMBY_E2E_URL ?? 'http://localhost:38097').replace(/\/+$/, '');
-const EMBY_API_KEY = process.env.EMBY_E2E_API_KEY ?? '13f76fe3bea74b76921de6521b16164f';
-const EMBY_ADMIN_TOKEN = process.env.EMBY_E2E_ADMIN_TOKEN ?? '351226bf13d0439dbf6a08958da57d04';
-const EMBY_ADMIN_USER_ID = process.env.EMBY_E2E_ADMIN_USER_ID ?? 'e99563c9860c48fca5afdf69070fb54a';
-const MEDIA_ROOT = process.env.EMBY_E2E_MEDIA_ROOT ?? '/home/ryen/emby-test/media/Movies';
+import {
+  EMBY_E2E_MEDIA_ROOT as MEDIA_ROOT,
+  EMBY_E2E_URL as EMBY_URL,
+  INDEX_POLL_TIMEOUT_MS,
+  buildSeededServerEntry,
+  embyJson,
+  embyPreflight,
+  getEmbyAuthSet,
+  type EmbyAuth,
+  type EmbyAuthSet,
+} from './fixtures/embyRealEnv';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -78,39 +86,17 @@ function collectSwConsole(): string {
 }
 
 // ---------------------------------------------------------------------------
-// 服务端辅助（Node 环境直连测试容器；失败只影响本文件，自动 skip）
+// 服务端辅助（Node 环境直连测试容器；凭据/请求统一走 fixtures/embyRealEnv.ts，
+// 凭据不可用=显式 skip 带原因，不再静默空转）
 // ---------------------------------------------------------------------------
 
-function embyApiUrl(pathAndQuery: string): string {
-  const sep = pathAndQuery.includes('?') ? '&' : '?';
-  return `${EMBY_URL}${pathAndQuery}${sep}api_key=${encodeURIComponent(EMBY_API_KEY)}`;
-}
-
-async function embyJson(pathAndQuery: string, init?: RequestInit): Promise<{ status: number; body: any }> {
-  const response = await fetch(embyApiUrl(pathAndQuery), {
-    ...init,
-    headers: { Accept: 'application/json', ...(init?.headers || {}) },
-  });
-  const text = await response.text().catch(() => '');
-  let body: any = null;
-  try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-  return { status: response.status, body };
-}
-
-async function embyReachable(): Promise<boolean> {
-  try {
-    const { status } = await embyJson('/System/Info');
-    return status === 200;
-  } catch {
-    return false;
-  }
-}
 
 /** 按名称查找已索引的 Movie 条目，返回 itemId 或 null。 */
 async function findMovieId(name: string): Promise<string | null> {
   const { status, body } = await embyJson(
     `/Items?IncludeItemTypes=Movie&Recursive=true&SearchTerm=${encodeURIComponent(name)}`,
   );
+  if (status === 401) throw new Error('Emby 凭据失效（/Items 401），快速失败而非空转轮询');
   if (status !== 200) return null;
   const items = Array.isArray(body?.Items) ? body.Items : [];
   const hit = items.find((item: any) => item?.Name === name);
@@ -168,13 +154,24 @@ async function ensureIndexedMovie(name: string): Promise<string> {
   let itemId = await findMovieId(name);
   if (itemId) return itemId;
   ensureMediaFolder(name);
-  await embyJson('/Library/Refresh', { method: 'POST' });
-  for (let attempt = 0; attempt < 36; attempt += 1) {
-    await sleep(5_000);
+  // /Library/Refresh 为 admin 端点：token 模式恒用 admin 凭据（root 哨兵/admin env 用户）
+  const set = await getEmbyAuthSet();
+  if (!set) throw new Error('防御性：preflight 已核凭据，此处不应为空');
+  const refresh = await embyJson('/Library/Refresh', { method: 'POST' }, set.admin);
+  if (refresh.status === 401) throw new Error('Emby admin 凭据失效（/Library/Refresh 401），快速失败而非空转轮询');
+  if (refresh.status !== 200 && refresh.status !== 204) {
+    throw new Error(`测试容器 /Library/Refresh 返回 HTTP ${refresh.status}，无法触发扫库`);
+  }
+  // 90s 上限 + 401 快速失败（PRD ④；此 build /Tasks 404，任务态查询不可行）
+  const deadline = Date.now() + INDEX_POLL_TIMEOUT_MS;
+  for (;;) {
     itemId = await findMovieId(name);
     if (itemId) return itemId;
+    if (Date.now() >= deadline) {
+      throw new Error(`扫库后 ${name} 仍未被 Emby 索引（达 ${INDEX_POLL_TIMEOUT_MS / 1000}s 上限）`);
+    }
+    await sleep(5_000);
   }
-  throw new Error(`扫库后 ${name} 仍未被 Emby 索引（测试容器扫库超时）`);
 }
 
 /** 断言条目已从服务端消失（DELETE 对 DB 是同步的，给少量轮询余量）。 */
@@ -213,24 +210,32 @@ type EmbyDeleteUiOptions = {
   useToken: boolean;
 };
 
+/** 按路由形态取凭据：token 路由=主 token（主为 api_key 时回落 admin）；apiKey 路由=仅接受 api_key 凭据。 */
+function pickAuthForRoute(set: EmbyAuthSet, useToken: boolean): EmbyAuth {
+  if (useToken) {
+    return set.primary.mode === 'token' ? set.primary : set.admin.mode === 'token' ? set.admin : set.primary;
+  }
+  return set.primary;
+}
+
 async function runEmbyDeleteThroughUi(
   context: BrowserContext,
   extensionId: string,
   options: EmbyDeleteUiOptions,
+  authSet: EmbyAuthSet,
 ): Promise<void> {
   const { code, itemId, fileName, useToken } = options;
+  const auth = pickAuthForRoute(authSet, useToken);
+  if (useToken && auth.mode !== 'token') {
+    throw new Error('防御性：无可用 token 凭据（用例入口应已预核并 skip）');
+  }
+  if (!useToken && auth.mode !== 'api_key') {
+    throw new Error('防御性：无可用 api_key 凭据（用例入口应已预核并 skip）');
+  }
   attachConsoleCollectors(context);
   const now = Date.now();
   const copyId = `emby:${EMBY_URL}:${itemId}`;
-  const server = {
-    id: 'emby-e2e',
-    type: 'emby',
-    name: 'Emby-E2E',
-    url: EMBY_URL,
-    apiKey: EMBY_API_KEY,
-    enabled: true,
-    ...(useToken ? { accessToken: EMBY_ADMIN_TOKEN, userId: EMBY_ADMIN_USER_ID } : {}),
-  };
+  const server = buildSeededServerEntry(auth, 'emby-e2e', 'Emby-E2E');
 
   // 播种必须先于 dashboard 首次加载：先加载再播种时，页面内存里的默认设置
   // 会被设置面板 saveSettings 整对象回写，把播种的 emby/drive115 段抹掉
@@ -342,13 +347,18 @@ test.describe('media cleanup Emby real-container delete', () => {
 
   /** 容器不可达时在当前用例内跳过（skip 谓词在收集期求值，不能依赖 beforeAll 的结果）。 */
   async function skipIfContainerDown(): Promise<void> {
-    if (!(await embyReachable())) {
-      test.skip(true, `Emby 测试容器不可达（${EMBY_URL}），跳过真实容器用例`);
+    const pf = await embyPreflight();
+    if (!pf.ok) {
+      test.skip(true, `${pf.reason}，跳过真实容器用例`);
     }
   }
 
   test('token+userId 路由：只走 DELETE /Items/{id}，删除后校验条目与磁盘文件消失（根因 A 回归）', async ({}, testInfo) => {
   await skipIfContainerDown();
+    const set = await getEmbyAuthSet();
+    if (!set || (set.primary.mode !== 'token' && set.admin.mode !== 'token')) {
+      test.skip(true, '无可用 token 凭据（此夹具仅 api_key 模式生效时），跳过 token+userId 路由用例');
+    }
     const name = 'E2EAV-TOKEN-1';
     const itemId = await ensureIndexedMovie(name);
     const harnessOptions = resolveExtensionHarnessOptions(
@@ -371,7 +381,7 @@ test.describe('media cleanup Emby real-container delete', () => {
         itemId,
         fileName: `${name}.mkv`,
         useToken: true,
-      });
+      }, set);
       // 服务端 + 磁盘双重确认：提示成功 ⇔ 文件真的没了
       await assertItemGone(itemId);
       await assertVideoFileGone(name);
@@ -382,6 +392,10 @@ test.describe('media cleanup Emby real-container delete', () => {
 
   test('仅 apiKey（无 userId）路由：存在性判定走 /Items?Ids=，删除后校验消失（根因 B 回归）', async ({}, testInfo) => {
   await skipIfContainerDown();
+    const set = await getEmbyAuthSet();
+    if (!set || set.primary.mode !== 'api_key') {
+      test.skip(true, '此夹具无有效 api_key 凭证（旧默认 key 对 38098 恒 401；此 build 无 API key 管理路由与存储），跳过仅 apiKey 路由用例');
+    }
     const name = 'E2EAV-KEY-1';
     const itemId = await ensureIndexedMovie(name);
     const harnessOptions = resolveExtensionHarnessOptions(
@@ -404,7 +418,7 @@ test.describe('media cleanup Emby real-container delete', () => {
         itemId,
         fileName: `${name}.mkv`,
         useToken: false,
-      });
+      }, set);
       await assertItemGone(itemId);
       await assertVideoFileGone(name);
     } finally {
