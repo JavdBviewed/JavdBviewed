@@ -980,3 +980,265 @@ describe('indexDrive115Roots', () => {
     expect(result.message).toMatch(/未配置/);
   });
 });
+
+describe('indexDrive115Roots · R5.5 递增冷却 + R5.7 目录清单', () => {
+  const T0 = 1_700_000_000_000;
+  const DAY_MS = 24 * 60 * 60_000;
+
+  const rateLimitedRootThen429 = vi.fn(async ({ cid, offset = 0 }: { cid: string; offset?: number }) => {
+    if (cid === 'root' && offset === 0) {
+      return { success: true, data: [{ fc: '0', cid: 'f1', fn: 'SSIS-001' }] };
+    }
+    return { success: false, code: 429, message: '请求过于频繁，请稍后再试' };
+  });
+
+  const runTree = (
+    listFiles: ({ cid }: { cid: string }) => Promise<{ success: boolean; data?: Array<Record<string, unknown>> }>,
+    extra: Record<string, unknown> = {},
+  ) =>
+    indexDrive115Roots({
+      roots: [{ cid: 'root', name: '片库', enabled: true }],
+      listFiles,
+      sleep: async () => {},
+      rootIntervalMs: 0,
+      folderIntervalMs: 0,
+      now: () => T0,
+      ...extra,
+    });
+
+  it('R5.5：连续受限时冷却步长递增（1min→5min→10min）且封顶 120min', async () => {
+    const first = await runTree(rateLimitedRootThen429, {
+      circuitBreakerThreshold: 1,
+    });
+    expect(first.success).toBe(false);
+    const cp1 = first.checkpoint as { consecutiveBackoffs?: number; resumeAt: number } | undefined;
+    expect(cp1?.consecutiveBackoffs).toBe(1);
+    expect(cp1?.resumeAt).toBe(T0 + 1 * 60_000);
+
+    const second = await runTree(rateLimitedRootThen429, {
+      circuitBreakerThreshold: 1,
+      checkpoint: first.checkpoint,
+    });
+    const cp2 = second.checkpoint as { consecutiveBackoffs?: number; resumeAt: number } | undefined;
+    expect(cp2?.consecutiveBackoffs).toBe(2);
+    expect(cp2?.resumeAt).toBe(T0 + 5 * 60_000);
+
+    const third = await runTree(rateLimitedRootThen429, {
+      circuitBreakerThreshold: 1,
+      checkpoint: second.checkpoint,
+    });
+    const cp3 = third.checkpoint as { consecutiveBackoffs?: number; resumeAt: number } | undefined;
+    expect(cp3?.consecutiveBackoffs).toBe(3);
+    expect(cp3?.resumeAt).toBe(T0 + 10 * 60_000);
+
+    const seeded = { ...(cp3 as object), consecutiveBackoffs: 9 } as never;
+    const capped = await runTree(rateLimitedRootThen429, {
+      circuitBreakerThreshold: 1,
+      checkpoint: seeded,
+    });
+    const cpCap = capped.checkpoint as { consecutiveBackoffs?: number; resumeAt: number } | undefined;
+    expect(cpCap?.consecutiveBackoffs).toBe(10);
+    expect(cpCap?.resumeAt).toBe(T0 + 120 * 60_000);
+  });
+
+  it('R5.5：恢复成功后不再产出冷却检查点（计数随检查点清除归零）', async () => {
+    const first = await runTree(rateLimitedRootThen429, {
+      circuitBreakerThreshold: 1,
+    });
+    expect(first.checkpoint).toBeDefined();
+
+    const second = await runTree(
+      async ({ cid }) => {
+        if (cid === 'root') {
+          return { success: true, data: [{ fc: '0', cid: 'f1', fn: 'SSIS-001' }] };
+        }
+        return {
+          success: true,
+          data: [{ fc: '1', fid: 'v1', fn: 'SSIS-001.mp4', fs: 10, pc: 'p1' }],
+        };
+      },
+      {
+        previous: first.state,
+        checkpoint: first.checkpoint,
+      },
+    );
+    expect(second.success).toBe(true);
+    expect(second.checkpoint).toBeUndefined();
+    expect(second.state.entries.map((e) => e.code)).toEqual(['SSIS-001']);
+  });
+
+  it('R5.7：全量扫描后产出 24h 目录清单（六要素+到期时间+根目录分页游标）', async () => {
+    const result = await runTree(async ({ cid }) => {
+      if (cid === 'root') {
+        return {
+          success: true,
+          data: [
+            { fc: '0', cid: 'f1', fn: 'SSIS-001' },
+            { fc: '0', cid: 'f2', fn: 'SSIS-002' },
+          ],
+        };
+      }
+      const code = cid === 'f1' ? 'SSIS-001' : 'SSIS-002';
+      return {
+        success: true,
+        data: [{ fc: '1', fid: `${cid}-v`, fn: `${code}.mp4`, fs: 10, pc: `${cid}-pick` }],
+      };
+    });
+    expect(result.success).toBe(true);
+    expect(result.state.entries).toHaveLength(2);
+    expect(result.manifest).toMatchObject({
+      version: 1,
+      rootCids: ['root'],
+      scanDepth: 2,
+      discoveredAt: T0,
+    });
+    const manifest = result.manifest as {
+      expiresAt: number;
+      rootListings: Record<string, { listingComplete: boolean; offset: number }>;
+      items: Array<{ cid: string; status: string; depth: number; rootCid: string; parentCid: string }>;
+    };
+    expect(manifest.expiresAt).toBe(T0 + DAY_MS);
+    expect(manifest.rootListings).toEqual({ root: { listingComplete: true, offset: 0 } });
+    expect(manifest.items.map((i) => i.cid).sort()).toEqual(['f1', 'f2']);
+    for (const item of manifest.items) {
+      expect(item.status).toBe('processed');
+      expect(item.depth).toBe(1);
+      expect(item.rootCid).toBe('root');
+      expect(item.parentCid).toBe('root');
+    }
+  });
+
+  it('R5.7/AC12：24h 内同配置重索引复用清单，目录列表请求为零', async () => {
+    const buildTree = () =>
+      async ({ cid }: { cid: string }) => {
+        if (cid === 'root') {
+          return {
+            success: true,
+            data: [
+              { fc: '0', cid: 'f1', fn: 'SSIS-001' },
+              { fc: '0', cid: 'f2', fn: 'SSIS-002' },
+            ],
+          };
+        }
+        const code = cid === 'f1' ? 'SSIS-001' : 'SSIS-002';
+        return {
+          success: true,
+          data: [{ fc: '1', fid: `${cid}-v`, fn: `${code}.mp4`, fs: 10, pc: `${cid}-pick` }],
+        };
+      };
+    const first = await runTree(buildTree());
+    expect(first.success).toBe(true);
+    expect(first.state.entries).toHaveLength(2);
+
+    let calls = 0;
+    const second = await runTree(
+      async () => {
+        calls += 1;
+        return { success: false, message: '复用轮不应发起目录列表请求' };
+      },
+      {
+        previous: first.state,
+        manifest: first.manifest,
+        now: () => T0 + 3_600_000,
+      },
+    );
+    expect(calls).toBe(0);
+    expect(second.success).toBe(true);
+    expect(second.keptPrevious).toBe(true);
+    expect(second.manifestReused).toBe(true);
+    expect(second.message).toBe('24 小时内目录清单已复用，未重复请求已完成目录');
+    expect(second.state.entries).toHaveLength(2);
+    expect((second.manifest as { discoveredAt?: number })?.discoveredAt).toBe(T0);
+    expect((second.manifest as { expiresAt?: number })?.expiresAt).toBe(T0 + DAY_MS);
+  });
+
+  it('R5.7：中断清单续跑只列 pending 目录，processed 零请求，条目合并保留 previous', async () => {
+    const first = await runTree(
+      async ({ cid }) => {
+        if (cid === 'root') {
+          return {
+            success: true,
+            data: [
+              { fc: '0', cid: 'f1', fn: 'SSIS-001' },
+              { fc: '0', cid: 'f2', fn: 'SSIS-002' },
+            ],
+          };
+        }
+        if (cid === 'f1') {
+          return {
+            success: true,
+            data: [{ fc: '1', fid: 'v1', fn: 'SSIS-001.mp4', fs: 10, pc: 'p1' }],
+          };
+        }
+        return { success: false, code: 429, message: '请求过于频繁，请稍后再试' };
+      },
+      { circuitBreakerThreshold: 1 },
+    );
+    expect(first.success).toBe(false);
+    const firstItems = (first.manifest as { items: Array<{ cid: string; status: string }> } | undefined)?.items;
+    expect(firstItems?.find((i) => i.cid === 'f1')?.status).toBe('processed');
+    expect(firstItems?.find((i) => i.cid === 'f2')?.status).toBe('pending');
+
+    const listedCids: string[] = [];
+    const second = await runTree(
+      async ({ cid }) => {
+        listedCids.push(cid);
+        if (cid === 'f2') {
+          return {
+            success: true,
+            data: [{ fc: '1', fid: 'v2', fn: 'SSIS-002.mp4', fs: 10, pc: 'p2' }],
+          };
+        }
+        return { success: true, data: [] };
+      },
+      {
+        previous: first.state,
+        manifest: first.manifest,
+        now: () => T0 + 60_000,
+      },
+    );
+    expect(listedCids).toEqual(['f2']);
+    expect(second.success).toBe(true);
+    expect(second.manifestReused).toBe(true);
+    expect(second.state.entries.map((e) => e.code).sort()).toEqual(['SSIS-001', 'SSIS-002']);
+  });
+
+  it('R5.7：不传清单时重索引全量重新发现（不复用缓存）', async () => {
+    const buildTree = () =>
+      async ({ cid }: { cid: string }) => {
+        if (cid === 'root') {
+          return {
+            success: true,
+            data: [{ fc: '0', cid: 'f1', fn: 'SSIS-001' }],
+          };
+        }
+        return {
+          success: true,
+          data: [{ fc: '1', fid: 'v1', fn: 'SSIS-001.mp4', fs: 10, pc: 'p1' }],
+        };
+      };
+    const first = await runTree(buildTree());
+    expect(first.success).toBe(true);
+    expect(first.manifest).toBeDefined();
+
+    const listedCids: string[] = [];
+    const second = await runTree(
+      async ({ cid }) => {
+        listedCids.push(cid);
+        if (cid === 'root') {
+          return { success: true, data: [{ fc: '0', cid: 'f1', fn: 'SSIS-001' }] };
+        }
+        return {
+          success: true,
+          data: [{ fc: '1', fid: 'v1', fn: 'SSIS-001.mp4', fs: 10, pc: 'p1' }],
+        };
+      },
+      { previous: first.state },
+    );
+    expect(listedCids).toContain('root');
+    expect(listedCids).toContain('f1');
+    expect(second.success).toBe(true);
+    expect(second.manifestReused).toBeUndefined();
+    expect(second.state.entries).toHaveLength(1);
+  });
+});

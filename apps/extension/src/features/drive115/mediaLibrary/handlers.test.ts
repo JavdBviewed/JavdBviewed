@@ -16,20 +16,23 @@ import {
   handleDrive115MediaLibraryResolveNfo,
 } from './handlers';
 import { indexDrive115Roots } from './indexer';
-import { loadDrive115LibraryState, saveDrive115LibraryState } from './store';
+import { loadDrive115LibraryState, saveDrive115LibraryState, saveDrive115IndexDirManifest } from './store';
 
 const storageMock = vi.hoisted(() => {
-  const state: { progress: unknown; checkpoint: unknown; history: unknown } = {
+  const state: { progress: unknown; checkpoint: unknown; history: unknown; manifest: unknown } = {
     progress: null,
     checkpoint: null,
     history: null,
+    manifest: null,
   };
   const setValue = vi.fn(async (key: string, value: unknown) => {
     if (key === 'drive115_library_index_history') state.history = value;
+    else if (key === 'drive115_library_index_dir_manifest') state.manifest = value;
     else state.progress = value;
   });
   const getValue = vi.fn(async (key: string, fallback: unknown) => {
     if (key === 'drive115_library_index_history') return state.history ?? fallback;
+    if (key === 'drive115_library_index_dir_manifest') return state.manifest ?? fallback;
     return state.progress ?? fallback;
   });
   return { state, setValue, getValue };
@@ -55,17 +58,30 @@ vi.mock('../v2', () => ({
   getDrive115V2Service: vi.fn(),
 }));
 
-vi.mock('./indexer', () => ({
-  indexDrive115Roots: vi.fn(),
-}));
+vi.mock('./indexer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./indexer')>();
+  return {
+    indexDrive115Roots: vi.fn(),
+    // store 的清单函数复用 indexer 的 clampScanDepth，mock 面需透传（indexDrive115Roots 本身保持 stub）
+    clampScanDepth: actual.clampScanDepth,
+  };
+});
 
-vi.mock('./store', () => ({
-  loadDrive115LibraryState: vi.fn(),
-  saveDrive115LibraryState: vi.fn(),
-  loadDrive115IndexCheckpoint: vi.fn(async () => storageMock.state.checkpoint),
-  saveDrive115IndexCheckpoint: vi.fn(async (checkpoint: unknown) => { storageMock.state.checkpoint = checkpoint; }),
-  clearDrive115IndexCheckpoint: vi.fn(async () => { storageMock.state.checkpoint = null; }),
-}));
+vi.mock('./store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./store')>();
+  return {
+    loadDrive115LibraryState: vi.fn(),
+    saveDrive115LibraryState: vi.fn(),
+    loadDrive115IndexCheckpoint: vi.fn(async () => storageMock.state.checkpoint),
+    saveDrive115IndexCheckpoint: vi.fn(async (checkpoint: unknown) => { storageMock.state.checkpoint = checkpoint; }),
+    clearDrive115IndexCheckpoint: vi.fn(async () => { storageMock.state.checkpoint = null; }),
+    loadDrive115IndexDirManifest: vi.fn(async () => storageMock.state.manifest),
+    saveDrive115IndexDirManifest: vi.fn(async (manifest: unknown) => { storageMock.state.manifest = manifest; }),
+    clearDrive115IndexDirManifest: vi.fn(async () => { storageMock.state.manifest = null; }),
+    isDrive115IndexDirManifestUsable: actual.isDrive115IndexDirManifestUsable,
+    normalizeDirManifest: actual.normalizeDirManifest,
+  };
+});
 
 const emptyState = {
   version: 1 as const,
@@ -110,6 +126,7 @@ describe('handleDrive115MediaLibraryCancelIndex', () => {
     storageMock.state.progress = null;
     storageMock.state.checkpoint = null;
     storageMock.state.history = null;
+    storageMock.state.manifest = null;
     vi.mocked(loadDrive115LibraryState).mockResolvedValue(emptyState);
     vi.mocked(saveDrive115LibraryState).mockResolvedValue(undefined);
     vi.mocked(getSettings).mockResolvedValue({
@@ -202,6 +219,7 @@ describe('handleDrive115MediaLibraryIndex incremental persistence', () => {
     storageMock.state.progress = null;
     storageMock.state.checkpoint = null;
     storageMock.state.history = null;
+    storageMock.state.manifest = null;
     vi.mocked(loadDrive115LibraryState).mockResolvedValue(emptyState);
     vi.mocked(saveDrive115LibraryState).mockResolvedValue(undefined);
     vi.mocked(getSettings).mockResolvedValue({
@@ -638,5 +656,94 @@ describe('handleDrive115MediaLibraryResolveCoverUrl', () => {
       handleDrive115MediaLibraryResolveCoverUrl({ type: 'x' }, resolve);
     });
     expect(resp.success).toBe(false);
+  });
+});
+
+describe('runDrive115MediaLibraryIndex · R5.7 24h 目录清单', () => {
+  const makeManifest = () => ({
+    version: 1,
+    rootCids: ['root'],
+    scanDepth: 2,
+    discoveredAt: Date.now(),
+    expiresAt: Date.now() + 24 * 60 * 60_000,
+    rootListings: { root: { listingComplete: true, offset: 0 } },
+    items: [
+      { cid: 'f1', name: 'SSIS-001', parentCid: 'root', depth: 1, rootCid: 'root', status: 'processed' },
+    ],
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    storageMock.state.progress = null;
+    storageMock.state.checkpoint = null;
+    storageMock.state.history = null;
+    storageMock.state.manifest = null;
+    vi.mocked(loadDrive115LibraryState).mockResolvedValue(emptyState);
+    vi.mocked(saveDrive115LibraryState).mockResolvedValue(undefined);
+    vi.mocked(getSettings).mockResolvedValue({
+      drive115: {
+        enabled: true,
+        mediaLibraryRoots: [{ cid: 'root', enabled: true }],
+        mediaLibraryScanDepth: 2,
+      },
+    } as never);
+    vi.mocked(getDrive115V2Service).mockReturnValue({
+      getValidAccessToken: vi.fn(async () => ({ success: true, accessToken: 'tok' })),
+      listFiles: vi.fn(async () => ({ success: true, data: [], raw: { code: 0 } })),
+    } as never);
+    vi.mocked(indexDrive115Roots).mockResolvedValue({
+      success: true,
+      keptPrevious: false,
+      state: emptyState,
+      message: '索引完成：0 条',
+    } as never);
+  });
+
+  const lastIndexDeps = () => vi.mocked(indexDrive115Roots).mock.calls.at(-1)?.[0] as
+    | { manifest?: unknown; rescanDirectoryStructure?: unknown }
+    | undefined;
+
+  it('valid 清单传入 indexer（无 checkpoint 时）', async () => {
+    const manifest = makeManifest();
+    storageMock.state.manifest = manifest;
+    await callIndex({});
+    await waitForIndexCall();
+    expect(lastIndexDeps()?.manifest).toEqual(manifest);
+  });
+
+  it('rescanDirectoryStructure=true 时跳过清单复用', async () => {
+    storageMock.state.manifest = makeManifest();
+    await callIndex({ rescanDirectoryStructure: true });
+    await waitForIndexCall();
+    expect(lastIndexDeps()?.manifest).toBeUndefined();
+  });
+
+  it('过期清单忽略', async () => {
+    storageMock.state.manifest = { ...makeManifest(), expiresAt: Date.now() - 1_000 };
+    await callIndex({});
+    await waitForIndexCall();
+    expect(lastIndexDeps()?.manifest).toBeUndefined();
+  });
+
+  it('根目录不一致清单忽略', async () => {
+    storageMock.state.manifest = { ...makeManifest(), rootCids: ['other'] };
+    await callIndex({});
+    await waitForIndexCall();
+    expect(lastIndexDeps()?.manifest).toBeUndefined();
+  });
+
+  it('收尾持久化 result.manifest，响应写 manifestReused', async () => {
+    const manifest = makeManifest();
+    vi.mocked(indexDrive115Roots).mockResolvedValue({
+      success: true,
+      keptPrevious: false,
+      state: emptyState,
+      message: '索引完成：1 条',
+      manifest,
+      manifestReused: true,
+    } as never);
+    const resp: any = await callIndex({});
+    expect(vi.mocked(saveDrive115IndexDirManifest)).toHaveBeenCalledWith(manifest);
+    expect(resp.manifestReused).toBe(true);
   });
 });

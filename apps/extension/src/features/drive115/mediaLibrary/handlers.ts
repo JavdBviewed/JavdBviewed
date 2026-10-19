@@ -13,14 +13,18 @@ import { indexDrive115Roots } from './indexer';
 import { NFO_SUMMARY_SCHEMA_VERSION, parseNfoSummary } from './parseEntryMeta';
 import {
   clearDrive115IndexCheckpoint,
+  isDrive115IndexDirManifestUsable,
   loadDrive115IndexCheckpoint,
+  loadDrive115IndexDirManifest,
   loadDrive115LibraryState,
   saveDrive115IndexCheckpoint,
+  saveDrive115IndexDirManifest,
   saveDrive115LibraryState,
 } from './store';
 import { createLatestValueWriter, type LatestValueWriter } from './latestValueWriter';
 import type {
   Drive115IndexCheckpoint,
+  Drive115IndexDirManifest,
   Drive115IndexReport,
   Drive115IndexProgressSnapshot,
   Drive115IndexResult,
@@ -37,6 +41,8 @@ type Drive115SettingsRecord = Record<string, unknown> & {
 
 type Drive115IndexOptions = {
   rootCids?: string[];
+  /** 勾选「本次重新扫描目录结构」时忽略 24 小时目录清单缓存，全量重新发现。 */
+  rescanDirectoryStructure?: boolean;
 };
 
 export const DRIVE115_LIBRARY_INDEX_RESUME_ALARM = 'drive115-library-index-resume';
@@ -320,6 +326,14 @@ export async function runDrive115MediaLibraryIndex(
         await clearDrive115IndexCheckpoint();
         await clearScheduledIndexResume();
       }
+      // 24 小时目录清单缓存：无检查点且未勾选重扫时默认复用（已完成目录零请求）。
+      let manifest: Drive115IndexDirManifest | undefined;
+      if (!checkpoint && !options.rescanDirectoryStructure) {
+        const storedManifest = await loadDrive115IndexDirManifest();
+        if (isDrive115IndexDirManifestUsable(storedManifest, enabled.map((root) => root.cid), scanDepth)) {
+          manifest = storedManifest;
+        }
+      }
 
       const svc = getDrive115V2Service();
       const tokenRet = await svc.getValidAccessToken({ forceAutoRefresh: true });
@@ -416,6 +430,7 @@ export async function runDrive115MediaLibraryIndex(
         roots: enabled,
         previous: selectedPrevious,
         scanDepth,
+        manifest,
         shouldCancel: () => cancelIndexRequested || !!indexAbortController?.signal.aborted,
         signal: indexAbortController.signal,
         onPartialState: (state) => {
@@ -563,6 +578,9 @@ export async function runDrive115MediaLibraryIndex(
         await clearDrive115IndexCheckpoint();
         await clearScheduledIndexResume();
       }
+      if (result.manifest) {
+        await saveDrive115IndexDirManifest(result.manifest);
+      }
       // 落盘本轮结果明细报告，供设置页详情窗口下钻。
       if (result.report) {
         enqueueReport(result.report);
@@ -616,6 +634,7 @@ export function handleDrive115MediaLibraryIndex(
     try {
       const result = await runDrive115MediaLibraryIndex({
         rootCids: normalizeRequestedRootCids(asRecord(message).rootCids),
+        rescanDirectoryStructure: asRecord(message).rescanDirectoryStructure === true,
       });
       sendResponse({
         success: result.success,
@@ -627,6 +646,7 @@ export function handleDrive115MediaLibraryIndex(
         state: result.state,
         stats: result.state.stats,
         report: result.report,
+        manifestReused: result.manifestReused,
       });
     } catch (e: unknown) {
       sendResponse({ success: false, message: getErrorMessage(e) });

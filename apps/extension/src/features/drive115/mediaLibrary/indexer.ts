@@ -15,11 +15,15 @@ import { createRateLimitController, isLikelyRateLimitError } from './rateLimit';
 import { is115TokenInvalidCode } from '../v2/errorCodes';
 import {
   DEFAULT_DRIVE115_LIBRARY_STATS,
+  DRIVE115_INDEX_DIR_MANIFEST_TTL_MS,
   DRIVE115_INDEX_LIMITS,
+  DRIVE115_INDEX_RESUME_BACKOFF_STEPS_MS,
   type Drive115IndexProgress,
   type Drive115IndexReport,
   type Drive115IndexResult,
   type Drive115IndexCheckpoint,
+  type Drive115IndexDirManifest,
+  type Drive115IndexDirManifestItem,
   type Drive115IndexQueueItem,
   type Drive115IndexSkipReason,
   type Drive115LibraryEntry,
@@ -74,6 +78,8 @@ export type IndexDrive115RootsDeps = {
   circuitBreakerThreshold?: number;
   /** 上一轮被限流暂停后恢复的扫描位置。 */
   checkpoint?: Drive115IndexCheckpoint | null;
+  /** 24 小时目录清单缓存：无检查点时复用已发现目录结构（已完成目录零请求）；与 checkpoint 互斥。 */
+  manifest?: Drive115IndexDirManifest | null;
 };
 
 const CANCELLED_MESSAGE = '索引已取消';
@@ -84,10 +90,16 @@ const DEFAULT_SCAN_DEPTH = 2;
 const MIN_SCAN_DEPTH = 1;
 const MAX_SCAN_DEPTH = 8;
 
-function clampScanDepth(raw: number | undefined): number {
+export function clampScanDepth(raw: number | undefined): number {
   const parsed = Math.floor(Number(raw ?? DEFAULT_SCAN_DEPTH));
   if (!Number.isFinite(parsed)) return DEFAULT_SCAN_DEPTH;
   return Math.min(MAX_SCAN_DEPTH, Math.max(MIN_SCAN_DEPTH, parsed));
+}
+
+/** 取第 n 步递增冷却（毫秒）：1/5/10/30/60/120min，超出表长取末步封顶。 */
+export function drive115ResumeBackoffMs(step?: number): number {
+  const n = Math.max(1, Math.floor(Number(step) || 1));
+  return DRIVE115_INDEX_RESUME_BACKOFF_STEPS_MS[Math.min(n - 1, DRIVE115_INDEX_RESUME_BACKOFF_STEPS_MS.length - 1)];
 }
 
 function isTransientDirectoryListError(message: string | null | undefined, code?: number): boolean {
@@ -238,6 +250,53 @@ export async function indexDrive115Roots(
   const enabledRoots = (deps.roots || []).filter((r) => r && r.enabled !== false && String(r.cid || '').trim());
   const previous = deps.previous || null;
   const checkpoint = deps.checkpoint || null;
+  // 目录清单缓存仅在无检查点时复用（检查点续跑是权威恢复路径），避免双恢复源互相干扰。
+  const reuseManifest = checkpoint
+    ? null
+    : deps.manifest && Array.isArray(deps.manifest.items) && deps.manifest.items.length > 0
+      ? deps.manifest
+      : null;
+  const manifestItems = new Map<string, Drive115IndexDirManifestItem>();
+  const manifestRootListings: Drive115IndexDirManifest['rootListings'] = {};
+  if (reuseManifest) {
+    for (const item of reuseManifest.items) {
+      if (item && item.cid) manifestItems.set(item.cid, { ...item });
+    }
+    for (const [cid, info] of Object.entries(reuseManifest.rootListings || {})) {
+      if (info && typeof info === 'object') {
+        manifestRootListings[cid] = {
+          listingComplete: info.listingComplete === true,
+          offset: Math.max(0, Math.floor(Number(info.offset) || 0)),
+        };
+      }
+    }
+  }
+  const manifestDiscoveredAt = reuseManifest ? reuseManifest.discoveredAt : now();
+  const markManifestProcessed = (cid: string): void => {
+    const item = manifestItems.get(cid);
+    if (item) item.status = 'processed';
+  };
+  const recordManifestDiscovery = (item: {
+    cid: string;
+    name: string;
+    parentCid: string;
+    depth: number;
+    rootCid: string;
+  }): void => {
+    if (manifestItems.has(item.cid)) return;
+    manifestItems.set(item.cid, { ...item, status: 'pending' });
+  };
+  const buildManifest = (): Drive115IndexDirManifest => ({
+    version: 1,
+    rootCids: enabledRoots.map((root) => String(root.cid).trim()),
+    scanDepth,
+    discoveredAt: manifestDiscoveredAt,
+    expiresAt: manifestDiscoveredAt + DRIVE115_INDEX_DIR_MANIFEST_TTL_MS,
+    rootListings: Object.fromEntries(
+      Object.entries(manifestRootListings).map(([cid, info]) => [cid, { ...info }]),
+    ),
+    items: Array.from(manifestItems.values()).map((item) => ({ ...item })),
+  });
   const rate = createRateLimitController({
     rootIntervalMs: deps.rootIntervalMs,
     folderIntervalMs: deps.folderIntervalMs,
@@ -342,21 +401,26 @@ export async function indexDrive115Roots(
     };
   };
   const finalizeReport = (): Drive115IndexReport => snapshotReport(true);
-  const buildCheckpoint = (): Drive115IndexCheckpoint => ({
-    version: 1,
-    rootCids: enabledRoots.map((root) => String(root.cid).trim()),
-    scanDepth,
-    nextRootIndex: checkpointRootIndex,
-    rootListingComplete: checkpointRootListingComplete,
-    nextRootOffset: checkpointRootOffset,
-    pendingQueue: [...checkpointQueue],
-    stats: { ...stats },
-    containerFoldersSeen,
-    report: snapshotReport(false),
-    resumeAt: now() + 10 * 60_000,
-    createdAt: checkpoint?.createdAt || now(),
-    updatedAt: now(),
-  });
+  const buildCheckpoint = (): Drive115IndexCheckpoint => {
+    // 连续受限递增冷却：计数随检查点携带，恢复成功后检查点清除、计数归零。
+    const consecutiveBackoffs = (checkpoint?.consecutiveBackoffs ?? 0) + 1;
+    return {
+      version: 1,
+      rootCids: enabledRoots.map((root) => String(root.cid).trim()),
+      scanDepth,
+      nextRootIndex: checkpointRootIndex,
+      rootListingComplete: checkpointRootListingComplete,
+      nextRootOffset: checkpointRootOffset,
+      pendingQueue: [...checkpointQueue],
+      stats: { ...stats },
+      containerFoldersSeen,
+      report: snapshotReport(false),
+      consecutiveBackoffs,
+      resumeAt: now() + drive115ResumeBackoffMs(consecutiveBackoffs),
+      createdAt: checkpoint?.createdAt || now(),
+      updatedAt: now(),
+    };
+  };
 
   // 进行中每处理若干个文件夹就推一次报告快照，供设置页实时下钻
   const REPORT_FLUSH_EVERY = 10;
@@ -571,6 +635,19 @@ export async function indexDrive115Roots(
       const queuedCids = new Set(queue.map((item) => item.cid));
       let rootListingComplete = resumesCurrentRoot ? checkpointRootListingComplete : false;
       let rootOffset = resumesCurrentRoot ? checkpointRootOffset : 0;
+      if (!resumesCurrentRoot && reuseManifest) {
+        const cached = manifestRootListings[rootCid];
+        if (cached) {
+          rootListingComplete = cached.listingComplete;
+          rootOffset = cached.listingComplete ? 0 : cached.offset;
+          for (const mItem of manifestItems.values()) {
+            if (mItem.rootCid !== rootCid || mItem.status !== 'pending') continue;
+            if (queuedCids.has(mItem.cid)) continue;
+            queuedCids.add(mItem.cid);
+            queue.push({ cid: mItem.cid, name: mItem.name, depth: mItem.depth, rootCid });
+          }
+        }
+      }
       checkpointRootIndex = rootIndex;
       checkpointQueue = [...queue];
 
@@ -587,18 +664,21 @@ export async function indexDrive115Roots(
           checkpointRootListingComplete = false;
           checkpointRootOffset = 0;
           checkpointQueue = [];
+          manifestRootListings[rootCid] = { listingComplete: false, offset: 0 };
           continue outer;
         }
         for (const folder of splitFolders(rootData)) {
           const cid = folderId(folder);
           if (!cid || queuedCids.has(cid)) continue;
+          const name = folderName(folder) || cid;
           queuedCids.add(cid);
           queue.push({
             cid,
-            name: folderName(folder) || cid,
+            name,
             depth: 1,
             rootCid,
           });
+          recordManifestDiscovery({ cid, name, parentCid: rootCid, depth: 1, rootCid });
         }
         checkpointQueue = [...queue];
         if (rootData.length < DRIVE115_INDEX_LIMITS.pageLimit) {
@@ -609,7 +689,14 @@ export async function indexDrive115Roots(
           rootOffset += rootData.length;
           checkpointRootOffset = rootOffset;
         }
+        manifestRootListings[rootCid] = rootListingComplete
+          ? { listingComplete: true, offset: 0 }
+          : { listingComplete: false, offset: rootOffset };
       }
+      manifestRootListings[rootCid] = {
+        listingComplete: rootListingComplete,
+        offset: rootListingComplete ? 0 : rootOffset,
+      };
 
       for (let index = 0; index < queue.length; index += 1) {
         if (rate.isTripped()) {
@@ -620,9 +707,14 @@ export async function indexDrive115Roots(
         const item = queue[index];
         if (!item || !item.cid) continue;
         checkpointQueue = queue.slice(index);
+        if (reuseManifest && manifestItems.get(item.cid)?.status === 'processed') {
+          checkpointQueue = queue.slice(index + 1);
+          continue;
+        }
         const listed = await listFolder(item.cid, item.name);
         if (hardError) break outer;
         if (!listed) continue;
+        markManifestProcessed(item.cid);
 
         const built = buildEntry({
           rootCid: item.rootCid,
@@ -646,9 +738,17 @@ export async function indexDrive115Roots(
           for (const child of childFolders) {
             const childCid = folderId(child);
             if (!childCid) continue;
+            const childName = folderName(child) || childCid;
             nestedItems.push({
               cid: childCid,
-              name: folderName(child) || childCid,
+              name: childName,
+              depth: item.depth + 1,
+              rootCid: item.rootCid,
+            });
+            recordManifestDiscovery({
+              cid: childCid,
+              name: childName,
+              parentCid: item.cid,
               depth: item.depth + 1,
               rootCid: item.rootCid,
             });
@@ -676,6 +776,7 @@ export async function indexDrive115Roots(
       checkpointQueue = [];
       checkpointRootListingComplete = false;
       checkpointRootOffset = 0;
+      manifestRootListings[rootCid] = { listingComplete: true, offset: 0 };
       deps.onProgress?.({
         phase: 'root',
         message: `根目录完成：${root.path || root.name || rootCid}`,
@@ -736,6 +837,8 @@ export async function indexDrive115Roots(
         ? buildCheckpoint()
         : undefined,
       resumable: resumable && !cancelled,
+      manifest: manifestItems.size > 0 ? buildManifest() : undefined,
+      manifestReused: reuseManifest ? true : undefined,
       message: detail,
     };
   }
@@ -749,9 +852,12 @@ export async function indexDrive115Roots(
       stats: previous.stats,
       lastError: undefined,
     };
+    const keptMessage = reuseManifest
+      ? '24 小时内目录清单已复用，未重复请求已完成目录'
+      : '未发现可入库影片，已保留上一份索引';
     deps.onProgress?.({
       phase: 'done',
-      message: '未发现可入库影片，已保留上一份索引',
+      message: keptMessage,
       rootsTotal: enabledRoots.length,
       rootsDone,
       foldersSeen: stats.foldersSeen,
@@ -764,18 +870,21 @@ export async function indexDrive115Roots(
       keptPrevious: true,
       state,
       report: finalizeReport(),
-      message: '未发现可入库影片，已保留上一份索引',
+      manifest: manifestItems.size > 0 ? buildManifest() : undefined,
+      manifestReused: reuseManifest ? true : undefined,
+      message: keptMessage,
     };
   }
 
-  const finalEntries = checkpoint
+  const needsMerge = checkpoint !== null || reuseManifest !== null;
+  const finalEntries = needsMerge
     ? mergePartialEntries(previous, entries).mergedEntries
     : entries;
   const state: Drive115LibraryIndexState = {
     version: 1,
     updatedAt: now(),
     entries: finalEntries,
-    stats: checkpoint ? { ...stats, indexed: finalEntries.length } : stats,
+    stats: needsMerge ? { ...stats, indexed: finalEntries.length } : stats,
     lastError: undefined,
   };
   deps.onProgress?.({
@@ -793,6 +902,8 @@ export async function indexDrive115Roots(
     keptPrevious: false,
     state,
     report: finalizeReport(),
+    manifest: manifestItems.size > 0 ? buildManifest() : undefined,
+    manifestReused: reuseManifest ? true : undefined,
     message: `索引完成：${stats.indexed} 条`,
   };
 }

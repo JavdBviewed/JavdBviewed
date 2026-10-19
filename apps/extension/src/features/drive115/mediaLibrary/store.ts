@@ -13,7 +13,10 @@ import {
   type Drive115LibraryIndexStats,
   type Drive115NfoCandidate,
   type Drive115IndexCheckpoint,
+  type Drive115IndexDirManifest,
+  type Drive115IndexDirManifestItem,
 } from './types';
+import { clampScanDepth } from './indexer';
 
 /** 规范化 NFO 摘要（含 JAV 富字段）；脏数据丢弃，空则返回 undefined */
 function normalizeNfoSummary(raw: unknown): ParsedNfoSummary | undefined {
@@ -220,6 +223,93 @@ export async function saveDrive115IndexCheckpoint(checkpoint: Drive115IndexCheck
 
 export async function clearDrive115IndexCheckpoint(): Promise<void> {
   await setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_CHECKPOINT, null);
+}
+
+// ===== 24 小时目录清单缓存（R5.7：重索引默认复用已发现目录结构） =====
+
+/** 规范化目录清单脏数据：去重/状态回退/游标取整；时间字段无效或缺根目录时整体丢弃。 */
+export function normalizeDirManifest(raw: unknown): Drive115IndexDirManifest | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Record<string, unknown>;
+  const rootCids = Array.isArray(value.rootCids)
+    ? Array.from(new Set(
+      (value.rootCids as unknown[]).map((c) => String(c || '').trim()).filter(Boolean),
+    ))
+    : [];
+  const discoveredAt = Math.max(0, Number(value.discoveredAt) || 0);
+  const expiresAt = Math.max(0, Number(value.expiresAt) || 0);
+  if (!rootCids.length || !discoveredAt || expiresAt <= discoveredAt) return null;
+  let items: Drive115IndexDirManifestItem[] = [];
+  if (Array.isArray(value.items)) {
+    const byCid = new Map<string, Drive115IndexDirManifestItem>();
+    for (const item of value.items as unknown[]) {
+      if (!item || typeof item !== 'object') continue;
+      const rec = item as Record<string, unknown>;
+      const cid = String(rec.cid || '').trim();
+      if (!cid || byCid.has(cid)) continue;
+      byCid.set(cid, {
+        cid,
+        name: String(rec.name || '').trim() || cid,
+        parentCid: String(rec.parentCid || '').trim(),
+        depth: Math.max(1, Math.floor(Number(rec.depth) || 1)),
+        rootCid: String(rec.rootCid || '').trim(),
+        status: rec.status === 'processed' ? 'processed' : 'pending',
+      });
+    }
+    items = Array.from(byCid.values());
+  }
+  if (!items.length) return null;
+  const rootListings: Drive115IndexDirManifest['rootListings'] = {};
+  const rawListings = value.rootListings;
+  if (rawListings && typeof rawListings === 'object') {
+    for (const [cid, info] of Object.entries(rawListings as Record<string, unknown>)) {
+      if (!info || typeof info !== 'object') continue;
+      const rec = info as Record<string, unknown>;
+      rootListings[cid] = {
+        listingComplete: rec.listingComplete === true,
+        offset: Math.max(0, Math.floor(Number(rec.offset) || 0)),
+      };
+    }
+  }
+  return {
+    version: 1,
+    rootCids,
+    scanDepth: clampScanDepth(value.scanDepth as number | undefined),
+    discoveredAt,
+    expiresAt,
+    rootListings,
+    items,
+  };
+}
+
+export async function loadDrive115IndexDirManifest(): Promise<Drive115IndexDirManifest | null> {
+  return normalizeDirManifest(await getValue<unknown>(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_DIR_MANIFEST, null));
+}
+
+export async function saveDrive115IndexDirManifest(manifest: Drive115IndexDirManifest): Promise<void> {
+  await setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_DIR_MANIFEST, manifest);
+}
+
+export async function clearDrive115IndexDirManifest(): Promise<void> {
+  await setValue(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_DIR_MANIFEST, null);
+}
+
+/** 清单可用性：未过期 + 根目录集合与扫描深度与当前配置一致（深度按 clamp 口径比较）。 */
+export function isDrive115IndexDirManifestUsable(
+  manifest: Drive115IndexDirManifest | null,
+  rootCids: string[],
+  scanDepth?: number,
+  now = Date.now(),
+): manifest is Drive115IndexDirManifest {
+  if (!manifest || !Array.isArray(manifest.rootCids) || !manifest.rootCids.length) return false;
+  if (!manifest.discoveredAt || manifest.expiresAt <= manifest.discoveredAt || manifest.expiresAt <= now) return false;
+  const want = rootCids.map((c) => String(c || '').trim()).filter(Boolean).sort();
+  const have = manifest.rootCids.map((c) => String(c || '').trim()).filter(Boolean).sort();
+  if (want.length !== have.length) return false;
+  for (let i = 0; i < want.length; i += 1) {
+    if (want[i] !== have[i]) return false;
+  }
+  return manifest.scanDepth === clampScanDepth(scanDepth);
 }
 
 /**

@@ -200,4 +200,16 @@ describe('Drive115 legacy-to-react full-page guard', () => {
   it('locks the React page component untouched (CSS-only fix)', () => {
     expect(pageSource).toContain('rootId="drive115-settings"');
   });
+
+  it('exposes the 24h dir-manifest rescan toggle and R5.9 budget wording', () => {
+    // 重扫开关（label 逐字=源线 PRD 原文）
+    expect(pageSource).toContain('id="drive115RescanDirectoryStructure"');
+    expect(pageSource).toContain('本次重新扫描目录结构');
+    expect(pageSource).toContain('rescanDirectoryStructure');
+    // 预算经验值 + 非官方限额标注（R5.9）
+    expect(pageSource).toContain('近 15 分钟约 200 次调用');
+    expect(pageSource).toContain('非 115 官方公开限额');
+    // 目录清单缓存状态行（R5.9）
+    expect(pageSource).toContain('目录清单');
+  });
 });
