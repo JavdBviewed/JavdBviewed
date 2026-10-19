@@ -197,6 +197,15 @@
   font-weight: 850;
 }
 
+.ml-view-summary-error {
+  color: var(--color-danger, #dc2626);
+  font-weight: 800;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ml-view-controls,
 .ml-view-command-group {
   display: inline-flex;

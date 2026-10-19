@@ -432,4 +432,18 @@ describe('MediaLibraryPage 实时刷新', () => {
   });
 
 
+
+  it("distinguishes catalog read failure from true empty state (A3-1: log + identifiable error line)", () => {
+    expect(source).toContain("const [catalogLoadError, setCatalogLoadError] = useState<string | null>(null)");
+    expect(source).toContain("catch (error) {");
+    expect(source).toMatch(/catch \(error\) \{[\s\S]{0,420}?console\.warn\(\x27\[MediaLibrary\] 本地索引读取失败，已回退空态:', error\)/);
+    expect(source).toContain("本地索引读取失败，已回退空态：");
+    expect(source).toContain("setCatalogLoadError(null)");
+    expect(source).toContain("ml-view-summary-error");
+    expect(source).not.toContain("} catch {\n      setCatalog([]);\n      setUsingPreview(true);\n      setIndexUpdatedAt(0);\n    }");
+    const cssSource = readFileSync(join(here, "mediaPage.css"), "utf-8");
+    expect(cssSource).toContain(".ml-view-summary-error");
+    expect(cssSource).toContain("var(--color-danger, #dc2626)");
+  });
+
 });

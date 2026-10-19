@@ -280,6 +280,7 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
   const [catalog, setCatalog] = useState<MediaBrowseItem[]>([]);
   const [usingPreview, setUsingPreview] = useState(true);
   const [indexUpdatedAt, setIndexUpdatedAt] = useState(0);
+  const [catalogLoadError, setCatalogLoadError] = useState<string | null>(null);
   const [loadingIndex, setLoadingIndex] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncTargets, setSyncTargets] = useState<MediaSyncTarget[]>([]);
@@ -401,10 +402,15 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
         setUsingPreview(true);
         setIndexUpdatedAt(0);
       }
-    } catch {
+      setCatalogLoadError(null);
+    } catch (error) {
+      // 10-18 审计 A3-1：读失败与真真空态区分（log + 可辨识错误态）
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[MediaLibrary] 本地索引读取失败，已回退空态:', error);
       setCatalog([]);
       setUsingPreview(true);
       setIndexUpdatedAt(0);
+      setCatalogLoadError(`本地索引读取失败，已回退空态：${message}`);
     } finally {
       setLoadingIndex(false);
       catalogReloadInFlightRef.current = false;
@@ -1220,6 +1226,11 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
               <span className="ml-view-summary-count">{list.length} 项</span>
             <span>{usingPreview ? '尚未同步' : `索引 ${catalog.length}`}</span>
               <span>{toolbarUpdatedAtLabel}</span>
+              {catalogLoadError ? (
+                <span className="ml-view-summary-error" title={catalogLoadError}>
+                  {catalogLoadError}
+                </span>
+              ) : null}
             </div>
 
             <div className="ml-view-controls" aria-label="筛选与封面">
