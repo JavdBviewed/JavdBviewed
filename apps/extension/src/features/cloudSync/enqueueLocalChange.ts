@@ -164,11 +164,47 @@ export async function enqueuePreferenceChange(key: string, value: unknown): Prom
   await upsertCloudPending([preferenceToSyncEntity(key, value)]);
 }
 
-/** fire-and-forget：不阻塞主写入路径 */
-export function scheduleEnqueue(task: () => Promise<void>): void {
+/** 入队最多尝试次数（首次 + 重试）；失败经日志+重试，不阻塞主写入路径（10-18 审计 C2-2） */
+const CLOUD_ENQUEUE_MAX_ATTEMPTS = 3;
+/** 重试退避（ms）：第 1 次失败后 / 第 2 次失败后 */
+const CLOUD_ENQUEUE_RETRY_DELAYS_MS = [1000, 4000];
+
+let cloudEnqueueFailureCount = 0;
+
+/** 仅测试/诊断读取：入队重试耗尽、变更未进 pending 队列的次数（10-18 审计 C2-2） */
+export function getCloudEnqueueFailureCount(): number {
+  return cloudEnqueueFailureCount;
+}
+
+function enqueueErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function attemptCloudEnqueue(task: () => Promise<void>, attempt: number): Promise<void> {
+  let failed: unknown;
+  let failedThrown = false;
   try {
-    void task().catch(() => {});
-  } catch {
-    // 忽略：Cloud 入队失败不阻断主写入路径
+    await task();
+  } catch (error) {
+    failedThrown = true;
+    failed = error;
   }
+  if (!failedThrown) return;
+  const message = enqueueErrorMessage(failed);
+  const delayMs = CLOUD_ENQUEUE_RETRY_DELAYS_MS[attempt - 1];
+  if (delayMs === undefined) {
+    cloudEnqueueFailureCount += 1;
+    console.error(`[cloudSync] 入队重试耗尽，变更未进 pending 队列: ${message}`);
+    return;
+  }
+  console.warn(`[cloudSync] 入队失败（第 ${attempt}/${CLOUD_ENQUEUE_MAX_ATTEMPTS} 次）：${message}，${delayMs}ms 后重试`);
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+  await attemptCloudEnqueue(task, attempt + 1);
+}
+
+/** fire-and-forget：不阻塞主写入路径；失败走日志+有限重试（10-18 审计 C2-2） */
+export function scheduleEnqueue(task: () => Promise<void>): void {
+  void attemptCloudEnqueue(task, 1);
 }

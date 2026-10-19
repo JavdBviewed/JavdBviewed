@@ -52,11 +52,19 @@ async function readPendingStorage(): Promise<{ base: SyncEntity[]; delta: Record
 }
 
 async function writePending(values: Record<string, unknown>): Promise<void> {
-  return new Promise((resolve) => {
+  return new Promise<void>((resolve, reject) => {
     try {
-      chrome.storage.local.set(values, () => resolve());
-    } catch {
-      resolve();
+      chrome.storage.local.set(values, () => {
+        // 10-18 审计 C2-2（N1）：写失败（如配额超限）诚实上浮，交由 scheduleEnqueue 日志+重试
+        const lastError = chrome.runtime?.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message || 'chrome.storage.local.set 失败'));
+          return;
+        }
+        resolve();
+      });
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)));
     }
   });
 }
