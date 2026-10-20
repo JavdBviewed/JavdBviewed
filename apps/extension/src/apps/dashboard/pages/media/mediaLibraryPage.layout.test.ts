@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(join(here, 'MediaLibraryPage.tsx'), 'utf-8');
+const modelSource = readFileSync(join(here, 'mediaBrowseModel.ts'), 'utf-8');
 
 describe('MediaLibraryPage 实时刷新', () => {
   it('defers heavy media panels until their overlays are opened', () => {
@@ -267,7 +268,9 @@ describe('MediaLibraryPage 实时刷新', () => {
     expect(source).toContain('className="ml-view-controls"');
     expect(source).toContain('className="ml-view-command-group"');
     expect(source).toContain('视图');
-    expect(source).toContain('同步资料库与播放状态');
+    // BUG-P2-1：同步按钮 tooltip 文案移至 model 常量（MEDIA_SYNC_TOOLTIP），页面经门控驱动
+    expect(modelSource).toContain("export const MEDIA_SYNC_TOOLTIP = '同步资料库与播放状态';");
+    expect(source).toContain('title={syncGate.tooltip}');
     expect(source).toContain('同步资料库');
     // 负锁（10-15 更名）：源中旧串「同步媒体库」不得残留
     expect(source).not.toContain('同步媒体库');
