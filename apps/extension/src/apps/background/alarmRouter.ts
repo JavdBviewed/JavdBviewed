@@ -41,6 +41,7 @@ import {
   registerCloudSyncStorageListener,
   setupCloudAutoSyncAlarm,
 } from '../../features/cloudSync/backgroundCloudSync';
+import { initJavdbSessionCookieWatcher } from '../../features/cloudSync/javdbSessionVault';
 
 // re-export for message handlers / tests
 export { ALARM_DIAGNOSTICS_STORAGE_KEY, readAlarmDiagnostics, recordAlarmFire };
@@ -61,6 +62,7 @@ export function initializeBackgroundAlarmWiring(): void {
     registerCloudSyncMessageHandler();
     registerCloudSyncStorageListener();
     setupCloudAutoSyncAlarm().catch(() => {});
+    initJavdbSessionCookieWatcher(); // javdb 会话 cookie 变更 watcher（幂等；10-19 线 2）
   } catch {}
   // 冷启动也 ensure 新作品 alarm（onStartup 之外）
   newWorksScheduler.initialize().catch((e: any) => {

@@ -249,3 +249,44 @@ describe('newWorksSettingsModel 类别面板搜索过滤（10-06 线纯函数）
     expect(out[0].entries.map((e) => e.label)).toEqual(['初体验']);
   });
 });
+
+describe('newWorksSettingsModel 云扫描配置（10-19 线 2：C2 承载位 new_works_config.cloudScan）', () => {
+  it('mapConfigToFormState：无 cloudScan → 缺省 关/20/10', () => {
+    const form = mapConfigToFormState(makeConfig());
+    expect(form.cloudScanEnabled).toBe(false);
+    expect(form.cloudScanBatchSize).toBe(20);
+    expect(form.cloudScanIntervalMinutes).toBe(10);
+  });
+
+  it('mapConfigToFormState：显式值透传', () => {
+    const form = mapConfigToFormState(makeConfig({ cloudScan: { enabled: true, batchSize: 50, intervalMinutes: 30 } }));
+    expect(form.cloudScanEnabled).toBe(true);
+    expect(form.cloudScanBatchSize).toBe(50);
+    expect(form.cloudScanIntervalMinutes).toBe(30);
+  });
+
+  it('mapFormStateToConfigPatch：未触碰（全缺省）→ 无 cloudScan 键（零上行）', () => {
+    const patch = mapFormStateToConfigPatch({ ...DEFAULT_NEW_WORKS_SETTINGS_FORM });
+    expect(patch).not.toHaveProperty('cloudScan');
+  });
+
+  it('mapFormStateToConfigPatch：改动值 → 键在位（值差规则）', () => {
+    const patch = mapFormStateToConfigPatch({ ...DEFAULT_NEW_WORKS_SETTINGS_FORM, cloudScanBatchSize: 30 });
+    expect(patch.cloudScan).toEqual({ enabled: false, batchSize: 30, intervalMinutes: 10 });
+  });
+
+  it('mapFormStateToConfigPatch：仅开关开启 → 键在位含 enabled', () => {
+    const patch = mapFormStateToConfigPatch({ ...DEFAULT_NEW_WORKS_SETTINGS_FORM, cloudScanEnabled: true });
+    expect(patch.cloudScan).toEqual({ enabled: true, batchSize: 20, intervalMinutes: 10 });
+  });
+
+  it('validateNewWorksForm：云扫描区间校验（批次 1-100 / 间隔 1-1440 分钟）', () => {
+    const base = { ...DEFAULT_NEW_WORKS_SETTINGS_FORM };
+    expect(validateNewWorksForm(base).ok).toBe(true);
+    expect(validateNewWorksForm({ ...base, cloudScanBatchSize: 0 })).toEqual({ ok: false, error: '云扫描每批数量必须在1-100之间' });
+    expect(validateNewWorksForm({ ...base, cloudScanBatchSize: 101 })).toEqual({ ok: false, error: '云扫描每批数量必须在1-100之间' });
+    expect(validateNewWorksForm({ ...base, cloudScanIntervalMinutes: 0 })).toEqual({ ok: false, error: '云扫描间隔必须在1-1440分钟之间' });
+    expect(validateNewWorksForm({ ...base, cloudScanIntervalMinutes: 1441 })).toEqual({ ok: false, error: '云扫描间隔必须在1-1440分钟之间' });
+    expect(validateNewWorksForm({ ...base, cloudScanEnabled: true, cloudScanBatchSize: 1, cloudScanIntervalMinutes: 1440 }).ok).toBe(true);
+  });
+});

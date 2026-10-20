@@ -525,6 +525,19 @@
     font-weight: 500;
 }
 
+/* 云扫描来源徽章（10-19 线 2 A.4：sourceType='cloud-scan' 的新作品） */
+.new-work-source-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background-color: var(--tag-background);
+    color: var(--tag-color);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
 /* 新作品操作按钮 */
 .new-work-actions {
     display: flex;

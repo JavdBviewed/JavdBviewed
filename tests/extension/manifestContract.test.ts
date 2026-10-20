@@ -29,6 +29,7 @@ describe('extension manifest contract', () => {
         'scripting',
         'notifications',
         'unlimitedStorage',
+        'cookies',
       ]),
     );
   });
@@ -58,5 +59,35 @@ describe('extension manifest contract', () => {
         }),
       ]),
     );
+  });
+  it('javdb 会话采集声明 cookies 权限；host_permissions 零新增（10-19 线 2：A.2）', () => {
+    expect(manifest.permissions).toContain('cookies');
+    expect(manifest.host_permissions).toEqual([
+      '*://*.javbus.com/*',
+      '*://*.javdb.com/*',
+      '*://javdb.com/*',
+      '*://javdb570.com/*',
+      '*://javdb575.com/*',
+      'https://dav.jianguoyun.com/*',
+      'https://*.teracloud.jp/*',
+      'https://*.webdav.yandex.com/*',
+      'https://*.nextcloud.com/*',
+      '*://*.sukebei.nyaa.si/*',
+      '*://*.btdig.com/*',
+      '*://*.btsow.com/*',
+      '*://*.torrentz2.eu/*',
+      'https://*.owncloud.com/*',
+      'https://115.com/*',
+      'https://*.115.com/*',
+      'https://webapi.115.com/*',
+      'https://captchaapi.115.com/*',
+      'https://uplb.115.com/*',
+      'https://v.anxia.com/*',
+      'https://123av.com/*',
+      'https://fc2ppvdb.com/*',
+      'https://adult.contents.fc2.com/*',
+      'https://*/*',
+      'http://*/*',
+    ]);
   });
 });

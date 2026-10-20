@@ -72,3 +72,15 @@ describe('new works list view model', () => {
     expect(html).toContain('<button class="page-button" data-page="4">下一页</button>');
   });
 });
+
+describe('new works list 云扫描来源徽章（10-19 线 2：A.4）', () => {
+  it('sourceType=cloud-scan → 行内出现「云扫描」徽章', () => {
+    const html = buildNewWorkItemHtml(work({ sourceType: 'cloud-scan' }));
+    expect(html).toContain('<span class="new-work-source-badge">云扫描</span>');
+  });
+
+  it('无 sourceType / 其它 sourceType → 无徽章（本地扫描零漂移）', () => {
+    expect(buildNewWorkItemHtml(work())).not.toContain('new-work-source-badge');
+    expect(buildNewWorkItemHtml(work({ sourceType: 'javdb' }))).not.toContain('new-work-source-badge');
+  });
+});

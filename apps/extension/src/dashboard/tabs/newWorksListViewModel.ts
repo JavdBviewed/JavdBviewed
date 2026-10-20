@@ -61,6 +61,7 @@ export function buildNewWorkItemHtml(work: NewWorkRecord, options: BuildNewWorkI
                                 发行于 ${work.releaseDate}
                             </span>
                         ` : ''}
+                        ${work.sourceType === 'cloud-scan' ? '<span class="new-work-source-badge">云扫描</span>' : ''}
                     </div>
                     ${tagsHtml}
                 </div>

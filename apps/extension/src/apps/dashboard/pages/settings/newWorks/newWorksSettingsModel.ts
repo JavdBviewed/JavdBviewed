@@ -12,6 +12,13 @@
 import { BUILTIN_CATEGORY_DICTIONARY, entryKey, type DimKey } from '@javdb/video-category-dict';
 import type { NewWorksGlobalConfig } from '../../../../../types';
 import {
+  CLOUD_SCAN_BATCH_SIZE_MAX,
+  CLOUD_SCAN_BATCH_SIZE_MIN,
+  CLOUD_SCAN_INTERVAL_MINUTES_MAX,
+  CLOUD_SCAN_INTERVAL_MINUTES_MIN,
+  normalizeCloudScanConfig,
+} from '../../../../../utils/config';
+import {
   mapLegacyWhitelistValues,
   normalizeCategoryBlackValues,
   splitNewWorksFilterValues,
@@ -36,6 +43,12 @@ export type NewWorksSettingsFormState = {
   whitelistValues: string[];
   /** 类别黑名单勾选集（仅字典 entryKey；入库前剔除） */
   blacklistValues: string[];
+  /** 云扫描总开关（C2 承载位 new_works_config.cloudScan.enabled） */
+  cloudScanEnabled: boolean;
+  /** 云端每轮处理的订阅演员数（1-100，缺省 20） */
+  cloudScanBatchSize: number;
+  /** 云端两轮扫描间隔分钟（1-1440，缺省 10） */
+  cloudScanIntervalMinutes: number;
 };
 
 /** 默认表单（与 utils/config.ts DEFAULT_NEW_WORKS_CONFIG 同值） */
@@ -55,6 +68,9 @@ export const DEFAULT_NEW_WORKS_SETTINGS_FORM: NewWorksSettingsFormState = {
   cleanupDays: 30,
   whitelistValues: [],
   blacklistValues: [],
+  cloudScanEnabled: false,
+  cloudScanBatchSize: 20,
+  cloudScanIntervalMinutes: 10,
 };
 
 /** 白名单属性组（10-08 线：可播放 p / 含磁鏈 d / 含字幕 c；D3 真机验证；站点自报 label 用繁体「鏈」）。 */
@@ -117,6 +133,7 @@ export function mapConfigToFormState(config: NewWorksGlobalConfig): NewWorksSett
 
   const whitelistValues = normalizeCategoryOrder([...whitelistSet], true);
   const blacklistValues = normalizeCategoryOrder([...blacklist.keys], false);
+  const cloudScan = normalizeCloudScanConfig(config.cloudScan);
 
   return {
     autoCheckEnabled: config.autoCheckEnabled ?? false,
@@ -134,12 +151,15 @@ export function mapConfigToFormState(config: NewWorksGlobalConfig): NewWorksSett
     cleanupDays: config.cleanupDays,
     whitelistValues,
     blacklistValues,
+    cloudScanEnabled: cloudScan.enabled,
+    cloudScanBatchSize: cloudScan.batchSize,
+    cloudScanIntervalMinutes: cloudScan.intervalMinutes,
   };
 }
 
 /** 表单 → 落盘补丁（manager 与既有 config 合并；不碰 maxWorksPerCheck/lastGlobalCheck） */
 export function mapFormStateToConfigPatch(form: NewWorksSettingsFormState): Partial<NewWorksGlobalConfig> {
-  return {
+  const patch: Partial<NewWorksGlobalConfig> = {
     checkInterval: form.checkInterval,
     requestInterval: form.requestInterval,
     autoCheckEnabled: form.autoCheckEnabled,
@@ -158,6 +178,19 @@ export function mapFormStateToConfigPatch(form: NewWorksSettingsFormState): Part
     autoCleanup: form.autoCleanup,
     cleanupDays: form.cleanupDays,
   };
+  // 值差规则（C2）：全缺省=不写键（零上行）；任一偏离缺省才落 cloudScan 完整三键对象
+  if (
+    form.cloudScanEnabled !== DEFAULT_NEW_WORKS_SETTINGS_FORM.cloudScanEnabled ||
+    form.cloudScanBatchSize !== DEFAULT_NEW_WORKS_SETTINGS_FORM.cloudScanBatchSize ||
+    form.cloudScanIntervalMinutes !== DEFAULT_NEW_WORKS_SETTINGS_FORM.cloudScanIntervalMinutes
+  ) {
+    patch.cloudScan = {
+      enabled: form.cloudScanEnabled,
+      batchSize: form.cloudScanBatchSize,
+      intervalMinutes: form.cloudScanIntervalMinutes,
+    };
+  }
+  return patch;
 }
 
 /** 校验（5 条文案与旧 configModal 逐字一致；顺序同旧实现） */
@@ -176,6 +209,15 @@ export function validateNewWorksForm(form: NewWorksSettingsFormState): { ok: tru
   }
   if (form.cleanupDays < 7 || form.cleanupDays > 365) {
     return { ok: false, error: '清理天数必须在7-365天之间' };
+  }
+  if (form.cloudScanBatchSize < CLOUD_SCAN_BATCH_SIZE_MIN || form.cloudScanBatchSize > CLOUD_SCAN_BATCH_SIZE_MAX) {
+    return { ok: false, error: '云扫描每批数量必须在1-100之间' };
+  }
+  if (
+    form.cloudScanIntervalMinutes < CLOUD_SCAN_INTERVAL_MINUTES_MIN ||
+    form.cloudScanIntervalMinutes > CLOUD_SCAN_INTERVAL_MINUTES_MAX
+  ) {
+    return { ok: false, error: '云扫描间隔必须在1-1440分钟之间' };
   }
   return { ok: true };
 }

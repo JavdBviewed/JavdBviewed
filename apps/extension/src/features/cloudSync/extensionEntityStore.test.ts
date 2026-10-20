@@ -125,4 +125,20 @@ describe('collectLocalSyncEntities tombstone envelope (C1-1)', () => {
     // new_work：NewWorkRecord 无 deletedAt 字段（物理删不产墓碑，登记不修）
     expect(byKey('new_work', 'W1')?.deletedAt).toBeUndefined();
   });
+  it('new_work 带 sourceType=cloud-scan：spread 透传进 newWorksBulkPut，且不触发清单/演员入库（A.4 零自动入库锁）', async () => {
+    const { createExtensionEntityStore } = await import('./extensionEntityStore');
+    const store = createExtensionEntityStore();
+
+    await store.applyRemote([
+      { type: 'new_work', id: 'nw-c1', payload: { title: 'W', sourceType: 'cloud-scan' }, updatedAt: 1 },
+    ]);
+
+    expect(spies.newWorksBulkPut).toHaveBeenCalledTimes(1);
+    expect(spies.newWorksBulkPut).toHaveBeenCalledWith(
+      [{ title: 'W', sourceType: 'cloud-scan', id: 'nw-c1' }],
+      { skipCloudEnqueue: true },
+    );
+    expect(spies.listsBulkPut).not.toHaveBeenCalled();
+    expect(spies.actorsBulkPut).not.toHaveBeenCalled();
+  });
 });

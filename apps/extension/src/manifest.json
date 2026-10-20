@@ -10,7 +10,8 @@
     "scripting",
     "notifications",
     "unlimitedStorage",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "cookies"
   ],
   "host_permissions": [
     "*://*.javbus.com/*",
