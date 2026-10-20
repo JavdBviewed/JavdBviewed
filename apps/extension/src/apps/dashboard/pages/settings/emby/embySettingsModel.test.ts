@@ -479,6 +479,22 @@ describe('embySettingsModel', () => {
     })[0];
     expect(loggedIn).toContain('全部可用');
   });
+
+  it('serverCredentialCapabilityLines apiKey 分支披露「真实已看」读侧依赖（10-20-emby-watchdisclose）', () => {
+    const lines = serverCredentialCapabilityLines({ apiKey: 'k', username: '', password: '' });
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('进度写回与标记已看需再配置用户名');
+    expect(lines[1]).toContain('读不到用户播放进度');
+    expect(lines[1]).toContain('「真实已看」');
+    expect(lines[1]).toContain('需补用户名+密码');
+    // 双向锁：其余分支逐字不变
+    expect(serverCredentialCapabilityLines({ apiKey: '', username: 'u', password: 'p' })).toEqual([
+      '仅账号+密码：保存后请先在编辑弹窗中「登录并保存令牌」；登录前资料库同步、详情拉取、播放解析不可用',
+    ]);
+    expect(serverCredentialCapabilityLines({ apiKey: 'k', username: 'u', password: 'p' })).toHaveLength(1);
+    expect(serverCredentialCapabilityLines({ apiKey: '', username: '', password: '' })).toHaveLength(1);
+    expect(serverCredentialCapabilityLines({ apiKey: '', username: 'u', password: 'p', loggedIn: true })).toHaveLength(1);
+  });
 });
 
 describe('embySettingsModel: capability split (recognition/library)', () => {

@@ -563,6 +563,8 @@ export function serverCredentialCapabilityLines(
     case 'apiKey':
       return [
         '仅 API Key：资料库同步、详情拉取、播放解析可用；进度写回与标记已看需再配置用户名（保存后可在编辑中填写）或登录用户账号',
+        // 10-20-emby-watchdisclose：补读侧披露（BUG-P3-1）——apiKey-only 走全局 /Items 无 per-user UserData，「真实已看」结构性恒空
+        '媒体列表可同步，但读不到用户播放进度，「真实已看」不会命中；需补用户名+密码（编辑可填）或登录用户账号',
       ];
     case 'account':
       return [
