@@ -27,6 +27,7 @@ import {
   type CloudSyncNowOptions,
   type CloudSyncNowResult,
 } from './runCloudSyncNow';
+import { pushJavdbSessionVaultIfEnabled } from './javdbSessionVault';
 
 export type CloudFacadeState = {
   settings: CloudConnectionSettings;
@@ -347,7 +348,12 @@ export function createExtensionCloudFacade(
     listDevices,
     revokeDevice,
     syncNow(syncOptions) {
-      return (options.syncNow ?? runCloudSyncNow)(syncOptions);
+      const run = (options.syncNow ?? runCloudSyncNow)(syncOptions);
+      return run.then((result) => {
+        // 手动同步成功 → 随推一次 javdb 会话 vault（10-19 线 2：未开启零动作，失败仅 warn）
+        void pushJavdbSessionVaultIfEnabled('manual-sync');
+        return result;
+      });
     },
     setAutoSync,
   };

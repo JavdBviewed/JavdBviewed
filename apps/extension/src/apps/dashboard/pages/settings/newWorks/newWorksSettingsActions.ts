@@ -9,6 +9,7 @@
  * @module apps/dashboard/pages/settings/newWorks
  */
 import { newWorksManager } from '../../../../../features/newWorks';
+import { pushJavdbSessionVaultIfEnabled } from '../../../../../features/cloudSync';
 import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 import {
   mapConfigToFormState,
@@ -44,7 +45,13 @@ export async function persistNewWorksForm(form: NewWorksSettingsFormState): Prom
     return { ok: false, error: validation.error };
   }
   try {
+    const prev = await newWorksManager.getGlobalConfig();
+    const prevCloudScanEnabled = prev.cloudScan?.enabled === true;
     await newWorksManager.updateGlobalConfig(mapFormStateToConfigPatch(form));
+    // 显式开启（false→true）→ 立即推一次会话 vault（10-19 线 2 A.2；推送失败仅 warn，不阻断保存）
+    if (form.cloudScanEnabled && !prevCloudScanEnabled) {
+      void pushJavdbSessionVaultIfEnabled('toggle-on');
+    }
   } catch (err) {
     console.error('[NewWorksSettingsPage] 保存失败', err);
     return { ok: false, error: (err as Error)?.message || '保存失败' };

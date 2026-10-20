@@ -24,6 +24,12 @@ import {
   NEW_WORKS_ATTR_ITEMS,
   type NewWorksSettingsFormState,
 } from './newWorksSettingsModel';
+import {
+  deleteJavdbSessionVault,
+  fetchJavdbSessionVaultStatus,
+  loadCloudSettings,
+  pushJavdbSessionVaultIfEnabled,
+} from '../../../../../features/cloudSync';
 import { entryKey } from '@javdb/video-category-dict';
 
 const AUTO_SAVE_MS = 1000;
@@ -76,6 +82,49 @@ export function NewWorksSettingsPage() {
     };
   }, []);
 
+  /** 云扫描（10-19 线 2 A.3）：双门控——未存云凭据整块隐藏（第 1 层）+ 关态数值输入禁用（第 2 层） */
+  const [cloudConnected, setCloudConnected] = useState(false);
+  const [cloudScanSession, setCloudScanSession] = useState<'loading' | 'present' | 'absent' | 'error'>('loading');
+  const hasSavedCredentials = cloudConnected;
+
+  const refreshCloudScanSession = useCallback(async () => {
+    try {
+      setCloudScanSession(await fetchJavdbSessionVaultStatus());
+    } catch {
+      setCloudScanSession('error');
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      let connected = false;
+      try {
+        const settings = await loadCloudSettings();
+        connected = Boolean(settings?.accountIdentifier && settings?.accountPassword);
+      } catch {
+        connected = false;
+      }
+      if (cancelled) return;
+      setCloudConnected(connected);
+      if (connected) await refreshCloudScanSession();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshCloudScanSession]);
+
+  const handleSetCloudScanSession = useCallback(async () => {
+    await pushJavdbSessionVaultIfEnabled('manual');
+    await refreshCloudScanSession();
+  }, [refreshCloudScanSession]);
+
+  const handleDeleteCloudScanSession = useCallback(async () => {
+    const res = await deleteJavdbSessionVault();
+    await toast(res.ok ? '已移除登录态' : '移除登录态失败', res.ok ? 'success' : 'error');
+    await refreshCloudScanSession();
+  }, [refreshCloudScanSession]);
+
   const updateForm = useCallback(
     (patch: Partial<NewWorksSettingsFormState>) => {
       const next = { ...formRef.current, ...patch };
@@ -88,7 +137,9 @@ export function NewWorksSettingsPage() {
 
   /** 数字输入：空值/非数字不回写（保留旧值）；越界值允许输入，保存时按旧口径校验拦截 */
   const updateNumber = useCallback(
-    (field: 'checkInterval' | 'requestInterval' | 'concurrency' | 'dateRange' | 'cleanupDays') =>
+    (
+      field: 'checkInterval' | 'requestInterval' | 'concurrency' | 'dateRange' | 'cleanupDays' | 'cloudScanBatchSize' | 'cloudScanIntervalMinutes',
+    ) =>
       (e: React.ChangeEvent<HTMLInputElement>) => {
         const n = parseInt(e.currentTarget.value, 10);
         if (e.currentTarget.value === '' || !Number.isFinite(n)) return;
@@ -495,6 +546,77 @@ export function NewWorksSettingsPage() {
               />
             </SettingField>
           </SettingSection>
+
+          {hasSavedCredentials ? (
+            <SettingSection
+              id="new-works-cloud-scan"
+              title="云扫描"
+              icon={<i className="fas fa-cloud" aria-hidden="true" />}
+            >
+              <SettingToggleRow
+                id="nwCloudScanEnabled"
+                label="启用云扫描"
+                description="由你的云端服务器代扫订阅演员的新作（登录态加密上云，仅存会话子集）；扫到的作品进入待确认批次，不自动入库。"
+                checked={form.cloudScanEnabled}
+                onChange={(v) => updateForm({ cloudScanEnabled: v })}
+              />
+              <SettingField
+                id="nwCloudScanBatchSize"
+                label="每批订阅数"
+                description="云端每轮处理的订阅演员数，建议 20"
+              >
+                <Input
+                  id="nwCloudScanBatchSize"
+                  type="number"
+                  min={1}
+                  max={100}
+                  disabled={!form.cloudScanEnabled}
+                  value={String(form.cloudScanBatchSize)}
+                  onChange={updateNumber('cloudScanBatchSize')}
+                />
+              </SettingField>
+              <SettingField
+                id="nwCloudScanIntervalMinutes"
+                label="扫描间隔（分钟）"
+                description="云端两轮扫描的间隔，建议 10 分钟以上"
+              >
+                <Input
+                  id="nwCloudScanIntervalMinutes"
+                  type="number"
+                  min={1}
+                  max={1440}
+                  disabled={!form.cloudScanEnabled}
+                  value={String(form.cloudScanIntervalMinutes)}
+                  onChange={updateNumber('cloudScanIntervalMinutes')}
+                />
+              </SettingField>
+              <div id="nwCloudScanSessionStatus" className="mt-2 flex items-center gap-2 text-[12.5px] text-[var(--color-text-secondary,#666)]">
+                <span>
+                  登录态：
+                  {cloudScanSession === 'present' ? '有效' : cloudScanSession === 'absent' ? '无' : '未知'}
+                </span>
+                <button
+                  type="button"
+                  className="rounded-[var(--radius-2)] text-[12.5px] text-[var(--color-primary)] hover:underline focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)]"
+                  onClick={() => {
+                    void handleSetCloudScanSession();
+                  }}
+                >
+                  设置登录态
+                </button>
+                <button
+                  type="button"
+                  id="nwCloudScanSessionDeleteBtn"
+                  className="rounded-[var(--radius-2)] text-[12.5px] text-[var(--color-danger,#c0392b)] hover:underline focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)]"
+                  onClick={() => {
+                    void handleDeleteCloudScanSession();
+                  }}
+                >
+                  移除登录态
+                </button>
+              </div>
+            </SettingSection>
+          ) : null}
 
           {saveError ? (
             <p className="m-0 px-2 text-[13px] text-[var(--color-danger,#c0392b)]" role="alert">

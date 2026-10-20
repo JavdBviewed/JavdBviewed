@@ -6,7 +6,7 @@
  * 包含：STORAGE_KEYS、DEFAULT_SETTINGS、各功能模块默认配置
  * 被 background/content/UI 全层引用，修改默认值需谨慎评估影响
  */
-import { ExtensionSettings, KeywordFilterRule, ActorSyncConfig, NewWorksGlobalConfig } from '../types';
+import { ExtensionSettings, KeywordFilterRule, ActorSyncConfig, CloudScanConfig, NewWorksGlobalConfig } from '../types';
 import { PrivacyConfig } from '../types/privacy';
 // 直接引 runtime 叶子模块，避开 drive115/app barrel，防止 v2 客户端进 dashboard 入口闭包
 import { normalizeDrive115Settings } from '../features/drive115/app/runtime';
@@ -133,7 +133,33 @@ export const DEFAULT_NEW_WORKS_CONFIG: NewWorksGlobalConfig = {
     maxWorksPerCheck: 100, // 固定值100，不再通过UI配置
     autoCleanup: true, // 默认启用自动清理
     cleanupDays: 30, // 30天后清理
+    // 注意：DEFAULT 不写 cloudScan 键（10-19 线 2：缺省=未配置，读侧归一为 关/20/10，未触碰不上行）
 };
+
+// 云扫描缺省（10-19 线 2：C2 缺省 关/20/10；服务端夹取区间同源）
+export const CLOUD_SCAN_BATCH_SIZE_MIN = 1;
+export const CLOUD_SCAN_BATCH_SIZE_MAX = 100;
+export const CLOUD_SCAN_INTERVAL_MINUTES_MIN = 1;
+export const CLOUD_SCAN_INTERVAL_MINUTES_MAX = 1440;
+export const DEFAULT_CLOUD_SCAN_CONFIG: CloudScanConfig = {
+    enabled: false,
+    batchSize: 20,
+    intervalMinutes: 10,
+};
+
+/** 云扫描配置值归一：缺省 关/20/10 + 区间夹取（batchSize 1-100 / intervalMinutes 1-1440）；垃圾形状不抛 */
+export function normalizeCloudScanConfig(value: unknown): CloudScanConfig {
+    const v = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+    const clamp = (n: unknown, d: number, lo: number, hi: number): number => {
+        const x = typeof n === 'number' && Number.isFinite(n) ? Math.round(n) : d;
+        return Math.min(hi, Math.max(lo, x));
+    };
+    return {
+        enabled: v.enabled === true,
+        batchSize: clamp(v.batchSize, DEFAULT_CLOUD_SCAN_CONFIG.batchSize, CLOUD_SCAN_BATCH_SIZE_MIN, CLOUD_SCAN_BATCH_SIZE_MAX),
+        intervalMinutes: clamp(v.intervalMinutes, DEFAULT_CLOUD_SCAN_CONFIG.intervalMinutes, CLOUD_SCAN_INTERVAL_MINUTES_MIN, CLOUD_SCAN_INTERVAL_MINUTES_MAX),
+    };
+}
 
 // 隐私保护默认配置
 export const DEFAULT_PRIVACY_CONFIG: PrivacyConfig = {

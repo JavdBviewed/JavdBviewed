@@ -345,6 +345,15 @@ export interface ActorSubscription {
   enabled: boolean;
 }
 
+/** 云扫描子配置（10-19 线 2：由云端服务器代扫订阅演员新作；缺省 = 未启用不上行） */
+export interface CloudScanConfig {
+  enabled: boolean;
+  /** 每批处理的订阅数量（1-100，缺省 20） */
+  batchSize: number;
+  /** 两轮扫描间隔，分钟（1-1440，缺省 10） */
+  intervalMinutes: number;
+}
+
 /** 新作品监控全局配置 */
 export interface NewWorksGlobalConfig {
   checkInterval: number;                              // 检查间隔（毫秒）
@@ -366,6 +375,8 @@ export interface NewWorksGlobalConfig {
   autoCleanup: boolean;
   cleanupDays: number;                                // 自动清理 N 天前的记录
   lastGlobalCheck?: number;
+  /** 云扫描（10-19 线 2：写 new_works_config.cloudScan；缺失=未配置，读侧归一为 关/20/10） */
+  cloudScan?: CloudScanConfig;
 }
 
 /** 新作品记录 */
@@ -381,6 +392,8 @@ export interface NewWorkRecord {
   discoveredAt: number;                               // 发现时间戳
   isRead: boolean;
   status?: 'new' | 'viewed' | 'browsed' | 'want';
+  /** 记录来源（10-19 线 2：C3 云扫描记录 ='cloud-scan'；本地扫描缺省不写） */
+  sourceType?: string;
 }
 
 /** 新作品统计摘要 */

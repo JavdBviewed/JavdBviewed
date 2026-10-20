@@ -260,3 +260,50 @@ describe('NewWorksSettingsPage 容器间距（253 线间距修正锁）', () => 
     expect(pageSource).not.toContain('flex-col gap-1');
   });
 });
+
+describe('NewWorksSettingsPage 云扫描区块（10-19 线 2：A.3 配置面）', () => {
+  it('section 在位：id/标题/icon（页面尾部独立，清理区块之后）', () => {
+    expect(pageSource).toContain('id="new-works-cloud-scan"');
+    expect(pageSource).toContain('title="云扫描"');
+    expect(pageSource).toContain('fa-cloud');
+    // 尾部独立：位于清理 section 之后
+    const cleanupPos = pageSource.indexOf('id="new-works-cleanup"');
+    const cloudPos = pageSource.indexOf('id="new-works-cloud-scan"');
+    expect(cleanupPos).toBeGreaterThan(-1);
+    expect(cloudPos).toBeGreaterThan(cleanupPos);
+  });
+
+  it('控件 id 稳定（开关/批次/间隔/状态行/删除按钮）', () => {
+    for (const id of ['nwCloudScanEnabled', 'nwCloudScanBatchSize', 'nwCloudScanIntervalMinutes', 'nwCloudScanSessionStatus', 'nwCloudScanSessionDeleteBtn']) {
+      expect(pageSource).toContain(`id="${id}"`);
+    }
+  });
+
+  it('未连云隐藏（双门控第 1 层：hasSavedCredentials）+ 关态数值禁用（第 2 层）', () => {
+    expect(pageSource).toMatch(/\{hasSavedCredentials \? \(/);
+    const batchInput = /<Input\s+id="nwCloudScanBatchSize"[\s\S]*?\/>/.exec(pageSource)?.[0] ?? '';
+    const intervalInput = /<Input\s+id="nwCloudScanIntervalMinutes"[\s\S]*?\/>/.exec(pageSource)?.[0] ?? '';
+    expect(batchInput).toContain('disabled={!form.cloudScanEnabled}');
+    expect(intervalInput).toContain('disabled={!form.cloudScanEnabled}');
+    expect(batchInput).toContain('min={1}');
+    expect(batchInput).toContain('max={100}');
+    expect(intervalInput).toContain('min={1}');
+    expect(intervalInput).toContain('max={1440}');
+  });
+
+  it('云扫描文案锁（10-19 线 2，逐字）', () => {
+    for (const text of [
+      '启用云扫描',
+      '由你的云端服务器代扫订阅演员的新作（登录态加密上云，仅存会话子集）；扫到的作品进入待确认批次，不自动入库。',
+      '每批订阅数',
+      '云端每轮处理的订阅演员数，建议 20',
+      '扫描间隔（分钟）',
+      '云端两轮扫描的间隔，建议 10 分钟以上',
+      '登录态：',
+      '设置登录态',
+      '移除登录态',
+    ]) {
+      expect(pageSource).toContain(text);
+    }
+  });
+});
