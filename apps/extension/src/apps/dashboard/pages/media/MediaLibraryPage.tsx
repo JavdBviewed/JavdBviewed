@@ -16,7 +16,7 @@ import { resolveDashboardNavState } from '../../../../dashboard/tabs/navModel';
 import { setMediaPlaybackActive } from '../../../../dashboard/tabs/mediaLifecycleState';
 import { scheduleHomeChartRender } from '../../../../dashboard/home/homeRenderScheduler';
 import type { EmbyLibraryState } from '../../../../features/embyLibrary/types';
-import { STORAGE_KEYS } from '../../../../utils/config';
+import { STORAGE_KEYS, isEmbyLibraryEnabled } from '../../../../utils/config';
 import { getSettings, getValue } from '../../../../utils/storage';
 import { sendRuntimeMessage } from '../../../../platform/browser/runtimeMessages';
 import { normalizeVideoCodeCandidate } from '../../../../shared/utils/videoCodeExtractor';
@@ -38,6 +38,7 @@ import {
   readMediaViewSettings,
   resolveCoverImage,
   resolveCoverImageUrl,
+  resolveMediaSyncGate,
   mediaCopyToBrowseItem,
   resolvePlaybackChoice,
   type MediaBrowseItem,
@@ -284,6 +285,7 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
   const [loadingIndex, setLoadingIndex] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncTargets, setSyncTargets] = useState<MediaSyncTarget[]>([]);
+  const [embyLibraryEnabled, setEmbyLibraryEnabled] = useState(false);
   const [selectedSyncTargetKeys, setSelectedSyncTargetKeys] = useState<Set<string>>(new Set());
   const [sourceChannels, setSourceChannels] = useState<MediaSourceChannel[]>([]);
   const sourceChannelsRef = useRef<MediaSourceChannel[]>([]);
@@ -453,11 +455,13 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
         return channels.some((channel) => channel.id === current) ? current : 'all';
       });
       setSyncTargets(buildMediaSyncTargets(settings));
+      setEmbyLibraryEnabled(isEmbyLibraryEnabled((settings as any)?.emby));
     } catch {
       sourceChannelsRef.current = [];
       setSourceChannels([]);
       setFilter('all');
       setSyncTargets([]);
+      setEmbyLibraryEnabled(false);
       setSelectedSyncTargetKeys(new Set());
     }
   }, []);
@@ -1170,6 +1174,9 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
     setShowSyncPanel(false);
   };
 
+  // 手动同步按钮总开关门控（BUG-P2-1）：总开关 OFF 且同步目标含 emby 服务器 → 禁用 + tooltip 引导
+  const syncGate = resolveMediaSyncGate({ syncTargets, embyLibraryEnabled });
+
   return (
     <div
       className="ml-page"
@@ -1292,8 +1299,8 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
                 <button
                   type="button"
                   className="ml-view-btn ml-view-btn-primary ml-sync-btn"
-                  disabled={syncing}
-                  title="同步资料库与播放状态"
+                  disabled={syncing || syncGate.disabled}
+                  title={syncGate.tooltip}
                   onClick={openSyncPanel}
                 >
                   {syncing ? '同步中…' : '同步资料库'}

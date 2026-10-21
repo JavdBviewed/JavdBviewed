@@ -13,9 +13,12 @@ import {
   getMediaSourceCopyPlaybackStatus,
   getMediaSourceLabels,
   getPreferredDetailSourceCopy,
+  resolveMediaSyncGate,
   resolvePlaybackChoice,
   heroItems,
   MEDIA_PREVIEW_ITEMS,
+  MEDIA_SYNC_BLOCKED_TOOLTIP,
+  MEDIA_SYNC_TOOLTIP,
   DEFAULT_MEDIA_VIEW_SETTINGS,
   partitionMediaSyncTargets,
   readCoverViewMode,
@@ -470,5 +473,59 @@ describe('mediaBrowseModel', () => {
     } finally {
       Object.defineProperty(globalThis, 'localStorage', { value: original, configurable: true });
     }
+  });
+});
+
+describe('resolveMediaSyncGate（手动同步按钮总开关门控，BUG-P2-1）', () => {
+  it('总开关 OFF + 存在 emby 同步目标 → disabled + 引导文案（指向设置页）', () => {
+    const gate = resolveMediaSyncGate({
+      syncTargets: [{ kind: 'media-server' }],
+      embyLibraryEnabled: false,
+    });
+    expect(gate.disabled).toBe(true);
+    expect(gate.tooltip).toBe(MEDIA_SYNC_BLOCKED_TOOLTIP);
+    expect(gate.tooltip).toContain('资料库设置');
+    expect(gate.tooltip).toContain('启用资料库同步与入库状态');
+  });
+
+  it('总开关 ON + 存在 emby 同步目标 → enabled + 常规文案（双向锁）', () => {
+    const gate = resolveMediaSyncGate({
+      syncTargets: [{ kind: 'media-server' }],
+      embyLibraryEnabled: true,
+    });
+    expect(gate.disabled).toBe(false);
+    expect(gate.tooltip).toBe(MEDIA_SYNC_TOOLTIP);
+    expect(gate.tooltip).toBe('同步资料库与播放状态');
+  });
+
+  it('总开关 OFF + 仅 115 目标 → enabled（纯 115 同步不误挡）', () => {
+    const gate = resolveMediaSyncGate({
+      syncTargets: [{ kind: 'drive115-root' }],
+      embyLibraryEnabled: false,
+    });
+    expect(gate.disabled).toBe(false);
+    expect(gate.tooltip).toBe(MEDIA_SYNC_TOOLTIP);
+  });
+
+  it('总开关 OFF + 无同步目标 → enabled（空态不误挡）', () => {
+    const gate = resolveMediaSyncGate({ syncTargets: [], embyLibraryEnabled: false });
+    expect(gate.disabled).toBe(false);
+  });
+
+  it('总开关 ON + 混合目标（emby+115）→ enabled', () => {
+    const gate = resolveMediaSyncGate({
+      syncTargets: [{ kind: 'media-server' }, { kind: 'drive115-root' }],
+      embyLibraryEnabled: true,
+    });
+    expect(gate.disabled).toBe(false);
+  });
+
+  it('总开关 OFF + 混合目标（emby+115）→ disabled（scope：emby 目标在位即挡）', () => {
+    const gate = resolveMediaSyncGate({
+      syncTargets: [{ kind: 'media-server' }, { kind: 'drive115-root' }],
+      embyLibraryEnabled: false,
+    });
+    expect(gate.disabled).toBe(true);
+    expect(gate.tooltip).toBe(MEDIA_SYNC_BLOCKED_TOOLTIP);
   });
 });

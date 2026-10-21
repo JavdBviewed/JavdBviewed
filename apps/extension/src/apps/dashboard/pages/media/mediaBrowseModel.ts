@@ -473,6 +473,26 @@ export function partitionMediaSyncTargets(
   };
 }
 
+/** 手动同步按钮默认 tooltip（门控放行态）。 */
+export const MEDIA_SYNC_TOOLTIP = '同步资料库与播放状态';
+/** 手动同步按钮被总开关阻断时的 tooltip（引导去设置页开总开关）。 */
+export const MEDIA_SYNC_BLOCKED_TOOLTIP =
+  '资料库同步总开关未开启，请先去「设置 → 资料库设置」打开「启用资料库同步与入库状态」，再回到这里同步';
+
+/**
+ * 手动同步按钮总开关门控（BUG-P2-1）：
+ * 仅当「同步目标含 emby 服务器 且 资料库同步总开关关闭」时禁用按钮；
+ * 仅 115 目标（无 emby 服务器）不受 emby 总开关影响，避免误挡纯 115 同步。
+ */
+export function resolveMediaSyncGate(input: {
+  syncTargets: ReadonlyArray<Pick<MediaSyncTarget, 'kind'>>;
+  embyLibraryEnabled: boolean;
+}): { disabled: boolean; tooltip: string } {
+  const hasEmbyTarget = input.syncTargets.some((target) => target.kind === 'media-server');
+  const disabled = hasEmbyTarget && !input.embyLibraryEnabled;
+  return { disabled, tooltip: disabled ? MEDIA_SYNC_BLOCKED_TOOLTIP : MEDIA_SYNC_TOOLTIP };
+}
+
 export function buildMediaSourceChannels(settings: unknown): MediaSourceChannel[] {
   const input = isRecord(settings) ? settings as MediaSourceSettings : {};
   const channels: MediaSourceChannel[] = [];
