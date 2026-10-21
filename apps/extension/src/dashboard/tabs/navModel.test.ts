@@ -16,7 +16,7 @@ describe('Dashboard 9C navigation model', () => {
   it('defines the accepted top-level groups with full second-level labels', () => {
     expect(DASHBOARD_NAV_GROUPS.map(group => group.label)).toEqual([
       '首页',
-      '资料库',
+      '信息库',
       '媒体库',
       '任务与备份',
       '报告与日志',

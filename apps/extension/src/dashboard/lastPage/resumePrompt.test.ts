@@ -14,7 +14,7 @@ import type { DashboardLastPageRecord } from './types';
 
 const record: DashboardLastPageRecord = {
   hash: '#tab-new-works',
-  title: '资料库 · 新作品',
+  title: '信息库 · 新作品',
   updatedAt: 1,
 };
 
