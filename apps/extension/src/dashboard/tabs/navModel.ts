@@ -41,7 +41,7 @@ export const DASHBOARD_NAV_GROUPS: readonly DashboardNavGroup[] = [
   },
   {
     id: 'library',
-    label: '资料库',
+    label: '信息库',
     defaultItemId: 'records',
     items: [
       { id: 'records', label: '番号库', tabId: 'tab-records' },

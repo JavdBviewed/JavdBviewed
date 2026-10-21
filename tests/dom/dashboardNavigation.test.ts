@@ -57,7 +57,7 @@ describe('Dashboard 9C navigation runtime', () => {
 
     expect(readButtonLabels('.dashboard-main-tab')).toEqual([
       '首页',
-      '资料库',
+      '信息库',
       '媒体库',
       '任务与备份',
       '报告与日志',
@@ -70,7 +70,7 @@ describe('Dashboard 9C navigation runtime', () => {
       '收藏中心',
       '回收站',
     ]);
-    expect(document.querySelector('.dashboard-main-tab.active')?.textContent).toBe('资料库');
+    expect(document.querySelector('.dashboard-main-tab.active')?.textContent).toBe('信息库');
     expect(document.querySelector('.dashboard-sub-tab.active')?.textContent).toBe('番号库');
     expect(document.getElementById('dashboard-section-nav')?.parentElement).toBe(document.getElementById('tab-records'));
     expect(document.getElementById('tab-records')?.classList.contains('active')).toBe(true);
