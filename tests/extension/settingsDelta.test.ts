@@ -3,7 +3,7 @@
  * @description settings 分节 delta 并发安全写原语（S1-3）
  */
 import { describe, expect, it, vi } from 'vitest';
-import { readRawSettingsOrUndefined, saveSettingsSectionDelta } from '../../apps/extension/src/utils/settingsDelta';
+import { readRawSettingsOrUndefined, saveSettingsSectionDelta, saveSettingsTopLevelDelta } from '../../apps/extension/src/utils/settingsDelta';
 
 function makeWriter(overrides: {
   raw?: () => Promise<any>;
@@ -119,5 +119,107 @@ describe('saveSettingsSectionDelta', () => {
     await saveSettingsSectionDelta(writer, null, 'drive115', () => ({ v2AccessToken: 't' }));
 
     expect(saved[0].drive115).toEqual({ v2AccessToken: 't' });
+  });
+});
+
+describe('saveSettingsTopLevelDelta', () => {
+  /**
+   * records 页场景锁（10-21 A 组）：页内保存（3 顶层键口径）不得抹掉
+   * 网络/后台窗口内并发落盘的其他节；stale 页快照里的陈旧节不入写。
+   */
+  it('页内保存（顶层 3 键）不抹后台并发写入的节，stale 独有节不入写', async () => {
+    const { writer, saved } = makeWriter({
+      raw: async () => ({
+        recordsPerPage: 24,
+        emby: { mediaServers: [{ id: 'srv-x', name: 'X-Srv' }], deletedServerIds: [] },
+        display: { theme: 'dark' },
+      }),
+    });
+    const stale = {
+      showCoversInRecords: false,
+      recordsViewMode: 'grid',
+      recordsPerPage: 20,
+      emby: { mediaServers: [] },
+    };
+
+    const written = await saveSettingsTopLevelDelta(
+      writer, stale,
+      ['showCoversInRecords', 'recordsViewMode', 'recordsPerPage'],
+      () => ({ showCoversInRecords: true, recordsViewMode: 'list', recordsPerPage: 30 }),
+    );
+
+    expect(saved).toHaveLength(1);
+    // 后台并发节保留（整包 raw 写会把 emby 旧快照/缺节写回，display 蒸发）
+    expect(written.emby).toEqual({ mediaServers: [{ id: 'srv-x', name: 'X-Srv' }], deletedServerIds: [] });
+    expect(written.display).toEqual({ theme: 'dark' });
+    // 本页负责键按最新值落（stale 的 20 不回写）
+    expect(written.recordsPerPage).toBe(30);
+    expect(written.showCoversInRecords).toBe(true);
+    expect(written.recordsViewMode).toBe('list');
+    expect(written).toBe(saved[0]);
+  });
+
+  it('只合并指定顶层键，其余键按最新 raw 保留', async () => {
+    const { writer, saved } = makeWriter({ raw: async () => ({ alpha: 1, beta: 2 }) });
+
+    const written = await saveSettingsTopLevelDelta(writer, null, ['alpha'], () => ({ alpha: 9 }));
+
+    expect(saved).toHaveLength(1);
+    expect(written.alpha).toBe(9);
+    expect(written.beta).toBe(2);
+    expect(written).toBe(saved[0]);
+  });
+
+  it('staleBase 独有的节不写入（不推陈旧整包）', async () => {
+    const { writer, saved } = makeWriter({ raw: async () => ({ beta: 2 }) });
+
+    await saveSettingsTopLevelDelta(writer, { onlyInStale: true }, ['beta'], () => ({ beta: 7 }));
+
+    expect(saved[0].beta).toBe(7);
+    expect(saved[0].onlyInStale).toBeUndefined();
+  });
+
+  it('原始读未提供时回退 getMergedSettings（写前新鲜 merged 重读）', async () => {
+    const { writer, saved } = makeWriter({
+      merged: async () => ({ beta: 2, other: { kept: true } }),
+    });
+
+    await saveSettingsTopLevelDelta(writer, null, ['beta'], () => ({ beta: 5 }));
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0].beta).toBe(5);
+    expect(saved[0].other).toEqual({ kept: true });
+  });
+
+  it('原始读抛错时回退 getMergedSettings，不阻断写入', async () => {
+    const { writer, saved } = makeWriter({
+      rawError: true,
+      merged: async () => ({ beta: 2 }),
+    });
+
+    await saveSettingsTopLevelDelta(writer, { legacy: true }, ['beta'], () => ({ beta: 5 }));
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0].beta).toBe(5);
+    expect(saved[0].legacy).toBeUndefined();
+  });
+
+  it('getMergedSettings 抛错时继续回退 staleBase', async () => {
+    const { writer, saved } = makeWriter({
+      rawError: true,
+      merged: () => Promise.reject(new Error('merged down')),
+    });
+
+    await saveSettingsTopLevelDelta(writer, { beta: 1 }, ['beta'], () => ({ beta: 5 }));
+
+    expect(saved[0].beta).toBe(5);
+  });
+
+  it('buildDelta 可按指定键取最新值做条件合并', async () => {
+    const { writer, saved } = makeWriter({ raw: async () => ({ alpha: 5 }) });
+
+    await saveSettingsTopLevelDelta(writer, null, ['alpha'], (latest) => ({ alpha: Number(latest.alpha) + 1 }));
+
+    expect(saved[0].alpha).toBe(6);
   });
 });

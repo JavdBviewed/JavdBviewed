@@ -1,5 +1,15 @@
 import { STATE } from '../state';
 import { VIDEO_STATUS, STORAGE_KEYS } from '../../utils/config';
+import { getValue, saveSettings } from '../../utils/storage';
+import { saveSettingsTopLevelDelta, type SettingsDeltaWriter } from '../../utils/settingsDelta';
+
+// 10-21 A 组：records 页内保存迁顶层键 delta 原语——只写本页负责的顶层键，
+// 写前紧贴重读 raw，不再整包写 STATE.settings 快照（抹掉网络/后台窗口内并发落盘的其他节）。
+const settingsDeltaWriter: SettingsDeltaWriter = {
+    readRawSettings: () => getValue(STORAGE_KEYS.SETTINGS, undefined),
+    getMergedSettings: async () => ({ ...STATE.settings }),
+    saveSettings,
+};
 import type { VideoRecord, VideoStatus } from '../../types';
 import { showMessage } from '../ui/toast';
 import { showConfirmationModal } from '../ui/modal';
@@ -408,7 +418,15 @@ export function initRecordsTab(): void {
             favoritesFilterActive = active;
         },
         persistSettings: () => {
-            chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: STATE.settings });
+            void saveSettingsTopLevelDelta(
+                settingsDeltaWriter,
+                STATE.settings,
+                ['showCoversInRecords', 'recordsViewMode'],
+                () => ({
+                    showCoversInRecords: STATE.settings.showCoversInRecords,
+                    recordsViewMode: STATE.settings.recordsViewMode,
+                }),
+            ).catch(() => {});
         },
         onFilterChanged: () => {
             stateRefreshController.resetAndRender();
@@ -887,7 +905,12 @@ export function initRecordsTab(): void {
             STATE.settings.recordsPerPage = value;
         },
         persistRecordsPerPage: () => {
-            chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: STATE.settings });
+            void saveSettingsTopLevelDelta(
+                settingsDeltaWriter,
+                STATE.settings,
+                ['recordsPerPage'],
+                () => ({ recordsPerPage: STATE.settings.recordsPerPage }),
+            ).catch(() => {});
         },
         resetCurrentPage: () => {
             currentPage = 1;

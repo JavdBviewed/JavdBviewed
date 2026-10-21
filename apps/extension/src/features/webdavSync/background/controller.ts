@@ -8,6 +8,7 @@
 
 import { STORAGE_KEYS } from '../../../utils/config';
 import { getSettings, getValue, saveSettings } from '../../../utils/storage';
+import { readRawSettingsOrUndefined, saveSettingsSectionDelta, type SettingsDeltaWriter } from '../../../utils/settingsDelta';
 import {
   getClientFilePath,
   normalizeWebDavBaseUrl,
@@ -83,6 +84,13 @@ function bgLog(level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG', message: string, data
 
 let webdavAutoUploadInProgress = false;
 
+// 10-21 B 组：controller 持久化点统一走 section delta 原语（写前紧贴重读 raw，只合 webdav 节）
+const settingsDeltaWriter: SettingsDeltaWriter = {
+  readRawSettings: () => getValue<any>(STORAGE_KEYS.SETTINGS, undefined),
+  getMergedSettings: async (): Promise<Record<string, any>> => (await getSettings()) as Record<string, any>,
+  saveSettings,
+};
+
 async function ensureWebDAVClientIdentity(): Promise<any> {
   return ensureWebDAVClientIdentityCore({
     getSettings,
@@ -121,18 +129,15 @@ async function readWebDAVUploadIndexItems(
   return Array.isArray(uploadIndex?.items) ? uploadIndex.items : [];
 }
 
-async function persistKnownDevicesIfChanged(settings: any, knownDevices: WebDAVKnownDevice[]): Promise<void> {
-  const previous = JSON.stringify(settings?.webdav?.knownDevices || []);
+async function persistKnownDevicesIfChanged(knownDevices: WebDAVKnownDevice[]): Promise<void> {
+  // 10-21 B4：写前紧贴重读做 IfChanged 判别（保持跳过写语义），section delta 只写 knownDevices
+  const latestRaw = await readRawSettingsOrUndefined(settingsDeltaWriter.readRawSettings);
+  const latestBase = latestRaw !== undefined ? latestRaw : await getSettings();
+  const previous = JSON.stringify(readKnownDevices((latestBase as any)?.webdav?.knownDevices));
   const next = JSON.stringify(knownDevices);
   if (previous === next) return;
 
-  await saveSettings({
-    ...settings,
-    webdav: {
-      ...(settings.webdav || {}),
-      knownDevices,
-    },
-  } as any);
+  await saveSettingsSectionDelta(settingsDeltaWriter, latestBase, 'webdav', () => ({ knownDevices }));
 }
 
 function normalizeWebDAVClientListError(error: unknown): string {
@@ -218,7 +223,7 @@ async function listWebDAVClients(): Promise<{
       },
     );
 
-    await persistKnownDevicesIfChanged(settings, knownDevices);
+    await persistKnownDevicesIfChanged(knownDevices);
 
     const remoteSync = await backfillKnownDevicesToCurrentRemote(baseUrl, auth, knownDevices, remoteProfiles, currentSource);
     if (remoteSync.writtenProfiles.length > 0) {
@@ -230,7 +235,7 @@ async function listWebDAVClients(): Promise<{
         })),
         { now: Date.now() },
       );
-      await persistKnownDevicesIfChanged(await getSettings(), knownDevices);
+      await persistKnownDevicesIfChanged(knownDevices);
     }
 
     return {
@@ -249,7 +254,7 @@ async function listWebDAVClients(): Promise<{
       [],
       { now, currentProfile, currentSource },
     );
-    await persistKnownDevicesIfChanged(settings, knownDevices);
+    await persistKnownDevicesIfChanged(knownDevices);
     return {
       success: true,
       clients: buildKnownDeviceViews(knownDevices, currentProfile.clientId, currentSource),
@@ -297,18 +302,14 @@ async function getCurrentWebDAVClientProfile(): Promise<{ success: boolean; prof
           const shouldPersistLastUploadId = !!mergedLastUploadId && mergedLastUploadId !== settings.webdav?.clientLastUploadId;
 
           if (shouldPersistDeviceLabel || shouldPersistLastSeenAt || shouldPersistLastSyncAt || shouldPersistLastSyncStatus || shouldPersistLastUploadId) {
-            const nextSettings = {
-              ...settings,
-              webdav: {
-                ...(settings.webdav || {}),
-                deviceLabel: mergedDeviceLabel || settings.webdav?.deviceLabel || '',
-                clientLastSeenAt: mergedLastSeenAt || settings.webdav?.clientLastSeenAt || '',
-                clientLastSyncAt: mergedLastSyncAt || settings.webdav?.clientLastSyncAt || '',
-                clientLastSyncStatus: mergedLastSyncStatus || settings.webdav?.clientLastSyncStatus || '',
-                clientLastUploadId: mergedLastUploadId || settings.webdav?.clientLastUploadId || '',
-              },
-            } as any;
-            await saveSettings(nextSettings);
+            // 10-21 B1：section delta 写，只写本次负责的 5 个 webdav 子键，基为写前紧贴重读的最新值
+            await saveSettingsSectionDelta(settingsDeltaWriter, settings, 'webdav', (latest) => ({
+              deviceLabel: mergedDeviceLabel || latest.deviceLabel || '',
+              clientLastSeenAt: mergedLastSeenAt || latest.clientLastSeenAt || '',
+              clientLastSyncAt: mergedLastSyncAt || latest.clientLastSyncAt || '',
+              clientLastSyncStatus: mergedLastSyncStatus || latest.clientLastSyncStatus || '',
+              clientLastUploadId: mergedLastUploadId || latest.clientLastUploadId || '',
+            }));
           }
         }
       } catch {}
@@ -326,25 +327,29 @@ async function updateCurrentWebDAVDeviceLabel(deviceLabel: string): Promise<{ su
     if (!trimmedLabel) return { success: false, error: '设备名称不能为空。' };
 
     const settings = await ensureWebDAVClientIdentity();
-    const nextSettings = { ...settings, webdav: { ...(settings.webdav || {}), deviceLabel: trimmedLabel } } as any;
     const labelUpdatedAt = new Date().toISOString();
-
-    const profile = getWebDAVClientProfile(nextSettings, {
+    const knownDevicesNow = Date.parse(labelUpdatedAt) || Date.now();
+    // 10-21 B2：section delta 写（deviceLabel + knownDevices，knownDevices 以写前重读最新值为种）；
+    // profile 构造语义不变（基于含新 label 的 webdav 视图）
+    const profileBase: any = { ...settings, webdav: { ...(settings.webdav || {}), deviceLabel: trimmedLabel } };
+    const profile = getWebDAVClientProfile(profileBase, {
       deviceLabel: trimmedLabel,
       lastSeenAt: labelUpdatedAt,
     });
-    const webdav = nextSettings.webdav || {};
+    const webdav = profileBase.webdav || {};
     const baseUrl = webdav.url ? normalizeWebDavBaseUrl(webdav.url) : '';
-    nextSettings.webdav.knownDevices = mergeKnownDevices(
-      readKnownDevices(settings.webdav?.knownDevices),
-      [{
-        profile,
-        source: buildActiveWebDAVKnownDeviceSource(webdav, baseUrl, Date.parse(labelUpdatedAt) || Date.now()),
-        preferDeviceLabel: true,
-      }],
-      { now: Date.parse(labelUpdatedAt) || Date.now() },
-    );
-    await saveSettings(nextSettings);
+    await saveSettingsSectionDelta(settingsDeltaWriter, settings, 'webdav', (latest) => ({
+      deviceLabel: trimmedLabel,
+      knownDevices: mergeKnownDevices(
+        readKnownDevices(latest.knownDevices),
+        [{
+          profile,
+          source: buildActiveWebDAVKnownDeviceSource(webdav, baseUrl, knownDevicesNow),
+          preferDeviceLabel: true,
+        }],
+        { now: knownDevicesNow },
+      ),
+    }));
 
     if (webdav.enabled && webdav.url && webdav.username && webdav.password) {
       try {
@@ -387,27 +392,25 @@ async function updateWebDAVClientDeviceLabel(clientId: string, deviceLabel: stri
     };
     await webDavWriteJsonFile(baseUrl, auth, filePath, nextProfile);
 
+    // 10-21 B3：section delta 写（knownDevices + 条件 deviceLabel），不再整包写回入口快照
     const currentClientId = String(settings.webdav?.clientId || '').trim();
-    const nextKnownDevices = mergeKnownDevices(
-      readKnownDevices(settings.webdav?.knownDevices),
-      [{
-        profile: nextProfile,
-        source: buildActiveWebDAVKnownDeviceSource(webdav, baseUrl, Date.now()),
-        preferDeviceLabel: true,
-      }],
-      { now: Date.now() },
-    );
-    const nextSettings = {
-      ...settings,
-      webdav: {
-        ...(settings.webdav || {}),
-        knownDevices: nextKnownDevices,
-      },
-    } as any;
-    if (currentClientId && currentClientId === trimmedClientId) {
-      nextSettings.webdav.deviceLabel = trimmedLabel;
-    }
-    await saveSettings(nextSettings);
+    const isCurrentClient = !!currentClientId && currentClientId === trimmedClientId;
+    const now = Date.now();
+    await saveSettingsSectionDelta(settingsDeltaWriter, settings, 'webdav', (latest) => {
+      const delta: Record<string, any> = {
+        knownDevices: mergeKnownDevices(
+          readKnownDevices(latest.knownDevices),
+          [{
+            profile: nextProfile,
+            source: buildActiveWebDAVKnownDeviceSource(webdav, baseUrl, now),
+            preferDeviceLabel: true,
+          }],
+          { now },
+        ),
+      };
+      if (isCurrentClient) delta.deviceLabel = trimmedLabel;
+      return delta;
+    });
 
     return { success: true, profile: nextProfile };
   } catch (error: any) {
