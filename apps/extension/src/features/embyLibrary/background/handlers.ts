@@ -21,7 +21,8 @@ import { fetchEmbyItemDetail } from '../domain/embyItemDetail';
 import { EMBY_LIBRARY_REQUEST_TIMEOUT_MS, fetchWithTimeout } from '../domain/fetchWithTimeout';
 import { embyLog, mediaLog, playerLog } from '../mediaLibraryLogger';
 import { reportWatchProgressWithRecordSourceSync } from '../../media/videoRecordSource';
-import { processPersistedEmbySyncCleanup } from '../../mediaCleanup/mediaCleanupStorage';
+import type { MediaWatchEvidence } from '../../media/mediaWatchEvidence';
+import { enqueueCompletedPlayback, processPersistedEmbySyncCleanup } from '../../mediaCleanup/mediaCleanupStorage';
 import type {
   EmbyLibraryFolderOption,
   EmbyLibraryIndex,
@@ -136,11 +137,11 @@ function sanitizeError(error: unknown): string {
     .replace(/api[-_\s]?key[:=]\s*[^&\s]+/gi, 'API Key=***');
 }
 
-function getServerIndexKey(server: Pick<EmbyMediaServer, 'type' | 'url'>): string {
+export function getServerIndexKey(server: Pick<EmbyMediaServer, 'type' | 'url'>): string {
   return `${server.type}:${normalizeServerKey(server.url)}`;
 }
 
-function getEntryServerIndexKey(entry: Pick<EmbyLibraryIndexEntry, 'serverType' | 'serverUrl'>): string {
+export function getEntryServerIndexKey(entry: Pick<EmbyLibraryIndexEntry, 'serverType' | 'serverUrl'>): string {
   return `${entry.serverType}:${normalizeServerKey(entry.serverUrl)}`;
 }
 
@@ -210,9 +211,9 @@ async function saveExternalWatchEvidenceForEntry(input: {
   durationSec?: number;
   percent: number;
   forceWatched?: boolean;
-}): Promise<void> {
+}): Promise<MediaWatchEvidence | undefined> {
   try {
-    await reportWatchProgressWithRecordSourceSync({
+    const evidence = await reportWatchProgressWithRecordSourceSync({
       code: input.code,
       source: input.entry.serverType,
       sourceItemId: input.entry.itemId,
@@ -223,12 +224,14 @@ async function saveExternalWatchEvidenceForEntry(input: {
       forceWatched: input.forceWatched === true,
       fileName: input.entry.itemName,
     });
+    return evidence;
   } catch (error) {
     playerLog.warn('本地观看证据写入失败', {
       itemId: input.entry.itemId,
       code: input.code,
       error: sanitizeError(error),
     });
+    return undefined;
   }
 }
 
@@ -650,17 +653,18 @@ export async function handleEmbyLibrarySync(
       serverResults,
     };
 
-    // removedServerKeys = 之前快照里有、但对账后（按当前配置白名单）消失的 entry 所属
-    // 服务器 key：覆盖「服务器被删除 / 改地址」；仍在配置中但本次失败的服务器不在其中
-    // （其副本消失不算「外部删除」，不写入删除历史）。
+    // removedServerKeys = 集合差（10-22 修正）：之前快照全部条目的服务器 key
+    // − 当前配置启用服务器 key 集合。
+    // 仅「服务器被移出配置 / 改地址」入集（其 entry 被对账清掉，不属于现存服务器上的
+    // 外部删除，不应写入删除历史）；仍启用且同步成功的服务器上条目消失 = 真实外部删除，
+    // 正常写历史；仍启用但本次失败的服务器在配置内不入集（其 entry 不被对账清掉，
+    // 由 successfulServerKeys 过滤兜底）。
+    const enabledServerKeys = new Set(allEnabledServers.map((server) => getServerIndexKey(server)));
     const removedServerKeys = new Set(
-      Object.entries(previousState.entries)
-        .flatMap(([code, entries]) => entries
-          .filter((entry) => !(reconciledEntries[code] || []).some(
-            (kept) => kept.itemId === entry.itemId
-            && getEntryServerIndexKey(kept) === getEntryServerIndexKey(entry),
-          ))
-          .map((entry) => getEntryServerIndexKey(entry))),
+      Object.values(previousState.entries || {})
+        .flat()
+        .map((entry) => getEntryServerIndexKey(entry))
+        .filter((key) => !enabledServerKeys.has(key)),
     );
 
     // 入库开关被明确关闭（libraryEnabled === false）且本次不是「关闭即清空」的全量手动同步：
@@ -678,7 +682,7 @@ export async function handleEmbyLibrarySync(
     );
     if (persistState && successfulServerIds.size > 0 && deps.processCleanupSync) {
       try {
-        // removedServerKeys：删除 / 改地址导致副本消失的服务器，不算「外部删除」。
+        // removedServerKeys：被移出配置 / 改地址的服务器（不在当前启用集合），不算「外部删除」。
         cleanupSummary = await deps.processCleanupSync({
           previous: previousState,
           next: nextState,
@@ -878,7 +882,11 @@ export async function handleEmbyLibrarySetPlayed(
     const now = deps.now();
     let updated = false;
     const nextEntries: Record<string, EmbyLibraryIndexEntry[]> = {};
-    const evidenceWrites: Promise<void>[] = [];
+    const evidenceWrites: Array<{
+      code: string;
+      entry: EmbyLibraryIndexEntry;
+      evidence: Promise<MediaWatchEvidence | undefined>;
+    }> = [];
     for (const [code, entries] of Object.entries(state.entries || {})) {
       nextEntries[code] = entries.map((entry) => {
         const sameItem = entry.itemId === itemId
@@ -887,14 +895,18 @@ export async function handleEmbyLibrarySetPlayed(
         updated = true;
         if (played) {
           const durationSec = ticksToSeconds(entry.userData?.runtimeTicks);
-          evidenceWrites.push(saveExternalWatchEvidenceForEntry({
+          evidenceWrites.push({
             code,
             entry,
-            positionSec: durationSec ?? 0,
-            durationSec: durationSec ?? 0,
-            percent: 100,
-            forceWatched: true,
-          }));
+            evidence: saveExternalWatchEvidenceForEntry({
+              code,
+              entry,
+              positionSec: durationSec ?? 0,
+              durationSec: durationSec ?? 0,
+              percent: 100,
+              forceWatched: true,
+            }),
+          });
         }
         return {
           ...entry,
@@ -917,8 +929,36 @@ export async function handleEmbyLibrarySetPlayed(
         updatedAt: state.updatedAt || now,
       });
     }
+    // 证据写入成功后，证据 watched → 补清理清单入队（镜像 REPORT 路径语义：
+    // 入队失败吞错，不得反向伪装写回失败；未尝试入队=不传 cleanupAdded）。
+    let cleanupAttempted = false;
+    let cleanupAdded = false;
     if (evidenceWrites.length > 0) {
-      await Promise.all(evidenceWrites);
+      const evidenceResults = await Promise.all(evidenceWrites.map((write) => write.evidence));
+      for (let i = 0; i < evidenceWrites.length; i += 1) {
+        const evidence = evidenceResults[i];
+        if (!evidence || evidence.watched !== true) continue;
+        const { code, entry } = evidenceWrites[i];
+        cleanupAttempted = true;
+        try {
+          const result = await enqueueCompletedPlayback({
+            code,
+            title: entry.itemName || code,
+            source: entry.serverType,
+            copyId: `${entry.serverType}:${normalizeServerUrl(entry.serverUrl)}:${entry.itemId}`,
+            serverName: entry.serverName,
+            serverUrl: normalizeServerUrl(entry.serverUrl),
+            serverId: server.id,
+            itemId: entry.itemId,
+            fileName: entry.itemName,
+            folderPath: entry.path,
+            watchedAt: evidence.lastPlayedAt,
+          });
+          cleanupAdded = cleanupAdded || result.added;
+        } catch (error) {
+          playerLog.warn('标记已看后清理入队失败', { code, error: sanitizeError(error) });
+        }
+      }
     }
 
     sendResponse({
@@ -927,6 +967,7 @@ export async function handleEmbyLibrarySetPlayed(
       itemId,
       localIndexUpdated: updated,
       usedUserSession: hasEmbyUserSession(scopedServer),
+      ...(cleanupAttempted ? { cleanupAdded } : {}),
     });
   } catch (error) {
     sendResponse({ success: false, error: sanitizeError(error) });
@@ -1159,7 +1200,7 @@ export async function handleEmbyLibraryReportProgress(
     const now = deps.now();
     let updated = false;
     const nextEntries: Record<string, EmbyLibraryIndexEntry[]> = {};
-    const evidenceWrites: Promise<void>[] = [];
+    const evidenceWrites: Promise<MediaWatchEvidence | undefined>[] = [];
     const positionTicks = ret.positionTicks != null
       ? ret.positionTicks
       : Math.round(Math.max(0, positionSeconds) * TICKS_PER_SECOND);

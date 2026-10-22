@@ -9,7 +9,17 @@ vi.mock('../../media/mediaWatchEvidence', () => ({
   })),
 }));
 
+vi.mock('../../mediaCleanup/mediaCleanupStorage', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../mediaCleanup/mediaCleanupStorage')>();
+  return {
+    ...actual,
+    enqueueCompletedPlayback: vi.fn(async () => ({ added: true, state: {} })),
+  };
+});
+
 import {
+  getEntryServerIndexKey,
+  getServerIndexKey,
   handleEmbyLibraryCheckCodes,
   handleEmbyLibraryGetItemDetail,
   handleEmbyLibraryReportProgress,
@@ -19,6 +29,7 @@ import {
   handleEmbyUserLogin,
 } from './handlers';
 import { reportWatchProgress } from '../../media/mediaWatchEvidence';
+import { enqueueCompletedPlayback } from '../../mediaCleanup/mediaCleanupStorage';
 import type { EmbyLibraryState, EmbyMediaServer } from '../types';
 
 type FetchImpl = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -1345,5 +1356,276 @@ describe('emby library background handlers', () => {
     expect(signals.length).toBeGreaterThan(0);
     expect(signals.every((s) => s instanceof AbortSignal)).toBe(true);
     expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // AC4 卡「标记已看」→ 补清理入队（10-22）
+  // 勘误口径：卡按钮路径证据写入已存在（saveExternalWatchEvidenceForEntry），
+  // 真实缺口=证据 watched 时缺 enqueueCompletedPlayback。此处镜像 REPORT 路径
+  // （miscMessageRouter MEDIA_WATCH_EVIDENCE_REPORT）语义：入队失败吞错、
+  // 不反向伪装写回失败；未尝试入队（played=false / 证据非 watched）→ 响应不传 cleanupAdded。
+  // ─────────────────────────────────────────────────────────────────────────────
+  describe('AC4 卡标记已看补清理入队（10-22）', () => {
+    const ac4State: EmbyLibraryState = {
+      entries: {
+        'ABC-301': [{
+          serverType: 'emby',
+          serverName: 'Main',
+          serverUrl: 'http://media.local:8096',
+          itemId: 'item-301',
+          itemName: 'ABC-301 Sample',
+          path: '/movies/ABC-301.mkv',
+          userData: {
+            played: false,
+            positionTicks: 0,
+            runtimeTicks: 36_000_000_000, // 3600s
+            percent: 10,
+            lastPlayedAt: 0,
+          },
+          updatedAt: 500,
+        }],
+      },
+      updatedAt: 500,
+    };
+
+    function makeAc4Deps(fetchImpl: FetchImpl, stored: EmbyLibraryState) {
+      const sessionServer: EmbyMediaServer = { ...server, accessToken: 'user-token', userId: 'user-1' };
+      return {
+        ...createDeps(fetchImpl, stored),
+        getSettings: vi.fn(async () => ({
+          emby: {
+            mediaServers: [sessionServer],
+            libraryStatus: { enabled: true, showOnList: true, showOnDetail: true },
+          },
+        })),
+      };
+    }
+
+    it('标记已看：证据 watched → 补清理入队（参数镜像 REPORT 路径）', async () => {
+      vi.mocked(reportWatchProgress).mockResolvedValueOnce({
+        source: 'emby',
+        percent: 100,
+        watched: true,
+        lastPlayedAt: 1234,
+      });
+      const sendResponse = vi.fn();
+      const fetchImpl = createFetchMock(async () => new Response('{}', { status: 200 }));
+      const deps = makeAc4Deps(fetchImpl, ac4State);
+
+      await handleEmbyLibrarySetPlayed(
+        { itemId: 'item-301', serverUrl: 'http://media.local:8096/', played: true },
+        sendResponse,
+        deps,
+      );
+
+      expect(reportWatchProgress).toHaveBeenCalledTimes(1);
+      expect(enqueueCompletedPlayback).toHaveBeenCalledTimes(1);
+      expect(enqueueCompletedPlayback).toHaveBeenCalledWith({
+        code: 'ABC-301',
+        title: 'ABC-301 Sample',
+        source: 'emby',
+        copyId: 'emby:http://media.local:8096:item-301',
+        serverName: 'Main',
+        serverUrl: 'http://media.local:8096',
+        serverId: 'main',
+        itemId: 'item-301',
+        fileName: 'ABC-301 Sample',
+        folderPath: '/movies/ABC-301.mkv',
+        watchedAt: 1234,
+      });
+      expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
+        success: true,
+        played: true,
+        localIndexUpdated: true,
+        cleanupAdded: true,
+      }));
+    });
+
+    it('标记已看：证据非 watched → 不入队、响应不传 cleanupAdded（守卫）', async () => {
+      const sendResponse = vi.fn();
+      const fetchImpl = createFetchMock(async () => new Response('{}', { status: 200 }));
+      const deps = makeAc4Deps(fetchImpl, ac4State);
+
+      await handleEmbyLibrarySetPlayed(
+        { itemId: 'item-301', serverUrl: 'http://media.local:8096/', played: true },
+        sendResponse,
+        deps,
+      );
+
+      expect(reportWatchProgress).toHaveBeenCalledTimes(1);
+      expect(enqueueCompletedPlayback).not.toHaveBeenCalled();
+      const resp = sendResponse.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(resp.success).toBe(true);
+      expect('cleanupAdded' in resp).toBe(false);
+    });
+
+    it('取消标记：零行为变化（不写证据、不入队、本地索引照常更新）', async () => {
+      const sendResponse = vi.fn();
+      const fetchImpl = createFetchMock(async () => new Response('{}', { status: 200 }));
+      const deps = makeAc4Deps(fetchImpl, ac4State);
+
+      await handleEmbyLibrarySetPlayed(
+        { itemId: 'item-301', serverUrl: 'http://media.local:8096/', played: false },
+        sendResponse,
+        deps,
+      );
+
+      expect(fetchImpl).toHaveBeenCalledWith(
+        'http://media.local:8096/Users/user-1/PlayedItems/item-301',
+        expect.objectContaining({ method: 'DELETE' }),
+      );
+      expect(reportWatchProgress).not.toHaveBeenCalled();
+      expect(enqueueCompletedPlayback).not.toHaveBeenCalled();
+      expect(deps.saveState).toHaveBeenCalledTimes(1);
+      const resp = sendResponse.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(resp.success).toBe(true);
+      expect(resp.localIndexUpdated).toBe(true);
+      expect('cleanupAdded' in resp).toBe(false);
+    });
+
+    it('标记已看：入队失败吞错，响应 cleanupAdded=false（不反向伪装写回失败）', async () => {
+      vi.mocked(reportWatchProgress).mockResolvedValueOnce({
+        source: 'emby',
+        percent: 100,
+        watched: true,
+        lastPlayedAt: 1234,
+      });
+      vi.mocked(enqueueCompletedPlayback).mockRejectedValueOnce(new Error('boom'));
+      const sendResponse = vi.fn();
+      const fetchImpl = createFetchMock(async () => new Response('{}', { status: 200 }));
+      const deps = makeAc4Deps(fetchImpl, ac4State);
+
+      await handleEmbyLibrarySetPlayed(
+        { itemId: 'item-301', serverUrl: 'http://media.local:8096/', played: true },
+        sendResponse,
+        deps,
+      );
+
+      expect(enqueueCompletedPlayback).toHaveBeenCalledTimes(1);
+      expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({
+        success: true,
+        localIndexUpdated: true,
+        cleanupAdded: false,
+      }));
+    });
+  });
+
+  // AC8 removedServerKeys 收集语义修正（10-22）：
+  // 旧=「任一 entry 对账后消失 → 整服务器 key 入集」（投毒路径：仍启用且同步成功的
+  // 服务器上任何一次真实外部删除都会把整服务器投毒进豁免集）；
+  // 新=集合差（previous 快照全部条目的服务器 key − 当前配置启用服务器 key 集合），
+  // 仅「服务器被移出配置 / 改地址」入集。豁免谓词（mediaCleanupSync）零改动。
+  describe('AC8 外部删除豁免集合（10-22）', () => {
+    const processCleanupSync = vi.fn(async () => ({ enqueuedCount: 0, baselineCount: 0 }));
+
+    it('仍启用且同步成功的服务器：条目消失不投毒豁免集', async () => {
+      const sendResponse = vi.fn();
+      const fetchImpl = createFetchMock(async () => new Response(JSON.stringify({
+        Items: [{ Id: 'item-new', Name: 'NEW-001', Path: '/movies/NEW-001.mkv' }],
+      }), { status: 200 }));
+      const previousState: EmbyLibraryState = {
+        entries: {
+          'ABC-111': [{
+            serverType: 'emby',
+            serverName: 'Main',
+            serverUrl: 'http://media.local:8096',
+            itemId: 'item-old-watched',
+            itemName: 'ABC-111',
+            userData: { played: true, positionTicks: 0, runtimeTicks: 100, percent: 100, lastPlayedAt: 100 },
+            updatedAt: 500,
+          }],
+        },
+        updatedAt: 500,
+      };
+      const deps = { ...createDeps(fetchImpl, previousState), processCleanupSync };
+
+      await handleEmbyLibrarySync({ manual: true }, sendResponse, deps);
+
+      expect(processCleanupSync).toHaveBeenCalledTimes(1);
+      const arg = processCleanupSync.mock.calls[0]?.[0] as { removedServerKeys: ReadonlySet<string> };
+      expect(arg.removedServerKeys).toEqual(new Set());
+    });
+
+    it('服务器移出配置：旧 key 入集（语义保持锁）', async () => {
+      const sendResponse = vi.fn();
+      const fetchImpl = createFetchMock(async () => new Response(JSON.stringify({ Items: [] }), { status: 200 }));
+      const previousState: EmbyLibraryState = {
+        entries: {
+          'OLD-001': [{
+            serverType: 'emby',
+            serverName: 'Old',
+            serverUrl: 'http://old.local:8096',
+            itemId: 'item-old-1',
+            itemName: 'OLD-001',
+            userData: { played: true, positionTicks: 0, runtimeTicks: 100, percent: 100, lastPlayedAt: 100 },
+            updatedAt: 500,
+          }],
+        },
+        updatedAt: 500,
+      };
+      const deps = { ...createDeps(fetchImpl, previousState), processCleanupSync };
+
+      await handleEmbyLibrarySync({ manual: true }, sendResponse, deps);
+
+      expect(processCleanupSync).toHaveBeenCalledTimes(1);
+      const arg = processCleanupSync.mock.calls[0]?.[0] as { removedServerKeys: ReadonlySet<string> };
+      expect(arg.removedServerKeys).toEqual(new Set(['emby:http://old.local:8096']));
+    });
+
+    it('仍启用但本次失败的服务器：不入集（条目由对账保留）', async () => {
+      const failServer: EmbyMediaServer = {
+        id: 'fail',
+        type: 'emby',
+        name: 'Fail',
+        url: 'http://fail.local:8096',
+        apiKey: 'api-fail',
+        enabled: true,
+      };
+      const sendResponse = vi.fn();
+      const fetchImpl = createFetchMock(async (input) => {
+        const url = String(input);
+        if (url.startsWith('http://fail.local:8096')) throw new Error('fetch failed');
+        return new Response(JSON.stringify({ Items: [] }), { status: 200 });
+      });
+      const previousState: EmbyLibraryState = {
+        entries: {
+          'FL-001': [{
+            serverType: 'emby',
+            serverName: 'Fail',
+            serverUrl: 'http://fail.local:8096',
+            itemId: 'item-fail-1',
+            itemName: 'FL-001',
+            userData: { played: true, positionTicks: 0, runtimeTicks: 100, percent: 100, lastPlayedAt: 100 },
+            updatedAt: 500,
+          }],
+        },
+        updatedAt: 500,
+      };
+      const deps = {
+        ...createDeps(fetchImpl, previousState),
+        getSettings: vi.fn(async () => ({
+          emby: {
+            mediaServers: [server, failServer],
+            libraryStatus: { enabled: true, showOnList: true, showOnDetail: true },
+          },
+        })),
+        processCleanupSync,
+      };
+
+      await handleEmbyLibrarySync({ manual: true }, sendResponse, deps);
+
+      expect(processCleanupSync).toHaveBeenCalledTimes(1);
+      const arg = processCleanupSync.mock.calls[0]?.[0] as { removedServerKeys: ReadonlySet<string> };
+      expect(arg.removedServerKeys).toEqual(new Set());
+    });
+
+    it('getServerIndexKey/getEntryServerIndexKey 格式一致性（单测锁）', () => {
+      expect(getServerIndexKey({ type: 'emby', url: 'http://media.local:8096/' }))
+        .toBe(getEntryServerIndexKey({ serverType: 'emby', serverUrl: 'http://media.local:8096' }));
+      expect(getServerIndexKey({ type: 'jellyfin', url: 'http://jf.local:8096/' }))
+        .toBe(getEntryServerIndexKey({ serverType: 'jellyfin', serverUrl: 'http://jf.local:8096' }));
+      expect(getServerIndexKey({ type: 'emby', url: 'http://media.local:8096/' }))
+        .toBe('emby:http://media.local:8096');
+    });
   });
 });
