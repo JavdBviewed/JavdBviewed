@@ -73,10 +73,18 @@ function isNonEmptyString(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+let cloudPendingSkipCount = 0;
+
+/** 仅测试/诊断读取：不满足推送条件（无会话且无已存凭据）被跳过的入队次数（10-22 首登 base 种子） */
+export function getCloudPendingSkipCount(): number {
+  return cloudPendingSkipCount;
+}
+
 /**
  * 判断当前是否具备 Cloud 推送条件：存在会话，或已保存凭据（baseUrl + accountIdentifier）。
  * 每次入队前直接读 storage，不做任何缓存，避免登录后漏入队；
- * 不满足条件时跳过入队——首次登录时 ensureInitialPending 会从本地全量重建，无数据丢失。
+ * 不满足条件时跳过入队并累计跳队计数（getCloudPendingSkipCount）——
+ * 首次登录时 ensureInitialPending 会以本地全量快照 ∪ 当前 delta 重建 base 种子，无数据丢失。
  */
 async function canQueuePending(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -136,7 +144,11 @@ export async function listCloudPending(): Promise<SyncEntity[]> {
 export async function upsertCloudPending(entities: SyncEntity[]): Promise<void> {
   const syncableEntities = entities.filter((entity) => !UNSYNCABLE_LOG_TYPES.has(entity.type));
   if (!syncableEntities.length) return;
-  if (!(await canQueuePending())) return;
+  if (!(await canQueuePending())) {
+    cloudPendingSkipCount += 1;
+    console.warn('[cloudSync] 入队跳过：无 Cloud 会话且无已存凭据（首登由 ensureInitialPending 全量 base 种子兜底）');
+    return;
+  }
   await enqueuePendingMutation(async () => {
     const pending = await readPendingStorage();
     const effective = new Map(
@@ -198,20 +210,24 @@ async function hasSyncCursors(): Promise<boolean> {
 }
 
 /**
- * 首次同步：pending 为空且本设备尚无同步游标时，把当前本地全量实体入队，便于首推到空 Cloud。
+ * 首次同步：本设备尚无同步游标且本地快照非空时，以「全量快照 ∪ 当前 delta（同键 delta 优先）」
+ * 种子化 base，便于首推到空 Cloud。登录动作自身写入的脏键（settings/清理态等）并入 base，
+ * 不再因 pending 非空而整批跳过，也不清空 delta 导致脏键丢失。
  * 已完成过同步（有游标）的设备不再重播全量 base：否则 pending 每次同步清空后，
  * 每次静默同步都会整包重推本地状态，陈旧 settings 整 blob 会以 LWW 冲掉其它设备的新变更。
+ * 首同步失败（游标未写）时下次同步可重播种子，同内容服务端 merged no-op 保证幂等。
  */
 export async function ensureInitialPending(snapshot: SyncEntity[]): Promise<number> {
   return enqueuePendingMutation(async () => {
-    const pending = await readPendingStorage();
-    if (mergePending(pending.base, pending.delta).length > 0) return 0;
     if (await hasSyncCursors()) return 0;
     if (!snapshot.length) return 0;
+    const pending = await readPendingStorage();
+    const merged = mergePending(snapshot, pending.delta);
+    if (!merged.length) return 0;
     await writePending({
-      [CLOUD_PENDING_STORAGE_KEY]: [...snapshot],
+      [CLOUD_PENDING_STORAGE_KEY]: merged,
       [CLOUD_PENDING_DELTA_STORAGE_KEY]: {},
     });
-    return snapshot.length;
+    return merged.length;
   });
 }

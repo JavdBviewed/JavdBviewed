@@ -246,8 +246,14 @@ describe('chromePendingStore', () => {
 
       const enqueued = await ensureInitialPending([{ type: 'video', id: 'ABP-LOCAL' }] as any);
 
-      expect(enqueued).toBe(0);
-      expect(await listCloudPending()).toEqual([{ type: 'video', id: 'ABP-X' }]);
+      // 10-22 首登 base 种子：cursors 空 + 快照非空 → base=全量快照 ∪ 当前 delta（同键 delta 优先）。
+      // 他上下文写入的 delta 条目保留并入 base；旧行为「pending 非空即整批跳过」由本用例翻转。
+      expect(enqueued).toBe(2);
+      expect(storedValues[PENDING_DELTA_KEY]).toEqual({});
+      expect(await listCloudPending()).toEqual([
+        { type: 'video', id: 'ABP-LOCAL' },
+        { type: 'video', id: 'ABP-X' },
+      ]);
     });
   });
 
@@ -274,6 +280,103 @@ describe('chromePendingStore', () => {
 
       expect(enqueued).toBe(0);
       expect(await listCloudPending()).toEqual([]);
+    });
+  });
+
+  describe('first-login base seed with dirty delta (10-22)', () => {
+    it('seeds base = full snapshot union dirty delta and returns the merged count, same key delta wins', async () => {
+      storedValues[PENDING_DELTA_KEY] = {
+        'video\u0000ABP-DUP': { type: 'video', id: 'ABP-DUP', payload: { v: 2 } },
+      };
+      const { ensureInitialPending, listCloudPending } = await import('./chromePendingStore');
+
+      const enqueued = await ensureInitialPending([
+        { type: 'video', id: 'ABP-DUP', payload: { v: 1 } },
+        { type: 'video', id: 'ABP-LOCAL' },
+      ] as any);
+
+      expect(enqueued).toBe(2);
+      expect(storedValues[PENDING_KEY]).toEqual([
+        { type: 'video', id: 'ABP-DUP', payload: { v: 2 } },
+        { type: 'video', id: 'ABP-LOCAL' },
+      ]);
+      expect(storedValues[PENDING_DELTA_KEY]).toEqual({});
+      expect(await listCloudPending()).toEqual([
+        { type: 'video', id: 'ABP-DUP', payload: { v: 2 } },
+        { type: 'video', id: 'ABP-LOCAL' },
+      ]);
+    });
+
+    it('does not seed when the snapshot is empty even if the delta holds dirty keys', async () => {
+      storedValues[PENDING_DELTA_KEY] = { 'video\u0000ABP-X': { type: 'video', id: 'ABP-X' } };
+      const { ensureInitialPending, listCloudPending } = await import('./chromePendingStore');
+
+      const enqueued = await ensureInitialPending([]);
+
+      expect(enqueued).toBe(0);
+      expect(storedValues[PENDING_KEY]).toEqual([]);
+      // 脏键保留在 delta 等待正常推送，不并入 base
+      expect(storedValues[PENDING_DELTA_KEY]).toEqual({ 'video\u0000ABP-X': { type: 'video', id: 'ABP-X' } });
+      expect(await listCloudPending()).toEqual([{ type: 'video', id: 'ABP-X' }]);
+    });
+
+    it('replays the seed when the first sync failed and cursors were never written (idempotent re-seed)', async () => {
+      storedValues[PENDING_KEY] = [{ type: 'video', id: 'ABP-PREV' }];
+      storedValues[PENDING_DELTA_KEY] = { 'video\u0000ABP-DIRTY': { type: 'video', id: 'ABP-DIRTY' } };
+      const { ensureInitialPending, listCloudPending } = await import('./chromePendingStore');
+
+      const enqueued = await ensureInitialPending([
+        { type: 'video', id: 'ABP-PREV' },
+        { type: 'video', id: 'ABP-LOCAL' },
+      ] as any);
+
+      expect(enqueued).toBe(3);
+      expect(storedValues[PENDING_KEY]).toEqual([
+        { type: 'video', id: 'ABP-PREV' },
+        { type: 'video', id: 'ABP-LOCAL' },
+        { type: 'video', id: 'ABP-DIRTY' },
+      ]);
+      expect(storedValues[PENDING_DELTA_KEY]).toEqual({});
+      expect(await listCloudPending()).toHaveLength(3);
+    });
+  });
+
+  describe('queue skip observability (10-22)', () => {
+    it('counts a skipped enqueue when there is neither session nor credentials', async () => {
+      delete storedValues[SESSION_KEY];
+      const { getCloudPendingSkipCount, upsertCloudPending } = await import('./chromePendingStore');
+
+      const before = getCloudPendingSkipCount();
+      await upsertCloudPending([{ type: 'video', id: 'ABP-001' }] as any);
+
+      expect(storedValues[PENDING_DELTA_KEY]).toBeUndefined();
+      expect(getCloudPendingSkipCount()).toBe(before + 1);
+    });
+
+    it('does not count a skip when saved credentials allow the enqueue', async () => {
+      delete storedValues[SESSION_KEY];
+      storedValues[SETTINGS_KEY] = { baseUrl: 'http://127.0.0.1:18080', accountIdentifier: 'alice' };
+      const { getCloudPendingSkipCount, upsertCloudPending } = await import('./chromePendingStore');
+
+      const before = getCloudPendingSkipCount();
+      await upsertCloudPending([{ type: 'video', id: 'ABP-001' }] as any);
+
+      expect(storedValues[PENDING_DELTA_KEY]).toEqual({
+        'video\u0000ABP-001': { type: 'video', id: 'ABP-001' },
+      });
+      expect(getCloudPendingSkipCount()).toBe(before);
+    });
+
+    it('does not count a skip when a session is present', async () => {
+      const { getCloudPendingSkipCount, upsertCloudPending } = await import('./chromePendingStore');
+
+      const before = getCloudPendingSkipCount();
+      await upsertCloudPending([{ type: 'video', id: 'ABP-001' }] as any);
+
+      expect(storedValues[PENDING_DELTA_KEY]).toEqual({
+        'video\u0000ABP-001': { type: 'video', id: 'ABP-001' },
+      });
+      expect(getCloudPendingSkipCount()).toBe(before);
     });
   });
 });
