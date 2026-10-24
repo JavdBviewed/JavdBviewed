@@ -139,3 +139,6 @@ scripts/shootDashboardTabs.ts
 scripts/readSettingsProbe.mts
 scripts/siteverify/
 tests/extension-e2e/_tmp*
+
+# syncthing 冲突残留（自动清理对象，禁止入库）
+*.sync-conflict-*
