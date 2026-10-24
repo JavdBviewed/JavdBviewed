@@ -107,8 +107,9 @@ export function createMediaStateFilterRuntime(
     recompute(key);
     loaded = true;
 
-    // 双次渲染语义（M1 报备 3）：首次加载或版本变更且 chip 激活 → 触发重滤对齐列表。
-    if ((firstLoad || versionChanged) && anyActive()) {
+    // 双次渲染语义（M1 报备 3）：首次加载或版本变更且（chip 激活 或 存在派生命中）→ 触发回调对齐列表
+    // （10-24 state-dict：未激活且有命中时由接线侧补一次渲染，供派生 chip 上卡）。
+    if ((firstLoad || versionChanged) && (anyActive() || (hits !== null && hits.size > 0))) {
       options.onIndicesChanged();
     }
   };

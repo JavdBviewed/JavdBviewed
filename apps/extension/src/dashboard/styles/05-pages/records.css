@@ -1591,6 +1591,52 @@
     border: 1px solid #bee5eb;
 }
 
+/* 10-24 state-dict：派生态 chip（已入库/真实已看），与 .status-* 徽章体系协调，全 var() 日夜自适应 */
+.media-state-chip-inlibrary,
+.media-state-chip-realwatched {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: nowrap;
+    align-self: flex-start;
+    margin-top: 2px;
+    margin-left: 6px;
+    border: 1px solid var(--border-primary);
+}
+
+.media-state-chip-inlibrary {
+    background-color: var(--primary-light);
+    color: var(--primary-600);
+}
+
+.media-state-chip-realwatched {
+    background-color: var(--success-light);
+    color: var(--success-hover);
+}
+
+/* 卡片视图：chip 贴徽章下方（徽章 top:8px），同悬浮态 */
+#videoList.card-view .media-state-chip-inlibrary,
+#videoList.card-view .media-state-chip-realwatched {
+    position: absolute;
+    top: 34px;
+    right: 8px;
+    margin: 0;
+    z-index: 3;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+#videoList.card-view .video-item:hover .media-state-chip-inlibrary,
+#videoList.card-view .video-item:hover .media-state-chip-realwatched {
+    opacity: 1;
+}
+
 /* Image Tooltip Styles */
 .image-tooltip {
     position: fixed;

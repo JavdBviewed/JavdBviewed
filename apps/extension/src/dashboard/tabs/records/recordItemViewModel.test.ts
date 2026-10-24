@@ -91,3 +91,66 @@ describe('records item view model', () => {
     expect(listHtml).toContain('status-viewed');
   });
 });
+
+describe('records item status badge chinese label + derived chip (10-24 state-dict)', () => {
+  const baseOptions = {
+    selectedTags: new Set() as Set<string>,
+    selectedListIds: new Set() as Set<string>,
+    listNameById: new Map() as Map<string, string>,
+  };
+
+  it('renders stored status badge with chinese label while keeping the status-* class', () => {
+    const listHtml = buildRecordsItemBaseHtml(record, { viewMode: 'list', ...baseOptions });
+    expect(listHtml).toContain('status-viewed');
+    expect(listHtml).toContain('>已观看</span>');
+    expect(listHtml).not.toContain('>viewed</span>');
+
+    const wantHtml = buildRecordsItemBaseHtml({ ...record, status: 'want' } as VideoRecord, {
+      viewMode: 'list',
+      ...baseOptions,
+    });
+    expect(wantHtml).toContain('status-want');
+    expect(wantHtml).toContain('>想看</span>');
+  });
+
+  it('renders realWatched chip with priority over inLibrary on double hit', () => {
+    const html = buildRecordsItemBaseHtml(record, {
+      viewMode: 'list',
+      ...baseOptions,
+      mediaStateHit: { inLibrary: true, realWatched: true },
+    });
+    expect(html).toContain('media-state-chip-realwatched');
+    expect(html).toContain('真实已看');
+    expect(html).not.toContain('media-state-chip-inlibrary');
+  });
+
+  it('renders inLibrary chip when only inLibrary is hit', () => {
+    const html = buildRecordsItemBaseHtml(record, {
+      viewMode: 'list',
+      ...baseOptions,
+      mediaStateHit: { inLibrary: true, realWatched: false },
+    });
+    expect(html).toContain('media-state-chip-inlibrary');
+    expect(html).toContain('>已入库</span>');
+    expect(html).not.toContain('media-state-chip-realwatched');
+  });
+
+  it('renders no chip on miss or absent hit', () => {
+    expect(buildRecordsItemBaseHtml(record, { viewMode: 'list', ...baseOptions })).not.toContain('media-state-chip');
+    expect(buildRecordsItemBaseHtml(record, {
+      viewMode: 'list',
+      ...baseOptions,
+      mediaStateHit: { inLibrary: false, realWatched: false },
+    })).not.toContain('media-state-chip');
+  });
+
+  it('does not render chip inside card base html (card chip is DOM-side)', () => {
+    const cardHtml = buildRecordsItemBaseHtml(record, {
+      viewMode: 'card',
+      ...baseOptions,
+      mediaStateHit: { inLibrary: true, realWatched: true },
+    });
+    expect(cardHtml).not.toContain('media-state-chip');
+    expect(cardHtml).not.toContain('video-status');
+  });
+});

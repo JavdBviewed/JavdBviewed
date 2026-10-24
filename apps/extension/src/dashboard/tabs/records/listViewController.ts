@@ -1,5 +1,6 @@
 import type { VideoRecord } from '../../../types';
 import type { BindRecordsImageTooltipOptions } from './imageTooltipController';
+import type { MediaStateHit } from './mediaStateFilterModel';
 import { bindRecordsImageTooltip } from './imageTooltipController';
 import {
   createRecordsItemElement,
@@ -44,6 +45,8 @@ export interface CreateRecordsListViewControllerOptions {
   fallbackIconUrl: string;
   escapeHtml?: (value: string) => string;
   bindImageTooltip?: (options: BindRecordsImageTooltipOptions) => void;
+  /** 10-24 state-dict：per-record 媒体库状态命中（未注入=不渲染派生 chip）。 */
+  getMediaStateHit?: (record: VideoRecord) => MediaStateHit | null;
   onToggleRecordSelection: (recordId: string, selected: boolean) => void;
   onFilterChanged: () => void;
   refreshTags: () => void;
@@ -102,6 +105,7 @@ export function createRecordsListViewController(
         coverObserver: options.coverRuntime.getObserver(),
         escapeHtml: options.escapeHtml,
         bindImageTooltip: bindTooltip,
+        mediaStateHit: options.getMediaStateHit?.(record) ?? null,
         onToggleRecordSelection: options.onToggleRecordSelection,
         onToggleTagFilter: (tag) => {
           toggleSetValue(options.selectedTags, tag);

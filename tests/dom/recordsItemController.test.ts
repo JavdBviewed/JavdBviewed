@@ -67,7 +67,8 @@ describe('records item controller', () => {
     expect(row.className).toBe('video-item batch-mode');
     expect(row.dataset.recordId).toBe('ABC-123');
     expect(row.querySelector('.video-controls')).toBeTruthy();
-    expect(row.querySelector('.video-status')?.textContent).toBe('viewed');
+    // 10-24 state-dict：徽章文案中文化（存储态值不变，期望值随契约更新）
+    expect(row.querySelector('.video-status')?.textContent).toBe('已观看');
 
     row.click();
 
@@ -116,7 +117,8 @@ describe('records item controller', () => {
     expect(row.querySelector(':scope > .video-cover')).toBeTruthy();
     expect(row.querySelector('.video-content-wrapper > .video-search-icons')).toBeTruthy();
     expect(row.querySelector(':scope > .video-controls .action-buttons-container')).toBeTruthy();
-    expect(row.querySelector(':scope > .video-status')?.textContent).toBe('viewed');
+    // 10-24 state-dict：徽章文案中文化（存储态值不变，期望值随契约更新）
+    expect(row.querySelector(':scope > .video-status')?.textContent).toBe('已观看');
     expect(options.coverObserver.observe).toHaveBeenCalledWith(row.querySelector('.video-cover-img'));
     expect(options.bindImageTooltip).toHaveBeenCalled();
   });

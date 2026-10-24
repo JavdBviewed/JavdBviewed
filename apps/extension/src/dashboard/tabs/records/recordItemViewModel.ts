@@ -1,4 +1,6 @@
 import type { VideoRecord } from '../../../types';
+import type { MediaStateHit } from './mediaStateFilterModel';
+import { labelOf, resolveMediaStateChip } from './recordsStatusDictionary';
 
 export interface RecordsItemTimeDisplay {
   createdDateText: string;
@@ -13,6 +15,8 @@ export interface RecordsItemBaseHtmlOptions {
   selectedListIds: Set<string>;
   listNameById: Map<string, string>;
   escapeHtml?: (value: string) => string;
+  /** 10-24 state-dict：媒体库状态命中（视图层只收参数，不读 storage）。 */
+  mediaStateHit?: MediaStateHit | null;
 }
 
 export interface RecordsItemListBadgesOptions {
@@ -169,6 +173,10 @@ export function buildRecordsItemBaseHtml(record: VideoRecord, options: RecordsIt
   }
 
   const timeDisplay = buildRecordsItemTimeDisplay(record);
+  const mediaStateChip = resolveMediaStateChip(options.mediaStateHit);
+  const mediaStateChipHtml = mediaStateChip
+    ? `<span class="${mediaStateChip.badgeClass}" title="${escapeHtml(mediaStateChip.hint)}">${escapeHtml(mediaStateChip.label)}</span>`
+    : '';
   return `
     <div class="video-content-wrapper">
       <div class="video-id-container">
@@ -181,6 +189,6 @@ export function buildRecordsItemBaseHtml(record: VideoRecord, options: RecordsIt
       ${titleHtml}
     </div>
     <span class="video-date" title="${escapeHtml(timeDisplay.titleText)}">${timeDisplay.visibleDateText}</span>
-    <span class="video-status status-${escapeHtml(String(record.status))}">${escapeHtml(String(record.status))}</span>
+    <span class="video-status status-${escapeHtml(String(record.status))}">${escapeHtml(labelOf(String(record.status)))}</span>${mediaStateChipHtml}
   `;
 }

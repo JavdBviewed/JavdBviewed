@@ -4,6 +4,8 @@ import { createRecordsActionButtons, type RecordsActionButtonHandler } from './a
 import { createRecordsCoverElement, observeRecordsCoverImage, insertRecordsCoverElement } from './coverController';
 import { bindRecordsImageTooltip, type BindRecordsImageTooltipOptions } from './imageTooltipController';
 import { buildRecordsItemBaseHtml } from './recordItemViewModel';
+import type { MediaStateHit } from './mediaStateFilterModel';
+import { labelOf, resolveMediaStateChip } from './recordsStatusDictionary';
 import { createRecordsSearchIconsContainer } from './searchIconsController';
 
 export interface CreateRecordsItemElementOptions {
@@ -17,6 +19,8 @@ export interface CreateRecordsItemElementOptions {
   searchEngines: unknown;
   fallbackIconUrl: string;
   imageTooltipElement: HTMLDivElement | null;
+  /** 10-24 state-dict：媒体库状态命中（视图层只收参数，不读 storage）。 */
+  mediaStateHit?: MediaStateHit | null;
   coverObserver: Pick<IntersectionObserver, 'observe'> | null | undefined;
   escapeHtml?: (value: string) => string;
   bindImageTooltip?: (options: BindRecordsImageTooltipOptions) => void;
@@ -121,6 +125,7 @@ export function createRecordsItemElement(options: CreateRecordsItemElementOption
 
   row.innerHTML = buildRecordsItemBaseHtml(record, {
     viewMode: options.viewMode,
+    mediaStateHit: options.mediaStateHit,
     selectedTags: options.selectedTags,
     selectedListIds: options.selectedListIds,
     listNameById: options.listNameById,
@@ -141,8 +146,17 @@ export function createRecordsItemElement(options: CreateRecordsItemElementOption
 
     const statusSpan = document.createElement('span');
     statusSpan.className = `video-status status-${record.status}`;
-    statusSpan.textContent = record.status;
+    statusSpan.textContent = labelOf(String(record.status));
     row.appendChild(statusSpan);
+
+    const mediaStateChip = resolveMediaStateChip(options.mediaStateHit);
+    if (mediaStateChip) {
+      const chipElement = document.createElement('span');
+      chipElement.className = mediaStateChip.badgeClass;
+      chipElement.textContent = mediaStateChip.label;
+      chipElement.title = mediaStateChip.hint;
+      row.appendChild(chipElement);
+    }
 
     const controlsDiv = document.createElement('div');
     controlsDiv.className = 'video-controls';

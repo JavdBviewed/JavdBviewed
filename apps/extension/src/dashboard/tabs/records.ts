@@ -31,6 +31,7 @@ import { createRecordsSearchResultCountController } from './records/searchResult
 import { createRecordsRenderCoordinator } from './records/renderCoordinator';
 import { createRecordsDataBackfill } from './records/recordsDataBackfill';
 import { createMediaStateFilterRuntime, type MediaStateFilterRuntime } from './records/mediaStateFilterRuntime';
+import { getMediaStateRecordKey } from './records/mediaStateFilterModel';
 import { bindAdvancedSearchToggleDelegation } from './records/advancedSearchToggleBinding';
 import { collectRecordsPageElements, ensureUntrackedStatusOption } from './records/pageElements';
 import { refreshRecordsSingleRecord } from './records/refreshRecordService';
@@ -519,7 +520,7 @@ export function initRecordsTab(): void {
         // 10-08 修复（288，A1a 竞态）：媒体索引懒载由渲染编排拥有（回填后、过滤前），
         // 不再在 select change 时 fire-and-forget（recompute 依赖 STATE.records，先载=钉死空表）
         prepareMediaState: async () => {
-            if (!isMediaStateSelectValue(filterSelect?.value)) return;
+            // 10-24 state-dict：解除早退门控（无条件 ensureLoaded；runtime 单飞+版本键缓存，已载零成本）
             const rt = mediaStateFilterRuntime;
             if (!rt) return;
             const hits = rt.getHits();
@@ -555,7 +556,15 @@ export function initRecordsTab(): void {
         getInLibraryActive: () => parseMediaStateSelectValue(filterSelect?.value).inLibraryFilterActive,
         getRealWatchedActive: () => parseMediaStateSelectValue(filterSelect?.value).realWatchedFilterActive,
         onIndicesChanged: () => {
-            stateRefreshController.resetAndRender();
+            if (isMediaStateSelectValue(filterSelect?.value)) {
+                // 10-08 既有语义（chip 激活）：重滤+回第一页
+                stateRefreshController.resetAndRender();
+                return;
+            }
+            // 10-24 state-dict：列表已渲染且有命中 → 派生 chip 补一次渲染（不重置页码；M1 双渲染口径，STATUS 已报备）
+            if (hasRenderedRecordsPage) {
+                stateRefreshController.refreshAndRender();
+            }
         },
         logWarning: (message, error) => {
             console.warn(message, error ?? '');
@@ -854,6 +863,15 @@ export function initRecordsTab(): void {
         fallbackIconUrl: chrome.runtime.getURL('assets/alternate-search.png'),
         escapeHtml,
         onToggleRecordSelection: handleRecordSelection,
+        // 10-24 state-dict：per-record 派生命中注入视图层（视图只收参数不读 storage）；
+        // server 模式（IDB/renderServerPage 路径）暂不渲染 chip，与现媒体库筛选现状一致（STATUS 已报备）
+        getMediaStateHit: (record) => {
+            if (serverModeActive) return null;
+            const hits = mediaStateFilterRuntime?.getHits();
+            if (!hits) return null;
+            const key = getMediaStateRecordKey(record);
+            return key ? (hits.get(key) ?? null) : null;
+        },
         onFilterChanged: handleFilterSelectionChanged,
         refreshTags: () => tagsFilterController.refresh(),
         refreshLists: () => listsFilterController.refresh(),
@@ -961,10 +979,8 @@ export function initRecordsTab(): void {
     recordsLifecycleUnregister = dashboardTabLifecycle.register('tab-records', {
         onActive: () => {
             recordsActive = true;
-            // 10-24（10-08 换绑 select）：媒体库状态筛选激活期间回到本 tab → 刷新索引（版本变更则重算重滤）
-            if (isMediaStateSelectValue(filterSelect?.value)) {
-                void mediaStateFilterRuntime?.ensureLoaded();
-            }
+            // 10-24 state-dict：解除门控（无条件 ensureLoaded；runtime 单飞+版本键缓存，已载零成本）
+            void mediaStateFilterRuntime?.ensureLoaded();
         },
         onRestore: () => {
             recordsActive = true;

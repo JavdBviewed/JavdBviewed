@@ -1,5 +1,6 @@
 import type { VideoRecord } from '../../../types';
 import type { ViewedQueryParams } from '../../dbClient';
+import type { MediaStateHit } from './mediaStateFilterModel';
 import type { RecordsAdvancedCondition } from './advancedConditionModel';
 import type { RecordsExportController } from './exportController';
 import {
@@ -41,6 +42,8 @@ export interface CreateRecordsViewRuntimeOptions {
   fallbackIconUrl: string;
   escapeHtml?: (value: string) => string;
   onToggleRecordSelection: (recordId: string, selected: boolean) => void;
+  /** 10-24 state-dict：per-record 媒体库状态命中（未注入=不渲染派生 chip）。 */
+  getMediaStateHit?: (record: VideoRecord) => MediaStateHit | null;
   onFilterChanged: () => void;
   refreshTags: () => void;
   refreshLists: () => void;
@@ -95,6 +98,7 @@ export function createRecordsViewRuntime(options: CreateRecordsViewRuntimeOption
     fallbackIconUrl: options.fallbackIconUrl,
     escapeHtml: options.escapeHtml,
     onToggleRecordSelection: options.onToggleRecordSelection,
+    getMediaStateHit: options.getMediaStateHit,
     onFilterChanged: options.onFilterChanged,
     refreshTags: options.refreshTags,
     refreshLists: options.refreshLists,

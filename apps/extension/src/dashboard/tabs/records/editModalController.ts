@@ -1,4 +1,5 @@
 import type { VideoRecord, VideoStatus } from '../../../types';
+import { RECORDS_STATUS_ENTRIES, isStoredStatusValue } from './recordsStatusDictionary';
 
 type MessageType = 'info' | 'warn' | 'warning' | 'error' | 'success';
 
@@ -134,6 +135,14 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
   const modal = document.createElement('div');
   modal.className = 'edit-record-modal';
 
+  // 10-24 state-dict：字典驱动 6 态下拉（4 存储态可选 / 2 派生态 disabled+「由资料库同步自动判定」）
+  const statusOptionsHtml = RECORDS_STATUS_ENTRIES.map((entry) => {
+    const selected = record.status === entry.value ? 'selected' : '';
+    const disabled = entry.kind === 'derived' ? 'disabled' : '';
+    const label = entry.kind === 'derived' ? `${entry.label}（由资料库同步自动判定）` : entry.label;
+    return `<option value="${entry.value}" ${selected} ${disabled}>${label}</option>`;
+  }).join('\n');
+
   modal.innerHTML = `
     <div class="edit-modal-content">
       <div class="edit-modal-header">
@@ -159,10 +168,7 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
               <div class="form-group">
                 <label for="edit-status">状态:</label>
                 <select id="edit-status">
-                  <option value="${videoStatus.UNTRACKED}" ${record.status === videoStatus.UNTRACKED ? 'selected' : ''}>未标记</option>
-                  <option value="${videoStatus.VIEWED}" ${record.status === videoStatus.VIEWED ? 'selected' : ''}>已观看</option>
-                  <option value="${videoStatus.BROWSED}" ${record.status === videoStatus.BROWSED ? 'selected' : ''}>已浏览</option>
-                  <option value="${videoStatus.WANT}" ${record.status === videoStatus.WANT ? 'selected' : ''}>想看</option>
+                  ${statusOptionsHtml}
                 </select>
               </div>
             </div>
@@ -295,7 +301,7 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
       const jsonData = JSON.parse(jsonTextarea.value);
       idInput.value = jsonData.id || '';
       titleInput.value = jsonData.title || '';
-      statusSelect.value = jsonData.status || videoStatus.UNTRACKED;
+      statusSelect.value = isStoredStatusValue(jsonData.status) ? jsonData.status : videoStatus.UNTRACKED;
       releaseDateInput.value = jsonData.releaseDate || '';
       javdbUrlInput.value = jsonData.javdbUrl || '';
       javdbImageInput.value = jsonData.javdbImage || '';
@@ -444,6 +450,10 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
 
       updatedRecord.id = updatedRecord.id.trim();
       updatedRecord.updatedAt = Date.now();
+      // 10-24 state-dict：派生值永不写回存储（白名单只收 4 存储态，脏值回落 UNTRACKED）
+      if (!isStoredStatusValue(updatedRecord.status)) {
+        updatedRecord.status = videoStatus.UNTRACKED;
+      }
       const result = await options.onSave(updatedRecord, record);
       if (result?.message) {
         options.showMessage(result.message, result.type || 'success');
