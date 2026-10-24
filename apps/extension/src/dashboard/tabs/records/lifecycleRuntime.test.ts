@@ -80,6 +80,7 @@ function pageElements(): RecordsPageElements {
       batchActionsDropdown: element<HTMLDivElement>('batchActionsDropdown'),
       batchModifyListBtn: element<HTMLButtonElement>('batchModifyListBtn'),
       batchAddTagBtn: element<HTMLButtonElement>('batchAddTagBtn'),
+      batchModifyStatusBtn: element<HTMLButtonElement>('batchModifyStatusBtn'),
       batchRefreshBtn: element<HTMLButtonElement>('batchRefreshBtn'),
       batchDeleteBtn: element<HTMLButtonElement>('batchDeleteBtn'),
       cancelBatchBtn: element<HTMLButtonElement>('cancelBatchBtn'),

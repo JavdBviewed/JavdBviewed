@@ -4,6 +4,7 @@ export interface CreateRecordsBatchToolbarControllerOptions {
   batchActionsDropdown?: HTMLElement | null;
   batchModifyListBtn?: HTMLButtonElement | null;
   batchAddTagBtn?: HTMLButtonElement | null;
+  batchModifyStatusBtn?: HTMLButtonElement | null;
   batchRefreshBtn?: HTMLButtonElement | null;
   batchDeleteBtn?: HTMLButtonElement | null;
   cancelBatchBtn?: HTMLButtonElement | null;
@@ -13,6 +14,7 @@ export interface CreateRecordsBatchToolbarControllerOptions {
   onBatchDelete: () => void | Promise<void>;
   onOpenBatchListPicker: () => void | Promise<void>;
   onOpenBatchAddTag: () => void;
+  onBatchModifyStatus: () => void | Promise<void>;
 }
 
 export interface RecordsBatchToolbarController {
@@ -53,6 +55,7 @@ export function createRecordsBatchToolbarController(
     bindDropdownAction(options.batchDeleteBtn, options.batchActionsDropdown, options.onBatchDelete);
     bindDropdownAction(options.batchModifyListBtn, options.batchActionsDropdown, options.onOpenBatchListPicker);
     bindDropdownAction(options.batchAddTagBtn, options.batchActionsDropdown, options.onOpenBatchAddTag);
+    bindDropdownAction(options.batchModifyStatusBtn, options.batchActionsDropdown, options.onBatchModifyStatus);
     options.cancelBatchBtn?.addEventListener('click', options.onClearSelection);
   };
 

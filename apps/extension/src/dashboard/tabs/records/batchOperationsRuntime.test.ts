@@ -32,6 +32,7 @@ describe('records batch operations runtime', () => {
     const batchActionsController = {
       handleBatchRefresh: vi.fn(),
       handleBatchDelete: vi.fn(),
+      handleBatchModifyStatus: vi.fn(),
     };
     const batchToolbarController = {
       bind: vi.fn(),
@@ -73,6 +74,7 @@ describe('records batch operations runtime', () => {
       onClearSelection,
       getRecordById: vi.fn(),
       putRecord: vi.fn(),
+      updateRecordStatus: vi.fn(),
       createListPickerRuntime,
       createBatchAddTagRuntime,
       createBatchAddTagController,
@@ -83,6 +85,7 @@ describe('records batch operations runtime', () => {
     const addTagOptions = createBatchAddTagController.mock.calls[0][0];
     await addTagOptions.onSubmit(['中文字幕']);
     const actionsOptions = createBatchActionsController.mock.calls[0][0];
+    expect(actionsOptions.updateRecordStatus).toBeTypeOf('function');
     actionsOptions.afterMutation();
     const toolbarOptions = createBatchToolbarController.mock.calls[0][0];
     toolbarOptions.onSelectAll();
@@ -91,6 +94,7 @@ describe('records batch operations runtime', () => {
     toolbarOptions.onOpenBatchAddTag();
     await toolbarOptions.onBatchRefresh();
     await toolbarOptions.onBatchDelete();
+    toolbarOptions.onBatchModifyStatus();
 
     expect(runtime.listPickerRuntime).toBe(listPickerRuntime);
     expect(runtime.batchToolbarController).toBe(batchToolbarController);
@@ -111,5 +115,6 @@ describe('records batch operations runtime', () => {
     expect(batchAddTagController.openBatchAddTag).toHaveBeenCalledTimes(1);
     expect(batchActionsController.handleBatchRefresh).toHaveBeenCalledTimes(1);
     expect(batchActionsController.handleBatchDelete).toHaveBeenCalledTimes(1);
+    expect(batchActionsController.handleBatchModifyStatus).toHaveBeenCalledTimes(1);
   });
 });

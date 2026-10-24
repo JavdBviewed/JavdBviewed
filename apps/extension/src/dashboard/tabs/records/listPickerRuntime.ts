@@ -42,13 +42,59 @@ function syncVisibleRecordListIds(records: VideoRecord[], videoIds: string[], li
   }
 }
 
+/**
+ * 清单浮层 body 级动态 modal（10-24）。
+ * 根因说明（防回退）：祖先 .tab-content { contain: layout style }（cycle-9 A1 性能决策，不可动）
+ * 会改变 position:fixed 后代的包含块，使放在 tab 容器内的静态浮层退化成「页面底部内嵌」形态。
+ * 因此浮层不得以静态节点回归 records.html，必须构建后挂 document.body，close 时整体 remove。
+ */
+function buildListPickerModal(documentRef: Document): HTMLElement {
+  const modal = documentRef.createElement('div');
+  modal.className = 'list-picker-panel';
+  modal.innerHTML = `
+    <div class="list-picker-backdrop"></div>
+    <div class="list-picker-content">
+      <div class="list-picker-header">
+        <span class="list-picker-title">选择清单</span>
+        <button class="list-picker-close" type="button"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="list-picker-list"></div>
+      <div class="list-picker-footer list-picker-batch-footer" style="display:none;">
+        <button class="list-picker-done button-like button-primary" type="button">完成</button>
+      </div>
+    </div>
+  `;
+  return modal;
+}
+
 export function createRecordsListPickerRuntime(options: CreateRecordsListPickerRuntimeOptions): RecordsListPickerRuntime {
   const documentRef = options.documentRef || document;
+  let modalEl: HTMLElement | null = null;
   let controller: RecordsListPickerController | null = null;
+  let keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   const close = () => {
-    const panel = documentRef.getElementById('listPickerPanel');
-    if (panel) panel.style.display = 'none';
+    if (modalEl) {
+      modalEl.remove();
+      modalEl = null;
+    }
+    if (keydownHandler) {
+      documentRef.removeEventListener('keydown', keydownHandler);
+      keydownHandler = null;
+    }
+    controller = null;
+  };
+
+  // 每次 open 绑定动态 DOM 的三条关闭路径（Esc / 背景 / 关闭钮）+ batch「完成」钮
+  const bindModalClosePaths = (modal: HTMLElement) => {
+    const onClose = () => close();
+    modal.querySelector('.list-picker-backdrop')?.addEventListener('click', onClose);
+    modal.querySelector('.list-picker-close')?.addEventListener('click', onClose);
+    modal.querySelector('.list-picker-done')?.addEventListener('click', onClose);
+    keydownHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    documentRef.addEventListener('keydown', keydownHandler);
   };
 
   const executeListChange = async (videoIds: string[], listId: string, action: 'add' | 'remove') => {
@@ -72,16 +118,19 @@ export function createRecordsListPickerRuntime(options: CreateRecordsListPickerR
   };
 
   const ensureController = (): RecordsListPickerController | null => {
-    if (controller) return controller;
-    const panel = documentRef.getElementById('listPickerPanel') as HTMLElement | null;
-    const listEl = documentRef.getElementById('listPickerList') as HTMLElement | null;
-    if (!panel || !listEl) return null;
+    if (controller && modalEl && modalEl.isConnected) return controller;
+    close();
+
+    const modal = buildListPickerModal(documentRef);
+    documentRef.body.appendChild(modal);
+    modalEl = modal;
+    bindModalClosePaths(modal);
 
     controller = createRecordsListPickerController({
-      panel,
-      listEl,
-      titleEl: documentRef.getElementById('listPickerTitle') as HTMLElement | null,
-      batchFooter: documentRef.getElementById('listPickerBatchFooter') as HTMLElement | null,
+      panel: modal,
+      listEl: modal.querySelector('.list-picker-list') as HTMLElement,
+      titleEl: modal.querySelector('.list-picker-title') as HTMLElement,
+      batchFooter: modal.querySelector('.list-picker-batch-footer') as HTMLElement,
       selectedRecords: options.selectedRecords,
       getVisibleRecords: options.getVisibleRecords,
       loadLists: options.loadLists,

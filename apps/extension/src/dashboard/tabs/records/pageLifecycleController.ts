@@ -174,9 +174,8 @@ export function bindRecordsPageLifecycle(options: RecordsPageLifecycleOptions): 
 
   options.batchToolbar.bind();
 
-  document.getElementById('listPickerCloseBtn')?.addEventListener('click', () => options.listPickerRuntime.close());
-  document.getElementById('listPickerDoneBtn')?.addEventListener('click', () => options.listPickerRuntime.close());
-  document.querySelector('#listPickerPanel .list-picker-backdrop')?.addEventListener('click', () => options.listPickerRuntime.close());
+  // 清单浮层=body 级动态 modal：关闭路径（Esc/背景/关闭钮/batch 完成钮）在 listPickerRuntime 内按次绑定，
+  // 此处不再对静态元素做一次性接线（10-24）。
 
   options.coverRuntime.ensureTooltipElement();
   options.viewToolbar.update();

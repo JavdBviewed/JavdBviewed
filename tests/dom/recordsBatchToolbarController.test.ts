@@ -13,6 +13,7 @@ function setupDom() {
     <div id="batchActionsDropdown" style="display:none"></div>
     <button id="batchModifyListBtn"></button>
     <button id="batchAddTagBtn"></button>
+    <button id="batchModifyStatusBtn"></button>
     <button id="batchRefreshBtn"></button>
     <button id="batchDeleteBtn"></button>
     <button id="cancelBatchBtn"></button>
@@ -24,6 +25,7 @@ function setupDom() {
     batchActionsDropdown: document.getElementById('batchActionsDropdown') as HTMLDivElement,
     batchModifyListBtn: document.getElementById('batchModifyListBtn') as HTMLButtonElement,
     batchAddTagBtn: document.getElementById('batchAddTagBtn') as HTMLButtonElement,
+    batchModifyStatusBtn: document.getElementById('batchModifyStatusBtn') as HTMLButtonElement,
     batchRefreshBtn: document.getElementById('batchRefreshBtn') as HTMLButtonElement,
     batchDeleteBtn: document.getElementById('batchDeleteBtn') as HTMLButtonElement,
     cancelBatchBtn: document.getElementById('cancelBatchBtn') as HTMLButtonElement,
@@ -43,6 +45,7 @@ describe('records batch toolbar controller', () => {
       onBatchDelete: vi.fn(),
       onOpenBatchListPicker: vi.fn(),
       onOpenBatchAddTag: vi.fn(),
+      onBatchModifyStatus: vi.fn(),
     }).bind();
 
     elements.selectAllCheckbox.dispatchEvent(new Event('change'));
@@ -62,6 +65,7 @@ describe('records batch toolbar controller', () => {
       onBatchDelete: vi.fn(),
       onOpenBatchListPicker: vi.fn(),
       onOpenBatchAddTag: vi.fn(),
+      onBatchModifyStatus: vi.fn(),
     }).bind();
 
     elements.batchActionsBtn.click();
@@ -79,6 +83,7 @@ describe('records batch toolbar controller', () => {
       onBatchDelete: vi.fn(),
       onOpenBatchListPicker: vi.fn(),
       onOpenBatchAddTag: vi.fn(),
+      onBatchModifyStatus: vi.fn(),
     };
     createRecordsBatchToolbarController({
       ...elements,
@@ -91,11 +96,13 @@ describe('records batch toolbar controller', () => {
     elements.batchDeleteBtn.click();
     elements.batchModifyListBtn.click();
     elements.batchAddTagBtn.click();
+    elements.batchModifyStatusBtn.click();
 
     expect(elements.batchActionsDropdown.style.display).toBe('none');
     expect(callbacks.onBatchRefresh).toHaveBeenCalledTimes(1);
     expect(callbacks.onBatchDelete).toHaveBeenCalledTimes(1);
     expect(callbacks.onOpenBatchListPicker).toHaveBeenCalledTimes(1);
     expect(callbacks.onOpenBatchAddTag).toHaveBeenCalledTimes(1);
+    expect(callbacks.onBatchModifyStatus).toHaveBeenCalledTimes(1);
   });
 });

@@ -254,6 +254,9 @@
                     <button class="batch-dropdown-item" id="batchAddTagBtn">
                         <i class="fas fa-tag"></i> 批量添加标签
                     </button>
+                    <button class="batch-dropdown-item" id="batchModifyStatusBtn">
+                        <i class="fas fa-flag"></i> 批量修改状态
+                    </button>
                 </div>
             </div>
             <button class="batch-btn cancel-btn" id="cancelBatchBtn">
@@ -279,18 +282,5 @@
         </div>
     </div>
 
-    <!-- 清单选择浮层（单条/批量共用） -->
-    <div id="listPickerPanel" class="list-picker-panel" style="display:none;">
-        <div class="list-picker-backdrop"></div>
-        <div class="list-picker-content">
-            <div class="list-picker-header">
-                <span id="listPickerTitle">选择清单</span>
-                <button id="listPickerCloseBtn" class="list-picker-close"><i class="fas fa-times"></i></button>
-            </div>
-            <div id="listPickerList" class="list-picker-list"></div>
-            <div class="list-picker-footer" id="listPickerBatchFooter" style="display:none;">
-                <button id="listPickerDoneBtn" class="button-like button-primary">完成</button>
-            </div>
-        </div>
-    </div>
+    <!-- 清单选择浮层：body 级动态 modal，由 listPickerRuntime 构建/挂载（10-24，勿在此加回静态节点，根因见 lists.css 注释） -->
 </div>

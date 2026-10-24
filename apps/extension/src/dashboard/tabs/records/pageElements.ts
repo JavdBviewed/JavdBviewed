@@ -35,6 +35,7 @@ export interface RecordsBatchElements {
   batchActionsDropdown: HTMLDivElement;
   batchModifyListBtn: HTMLButtonElement;
   batchAddTagBtn: HTMLButtonElement;
+  batchModifyStatusBtn: HTMLButtonElement;
   batchRefreshBtn: HTMLButtonElement;
   batchDeleteBtn: HTMLButtonElement;
   cancelBatchBtn: HTMLButtonElement;
@@ -164,6 +165,7 @@ export function collectRecordsPageElements(documentRef: Document = document): Re
       batchActionsDropdown: getById<HTMLDivElement>('batchActionsDropdown'),
       batchModifyListBtn: getById<HTMLButtonElement>('batchModifyListBtn'),
       batchAddTagBtn: getById<HTMLButtonElement>('batchAddTagBtn'),
+      batchModifyStatusBtn: getById<HTMLButtonElement>('batchModifyStatusBtn'),
       batchRefreshBtn: getById<HTMLButtonElement>('batchRefreshBtn'),
       batchDeleteBtn: getById<HTMLButtonElement>('batchDeleteBtn'),
       cancelBatchBtn: getById<HTMLButtonElement>('cancelBatchBtn'),

@@ -135,7 +135,6 @@ export function createRecordsListPickerController(
       });
     }
 
-    options.panel.style.display = '';
   };
 
   return {

@@ -33,7 +33,7 @@ function createList(overrides: Partial<ListRecord> = {}): ListRecord {
 
 function setupDom() {
   document.body.innerHTML = `
-    <div id="listPickerPanel" style="display:none"></div>
+    <div id="listPickerPanel"></div>
     <div id="listPickerTitle"></div>
     <div id="listPickerList"></div>
     <div id="listPickerBatchFooter"></div>
@@ -65,7 +65,6 @@ describe('records list picker controller', () => {
 
     await controller.openSingleRecordPicker(createRecord());
 
-    expect(elements.panel.style.display).toBe('');
     expect(elements.titleEl.textContent).toBe('添加到清单：ABC-123');
     expect(elements.batchFooter.style.display).toBe('none');
     const selectedItem = elements.listEl.querySelector('.list-picker-item.selected') as HTMLElement;

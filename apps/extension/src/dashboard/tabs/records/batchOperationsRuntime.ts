@@ -1,4 +1,4 @@
-import type { ListRecord, VideoRecord } from '../../../types';
+import type { ListRecord, VideoRecord, VideoStatus } from '../../../types';
 import {
   createRecordsBatchActionsController,
   type RecordsBatchActionsController,
@@ -51,6 +51,7 @@ export interface CreateRecordsBatchOperationsRuntimeOptions {
     | 'batchActionsDropdown'
     | 'batchModifyListBtn'
     | 'batchAddTagBtn'
+    | 'batchModifyStatusBtn'
     | 'batchRefreshBtn'
     | 'batchDeleteBtn'
     | 'cancelBatchBtn'
@@ -59,6 +60,7 @@ export interface CreateRecordsBatchOperationsRuntimeOptions {
   onClearSelection: () => void;
   getRecordById: (id: string) => Promise<VideoRecord | undefined>;
   putRecord: (record: VideoRecord) => Promise<unknown>;
+  updateRecordStatus: (recordId: string, status: VideoStatus) => Promise<void>;
   createListPickerRuntime?: CreateListPickerRuntime;
   createBatchAddTagRuntime?: CreateBatchAddTagRuntime;
   createBatchAddTagController?: CreateBatchAddTagController;
@@ -114,6 +116,7 @@ export function createRecordsBatchOperationsRuntime(
     getSelectedIds: options.getSelectedIds,
     refreshRecord: options.refreshRecord,
     deleteRecords: options.deleteRecords,
+    updateRecordStatus: options.updateRecordStatus,
     clearSelection: options.clearSelection,
     afterMutation: options.afterMutation,
     showMessage: options.showMessage,
@@ -127,6 +130,7 @@ export function createRecordsBatchOperationsRuntime(
     onBatchDelete: () => batchActionsController.handleBatchDelete(),
     onOpenBatchListPicker: () => listPickerRuntime.openBatch(),
     onOpenBatchAddTag: () => batchAddTagController.openBatchAddTag(),
+    onBatchModifyStatus: () => batchActionsController.handleBatchModifyStatus(),
   });
 
   return {

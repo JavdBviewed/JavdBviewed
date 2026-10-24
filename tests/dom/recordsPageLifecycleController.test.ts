@@ -23,9 +23,6 @@ function setupDom() {
     <input id="labelsFilterInput" /><div id="labelsFilterDropdown" style="display:none"></div>
     <input id="makersFilterInput" /><div id="makersFilterDropdown" style="display:none"></div>
     <input id="directorsFilterInput" /><div id="directorsFilterDropdown" style="display:none"></div>
-    <button id="listPickerCloseBtn"></button>
-    <button id="listPickerDoneBtn"></button>
-    <div id="listPickerPanel"><div class="list-picker-backdrop"></div></div>
   `;
 
   return {
@@ -193,60 +190,5 @@ describe('records page lifecycle controller', () => {
       'updateFilteredRecords',
       'render',
     ]);
-  });
-
-  it('invokes list picker close through the runtime object', () => {
-    const elements = setupDom();
-    const { mark } = createCalls();
-    const listPickerRuntime = {
-      closed: 0,
-      close() {
-        this.closed += 1;
-      },
-    };
-
-    bindRecordsPageLifecycle({
-      elements,
-      getRecordsPerPage: () => 10,
-      setRecordsPerPage: mark('setRecordsPerPage'),
-      persistRecordsPerPage: mark('persistRecordsPerPage'),
-      resetCurrentPage: mark('resetCurrentPage'),
-      updateFilteredRecords: mark('updateFilteredRecords'),
-      render: mark('render'),
-      syncDropdownBackdrop: mark('syncDropdownBackdrop'),
-      triggerSuggest: mark('triggerSuggest'),
-      triggerFilter: mark('triggerFilter'),
-      viewToolbar: { bind: mark('viewToolbar.bind'), update: mark('viewToolbar.update') },
-      batchToolbar: { bind: mark('batchToolbar.bind') },
-      searchSuggest: { bind: mark('searchSuggest.bind') },
-      filters: {
-        tags: { bind: mark('tags.bind'), render: mark('tags.render') },
-        lists: { bind: mark('lists.bind'), render: mark('lists.render') },
-        series: { bind: mark('series.bind') },
-        labels: { bind: mark('labels.bind') },
-        makers: { bind: mark('makers.bind') },
-        directors: { bind: mark('directors.bind') },
-      },
-      advancedConditions: {
-        addCondition: mark('advanced.addCondition'),
-        parseFromUI: vi.fn(() => []),
-        clear: mark('advanced.clear'),
-        bindQuickTimeControls: mark('advanced.bindQuickTimeControls'),
-        addQuickTimeCondition: mark('advanced.addQuickTimeCondition'),
-      },
-      addAdvancedCondition: mark('addAdvancedCondition'),
-      setAdvancedConditions: mark('setAdvancedConditions'),
-      listPickerRuntime,
-      coverRuntime: { ensureTooltipElement: mark('cover.ensureTooltipElement') },
-      handleExportRecords: mark('handleExportRecords'),
-      updateBatchUI: mark('updateBatchUI'),
-      debounce: (fn) => fn,
-    });
-
-    document.getElementById('listPickerCloseBtn')?.click();
-    document.getElementById('listPickerDoneBtn')?.click();
-    document.querySelector<HTMLElement>('#listPickerPanel .list-picker-backdrop')?.click();
-
-    expect(listPickerRuntime.closed).toBe(3);
   });
 });

@@ -130,6 +130,7 @@ export function initRecordsTab(): void {
         batchActionsDropdown,
         batchModifyListBtn,
         batchAddTagBtn,
+        batchModifyStatusBtn,
         batchRefreshBtn,
         batchDeleteBtn,
         cancelBatchBtn,
@@ -388,6 +389,7 @@ export function initRecordsTab(): void {
             batchActionsDropdown,
             batchModifyListBtn,
             batchAddTagBtn,
+            batchModifyStatusBtn,
             batchRefreshBtn,
             batchDeleteBtn,
             cancelBatchBtn,
@@ -399,6 +401,12 @@ export function initRecordsTab(): void {
             return dbViewedGet(id);
         },
         putRecord: dbViewedPut,
+        updateRecordStatus: async (recordId, status) => {
+            const record = await dbViewedGet(recordId);
+            if (!record) throw new Error(`记录不存在: ${recordId}`);
+            record.status = status;
+            await dbViewedPut(record);
+        },
     });
     const viewToolbarController = createRecordsViewToolbarController({
         toggleCoversBtn,

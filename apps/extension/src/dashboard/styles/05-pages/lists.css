@@ -334,7 +334,11 @@
     color: #0891b2;
 }
 
-/* ===== 清单选择浮层（番号库用）===== */
+/* ===== 清单选择浮层（番号库用）=====
+   10-24：浮层改为 body 级动态 modal（listPickerRuntime 构建后 append 到 document.body）。
+   根因说明（防回退）：祖先 .tab-content { contain: layout style }（cycle-9 A1 性能决策，不可动）
+   会改变 position:fixed 后代的包含块，静态浮层放 tab 容器内会退化成「页面底部内嵌」形态；
+   浮层必须挂 body 才能视口级居中，勿回退为 records.html 静态节点。 */
 .list-picker-panel {
     position: fixed;
     top: 0;
@@ -343,9 +347,8 @@
     height: 100%;
     z-index: 10000;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: center;
-    padding-top: 60px;
 }
 
 .list-picker-backdrop {
