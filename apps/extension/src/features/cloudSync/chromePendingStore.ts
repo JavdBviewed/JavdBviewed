@@ -196,7 +196,7 @@ export async function clearCloudPending(
  * 本设备是否已有同步游标（engine 在成功完成 session 后写入）：
  * 有游标 = 已与当前云账号完成过同步，不再是「首次同步」。
  */
-async function hasSyncCursors(): Promise<boolean> {
+export async function hasSyncCursors(): Promise<boolean> {
   return new Promise((resolve) => {
     try {
       chrome.storage.local.get([CLOUD_CURSORS_STORAGE_KEY], (res) => {

@@ -38,6 +38,7 @@ import {
 } from './cloudSettingsStorage';
 import { markCloudStorageWrite } from './storageChangeGate';
 import { shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
+import type { TypeCountMap } from './syncStats';
 import { mergeMediaCleanupStorageValue } from '../mediaCleanup';
 import { mergeEmbyMediaServersForPull, stripEmbySessionFieldsFromValue } from '../../shared/embyMediaServerSync';
 import { mergeDrive115SessionForPull } from '../../shared/drive115SessionSync';
@@ -354,6 +355,86 @@ export async function collectLocalSyncEntities(): Promise<SyncEntity[]> {
   }
 
   return out;
+}
+
+/**
+ * chrome.storage.local 键名列表（不读值）。读取失败返回空列表，不阻断统计。
+ */
+function getChromeStorageKeys(): Promise<string[]> {
+  return new Promise((resolve) => {
+    try {
+      chrome.storage.local.getKeys((keys) => resolve(keys || []));
+    } catch {
+      resolve([]);
+    }
+  });
+}
+
+/**
+ * 本地可同步实体轻量计数（10-24 风险 A）：
+ * IDB 走 count() 零记录体传输；chrome.storage 小键直读计数；
+ * storage_item 仅 getKeys + 策略过滤计数，不读值。
+ * 口径注：count() 不剔除缺 id/key 的失效记录（仅 UI 展示统计，不影响同步语义）。
+ */
+export async function countLocalSyncEntities(): Promise<{ total: number; byType: TypeCountMap }> {
+  const byType: TypeCountMap = {};
+  const add = (type: string, n: number): void => {
+    if (n > 0) byType[type] = (byType[type] ?? 0) + n;
+  };
+
+  const db = await initDB();
+  const idbPairs = [
+    ["viewedRecords", "video"],
+    ["actors", "actor"],
+    ["lists", "list"],
+    ["newWorks", "new_work"],
+    ["magnets", "magnet"],
+    ["insightsViews", "insights_view"],
+    ["insightsReports", "insights_report"],
+    ["newWorksDailyStats", "new_work_daily_stat"],
+  ] as const;
+  for (const [store, type] of idbPairs) {
+    try {
+      add(type, await db.count(store));
+    } catch {
+      // 忽略：本地库可能缺少该表
+    }
+  }
+
+  try {
+    const subs = await getValue<Record<string, unknown>>(STORAGE_KEYS.NEW_WORKS_SUBSCRIPTIONS, {});
+    add("new_work_subscription", Object.keys(subs || {}).length);
+  } catch {
+    // 忽略：本地资产缺失不阻断统计
+  }
+
+  try {
+    const profile = await getValue<unknown>(STORAGE_KEYS.USER_PROFILE, null);
+    add("user_profile", profile ? 1 : 0);
+  } catch {
+    // 忽略：本地资产缺失不阻断统计
+  }
+
+  try {
+    const presets = await getValue<Record<string, unknown> | unknown[]>(STORAGE_KEYS.ADV_SEARCH_PRESETS, {});
+    if (Array.isArray(presets)) {
+      add("search_preset", presets.length);
+    } else if (presets && typeof presets === "object") {
+      add("search_preset", Object.keys(presets).length);
+    }
+  } catch {
+    // 忽略：搜索方案读取失败不阻断统计
+  }
+
+  try {
+    const keys = await getChromeStorageKeys();
+    add("storage_item", keys.filter((key) => shouldSyncStorageItemKey(key)).length);
+  } catch {
+    // 忽略：Chrome Storage 读取失败不阻断统计
+  }
+
+  const total = Object.values(byType).reduce((sum, n) => sum + n, 0);
+  return { total, byType };
 }
 
 /** 本地新作品为硬删除语义：远端墓碑批量删除 */

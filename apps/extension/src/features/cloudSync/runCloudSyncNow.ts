@@ -6,10 +6,11 @@
 import { createSyncEngine, type SyncSessionProgress } from '@javdb/sync-client';
 import type { SyncEntity, SyncSessionCode, SyncSessionStats } from '@javdb/sync-protocol';
 import { createChromeCursorStore } from './chromeCursorStore';
-import { listCloudPending } from './chromePendingStore';
+import { hasSyncCursors, listCloudPending } from './chromePendingStore';
 import { createExtensionCloudClient } from './createExtensionCloudClient';
 import {
   collectLocalSyncEntities,
+  countLocalSyncEntities,
   createExtensionEntityStore,
   preparePushQueueStats,
 } from './extensionEntityStore';
@@ -118,16 +119,34 @@ export async function runCloudSyncNow(
     throw new Error('缺少设备 ID，请重新登录');
   }
 
-  const snapshot = await collectLocalSyncEntities();
+  // 10-24 风险 A：pending 空且游标在位（非首登）时全量本地快照无增量意义
+  // （ensureInitialPending 有游标即 no-op，引擎推送走 pending 队列），
+  // 改轻量计数保持 UI 统计保真；同步语义零改动。
+  const pendingBefore = await listCloudPending();
+  const skipFullSnapshot = pendingBefore.length === 0 && (await hasSyncCursors());
+  let snapshotForQueue: SyncEntity[];
+  let localEntityCount: number;
+  let localByType: TypeCountMap;
+  if (skipFullSnapshot) {
+    const counts = await countLocalSyncEntities();
+    snapshotForQueue = [];
+    localEntityCount = counts.total;
+    localByType = counts.byType;
+  } else {
+    const snapshot = await collectLocalSyncEntities();
+    snapshotForQueue = snapshot;
+    localEntityCount = snapshot.length;
+    localByType = countByType(snapshot);
+  }
   if (options.signal?.aborted) throw new DOMException('同步已取消', 'AbortError');
-  const localByType = countByType(snapshot);
-  const prep = await preparePushQueueStats();
+  // 非跳过路径复用已采快照传入，消除二次全量采集（零语义变化）
+  const prep = await preparePushQueueStats(snapshotForQueue);
   const pending = await listCloudPending();
   const pendingByType = countByType(pending as SyncEntity[]);
   reportProgress(options, {
     stage: 'preparing',
-    localEntityCount: prep.localEntityCount,
-    pendingCount: prep.pendingCount,
+    localEntityCount,
+    pendingCount: pending.length,
   });
 
   const { api } = await createExtensionCloudClient();
@@ -149,7 +168,7 @@ export async function runCloudSyncNow(
   const output: CloudSyncNowResult = {
     pulled: response.stats.downloaded,
     pushed: response.stats.uploaded,
-    localEntityCount: prep.localEntityCount,
+    localEntityCount,
     pendingBefore: prep.pendingCount,
     enqueuedNow: prep.enqueuedNow,
     localByType,

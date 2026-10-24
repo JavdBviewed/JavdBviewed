@@ -9,7 +9,9 @@ const mocks = vi.hoisted(() => ({
   loadSession: vi.fn(),
   loadSettings: vi.fn(),
   listPending: vi.fn(),
+  hasCursors: vi.fn(),
   collectEntities: vi.fn(),
+  countEntities: vi.fn(),
   createEntityStore: vi.fn(),
   prepareQueue: vi.fn(),
   createCursorStore: vi.fn(),
@@ -21,11 +23,15 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@javdb/sync-client', () => ({ createSyncEngine: mocks.createSyncEngine }));
 vi.mock('./chromeTokenStore', () => ({ loadCloudSession: mocks.loadSession }));
 vi.mock('./cloudSettingsStorage', () => ({ loadCloudSettings: mocks.loadSettings }));
-vi.mock('./chromePendingStore', () => ({ listCloudPending: mocks.listPending }));
+vi.mock('./chromePendingStore', () => ({
+  listCloudPending: mocks.listPending,
+  hasSyncCursors: mocks.hasCursors,
+}));
 vi.mock('./chromeCursorStore', () => ({ createChromeCursorStore: mocks.createCursorStore }));
 vi.mock('./createExtensionCloudClient', () => ({ createExtensionCloudClient: mocks.createClient }));
 vi.mock('./extensionEntityStore', () => ({
   collectLocalSyncEntities: mocks.collectEntities,
+  countLocalSyncEntities: mocks.countEntities,
   createExtensionEntityStore: mocks.createEntityStore,
   preparePushQueueStats: mocks.prepareQueue,
 }));
@@ -39,8 +45,10 @@ describe('runCloudSyncNow progress', () => {
     mocks.loadSession.mockResolvedValue({ accessToken: 'access', deviceId: 'device-1' });
     mocks.loadSettings.mockResolvedValue({ deviceId: 'device-1' });
     mocks.collectEntities.mockResolvedValue([{ id: 'snapshot-1', type: 'video' }]);
+    mocks.countEntities.mockResolvedValue({ total: 0, byType: {} });
     mocks.prepareQueue.mockResolvedValue({ localEntityCount: 1, pendingCount: 2, enqueuedNow: 1 });
     mocks.listPending.mockResolvedValue([{ id: 'pending-1', type: 'video' }, { id: 'pending-2', type: 'actor' }]);
+    mocks.hasCursors.mockResolvedValue(false);
     mocks.countByType.mockReturnValue({ video: 1 });
     mocks.createEntityStore.mockReturnValue({});
     mocks.createCursorStore.mockReturnValue({});
@@ -73,7 +81,7 @@ describe('runCloudSyncNow progress', () => {
     const events: Array<Record<string, unknown>> = [];
 
     const result = await runCloudSyncNow({
-      onProgress: (event) => events.push(event),
+      onProgress: (event) => events.push(event as Record<string, unknown>),
     });
 
     expect(events.map((event) => event.stage)).toEqual([
@@ -92,5 +100,43 @@ describe('runCloudSyncNow progress', () => {
       sessionDurationMs: 400,
       averageSessionRateBytesPerSecond: 5_120,
     });
+  });
+
+  it('10-24 风险 A：pending 空 + 游标在位（非首登）→ 跳过全量采集，面板统计走轻量计数', async () => {
+    mocks.listPending.mockResolvedValue([]);
+    mocks.hasCursors.mockResolvedValue(true);
+    mocks.countEntities.mockResolvedValue({ total: 42, byType: { video: 40, list: 2 } });
+
+    const events: Array<Record<string, unknown>> = [];
+    const result = await runCloudSyncNow({
+      onProgress: (event) => events.push(event as Record<string, unknown>),
+    });
+
+    expect(mocks.collectEntities).not.toHaveBeenCalled();
+    expect(mocks.countEntities).toHaveBeenCalledTimes(1);
+    expect(mocks.prepareQueue).toHaveBeenCalledWith([]);
+    expect(result.localEntityCount).toBe(42);
+    expect(result.localByType).toEqual({ video: 40, list: 2 });
+    expect(events[0]).toMatchObject({ stage: 'preparing', localEntityCount: 42, pendingCount: 0 });
+  });
+
+  it('10-24 风险 A：pending 非空 → 全量采集仍执行，且仅一次（不再双采集）', async () => {
+    mocks.listPending.mockResolvedValue([{ id: 'pending-1', type: 'video' }]);
+    mocks.hasCursors.mockResolvedValue(true);
+
+    await runCloudSyncNow();
+
+    expect(mocks.collectEntities).toHaveBeenCalledTimes(1);
+    expect(mocks.prepareQueue).toHaveBeenCalledWith([{ id: 'snapshot-1', type: 'video' }]);
+  });
+
+  it('10-24 风险 A：无游标（首登种子路径）+ pending 空 → 全量采集，首登行为不变', async () => {
+    mocks.listPending.mockResolvedValue([]);
+    mocks.hasCursors.mockResolvedValue(false);
+
+    await runCloudSyncNow();
+
+    expect(mocks.collectEntities).toHaveBeenCalledTimes(1);
+    expect(mocks.prepareQueue).toHaveBeenCalledWith([{ id: 'snapshot-1', type: 'video' }]);
   });
 });

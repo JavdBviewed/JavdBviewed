@@ -594,8 +594,8 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
     'logs',
     'account',
     { backup: true, restore: true, restoreMode: 'merge' },
-    { full: true, incremental: true, entityType: 'log', allowDelete: false },
-    '持久日志需要全量和增量同步。',
+    { full: false, incremental: true, entityType: 'log', allowDelete: false },
+    '不再参与 Cloud 同步（运行时 UNSYNCABLE_LOG_TYPES 过滤弃用）；WebDAV 备份/恢复语义不变。',
   ),
   idbStore(
     'idb.actors',
@@ -626,8 +626,8 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
     'magnetPushLogs',
     'account',
     { backup: true, restore: true, restoreMode: 'merge' },
-    { full: true, incremental: true, entityType: 'magnet_push_log', allowDelete: false },
-    '115 推送日志需要全量和增量同步。',
+    { full: false, incremental: true, entityType: 'magnet_push_log', allowDelete: false },
+    '不再参与 Cloud 同步（运行时 UNSYNCABLE_LOG_TYPES 过滤弃用）；WebDAV 备份/恢复语义不变。',
   ),
   idbStore(
     'idb.insightsViews',

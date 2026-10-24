@@ -5,6 +5,7 @@ import { STORAGE_KEYS } from '../../utils/config';
 import {
   DATA_ASSET_REGISTRY,
   SETTINGS_SENSITIVE_PATH_POLICIES,
+  getCloudFullIdbStoreNames,
   getCloudIncrementalIdbStoreNames,
   getCloudStorageAssetPolicy,
   getIdbStoreAssetPolicy,
@@ -102,6 +103,17 @@ describe('data asset registry guard', () => {
     expect(getCloudIncrementalIdbStoreNames()).toEqual(
       expect.arrayContaining(['logs', 'magnetPushLogs']),
     );
+  });
+
+  it('logs / magnetPushLogs：Cloud full 旗标纠错为 false（10-24 旗标项：运行时弃用实际不同步）', () => {
+    expect(resolveIdbStoreAssetPolicy('logs')?.cloud.full).toBe(false);
+    expect(resolveIdbStoreAssetPolicy('magnetPushLogs')?.cloud.full).toBe(false);
+    const fullStores = getCloudFullIdbStoreNames();
+    expect(fullStores).not.toContain('logs');
+    expect(fullStores).not.toContain('magnetPushLogs');
+    // 弃用面仅裁 full 旗标：incremental 旗标与 WebDAV 备份语义保持既有锁（本线不擅扩）
+    expect(resolveIdbStoreAssetPolicy('logs')?.cloud.incremental).toBe(true);
+    expect(resolveIdbStoreAssetPolicy('logs')?.webdav.backup).toBe(true);
   });
 
   it('keeps settings sensitive paths documented while allowing full Cloud sync for now', () => {

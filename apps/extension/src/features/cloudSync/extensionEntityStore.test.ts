@@ -2,7 +2,7 @@
  * @file extensionEntityStore.test.ts
  * @description applyRemote 远端回写必须跳过 cloud pending 入队（防拉取回声重推）
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const spies = vi.hoisted(() => ({
   viewedBulkPut: vi.fn(async () => undefined),
@@ -140,5 +140,77 @@ describe('collectLocalSyncEntities tombstone envelope (C1-1)', () => {
     );
     expect(spies.listsBulkPut).not.toHaveBeenCalled();
     expect(spies.actorsBulkPut).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('countLocalSyncEntities（10-24 风险 A 轻量计数）', () => {
+  let storedValues: Record<string, unknown>;
+  let storageGet: ReturnType<typeof vi.fn>;
+  let storageGetKeys: ReturnType<typeof vi.fn>;
+  let countFn: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    storedValues = {
+      new_works_subscriptions: { sub1: { enabled: true }, sub2: { enabled: false } },
+      user_profile: { name: 'u' },
+      adv_search_presets: [{ id: 'p1' }, { id: 'p2' }],
+    };
+    countFn = vi.fn(async (store: string) => {
+      const table: Record<string, number> = {
+        viewedRecords: 40,
+        actors: 3,
+        lists: 2,
+        newWorks: 1,
+        magnets: 0,
+        insightsViews: 1,
+        insightsReports: 0,
+        newWorksDailyStats: 1,
+      };
+      return table[store] ?? 0;
+    });
+    spies.initDB.mockResolvedValue({ count: countFn } as any);
+    storageGet = vi.fn((keys: string | string[], cb: (items: Record<string, unknown>) => void) => {
+      queueMicrotask(() => {
+        const out: Record<string, unknown> = {};
+        for (const k of Array.isArray(keys) ? keys : [keys]) {
+          if (Object.prototype.hasOwnProperty.call(storedValues, k)) out[k] = storedValues[k];
+        }
+        cb(out);
+      });
+    });
+    storageGetKeys = vi.fn((cb: (keys: string[]) => void) => {
+      queueMicrotask(() => cb(['settings', 'emby_library_state', 'cloud_sync_session_v1', 'unknown_cache']));
+    });
+    vi.stubGlobal('chrome', { storage: { local: { get: storageGet, getKeys: storageGetKeys } } });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('IDB 走 count() 零记录体传输，storage_item 按 getKeys+策略过滤计数，不读值', async () => {
+    const { countLocalSyncEntities } = await import('./extensionEntityStore');
+    const result = await countLocalSyncEntities();
+
+    expect(result.byType).toEqual({
+      video: 40,
+      actor: 3,
+      list: 2,
+      new_work: 1,
+      insights_view: 1,
+      new_work_daily_stat: 1,
+      new_work_subscription: 2,
+      user_profile: 1,
+      search_preset: 2,
+      // settings + emby_library_state 通过 shouldSyncStorageItemKey；session 键与未知键被过滤
+      storage_item: 2,
+    });
+    expect(result.total).toBe(55);
+    // 零记录体传输：IDB 只调 count，从不 getAll
+    expect(countFn).toHaveBeenCalledTimes(8);
+    expect(storageGetKeys).toHaveBeenCalledTimes(1);
   });
 });
