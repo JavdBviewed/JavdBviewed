@@ -31,6 +31,7 @@ import {
   ACTOR_LIST_FILTER_FIELDS,
   DISPLAY_FILTER_FIELDS,
 } from './listFilterFields';
+import { getListCardPriority } from './listCardPriority';
 /**
  * 影片类别过滤维度分组（09-29 三态：候选/减去选择区共用此数据源）：内置类别字典（311 项快照）。
  * 模块级计算一次；维度顺序与 JavDB /tags 页一致（c1 主題 … c9 時長）。
@@ -68,6 +69,7 @@ export function ListTab({
       <SettingSection
         title="内容过滤"
         description="按关键词、状态与演员过滤/隐藏列表中的影片卡片"
+        priorityBadge={getListCardPriority('内容过滤')}
       >
         <SettingToggleRow
           id="enableContentFilter"
@@ -311,7 +313,7 @@ export function ListTab({
         />
       </SettingSection>
 
-      <SettingSection title="点击增强" description="优化列表/详情卡片的点击打开行为">
+      <SettingSection title="点击增强" description="优化列表/详情卡片的点击打开行为" priorityBadge={getListCardPriority('点击增强')}>
         <SettingToggleRow
           id="enableClickEnhancement"
           label="启用点击增强"
@@ -337,7 +339,7 @@ export function ListTab({
         ) : null}
       </SettingSection>
 
-      <SettingSection title="视频预览" description="悬停列表封面播放预览">
+      <SettingSection title="视频预览" description="悬停列表封面播放预览" priorityBadge={getListCardPriority('视频预览')}>
         <SettingToggleRow
           id="enableVideoPreview"
           label="启用视频预览"
@@ -422,7 +424,7 @@ export function ListTab({
         />
       </SettingSection>
 
-      <SettingSection title="演员水印" description="在列表封面叠加演员名水印">
+      <SettingSection title="演员水印" description="在列表封面叠加演员名水印" priorityBadge={getListCardPriority('演员水印')}>
         <SettingToggleRow
           id="enableActorWatermark"
           label="启用演员水印"
@@ -475,7 +477,7 @@ export function ListTab({
         ) : null}
       </SettingSection>
 
-      <SettingSection title="演员穿透" description="在列表卡片显示女性演员名">
+      <SettingSection title="演员穿透" description="在列表卡片显示女性演员名" priorityBadge={getListCardPriority('演员穿透')}>
         <SettingToggleRow
           id="enableActorPenetration"
           label="启用演员穿透"
@@ -498,7 +500,7 @@ export function ListTab({
         ) : null}
       </SettingSection>
 
-      <SettingSection title="列表显示控制" description="列数与容器宽度（始终可用）">
+      <SettingSection title="列表显示控制" description="列数与容器宽度（始终可用）" priorityBadge={getListCardPriority('列表显示控制')}>
         <SettingToggleRow
           id="enableListDisplayControl"
           label="列表显示控制"
@@ -555,7 +557,7 @@ export function ListTab({
         </div>
       </SettingSection>
 
-      <SettingSection title="快捷操作" description="列表卡片上的状态与收藏快捷入口">
+      <SettingSection title="快捷操作" description="列表卡片上的状态与收藏快捷入口" priorityBadge={getListCardPriority('快捷操作')}>
         <SettingToggleRow
           id="showStatusBadge"
           label="启用状态标签显示"
@@ -579,7 +581,7 @@ export function ListTab({
         />
       </SettingSection>
 
-      <SettingSection title="资源标签" description="列表卡片上的资源证据标注">
+      <SettingSection title="资源标签" description="列表卡片上的资源证据标注" priorityBadge={getListCardPriority('资源标签')}>
         <SettingToggleRow
           id="resourceTags"
           label="启用资源标签"

@@ -482,3 +482,31 @@ describe('EnhancementSettingsPage layout', () => {
     expect(pageStyleSource).toContain('.enhancement-filter-rule-modal__field-note');
   });
 });
+
+describe('list 子页卡片调度优先级徽章（10-25-enhancement-priority-badge）', () => {
+  const listCardPrioritySource = readFileSync(join(here, 'listCardPriority.ts'), 'utf8');
+
+  it('ListTab 8 张有任务卡经映射模块传徽章，高清封面（无任务）不传', () => {
+    expect(pageSource).toContain("import { getListCardPriority } from './listCardPriority'");
+    for (const title of ['内容过滤', '点击增强', '视频预览', '演员水印', '演员穿透', '列表显示控制', '快捷操作', '资源标签']) {
+      expect(pageSource, `缺 ${title} 卡徽章接线`).toContain(`priorityBadge={getListCardPriority('${title}')}`);
+    }
+    expect(pageSource).not.toContain("getListCardPriority('高清封面')");
+  });
+
+  it('卡壳渲染徽章 span + 映射模块含蓝图同步锁值', () => {
+    expect(cardSource).toContain('enhancement-feature-priority');
+    expect(cardSource).toContain('is-');
+    expect(listCardPrioritySource).toContain("'list:observe:init': 'critical'");
+    expect(listCardPrioritySource).toContain("'listEnhancement:init': 'high'");
+    expect(listCardPrioritySource).toContain("'contentFilter:initialize': 'idle'");
+    expect(listCardPrioritySource).toContain('getTaskLabelShort');
+  });
+
+  it('徽章样式走页面 token 且明暗双主题在位', () => {
+    expect(pageStyleSource).toContain('.enhancement-feature-priority');
+    expect(pageStyleSource).toContain('[data-theme="dark"]');
+    expect(pageStyleSource).toContain('--priority-critical-bg');
+    expect(pageStyleSource).toContain('var(--priority-idle-bg)');
+  });
+});

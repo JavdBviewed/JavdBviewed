@@ -339,3 +339,80 @@
   }
 }
 
+
+/* ============================================================
+ * 调度中心优先级徽章（10-25-enhancement-priority-badge）
+ * 配色沿用 --status-* 徽章模式：light/dark 各一套 token，
+ * critical 红 / high 琥珀 / deferred 蓝 / idle 中性。
+ * ============================================================ */
+:root {
+  --priority-critical-bg: #fee2e2;
+  --priority-critical-text: #991b1b;
+  --priority-critical-border: #fca5a5;
+
+  --priority-high-bg: #fef3c7;
+  --priority-high-text: #92400e;
+  --priority-high-border: #fcd34d;
+
+  --priority-deferred-bg: #dbeafe;
+  --priority-deferred-text: #1e40af;
+  --priority-deferred-border: #93c5fd;
+
+  --priority-idle-bg: #f1f5f9;
+  --priority-idle-text: #475569;
+  --priority-idle-border: #cbd5e1;
+}
+
+[data-theme="dark"] {
+  --priority-critical-bg: #7f1d1d;
+  --priority-critical-text: #fca5a5;
+  --priority-critical-border: #991b1b;
+
+  --priority-high-bg: #78350f;
+  --priority-high-text: #fcd34d;
+  --priority-high-border: #92400e;
+
+  --priority-deferred-bg: #1e3a8a;
+  --priority-deferred-text: #93c5fd;
+  --priority-deferred-border: #1e40af;
+
+  --priority-idle-bg: #1e293b;
+  --priority-idle-text: #94a3b8;
+  --priority-idle-border: #334155;
+}
+
+.enhancement-settings-react #enhancement-settings .enhancement-feature-priority {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.3px;
+}
+
+.enhancement-settings-react #enhancement-settings .enhancement-feature-priority.is-critical {
+  background: var(--priority-critical-bg);
+  color: var(--priority-critical-text);
+  border-color: var(--priority-critical-border);
+}
+
+.enhancement-settings-react #enhancement-settings .enhancement-feature-priority.is-high {
+  background: var(--priority-high-bg);
+  color: var(--priority-high-text);
+  border-color: var(--priority-high-border);
+}
+
+.enhancement-settings-react #enhancement-settings .enhancement-feature-priority.is-deferred {
+  background: var(--priority-deferred-bg);
+  color: var(--priority-deferred-text);
+  border-color: var(--priority-deferred-border);
+}
+
+.enhancement-settings-react #enhancement-settings .enhancement-feature-priority.is-idle {
+  background: var(--priority-idle-bg);
+  color: var(--priority-idle-text);
+  border-color: var(--priority-idle-border);
+}

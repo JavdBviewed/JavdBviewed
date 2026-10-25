@@ -116,3 +116,46 @@ describe('EnhancementFeatureCard 默认 hover 抽屉（09-29：alwaysExpanded �
     expect(section.getAttribute('data-expanded')).toBe('0');
   });
 });
+
+describe('EnhancementFeatureCard 调度优先级徽章（10-25-enhancement-priority-badge）', () => {
+  it('提供 priorityBadge 时卡头渲染 phase 徽章（与 status 徽章同排）', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        EnhancementFeatureCard,
+        {
+          title: '快捷操作',
+          meta: { icon: '⚡', status: '可用', tone: 'available' },
+          priorityBadge: {
+            phase: 'critical',
+            labels: ['list:observe:init', 'listEnhancement:init'],
+            tooltip: '调度中心优先级：critical。对应任务：列表页观察器初始化（list:observe:init）、列表增强初始化（listEnhancement:init）',
+          },
+        },
+        createElement('button', { type: 'button' }, '开关'),
+      ),
+    );
+    expect(html).toContain('enhancement-feature-priority is-critical');
+    expect(html).toMatch(/>critical</);
+    // 徽章位于标题容器内（与 status 徽章同排）
+    const titleIdx = html.indexOf('enhancement-feature-title');
+    const badgeIdx = html.indexOf('enhancement-feature-priority');
+    const statusIdx = html.indexOf('enhancement-feature-status');
+    expect(titleIdx).toBeGreaterThanOrEqual(0);
+    expect(badgeIdx).toBeGreaterThan(titleIdx);
+    expect(statusIdx).toBeGreaterThan(titleIdx);
+  });
+
+  it('默认不渲染优先级徽章（video/actor/other 子页零影响）', () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        EnhancementFeatureCard,
+        {
+          title: '磁力资源搜索',
+          meta: { icon: '🧲', status: '可用', tone: 'available' },
+        },
+        createElement('button', { type: 'button' }, '开关'),
+      ),
+    );
+    expect(html).not.toContain('enhancement-feature-priority');
+  });
+});

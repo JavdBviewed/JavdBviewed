@@ -4,6 +4,7 @@
  * @module apps/dashboard/pages/settings/enhancement
  */
 import { Children, type ReactNode, useEffect, useRef, useState } from 'react';
+import type { CardPriorityInfo } from './listCardPriority';
 
 export type EnhancementFeatureMeta = {
   icon: string;
@@ -19,6 +20,8 @@ export type EnhancementFeatureCardProps = {
   title: string;
   description?: ReactNode;
   meta: EnhancementFeatureMeta;
+  /** 调度中心优先级徽章（仅 list 子页传入；其余子页不传=不渲染，零影响） */
+  priorityBadge?: CardPriorityInfo | null;
   children: ReactNode;
 };
 
@@ -29,6 +32,7 @@ export function EnhancementFeatureCard({
   title,
   description,
   meta,
+  priorityBadge = null,
   children,
 }: EnhancementFeatureCardProps) {
   const [masterToggle, ...details] = Children.toArray(children);
@@ -104,6 +108,14 @@ export function EnhancementFeatureCard({
           <div className="enhancement-feature-title">
             <h3 className="enhancement-feature-name">{meta.icon} {title}</h3>
             <span className={`enhancement-feature-status ${meta.tone}`}>{meta.status}</span>
+            {priorityBadge ? (
+              <span
+                className={`enhancement-feature-priority is-${priorityBadge.phase}`}
+                title={priorityBadge.tooltip}
+              >
+                {priorityBadge.phase}
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="enhancement-feature-card__header-actions">

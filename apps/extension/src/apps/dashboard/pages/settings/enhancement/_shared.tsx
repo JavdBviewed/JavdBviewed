@@ -7,6 +7,7 @@ import { type ReactNode } from 'react';
 import { BUILTIN_CATEGORY_DICTIONARY } from '@javdb/video-category-dict';
 import type { DimKey } from '@javdb/video-category-dict';
 import { EnhancementFeatureCard, type EnhancementFeatureMeta } from './EnhancementFeatureCard';
+import type { CardPriorityInfo } from './listCardPriority';
 import type { EnhancementSettingsFormState } from './enhancementSettingsModel';
 
 /**
@@ -89,10 +90,13 @@ const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
 export function EnhancementFeatureSection({
   title,
   description,
+  priorityBadge = null,
   children,
 }: {
   title: string;
   description?: ReactNode;
+  /** 调度中心优先级徽章（仅 list 子页经 SettingSection 透传；缺省=不渲染） */
+  priorityBadge?: CardPriorityInfo | null;
   children: ReactNode;
 }) {
   const meta = ENHANCEMENT_FEATURE_META[title] ?? {
@@ -101,7 +105,7 @@ export function EnhancementFeatureSection({
     tone: 'available' as const,
   };
   return (
-    <EnhancementFeatureCard title={title} description={description} meta={meta}>
+    <EnhancementFeatureCard title={title} description={description} meta={meta} priorityBadge={priorityBadge}>
       {children}
     </EnhancementFeatureCard>
   );
