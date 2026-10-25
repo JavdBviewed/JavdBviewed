@@ -19,6 +19,7 @@ import { resolveEmbyStreamUrl } from '../domain/embyPlayback';
 import { reportEmbyPlaybackProgress } from '../domain/embyPlaystate';
 import { fetchEmbyItemDetail } from '../domain/embyItemDetail';
 import { EMBY_LIBRARY_REQUEST_TIMEOUT_MS, fetchWithTimeout } from '../domain/fetchWithTimeout';
+import { isSyncEligibleServer } from '../domain/serverEligibility';
 import { embyLog, mediaLog, playerLog } from '../mediaLibraryLogger';
 import { reportWatchProgressWithRecordSourceSync } from '../../media/videoRecordSource';
 import type { MediaWatchEvidence } from '../../media/mediaWatchEvidence';
@@ -68,12 +69,19 @@ function defaultDeps(): EmbyLibraryHandlerDeps {
   };
 }
 
-function getEnabledServers(settings: any): EmbyMediaServer[] {
+export function getEnabledServers(settings: any): EmbyMediaServer[] {
   const servers = settings?.emby?.mediaServers;
   if (!Array.isArray(servers)) return [];
 
+  // 资格判定（启用 + 地址 + 凭据）统一走共享 isSyncEligibleServer，
+  // 与自动同步 alarm 注册侧同一函数；凭据认 apiKey / accessToken / 账号+密码。
+  // 仅 账号+密码（未登录会话）的服务器也保留：旧行为在此被静默剔除，
+  // 同步表现为「无服务器」/其它入口报「未找到匹配的已启用媒体服务器」，
+  // 用户看不到缺什么凭据。保留后由各功能入口的凭据守卫
+  // （fetchMediaItemsPage / fetchEmbyItemDetail / resolveEmbyStreamUrl /
+  //  postUserDataProgress）给出可操作的配置指引。
   return servers
-    .filter((server) => server && server.enabled !== false)
+    .filter((server) => isSyncEligibleServer(server))
     .map((server) => {
       const type: EmbyMediaServer['type'] = server.type === 'jellyfin' ? 'jellyfin' : 'emby';
       const libraryIds = Array.isArray(server.libraryIds)
@@ -107,13 +115,6 @@ function getEnabledServers(settings: any): EmbyMediaServer[] {
         tokenObtainedAt: Number(server.tokenObtainedAt) || undefined,
       };
     })
-    // 仅 账号+密码（未登录会话）的服务器也保留：旧行为在此被静默剔除，
-    // 同步表现为「无服务器」/其它入口报「未找到匹配的已启用媒体服务器」，
-    // 用户看不到缺什么凭据。保留后由各功能入口的凭据守卫
-    // （fetchMediaItemsPage / fetchEmbyItemDetail / resolveEmbyStreamUrl /
-    //  postUserDataProgress）给出可操作的配置指引。
-    .filter((server) =>
-      server.url && (server.apiKey || server.accessToken || (server.username && server.password)));
 }
 
 function filterServersForSync(servers: EmbyMediaServer[], message: any): EmbyMediaServer[] {

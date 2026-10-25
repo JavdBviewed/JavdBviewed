@@ -5,6 +5,7 @@
  */
 import { STORAGE_KEYS, isEmbyLibraryEnabled } from '../../../utils/config';
 import { getSettings } from '../../../utils/storage';
+import { isSyncEligibleServer } from '../domain/serverEligibility';
 import { handleEmbyLibrarySync } from './handlers';
 
 export const EMBY_LIBRARY_SYNC_ALARM = 'emby.library.sync';
@@ -21,15 +22,12 @@ export interface EmbyLibraryAlarmDeps {
   syncLibrary?: SyncLibrary;
 }
 
-function hasEnabledMediaServer(settings: any): boolean {
+export function hasEnabledMediaServer(settings: any): boolean {
   const servers = settings?.emby?.mediaServers;
   if (!Array.isArray(servers)) return false;
-  return servers.some((server) => {
-    return server
-      && server.enabled !== false
-      && String(server.url || '').trim()
-      && String(server.apiKey || '').trim();
-  });
+  // 凭据口径走共享 isSyncEligibleServer（与同步执行侧同一函数），
+  // 避免注册侧与执行侧凭据口径分叉
+  return servers.some((server) => isSyncEligibleServer(server));
 }
 
 function getSyncIntervalMinutes(settings: any): number {
