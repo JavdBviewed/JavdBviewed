@@ -19,6 +19,8 @@ export interface SuperRankingAppendResult {
   page: number;
   maxPage: number;
   url?: string;
+  /** 追加进 DOM 的新卡片节点（super-ranking 页无 observer 覆盖，manager 据此对新卡补跑增强）。 */
+  items?: HTMLElement[];
 }
 
 export interface ResolveScrollPagingPageInfoInput {
@@ -234,7 +236,7 @@ export function createListScrollPagingController(options: ListScrollPagingContro
             source: 'super-ranking',
             page: superRankingResult.page,
             appended: superRankingResult.appended,
-            items: [],
+            items: superRankingResult.items ?? [],
           });
         }
         return;

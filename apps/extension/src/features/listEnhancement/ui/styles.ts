@@ -567,4 +567,6 @@ export const LIST_ENHANCEMENT_ACTOR_ROW_STYLES = `
         .x-ap-actor-sub { display: inline-block; font-size: 11px; line-height: 1; vertical-align: middle; color: #f59e0b; margin-left: 2px; }
         .x-ap-actor-more { display: inline-block; color: var(--color-fg-subtle, #8c959f); background: none; border: none; padding: 0; margin: 0; font: inherit; line-height: inherit; cursor: pointer; }
         .x-ap-actor-more:hover { color: var(--color-fg, #1f2328); text-decoration: underline; }
+        .x-ap-actor-row-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--color-border-subtle, #d0d7de); border-top-color: var(--color-fg-subtle, #8c959f); border-radius: 50%; animation: x-ap-spin 0.9s linear infinite; }
+        @keyframes x-ap-spin { to { transform: rotate(360deg); } }
 `;

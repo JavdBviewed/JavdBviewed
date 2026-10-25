@@ -266,3 +266,105 @@ describe('detectLoginRequired', () => {
     expect(detectLoginRequired('/login', '<html><head><title>Log In</title></head></html>')).toBe(true);
   });
 });
+
+describe('pending 转圈占位行（获取期视觉反馈）', () => {
+  it('fetch 路径（缓存 miss）期间显示 pending，成功后覆盖为正式行（无转圈残留）', async () => {
+    const cache = makeCacheMock();
+    let resolveFetch!: (v: { html: string; finalUrl?: string }) => void;
+    const fetchText = vi.fn(() => new Promise<{ html: string; finalUrl?: string }>(resolve => {
+      resolveFetch = resolve;
+    }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, bindQuickActions: noopBind });
+    const item = makeItem();
+    const p = runtime.process({ item, code: 'ABC-123', detailUrl: '/v/ABC-123' });
+    await vi.waitFor(() => {
+      expect(item.querySelector('.x-ap-actor-row-spinner')).toBeTruthy();
+    });
+    resolveFetch!({ html: FEMALE_HTML });
+    await p;
+    expect(item.querySelector('.x-ap-actor-row-spinner')).toBeNull();
+    expect(item.querySelectorAll('a.x-ap-actor').length).toBe(2);
+    expect(item.querySelectorAll('.x-ap-actor-row-container').length).toBe(1);
+  });
+
+  it('fetch 失败后清理 pending 行（无占位残留，失败抑制语义不变）', async () => {
+    const cache = makeCacheMock();
+    // hold-promise：fetch 挂起期间 spinner 可被观察，再触发失败（快速失败时
+    // spinner 仅存在于微任务窗口，waitFor 轮询观察不到，测试非确定性）
+    let rejectFetch!: (e: Error) => void;
+    const fetchText = vi.fn(() => new Promise<{ html: string; finalUrl?: string }>((_, reject) => {
+      rejectFetch = reject;
+    }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, bindQuickActions: noopBind });
+    const item = makeItem();
+    const p = runtime.process({ item, code: 'ABC-123', detailUrl: '/v/ABC-123' });
+    await vi.waitFor(() => {
+      expect(item.querySelector('.x-ap-actor-row-spinner')).toBeTruthy();
+    });
+    rejectFetch!(new Error('net'));
+    await p;
+    expect(item.querySelector('.x-ap-actor-row-container')).toBeNull();
+    expect(cache.writeFailure).toHaveBeenCalledTimes(1);
+  });
+
+  it('需登录（302→/login）后清理 pending 行', async () => {
+    const cache = makeCacheMock();
+    let resolveFetch!: (v: { html: string; finalUrl?: string }) => void;
+    const fetchText = vi.fn(() => new Promise<{ html: string; finalUrl?: string }>(resolve => {
+      resolveFetch = resolve;
+    }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, bindQuickActions: noopBind });
+    const item = makeItem();
+    const p = runtime.process({ item, code: 'ABC-123', detailUrl: '/v/ABC-123' });
+    await vi.waitFor(() => {
+      expect(item.querySelector('.x-ap-actor-row-spinner')).toBeTruthy();
+    });
+    resolveFetch!({ html: LOGIN_HTML, finalUrl: 'https://javdb575.com/login' });
+    await p;
+    expect(item.querySelector('.x-ap-actor-row-container')).toBeNull();
+    expect(cache.writeLoginRequired).toHaveBeenCalledTimes(1);
+  });
+
+  it('空详情（0 女演员）后清理 pending 行且不写任何缓存（B7 语义不变）', async () => {
+    const cache = makeCacheMock();
+    let resolveFetch!: (v: { html: string; finalUrl?: string }) => void;
+    const fetchText = vi.fn(() => new Promise<{ html: string; finalUrl?: string }>(resolve => {
+      resolveFetch = resolve;
+    }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, bindQuickActions: noopBind });
+    const item = makeItem();
+    const p = runtime.process({ item, code: 'ABC-123', detailUrl: '/v/ABC-123' });
+    await vi.waitFor(() => {
+      expect(item.querySelector('.x-ap-actor-row-spinner')).toBeTruthy();
+    });
+    resolveFetch!({ html: '<html><body>no actors</body></html>' });
+    await p;
+    expect(item.querySelector('.x-ap-actor-row-container')).toBeNull();
+    expect(cache.writeSuccess).not.toHaveBeenCalled();
+    expect(cache.writeFailure).not.toHaveBeenCalled();
+  });
+
+  it('缓存命中不闪 pending（直接渲染正式行，全程无转圈）', async () => {
+    const cache = makeCacheMock();
+    await cache.writeSuccess('ABC-123', { actors: FEMALE, hasMore: false, fetchedAt: Date.now() });
+    const fetchText = vi.fn(async () => { throw new Error('should not fetch'); });
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, bindQuickActions: noopBind });
+    const item = makeItem();
+    await runtime.process({ item, code: 'ABC-123', detailUrl: '/v/ABC-123' });
+    expect(fetchText).not.toHaveBeenCalled();
+    expect(item.querySelector('.x-ap-actor-row-spinner')).toBeNull();
+    expect(item.querySelectorAll('a.x-ap-actor').length).toBe(2);
+  });
+
+  it('失败抑制路径（failed 缓存）不插 pending', async () => {
+    const cache = makeCacheMock();
+    await cache.writeFailure('ABC-123');
+    const fetchText = vi.fn(async () => { throw new Error('should not fetch'); });
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, bindQuickActions: noopBind });
+    const item = makeItem();
+    await runtime.process({ item, code: 'ABC-123', detailUrl: '/v/ABC-123' });
+    expect(fetchText).not.toHaveBeenCalled();
+    expect(item.querySelector('.x-ap-actor-row-spinner')).toBeNull();
+    expect(item.querySelector('.x-ap-actor-row-container')).toBeNull();
+  });
+});

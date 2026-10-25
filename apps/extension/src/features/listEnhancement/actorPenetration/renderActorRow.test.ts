@@ -10,6 +10,7 @@ import {
   isActorRowExpanded,
   removeActorRow,
   renderActorRow,
+  renderActorRowPending,
   setActorRowExpanded,
 } from './renderActorRow';
 import type { DetailActor } from './parseDetailActors';
@@ -242,5 +243,53 @@ describe('buildActorRowModel（纯函数）', () => {
     const model = buildActorRowModel(actors(3), true);
     expect(model.visible.length).toBe(3);
     expect(model.control).toBeNull();
+  });
+});
+
+describe('renderActorRowPending（获取期转圈占位行）', () => {
+  it('插入「女演员：」+转圈占位行（与正式行同容器，位置在日期后）', () => {
+    const item = makeItem();
+    renderActorRowPending(item);
+    const container = item.querySelector('.x-ap-actor-row-container');
+    expect(container).toBeTruthy();
+    expect(container?.getAttribute('data-x-ap-actor-row')).toBe('true');
+    const label = item.querySelector('.x-ap-actor-row-label');
+    expect(label?.textContent).toBe('女演员：');
+    expect(item.querySelector('.x-ap-actor-row-spinner')).toBeTruthy();
+    const date = item.querySelector('.video-date') as HTMLElement;
+    expect(date.nextElementSibling).toBe(container);
+  });
+
+  it('幂等：第二次调用不重复插入', () => {
+    const item = makeItem();
+    renderActorRowPending(item);
+    renderActorRowPending(item);
+    expect(item.querySelectorAll('.x-ap-actor-row-container').length).toBe(1);
+    expect(item.querySelectorAll('.x-ap-actor-row-spinner').length).toBe(1);
+  });
+
+  it('removeActorRow 统一清理 pending 行', () => {
+    const item = makeItem();
+    renderActorRowPending(item);
+    removeActorRow(item);
+    expect(item.querySelector('.x-ap-actor-row-container')).toBeNull();
+    expect(item.querySelector('.x-ap-actor-row-spinner')).toBeNull();
+  });
+
+  it('正式行覆盖 pending 行（renderActorRow 后无转圈残留、单容器）', () => {
+    const item = makeItem();
+    renderActorRowPending(item);
+    renderActorRow({ item, actors: actors(2) });
+    expect(item.querySelector('.x-ap-actor-row-spinner')).toBeNull();
+    expect(item.querySelectorAll('a.x-ap-actor').length).toBe(2);
+    expect(item.querySelectorAll('.x-ap-actor-row-container').length).toBe(1);
+  });
+
+  it('已有正式行时 pending 不再插入', () => {
+    const item = makeItem();
+    renderActorRow({ item, actors: actors(2) });
+    renderActorRowPending(item);
+    expect(item.querySelectorAll('.x-ap-actor-row-container').length).toBe(1);
+    expect(item.querySelector('.x-ap-actor-row-spinner')).toBeNull();
   });
 });

@@ -77,6 +77,8 @@ export type SuperRankingAppendResult = {
   page: number;
   maxPage: number;
   url?: string;
+  /** 本次追加进 grid 的新卡片节点（缺陷1：超排页无 MutationObserver，manager 依赖该数组对新卡补跑增强）。 */
+  items?: HTMLElement[];
 };
 
 function normalizeText(value: string | null | undefined): string {
@@ -522,8 +524,10 @@ export async function appendSuperRankingTop250Page(page: number): Promise<SuperR
 
   const template = document.createElement('template');
   template.innerHTML = renderMovieListHtml(movies).trim();
+  const appendedItems: HTMLElement[] = [];
   Array.from(template.content.children).forEach((child) => {
     grid.appendChild(child);
+    appendedItems.push(child as HTMLElement);
   });
 
   const pagination = root.querySelector<HTMLElement>('.jdb-super-ranking-pagination');
@@ -531,7 +535,7 @@ export async function appendSuperRankingTop250Page(page: number): Promise<SuperR
     pagination.innerHTML = renderTop250PaginationHtml(handleType, typeValue, targetPage);
   }
 
-  return { handled: true, appended: movies.length, page: targetPage, maxPage: TOP250_MAX_PAGE, url };
+  return { handled: true, appended: movies.length, page: targetPage, maxPage: TOP250_MAX_PAGE, url, items: appendedItems };
 }
 
 export async function handleSuperRankingPage(): Promise<boolean> {

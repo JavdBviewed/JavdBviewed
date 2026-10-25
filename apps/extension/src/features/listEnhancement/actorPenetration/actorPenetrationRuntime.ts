@@ -15,7 +15,7 @@ import {
 } from './actorPenetrationCache';
 import { extractFemaleActors, parseDetailActors, type DetailActor } from './parseDetailActors';
 import { BUILTIN_CATEGORY_DICTIONARY, parseDetailCategories } from '@javdb/video-category-dict';
-import { ACTOR_ROW_MAX_VISIBLE, removeActorRow, renderActorRow, type ActorLinkMark } from './renderActorRow';
+import { ACTOR_ROW_MAX_VISIBLE, removeActorRow, renderActorRow, renderActorRowPending, type ActorLinkMark } from './renderActorRow';
 import { bindActorQuickActionsToLink } from '../../actorEnhancement/actorQuickActionsManager';
 import { countContentPerformanceEvent } from '../../../platform/tasks';
 
@@ -127,18 +127,28 @@ export class ActorPenetrationRuntime {
         return;
       }
 
+      // 获取期视觉反馈：fetch 路径先插「女演员：」转圈占位行（缓存命中/失败抑制已提前
+      // return，不会闪烁）；成功后 render() 内部先 removeActorRow 再重建正式行覆盖，
+      // 失败/需登录/空/异常分支统一清理，避免占位残留。
+      if (item.isConnected) {
+        renderActorRowPending(item);
+      }
+
       const outcome = await this.fetchAndParse(detailUrl);
       if (outcome.status === 'fetch-error') {
+        if (item.isConnected) removeActorRow(item);
         await (this.deps.writeFailure ?? writeActorPenetrationFailure)(code);
         countContentPerformanceEvent('actorPenetration.failure');
         return;
       }
       if (outcome.status === 'login-required') {
+        if (item.isConnected) removeActorRow(item);
         await (this.deps.writeLoginRequired ?? writeActorPenetrationLoginRequired)(code);
         countContentPerformanceEvent('actorPenetration.loginRequired');
         return;
       }
       if (outcome.status === 'empty') {
+        if (item.isConnected) removeActorRow(item);
         // 无女性演员是稳定事实：不写失败抑制（原实现把 parse 0 人当失败，
         // 误写 10 分钟 failed 缓存，见 B7）；也不写成功空缓存，避免站点改版
         // 导致全部作品被空缓存锁 7 天。代价：每次访问重新请求一次（受可见性门控+并发限制）。
@@ -153,6 +163,7 @@ export class ActorPenetrationRuntime {
       countContentPerformanceEvent('actorPenetration.success');
     } catch (error) {
       this.deps.logger?.('actorPenetration error:', error);
+      if (item.isConnected) removeActorRow(item);
       countContentPerformanceEvent('actorPenetration.error');
     } finally {
       this.inFlight.delete(code);

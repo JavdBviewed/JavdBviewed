@@ -7,9 +7,16 @@ import type { ListPreviewVideoInfo } from '../../previews';
 
 export function extractListItemVideoInfo(item: HTMLElement): ListPreviewVideoInfo | null {
   const titleElement = item.querySelector('div.video-title > strong');
-  const linkElement = item.querySelector('a[href*="/v/"]');
+  if (!titleElement) return null;
+  // 超排卡（renderMovieListHtml）：卡片自身即 a[href*="/v/"]、子树无 a，回退取卡片自身 href；
+  // 普通列表卡：仍取后代 a（既有语义不变）。
+  const selfAnchor =
+    typeof item.matches === 'function' && item.matches('a[href*="/v/"]')
+      ? (item as HTMLAnchorElement)
+      : null;
+  const linkElement = selfAnchor ?? item.querySelector('a[href*="/v/"]');
 
-  if (!titleElement || !linkElement) return null;
+  if (!linkElement) return null;
 
   const code = titleElement.textContent?.trim() || '';
   const title = item.querySelector('div.video-title')?.textContent?.replace(code, '').trim() || '';

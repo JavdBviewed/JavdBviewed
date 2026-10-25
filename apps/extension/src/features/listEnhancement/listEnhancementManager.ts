@@ -140,7 +140,15 @@ class ListEnhancementManager {
     },
     processVisibleItems: () => processVisibleItems(),
     clearActorCaches: () => this.actorNameMarkPrep.clearActorCaches(),
-    onItemsAppended: event => this.listSortingController.handleItemsAppended(event),
+    onItemsAppended: event => {
+      this.listSortingController.handleItemsAppended(event);
+      // 缺陷1：超排页（.jdb-super-ranking-grid）无 MutationObserver 覆盖，新卡增强只能在此补齐：
+      // enhanceItem（data-list-enhanced 守卫幂等，含演员穿透入队）+ processListItems（data-processed 守卫）。
+      // fetched 分支新卡同时被 observer 覆盖，重复调用由守卫 no-op。
+      if (event.items.length === 0) return;
+      event.items.forEach(item => this.enhanceItem(item));
+      processListItems(event.items.filter(item => Boolean(extractListItemVideoInfo(item))));
+    },
     onActorIndexCleared: () => this.actorNameMarkPrep.invalidateActorNameMarkPrep(),
   });
   private readonly actorDataCache = createActorDataCache({

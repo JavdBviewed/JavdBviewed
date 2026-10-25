@@ -259,6 +259,42 @@ export function applyActorMarkToLink(link: HTMLAnchorElement, mark?: ActorLinkMa
   }
 }
 
+/**
+ * 获取期 pending 占位行（缺陷3：原实现成功前不插入任何占位，获取期间零视觉反馈）：
+ * 渲染「女演员：」+ 转圈 spinner。复用与正式行同一容器结构（ROW_CONTAINER_CLASS /
+ * ROW_DATA_ATTR），renderActorRow（成功覆盖）与 removeActorRow（失败清理）可统一处理。
+ * 幂等：卡片已存在任何演员行容器（正式行或 pending 行）时不重复插入。
+ * 调用方契约：仅 fetch 路径插入（缓存命中/失败抑制不闪）；fetch-error/需登录/空/异常
+ * 分支由调用方 removeActorRow 清理，成功分支由 renderActorRow 先移除后重建。
+ */
+export function renderActorRowPending(item: HTMLElement): void {
+  if (item.querySelector(`.${ROW_CONTAINER_CLASS}`) || item.querySelector(`[${ROW_DATA_ATTR}]`)) {
+    return;
+  }
+
+  const container = document.createElement('div');
+  container.className = ROW_CONTAINER_CLASS;
+  container.setAttribute(ROW_DATA_ATTR, 'true');
+
+  const row = document.createElement('div');
+  row.className = ROW_CLASS;
+  row.setAttribute(ROW_DATA_ATTR, 'true');
+
+  const label = document.createElement('span');
+  label.className = 'x-ap-actor-row-label';
+  label.textContent = '女演员：';
+  label.title = '正在加载女演员…';
+  row.appendChild(label);
+
+  const spinner = document.createElement('span');
+  spinner.className = 'x-ap-actor-row-spinner';
+  spinner.setAttribute('aria-label', '正在加载女演员');
+  row.appendChild(spinner);
+
+  container.appendChild(row);
+  insertRowNearDate(item, container);
+}
+
 /** 移除扩展创建的演员行（幂等）。 */
 export function removeActorRow(item: HTMLElement): void {
   item.querySelectorAll(`.${ROW_CONTAINER_CLASS}, [${ROW_DATA_ATTR}]`).forEach(el => el.remove());
