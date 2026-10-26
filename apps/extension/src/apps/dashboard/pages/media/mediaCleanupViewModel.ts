@@ -7,7 +7,10 @@ export const CLEANUP_PAGE_SIZE = 24;
 
 export type MediaCleanupTitleGroup = {
   item: MediaCleanupItem;
+  /** 待展示副本（pending/deleting） */
   copies: MediaCleanupCopyEntry[];
+  /** 可勾选副本（排除来源已失效孤儿）；选择态 / 全选 / 删除清单以此为准 */
+  actionableCopies: MediaCleanupCopyEntry[];
 };
 
 export type CleanupTitleSelectionState = {
@@ -57,7 +60,7 @@ export function setPageSelection(
   shouldSelect: boolean,
 ): Set<string> {
   return items.reduce(
-    (next, group) => setTitleSelection(next, group.item, group.copies, shouldSelect),
+    (next, group) => setTitleSelection(next, group.item, group.actionableCopies, shouldSelect),
     new Set(selected),
   );
 }

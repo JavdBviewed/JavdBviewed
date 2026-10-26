@@ -2322,6 +2322,59 @@ button.ml-resume-card {
   border-color: color-mix(in srgb, var(--color-danger, #dc2626) 42%, var(--color-border, #e5e7eb));
 }
 
+/* 来源已失效的孤儿副本（10-26-emby-index-reconcile） */
+.ml-cleanup-copy-row.is-source-invalid {
+  border-color: color-mix(in srgb, var(--color-warning, #d97706) 42%, var(--color-border, #e5e7eb));
+  background: color-mix(in srgb, var(--color-warning, #d97706) 6%, var(--color-surface-2, var(--surface-secondary)));
+}
+
+.ml-cleanup-copy-row.is-source-invalid .ml-cleanup-copy-body {
+  opacity: 0.82;
+}
+
+.ml-cleanup-copy-invalid-badge {
+  width: fit-content;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-warning, #d97706) 55%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-warning, #d97706) 12%, transparent);
+  color: var(--color-warning, #d97706);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.ml-cleanup-copy-row.is-source-invalid .ml-cleanup-copy-clear-btn {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+
+.ml-cleanup-copy-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.ml-cleanup-copy-clear-btn {
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-warning, #d97706) 55%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-warning, #d97706);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ml-cleanup-copy-clear-btn:hover {
+  background: color-mix(in srgb, var(--color-warning, #d97706) 10%, transparent);
+}
+
+.ml-cleanup-copy-clear-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .ml-cleanup-copy-body {
   display: grid;
   min-width: 0;

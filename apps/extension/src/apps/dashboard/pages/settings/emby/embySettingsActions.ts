@@ -7,6 +7,10 @@ import type { EmbyLibraryIndexEntry } from '../../../../../features/embyLibrary/
 import { buildMediaItemUrl } from '../../../../../features/embyLibrary/domain/libraryIndex';
 import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 import {
+  reconcileEmbyLibraryIndexAfterSettingsChange,
+  requestEmbyLibrarySyncAfterConfigChange,
+} from '../../../../../features/embyLibrary/libraryIndexReconcile';
+import {
   getSettings,
   saveSettings,
   syncDashboardState,
@@ -168,12 +172,19 @@ export async function loginEmbyUser(params: {
   }
 }
 
+/** persistEmbyForm 选项 */
+export type PersistEmbyFormOptions = {
+  /** 调用方随后会自行触发「立即同步资料库」（如手动同步按钮）→ 不重复触发 */
+  skipAutoSync?: boolean;
+};
+
 /**
- * 持久化 Emby 表单（含校验、STATE 同步、tabs 通知）
+ * 持久化 Emby 表单（含校验、STATE 同步、tabs 通知、索引即时对账）
  */
 export async function persistEmbyForm(
   form: EmbySettingsFormState,
   removedServerIds?: ReadonlySet<string>,
+  options?: PersistEmbyFormOptions,
 ): Promise<{
   ok: boolean;
   error?: string;
@@ -189,12 +200,41 @@ export async function persistEmbyForm(
     await saveSettings(next);
     await syncDashboardState(next);
     notifyTabsSettingsUpdated(next);
+    await reconcileLibraryIndexAfterSave({
+      current,
+      next,
+      skipAutoSync: options?.skipAutoSync === true,
+    });
     return { ok: true };
   } catch (err) {
     return {
       ok: false,
       error: err instanceof Error ? err.message : '保存设置失败',
     };
+  }
+}
+
+/**
+ * 保存成功后即时对账：按「当前启用来源」清除孤儿索引条目；
+ * 来源配置变化（改地址 / 删来源 / 停用 / 凭证）且入库功能开启 →
+ * 触发一次后台「立即同步资料库」（fire-and-forget，不阻塞保存返回）。
+ * fail-open：对账 / 触发失败均不影响保存结果。
+ */
+async function reconcileLibraryIndexAfterSave(input: {
+  current: unknown;
+  next: unknown;
+  skipAutoSync: boolean;
+}): Promise<void> {
+  try {
+    const result = await reconcileEmbyLibraryIndexAfterSettingsChange({
+      prevSettings: input.current,
+      nextSettings: input.next,
+    });
+    if (result.syncSuggested && !input.skipAutoSync) {
+      void requestEmbyLibrarySyncAfterConfigChange('emby-settings-save');
+    }
+  } catch {
+    /* fail-open：对账 / 触发失败不影响保存结果 */
   }
 }
 
@@ -273,7 +313,8 @@ export async function runManualLibrarySync(
   form: EmbySettingsFormState,
   removedServerIds?: ReadonlySet<string>,
 ): Promise<{ ui: LibrarySyncUiState; toast?: { message: string; type: 'success' | 'warning' | 'error' } }> {
-  const saved = await persistEmbyForm(form, removedServerIds);
+  // 手动同步随后会自发 EMBY_LIBRARY_SYNC → 跳过保存侧的自动同步防重复
+  const saved = await persistEmbyForm(form, removedServerIds, { skipAutoSync: true });
   if (!saved.ok) {
     await toast(saved.error || '保存设置失败', 'error');
     return {

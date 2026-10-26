@@ -42,6 +42,7 @@ import {
   handleEmbyUserLogin,
 } from '../../features/embyLibrary/background/handlers';
 import {
+  clearInvalidSourceCopies,
   enqueueCompletedPlayback,
   retryFailedCleanupCopy,
 } from '../../features/mediaCleanup/mediaCleanupStorage';
@@ -338,6 +339,29 @@ export function registerMiscRouter(): void {
                 deleteCopy: DEFAULT_DEPENDENCIES.deleteCopy,
               });
               sendResponse({ success: true, ...result });
+            } catch (e) {
+              sendResponse({ success: false, error: e?.message || String(e) });
+            }
+          })();
+          return true;
+        }
+        case 'MEDIA_CLEANUP_CLEAR_INVALID_COPIES': {
+          // 清除来源已失效的副本：本地删索引条目 + 副本置 skipped（操作记录），不联网
+          void (async () => {
+            try {
+              const titleId = String(message?.titleId || '').trim();
+              const copyId = String(message?.copyId || '').trim();
+              if (!titleId || !copyId) {
+                sendResponse({ success: false, error: '缺少影片或来源副本标识' });
+                return;
+              }
+              const result = await clearInvalidSourceCopies({ targets: [{ titleId, copyId }] });
+              sendResponse({
+                success: true,
+                clearedCount: result.clearedCount,
+                removedEntryCount: result.removedEntryCount,
+                skippedCount: result.skippedCount,
+              });
             } catch (e) {
               sendResponse({ success: false, error: e?.message || String(e) });
             }

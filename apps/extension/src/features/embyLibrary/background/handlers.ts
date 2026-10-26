@@ -11,15 +11,20 @@ import {
   extractCodeFromMediaItem,
   generateVideoCodeSearchTerms,
   mergeLibraryIndexes,
-  normalizeServerKey,
   normalizeServerUrl,
   normalizeVideoCode,
 } from '../domain/libraryIndex';
+import {
+  getEntryServerIndexKey,
+  getServerIndexKey,
+  isLibraryFeatureEnabled,
+  reconcileLibraryEntries,
+  resolveEnabledMediaServers,
+} from '../domain/indexReconcile';
 import { resolveEmbyStreamUrl } from '../domain/embyPlayback';
 import { reportEmbyPlaybackProgress } from '../domain/embyPlaystate';
 import { fetchEmbyItemDetail } from '../domain/embyItemDetail';
 import { EMBY_LIBRARY_REQUEST_TIMEOUT_MS, fetchWithTimeout } from '../domain/fetchWithTimeout';
-import { isSyncEligibleServer } from '../domain/serverEligibility';
 import { embyLog, mediaLog, playerLog } from '../mediaLibraryLogger';
 import { reportWatchProgressWithRecordSourceSync } from '../../media/videoRecordSource';
 import type { MediaWatchEvidence } from '../../media/mediaWatchEvidence';
@@ -70,51 +75,8 @@ function defaultDeps(): EmbyLibraryHandlerDeps {
 }
 
 export function getEnabledServers(settings: any): EmbyMediaServer[] {
-  const servers = settings?.emby?.mediaServers;
-  if (!Array.isArray(servers)) return [];
-
-  // 资格判定（启用 + 地址 + 凭据）统一走共享 isSyncEligibleServer，
-  // 与自动同步 alarm 注册侧同一函数；凭据认 apiKey / accessToken / 账号+密码。
-  // 仅 账号+密码（未登录会话）的服务器也保留：旧行为在此被静默剔除，
-  // 同步表现为「无服务器」/其它入口报「未找到匹配的已启用媒体服务器」，
-  // 用户看不到缺什么凭据。保留后由各功能入口的凭据守卫
-  // （fetchMediaItemsPage / fetchEmbyItemDetail / resolveEmbyStreamUrl /
-  //  postUserDataProgress）给出可操作的配置指引。
-  return servers
-    .filter((server) => isSyncEligibleServer(server))
-    .map((server) => {
-      const type: EmbyMediaServer['type'] = server.type === 'jellyfin' ? 'jellyfin' : 'emby';
-      const libraryIds = Array.isArray(server.libraryIds)
-        ? server.libraryIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
-        : [];
-      const libraryOptions = Array.isArray(server.libraryOptions)
-        ? server.libraryOptions
-            .map((opt: any) => ({
-              id: String(opt?.id || '').trim(),
-              name: String(opt?.name || opt?.id || '').trim(),
-              collectionType: opt?.collectionType ? String(opt.collectionType) : undefined,
-            }))
-            .filter((opt: EmbyLibraryFolderOption) => opt.id)
-        : undefined;
-      return {
-        id: String(server.id || `${type}:${normalizeServerUrl(String(server.url || ''))}`),
-        type,
-        name: String(server.name || (type === 'jellyfin' ? 'Jellyfin' : 'Emby')),
-        url: normalizeServerUrl(String(server.url || '')),
-        apiKey: String(server.apiKey || ''),
-        enabled: true,
-        libraryIds,
-        ...(libraryOptions && libraryOptions.length ? { libraryOptions } : {}),
-        username: server.username ? String(server.username) : undefined,
-        // password 此前在规范化时被丢弃，导致「仅账号+密码未登录」服务器在
-        // 入口守卫层不可识别；补齐后由守卫给出明确配置指引（不持久化、不外发）
-        password: server.password ? String(server.password) : undefined,
-        accessToken: server.accessToken ? String(server.accessToken) : undefined,
-        userId: server.userId ? String(server.userId) : undefined,
-        userDisplayName: server.userDisplayName ? String(server.userDisplayName) : undefined,
-        tokenObtainedAt: Number(server.tokenObtainedAt) || undefined,
-      };
-    })
+  // 主体已迁至 domain/indexReconcile（设置保存对账 / 清理面板孤儿判定共用同一白名单事实源）。
+  return resolveEnabledMediaServers(settings);
 }
 
 function filterServersForSync(servers: EmbyMediaServer[], message: any): EmbyMediaServer[] {
@@ -138,40 +100,9 @@ function sanitizeError(error: unknown): string {
     .replace(/api[-_\s]?key[:=]\s*[^&\s]+/gi, 'API Key=***');
 }
 
-export function getServerIndexKey(server: Pick<EmbyMediaServer, 'type' | 'url'>): string {
-  return `${server.type}:${normalizeServerKey(server.url)}`;
-}
-
-export function getEntryServerIndexKey(entry: Pick<EmbyLibraryIndexEntry, 'serverType' | 'serverUrl'>): string {
-  return `${entry.serverType}:${normalizeServerKey(entry.serverUrl)}`;
-}
-
-/**
- * 以「当前设置里的已启用服务器」为准清理孤儿索引 entry：
- * - 服务器被删除、或改地址后旧地址的 entry（serverKey 不在当前配置白名单）→ 移除；
- * - 仍在配置中但本次同步失败的服务器 → 保留旧 entry（避免临时故障导致数据丢失）。
- */
-function isLibraryFeatureEnabled(emby: unknown): boolean {
-  const config = (emby || {}) as { libraryEnabled?: unknown; libraryStatus?: { enabled?: unknown } };
-  // 不依赖 isEmbyLibraryEnabled 的回退分支：旧数据只有 libraryStatus 且无
-  // recognitionEnabled/libraryEnabled 字段时，isEmbyLibraryEnabled 要求 emby.enabled===true，
-  // 会误判为关闭；这里用「未显式关闭 + 任一启用信号」判定。
-  return config.libraryEnabled !== false
-    && (config.libraryEnabled === true || config.libraryStatus?.enabled === true);
-}
-
-function pruneOrphanedEntries(
-  state: EmbyLibraryState,
-  configuredServers: EmbyMediaServer[],
-): EmbyLibraryState['entries'] {
-  const validKeys = new Set(configuredServers.map((server) => getServerIndexKey(server)));
-  const next: Record<string, EmbyLibraryIndexEntry[]> = {};
-  for (const [code, entries] of Object.entries(state.entries || {})) {
-    const kept = entries.filter((entry) => validKeys.has(getEntryServerIndexKey(entry)));
-    if (kept.length > 0) next[code] = kept;
-  }
-  return next;
-}
+// 索引键函数与 isLibraryFeatureEnabled 已迁至 domain/indexReconcile
+// （设置保存对账 / 清理面板孤儿判定共用），此处 re-export 保持既有导入面。
+export { getEntryServerIndexKey, getServerIndexKey };
 
 /**
  * 将「本次同步成功的服务器」的旧 entry 替换为新索引的 entry。
@@ -641,10 +572,7 @@ export async function handleEmbyLibrarySync(
     // ② 对账：以「当前配置里的已启用服务器」为白名单，移除孤儿 entry（服务器被删除 /
     // 改地址）。必须在 merge 之后执行，才能同时清掉「旧 key 的残留」与「刚被新索引引入、
     // 但已不在当前配置的 key」。仍在配置中但本次同步失败的服务器不受影响。
-    const reconciledEntries = pruneOrphanedEntries(
-      { ...merged, entries: merged.entries },
-      allEnabledServers,
-    );
+    const reconciledEntries = reconcileLibraryEntries(merged.entries, allEnabledServers);
     // ③ 关闭入库开关时的全量手动同步：清掉整个索引。
     const finalEntries = wipeEntries ? {} : reconciledEntries;
     const nextState: EmbyLibraryState = {

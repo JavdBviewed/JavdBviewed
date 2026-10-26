@@ -15,6 +15,11 @@ import {
   loadMediaCleanupState,
   loadMediaDeletionHistory,
 } from '../../../../features/mediaCleanup/mediaCleanupStorage';
+import { getSettings } from '../../../../utils/storage';
+import {
+  getValidCleanupSourceKeys,
+  isCleanupCopySourceInvalid,
+} from '../../../../features/mediaCleanup/mediaCleanupOrphan';
 import {
   getCleanupPage,
   getTitleSelectionState,
@@ -182,19 +187,24 @@ function CleanupTitleCard({
   selectedKeys,
   busy,
   history,
+  invalidCopyKeys,
   onToggleTitle,
   onToggleCopy,
+  onClearInvalidCopy,
 }: {
   group: MediaCleanupTitleGroup;
   selectedKeys: ReadonlySet<string>;
   busy: boolean;
   history?: boolean;
+  invalidCopyKeys: ReadonlySet<string>;
   onToggleTitle: (group: MediaCleanupTitleGroup) => void;
   onToggleCopy: (item: MediaCleanupItem, copy: MediaCleanupCopyEntry) => void;
+  onClearInvalidCopy: (item: MediaCleanupItem, copy: MediaCleanupCopyEntry) => void;
 }) {
-  const { item, copies } = group;
+  const { item, copies, actionableCopies } = group;
   const allCopies = Object.values(item.copies);
-  const selection = getTitleSelectionState(selectedKeys, item, copies);
+  // 选择态只统计可勾选条目（孤儿来源不可参与「从来源删除」）
+  const selection = getTitleSelectionState(selectedKeys, item, actionableCopies);
   return (
     <article className={`ml-cleanup-card${history ? ' is-history' : ''}`} data-media-cleanup-card="1">
       <CleanupCardCover code={item.code} copies={allCopies} />
@@ -204,7 +214,7 @@ function CleanupTitleCard({
             <IndeterminateCheckbox
               checked={selection.isSelected}
               indeterminate={selection.isPartial}
-              disabled={busy}
+              disabled={busy || selection.totalCount === 0}
               label={`选择 ${item.code} 的全部来源文件`}
               onChange={() => onToggleTitle(group)}
             />
@@ -237,13 +247,14 @@ function CleanupTitleCard({
             {allCopies.map((copy) => {
               const isActionable = copies.some((candidate) => candidate.copyId === copy.copyId);
               const isSelected = selectedKeys.has(selectionKey(item.titleId, copy.copyId));
+              const invalid = !history && invalidCopyKeys.has(selectionKey(item.titleId, copy.copyId));
               return (
-                <label key={copy.copyId} className={`ml-cleanup-copy-row is-${copy.status}`}>
+                <label key={copy.copyId} className={`ml-cleanup-copy-row is-${copy.status}${invalid ? ' is-source-invalid' : ''}`}>
                   {history ? null : (
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      disabled={busy || !isActionable}
+                      disabled={busy || !isActionable || invalid}
                       aria-label={`选择 ${copyLabel(copy)}`}
                       onChange={() => onToggleCopy(item, copy)}
                     />
@@ -264,12 +275,29 @@ function CleanupTitleCard({
                     ) : copy.error ? <em className="ml-cleanup-copy-error" title={copy.error}>{copy.error}</em> : null}
                   </span>
                   <span className="ml-cleanup-copy-status">
-                    {history
+                    {invalid ? (
+                      <span className="ml-cleanup-copy-invalid-badge">来源已失效</span>
+                    ) : history
                       ? '已处理'
                       : isActionable
                         ? copy.status === 'failed' ? '可重试' : '待确认'
                         : copy.status === 'deleted' ? '已处理' : '其他列表'}
                   </span>
+                  {invalid ? (
+                    <button
+                      type="button"
+                      className="ml-cleanup-copy-clear-btn"
+                      disabled={busy}
+                      title="本地清除该失效来源的索引条目与待处理记录，不访问媒体服务器"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onClearInvalidCopy(item, copy);
+                      }}
+                    >
+                      清除失效条目
+                    </button>
+                  ) : null}
                 </label>
               );
             })}
@@ -283,14 +311,17 @@ function CleanupTitleCard({
 function HistoryOperationRow({
   operation,
   busy,
+  orphan,
   onRetry,
 }: {
   operation: HistoryOperation;
   busy: boolean;
+  orphan?: boolean;
   onRetry: (operation: HistoryOperation) => void;
 }) {
   const { code, title, copy, occurredAt, succeeded, detail } = operation;
-  const retryable = !succeeded && copy.status === 'failed';
+  // 来源已失效的条目无配置可反查，重试必然失败 → 不提供重试入口
+  const retryable = !succeeded && copy.status === 'failed' && !orphan;
   return (
     <article
       className={`ml-cleanup-history-item is-${copy.status}`}
@@ -342,28 +373,52 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [settings, setSettings] = useState<unknown>(null);
 
   const reload = useCallback(async () => {
-    const [nextCleanup, nextHistory] = await Promise.all([
+    const [nextCleanup, nextHistory, nextSettings] = await Promise.all([
       loadMediaCleanupState(),
       loadMediaDeletionHistory(),
+      getSettings(),
     ]);
     setCleanup(nextCleanup);
     setHistory(nextHistory);
+    setSettings(nextSettings);
   }, []);
 
   useEffect(() => {
     void reload();
   }, [reload, refreshKey]);
 
-  const titleGroups = useMemo<MediaCleanupTitleGroup[]>(() => Object.values(cleanup.items).map((item) => ({
-    item,
+  // 来源已失效（孤儿）条目键集合：与资料库索引对账同一白名单口径
+  const validSourceKeys = useMemo(() => getValidCleanupSourceKeys(settings), [settings]);
+  const invalidCopyKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const item of Object.values(cleanup.items)) {
+      for (const copy of Object.values(item.copies)) {
+        if (isCleanupCopySourceInvalid(copy, validSourceKeys)) {
+          keys.add(selectionKey(item.titleId, copy.copyId));
+        }
+      }
+    }
+    return keys;
+  }, [cleanup.items, validSourceKeys]);
+
+  const titleGroups = useMemo<MediaCleanupTitleGroup[]>(() => Object.values(cleanup.items).map((item) => {
     // 待处理只展示可操作状态（pending/deleting）；
     // 历史 ::rev 脏记录由「重新扫描」合并（convergeStaleDuplicateCopies），终态记录在「操作记录」中查看。
-    copies: Object.values(item.copies).filter(
+    const pendingCopies = Object.values(item.copies).filter(
       (copy) => copy.status === 'pending' || copy.status === 'deleting',
-    ),
-  })).filter((group) => group.copies.length > 0), [cleanup.items]);
+    );
+    return {
+      item,
+      copies: pendingCopies,
+      // 孤儿来源不可参与「从来源删除」→ 选择态 / 全选 / 删除清单只含可勾选条目
+      actionableCopies: pendingCopies.filter(
+        (copy) => !invalidCopyKeys.has(selectionKey(item.titleId, copy.copyId)),
+      ),
+    };
+  }).filter((group) => group.copies.length > 0), [cleanup.items, invalidCopyKeys]);
   const historyOperations = useMemo(
     () => toHistoryOperations({ cleanup, history }),
     [cleanup, history],
@@ -381,15 +436,21 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
     if (pageNumber !== targetPage) setPageNumber(targetPage);
   }, [tab, page.page, historyPage.page, pageNumber]);
 
-  const selected = useMemo<SelectedCopy[]>(() => titleGroups.flatMap(({ item, copies }) => copies
+  const selected = useMemo<SelectedCopy[]>(() => titleGroups.flatMap(({ item, actionableCopies }) => actionableCopies
     .filter((copy) => selectedKeys.has(selectionKey(item.titleId, copy.copyId)))
     .map((copy) => ({ titleId: item.titleId, copyId: copy.copyId }))), [titleGroups, selectedKeys]);
   const selectedTitleCount = useMemo(() => new Set(selected.map((item) => item.titleId)).size, [selected]);
-  const pageFullySelected = page.items.length > 0 && page.items.every((group) => (
-    getTitleSelectionState(selectedKeys, group.item, group.copies).isSelected
-  ));
-  const pagePartiallySelected = page.items.some((group) => {
-    const state = getTitleSelectionState(selectedKeys, group.item, group.copies);
+  // 页面级全选只统计可勾选条目（孤儿来源不可参与「从来源删除」，与卡片级同一口径）
+  const pageSelectableGroups = useMemo(
+    () => page.items.filter((group) => group.actionableCopies.length > 0),
+    [page],
+  );
+  const pageFullySelected = pageSelectableGroups.length > 0
+    && pageSelectableGroups.every((group) => (
+      getTitleSelectionState(selectedKeys, group.item, group.actionableCopies).isSelected
+    ));
+  const pagePartiallySelected = pageSelectableGroups.some((group) => {
+    const state = getTitleSelectionState(selectedKeys, group.item, group.actionableCopies);
     return state.isSelected || state.isPartial;
   }) && !pageFullySelected;
   const selectedSourceSummary = useMemo(() => {
@@ -412,8 +473,8 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
   };
 
   const toggleTitle = (group: MediaCleanupTitleGroup) => {
-    const state = getTitleSelectionState(selectedKeys, group.item, group.copies);
-    setSelectedKeys((current) => setTitleSelection(current, group.item, group.copies, !state.isSelected));
+    const state = getTitleSelectionState(selectedKeys, group.item, group.actionableCopies);
+    setSelectedKeys((current) => setTitleSelection(current, group.item, group.actionableCopies, !state.isSelected));
   };
 
   const togglePage = () => {
@@ -489,6 +550,37 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
     } catch {
       setBusy(false);
       showMessage('重试失败：无法连接后台服务', 'error', 6000);
+    }
+  };
+
+  const clearInvalidCopy = async (item: MediaCleanupItem, copy: MediaCleanupCopyEntry) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const response = await sendRuntimeMessage<{
+        success?: boolean;
+        error?: string;
+        clearedCount?: number;
+        skippedCount?: number;
+      }>({
+        type: 'MEDIA_CLEANUP_CLEAR_INVALID_COPIES',
+        titleId: item.titleId,
+        copyId: copy.copyId,
+      });
+      if (response?.success) {
+        if ((response.clearedCount || 0) > 0) {
+          showMessage(`已清除 ${item.code} 的失效来源条目（${copyLabel(copy)}）`, 'success', 5000);
+        } else {
+          showMessage('该条目已无待清除内容', 'info', 4000);
+        }
+      } else {
+        showMessage(response?.error || '清除失效条目失败', 'error', 6000);
+      }
+    } catch {
+      showMessage('清除失效条目失败：无法连接后台服务', 'error', 6000);
+    } finally {
+      setBusy(false);
+      await reload();
     }
   };
 
@@ -570,7 +662,13 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
             </div>
             <div className="ml-cleanup-history-list">
               {pagedHistoryOperations.map((operation) => (
-                <HistoryOperationRow key={operation.key} operation={operation} busy={busy} onRetry={(op) => void retryFailed(op)} />
+                <HistoryOperationRow
+                  key={operation.key}
+                  operation={operation}
+                  busy={busy}
+                  orphan={invalidCopyKeys.has(selectionKey(operation.titleId, operation.copy.copyId))}
+                  onRetry={(op) => void retryFailed(op)}
+                />
               ))}
             </div>
             <div className="ml-cleanup-pagination" aria-label="操作记录分页">
@@ -602,7 +700,7 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
             <IndeterminateCheckbox
               checked={pageFullySelected}
               indeterminate={pagePartiallySelected}
-              disabled={busy}
+              disabled={busy || pageSelectableGroups.length === 0}
               label="选择本页全部影片文件"
               onChange={togglePage}
             />
@@ -616,8 +714,10 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
                 group={group}
                 selectedKeys={selectedKeys}
                 busy={busy}
+                invalidCopyKeys={invalidCopyKeys}
                 onToggleTitle={toggleTitle}
                 onToggleCopy={toggleSelected}
+                onClearInvalidCopy={(item, copy) => void clearInvalidCopy(item, copy)}
               />
             ))}
           </div>

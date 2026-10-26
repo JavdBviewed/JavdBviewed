@@ -62,10 +62,11 @@ describe('mediaCleanupViewModel', () => {
   });
 
   it('selects only the visible page while preserving existing cross-page selections', () => {
-    const titles = Array.from({ length: CLEANUP_PAGE_SIZE + 1 }, (_, index) => ({
-      item: item(`AAA-${index}`, [copy(`emby:item-${index}`)]),
-      copies: [copy(`emby:item-${index}`)],
-    }));
+    const titles = Array.from({ length: CLEANUP_PAGE_SIZE + 1 }, (_, index) => {
+      const copies = [copy(`emby:item-${index}`)];
+      const entry = item(`AAA-${index}`, copies);
+      return { item: entry, copies, actionableCopies: copies };
+    });
     const firstPage = getCleanupPage(titles, 1);
     const secondPage = getCleanupPage(titles, 2);
     const selected = setPageSelection(new Set(), firstPage.items, true);

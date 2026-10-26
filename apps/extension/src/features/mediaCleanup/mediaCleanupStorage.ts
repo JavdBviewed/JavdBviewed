@@ -1,6 +1,8 @@
 import { STORAGE_KEYS } from '../../utils/config';
 import { getValue, setValue } from '../../utils/storage';
-import type { EmbyLibraryState } from '../embyLibrary/types';
+import type { EmbyLibraryIndexEntry, EmbyLibraryState } from '../embyLibrary/types';
+import { getEntryServerIndexKey } from '../embyLibrary/domain/indexReconcile';
+import { getCleanupCopyServerKey } from './mediaCleanupOrphan';
 import {
   EMPTY_MEDIA_CLEANUP_STATE,
   EMPTY_MEDIA_DELETION_HISTORY,
@@ -185,6 +187,90 @@ export async function executeQueuedCleanupCopy(input: {
     saveMediaDeletionHistory(next.history),
   ]);
   return { ok: result.ok, message: result.message, cleanup: next.cleanup };
+}
+
+/** 清除失效条目（B：清理面板孤儿副本）的操作记录文案 */
+export const CLEAR_INVALID_SOURCE_MESSAGE = '来源已失效，清除失效条目';
+
+/**
+ * 清除来源已失效的副本（10-26-emby-index-reconcile）：
+ * - 删 emby_library_state 中对应索引条目（同 code + 来源键 + itemId），空 code 键整体移除；
+ * - 副本置 skipped 并写操作记录「来源已失效，清除失效条目」（经「操作记录」tab 展示）；
+ * - 不动来源、不联网；仅状态有变化才写回。
+ * 缺失 / 已终态（deleted/skipped）/ 115 或无地址副本 → 计入 skippedCount。
+ */
+export async function clearInvalidSourceCopies(input: {
+  targets: Array<{ titleId: string; copyId: string }>;
+}): Promise<{ clearedCount: number; removedEntryCount: number; skippedCount: number }> {
+  const [state, libraryState] = await Promise.all([
+    loadMediaCleanupState(),
+    getValue<EmbyLibraryState>(STORAGE_KEYS.EMBY_LIBRARY_STATE, { entries: {}, updatedAt: 0 }),
+  ]);
+  const now = Date.now();
+  const entries: Record<string, EmbyLibraryIndexEntry[]> = { ...(libraryState.entries || {}) };
+  const items = { ...state.items };
+  let clearedCount = 0;
+  let removedEntryCount = 0;
+  let skippedCount = 0;
+  let libraryChanged = false;
+
+  for (const target of input.targets) {
+    const item = items[target.titleId];
+    const copy = item?.copies[target.copyId];
+    if (!copy) {
+      skippedCount += 1;
+      continue;
+    }
+    if (copy.status === 'deleted' || copy.status === 'skipped') {
+      skippedCount += 1;
+      continue;
+    }
+    const serverKey = getCleanupCopyServerKey(copy);
+    if (!serverKey) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const codeEntries = entries[item.code];
+    if (codeEntries && codeEntries.length > 0) {
+      const kept = codeEntries.filter((entry) => {
+        if (getEntryServerIndexKey(entry) !== serverKey) return true;
+        if (copy.itemId && entry.itemId !== copy.itemId) return true;
+        return false;
+      });
+      if (kept.length < codeEntries.length) {
+        removedEntryCount += codeEntries.length - kept.length;
+        if (kept.length === 0) delete entries[item.code];
+        else entries[item.code] = kept;
+        libraryChanged = true;
+      }
+    }
+
+    items[target.titleId] = {
+      ...item,
+      updatedAt: now,
+      copies: {
+        ...item.copies,
+        [target.copyId]: {
+          ...copy,
+          status: 'skipped',
+          message: CLEAR_INVALID_SOURCE_MESSAGE,
+          error: undefined,
+          updatedAt: now,
+        },
+      },
+    };
+    clearedCount += 1;
+  }
+
+  if (clearedCount > 0 || libraryChanged) {
+    const next: MediaCleanupState = { ...state, items, updatedAt: now };
+    await Promise.all([
+      saveMediaCleanupState(next),
+      ...(libraryChanged ? [setValue(STORAGE_KEYS.EMBY_LIBRARY_STATE, { ...libraryState, entries })] : []),
+    ]);
+  }
+  return { clearedCount, removedEntryCount, skippedCount };
 }
 
 export async function importHistoricalWatchedFromCurrentLibrary(): Promise<{

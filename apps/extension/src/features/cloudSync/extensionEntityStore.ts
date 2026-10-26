@@ -41,6 +41,10 @@ import { shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy
 import type { TypeCountMap } from './syncStats';
 import { mergeMediaCleanupStorageValue } from '../mediaCleanup';
 import { mergeEmbyMediaServersForPull, stripEmbySessionFieldsFromValue } from '../../shared/embyMediaServerSync';
+import {
+  reconcileEmbyLibraryIndexAfterSettingsChange,
+  requestEmbyLibrarySyncAfterConfigChange,
+} from '../embyLibrary/libraryIndexReconcile';
 import { mergeDrive115SessionForPull } from '../../shared/drive115SessionSync';
 
 export const EXTENSION_SYNC_ENTITY_TYPES: readonly SyncEntityType[] = [
@@ -444,6 +448,25 @@ async function newWorksDeleteMany(ids: string[]): Promise<void> {
   }
 }
 
+/**
+ * settings 云 pull-apply 成功 → emby 资料库索引即时对账（10-26-emby-index-reconcile）。
+ * prev=写入前本地值、next=合并应用值；配置变化且入库开启时触发一次后台同步。
+ * fire-and-forget + fail-open：不影响同步主流程，回声（本地与远端一致）diff 为空不触发。
+ */
+async function reconcileLibraryIndexAfterCloudApply(prevValue: unknown, nextValue: unknown): Promise<void> {
+  try {
+    const result = await reconcileEmbyLibraryIndexAfterSettingsChange({
+      prevSettings: prevValue,
+      nextSettings: nextValue,
+    });
+    if (result.syncSuggested) {
+      await requestEmbyLibrarySyncAfterConfigChange('cloud-pull-apply');
+    }
+  } catch {
+    /* fail-open */
+  }
+}
+
 async function applyOne(entity: SyncEntity): Promise<void> {
   const payload = entity.payload;
   switch (entity.type) {
@@ -587,6 +610,10 @@ async function applyOne(entity: SyncEntity): Promise<void> {
           : mergeMediaCleanupStorageValue(key, localValue, value);
       markCloudStorageWrite(key, mergedValue);
       await setValue(key, mergedValue);
+      if (key === STORAGE_KEYS.SETTINGS) {
+        // emby 入库设置已落到本地（云 pull-apply）→ 索引孤儿条目即时对账（fail-open）
+        void reconcileLibraryIndexAfterCloudApply(localValue, mergedValue);
+      }
       return;
     }
     default:
