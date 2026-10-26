@@ -125,6 +125,7 @@ describe('release announcement state', () => {
 
   it('ships user-facing release notes for recent versions', () => {
     expect(RELEASE_NOTES.map(note => note.version)).toEqual([
+      '2.1.3',
       '2.1.2',
       '2.1.1',
       '2.1.0',
@@ -141,6 +142,13 @@ describe('release announcement state', () => {
     ]);
     const highlightsFor = (version: string) => RELEASE_NOTES.find(note => note.version === version)?.highlights;
 
+    // 2.1.3 发版（2026-10-26，用户过目定稿）：7 条，数据锁随数据先例
+    expect(highlightsFor('2.1.3')?.length).toBe(7);
+    expect(highlightsFor('2.1.3')).toEqual(expect.arrayContaining([
+      '云同步：资料库（Emby/Jellyfin/115）配置与 115 登录态跨设备同步，修改后多端自动生效。',
+      '修复刷新资料库索引后「真实已看」「已入库」筛选仍漏掉部分影片的问题（截断番号记录不再漏判）。',
+      '称呼统一：原「媒体库来源」改称「资料库」，导航栏原「资料库」组改名「信息库」，不再混淆。',
+    ]));
     // 2.1.2 发版（2026-10-09，用户过目定稿）：7 条，数据锁随数据先例
     expect(highlightsFor('2.1.2')?.length).toBe(7);
     expect(highlightsFor('2.1.2')).toEqual(expect.arrayContaining([
