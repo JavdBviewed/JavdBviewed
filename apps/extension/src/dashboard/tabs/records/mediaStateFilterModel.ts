@@ -6,7 +6,8 @@
  * 口径与站点列表 hideInMediaLibrary / hideRealWatched 同源（只消费不改）：
  * - inLibrary   = Emby/JF 同步索引命中（∩ 已配置启用服务器）∨ 115 网盘索引命中；
  * - realWatched = Emby/JF 命中且 computeWatchState === 'watched'（115 无观看态，不计）。
- * 无番号（videoCode 与 id 均无法归一为番号）的记录两维度均不命中。
+ * 候选顺序为 videoCode 优先、id 兜底；截断/无效 videoCode 不遮蔽完整 id。
+ * 每条记录采用首个命中候选，避免把不同候选的状态合并。两者均无法归一为番号时不命中。
  *
  * 本模块零 chrome 依赖：索引与服务器配置由调用方（mediaStateFilterRuntime）读取后注入。
  */
@@ -53,15 +54,23 @@ export function buildMediaStateHitMap(input: BuildMediaStateHitMapInput): Map<st
 
   for (const record of records) {
     if (!record || typeof record !== 'object') continue;
-    const code = String(record.videoCode || record.id || '').trim();
-    if (!code) continue;
+    const candidates = [...new Set([record.videoCode, record.id]
+      .map((value) => String(value ?? '').trim())
+      .filter(Boolean))];
+    if (candidates.length === 0) continue;
 
-    const embyHit = computeEmbyHidingHit(input.embyIndex, code, input.servers);
-    const hit: MediaStateHit = {
-      inLibrary: embyHit.inLibrary || hasDrive115Hit(input.drive115State, code),
-      realWatched: embyHit.realWatched,
-    };
-    if (!hit.inLibrary && !hit.realWatched) continue;
+    let hit: MediaStateHit | null = null;
+    for (const code of candidates) {
+      const embyHit = computeEmbyHidingHit(input.embyIndex, code, input.servers);
+      const candidateHit: MediaStateHit = {
+        inLibrary: embyHit.inLibrary || hasDrive115Hit(input.drive115State, code),
+        realWatched: embyHit.realWatched,
+      };
+      if (!candidateHit.inLibrary && !candidateHit.realWatched) continue;
+      hit = candidateHit;
+      break;
+    }
+    if (!hit) continue;
 
     const key = getMediaStateRecordKey(record);
     if (key) map.set(key, hit);

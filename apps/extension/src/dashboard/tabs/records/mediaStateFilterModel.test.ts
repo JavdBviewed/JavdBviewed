@@ -169,6 +169,71 @@ describe('buildMediaStateHitMap', () => {
     });
     expect(map.get(getMediaStateRecordKey(records[0]))?.inLibrary).toBe(true);
   });
+
+  it('截断 videoCode 无法归一时用完整 id 命中 Emby 真实已看', () => {
+    const records = [record({ id: 'MIDA-354', videoCode: 'MIDA' })];
+    const map = buildMediaStateHitMap({
+      records,
+      embyIndex: makeEmbyIndex({
+        'MIDA-354': [makeEntry({ itemName: 'MIDA-354', userData: { played: true } })],
+      }),
+      drive115State: null,
+      servers: SERVERS,
+    });
+
+    expect(map.get('MIDA-354')).toEqual({ inLibrary: true, realWatched: true });
+  });
+
+  it('videoCode 候选命中后定案，不被 id 候选覆盖', () => {
+    const records = [record({ id: 'XYZ-777', videoCode: 'ABC-001' })];
+    const map = buildMediaStateHitMap({
+      records,
+      embyIndex: makeEmbyIndex({
+        'ABC-001': [makeEntry({ itemName: 'ABC-001', userData: { played: false } })],
+        'XYZ-777': [makeEntry({ itemName: 'XYZ-777', userData: { played: true } })],
+      }),
+      drive115State: null,
+      servers: SERVERS,
+    });
+
+    expect(map.get('XYZ-777')).toEqual({ inLibrary: true, realWatched: false });
+  });
+
+  it('截断 videoCode 与无效 id 均不能制造命中', () => {
+    const records = [record({ id: 'jdb-record-alpha', videoCode: 'MIDA' })];
+    const map = buildMediaStateHitMap({
+      records,
+      embyIndex: makeEmbyIndex({ 'MIDA-354': [makeEntry({ itemName: 'MIDA-354' })] }),
+      drive115State: make115State(['MIDA-354']),
+      servers: SERVERS,
+    });
+
+    expect(map.size).toBe(0);
+  });
+
+  it('截断 videoCode 走 id 兜底时命中 115 inLibrary', () => {
+    const records = [record({ id: 'MIDA-354', videoCode: 'MIDA' })];
+    const map = buildMediaStateHitMap({
+      records,
+      embyIndex: null,
+      drive115State: make115State(['MIDA-354']),
+      servers: SERVERS,
+    });
+
+    expect(map.get('MIDA-354')).toEqual({ inLibrary: true, realWatched: false });
+  });
+
+  it('仅有 115 索引时完整 id 候选可命中 inLibrary', () => {
+    const records = [record({ id: 'MIDA-354', videoCode: '' })];
+    const map = buildMediaStateHitMap({
+      records,
+      embyIndex: null,
+      drive115State: make115State(['MIDA-354']),
+      servers: SERVERS,
+    });
+
+    expect(map.get('MIDA-354')).toEqual({ inLibrary: true, realWatched: false });
+  });
 });
 
 describe('getMediaStateRecordKey', () => {
