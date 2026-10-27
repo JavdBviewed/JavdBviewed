@@ -14,6 +14,7 @@ import {
     type CollectionListType,
     normalizeCollectionRecord,
 } from '../../shared/utils/listRecordHelpers';
+import { reconcileCollectionListRecords } from './collectionMirrorReconcile';
 import { getSettings, getValue, setValue } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../utils/config';
 import { dbViewedPut } from '../dbClient';
@@ -2028,21 +2029,21 @@ export class ApiClient {
 
     private async replaceCollectionListRecords(type: CollectionListType, records: ListRecord[]): Promise<void> {
         const normalizedRecords = records.map(record => normalizeCollectionRecord(record));
-        const newIdSet = new Set(normalizedRecords.map(record => record.id));
         const rawExisting = await this.sendDbMessage<{ success: true; records: ListRecord[] }>('DB:LISTS_GET_ALL', {});
         const existingRecords: ListRecord[] = ((rawExisting as any).records || []).filter((record: ListRecord) => record.type === type);
 
-        for (const existing of existingRecords) {
-            const normalizedExisting = normalizeCollectionRecord(existing);
-            const rawId = String(existing.id || '');
-            const shouldDelete = rawId !== normalizedExisting.id || !newIdSet.has(normalizedExisting.id);
-            if (shouldDelete) {
-                await this.sendDbMessage('DB:LISTS_DELETE', { id: rawId });
-            }
+        // 对账迁移：旧裸 ID 镜像按 externalId/url 匹配新前缀实体，字段并集合并后删旧；未命中保留并留痕
+        const { finalRecords, deleteIds, keptBareMirrors } = reconcileCollectionListRecords(type, normalizedRecords, existingRecords);
+
+        for (const id of deleteIds) {
+            await this.sendDbMessage('DB:LISTS_DELETE', { id });
+        }
+        for (const kept of keptBareMirrors) {
+            logAsync('WARN', '收藏全量同步：旧裸 ID 镜像未匹配到新前缀实体，保留待人工处理', { type, rawId: kept.rawId, externalId: kept.externalId });
         }
 
-        if (normalizedRecords.length > 0) {
-            await this.sendDbMessage('DB:LISTS_BULK_PUT', { records: normalizedRecords });
+        if (finalRecords.length > 0) {
+            await this.sendDbMessage('DB:LISTS_BULK_PUT', { records: finalRecords });
         }
     }
 
