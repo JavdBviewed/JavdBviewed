@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  dedupeCollectionListRecords,
   getCollectionExternalId,
   getCollectionRecordId,
   getDirectorExternalIdFromUrl,
@@ -121,5 +122,41 @@ describe('matchesMakerRecord / matchesDirectorRecord（名称 + urlId 双匹配�
   it('series/label 匹配口径零漂移（对照锚）', () => {
     expect(matchesSeriesRecord({ seriesUrl: 'https://javdb.com/series/gr8A' }, collection({ id: 'series:gr8A', name: 'S', type: 'series', externalId: 'gr8A' }) as ListRecord)).toBe(true);
     expect(matchesLabelRecord({ id: 'FC2-123' }, collection({ id: 'label:fc2', name: 'FC2', type: 'label', externalId: 'fc2' }) as ListRecord)).toBe(true);
+  });
+});
+
+describe('dedupeCollectionListRecords（收藏清单展示去重兜底）', () => {
+  it('同 externalId 多条 → 只出前缀规范记录（与输入顺序无关）', () => {
+    const bare = collection({ id: 'q8e6', type: 'series' });
+    const prefixed = collection({ id: 'series:q8e6', type: 'series', externalId: 'q8e6' });
+    expect(dedupeCollectionListRecords([bare, prefixed])).toEqual([prefixed]);
+    expect(dedupeCollectionListRecords([prefixed, bare])).toEqual([prefixed]);
+  });
+
+  it('仅裸 ID → 保留（展示兜底不删数据）', () => {
+    const bare = collection({ id: 'q8e6', type: 'series' });
+    expect(dedupeCollectionListRecords([bare])).toEqual([bare]);
+  });
+
+  it('单记录 / 不同 externalId / 空数组不受影响', () => {
+    const a = collection({ id: 'series:aa', type: 'series', externalId: 'aa' });
+    const b = collection({ id: 'series:bb', type: 'series', externalId: 'bb' });
+    const solo = collection({ id: 'label:fc2', type: 'label', externalId: 'fc2' });
+    expect(dedupeCollectionListRecords([a, b, solo])).toEqual([a, b, solo]);
+    expect(dedupeCollectionListRecords([])).toEqual([]);
+  });
+
+  it('非收藏类型透传（含同 ID 视频清单）', () => {
+    const mine = collection({ id: 'my-list', type: 'mine' });
+    const mine2 = collection({ id: 'my-list', type: 'mine' });
+    expect(dedupeCollectionListRecords([mine, mine2])).toEqual([mine, mine2]);
+  });
+
+  it('双前缀防御（label 大小写差异）→ 仅一条，首个带前缀者胜', () => {
+    const p1 = collection({ id: 'label:mism', type: 'label' });
+    const p2 = collection({ id: 'label:MISM', type: 'label', externalId: 'MISM' });
+    const result = dedupeCollectionListRecords([p1, p2]);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('label:mism');
   });
 });

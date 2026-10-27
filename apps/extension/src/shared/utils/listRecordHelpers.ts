@@ -84,6 +84,48 @@ export function normalizeListRecordForUse<T extends ListRecord>(record: T): T {
   };
 }
 
+/**
+ * 收藏清单展示去重兜底：同 type 内同一 externalId 多条记录时，仅保留前缀规范记录
+ * 仅展示层（不写库、不改数据）；数据清理由 dataSync 对账迁移（collectionMirrorReconcile）负责
+ */
+export function dedupeCollectionListRecords(records: ListRecord[]): ListRecord[] {
+  if (!records || records.length === 0) return records;
+
+  const groups = new Map<string, ListRecord[]>();
+  for (const record of records) {
+    if (!record || !isCollectionListType(record.type)) continue;
+    const key = `${record.type}\u0000${getCollectionExternalId(record)}`;
+    const group = groups.get(key);
+    if (group) group.push(record);
+    else groups.set(key, [record]);
+  }
+
+  const keepIds = new Set<string>();
+  const droppedIds: string[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      keepIds.add(String(group[0].id || ''));
+      continue;
+    }
+    const type = group[0].type as CollectionListType;
+    // 前缀规范者胜（读面若已规范化为全部带前缀，则首个胜出）
+    const preferred = group.find(record => String(record.id || '').startsWith(COLLECTION_PREFIX[type])) || group[0];
+    keepIds.add(String(preferred.id || ''));
+    for (const record of group) {
+      if (record !== preferred) droppedIds.push(String(record.id || ''));
+    }
+  }
+
+  if (droppedIds.length > 0) {
+    console.debug('[lists] 收藏清单展示去重兜底：重复记录隐藏（仅展示，不写库）', { dropped: droppedIds });
+  }
+
+  return records.filter(record => {
+    if (!record || !isCollectionListType(record.type)) return true;
+    return keepIds.has(String(record.id || ''));
+  });
+}
+
 /** 从系列 URL 中提取外部 ID，如 `/series/abc` → `abc` */
 export function getSeriesExternalIdFromUrl(seriesUrl?: string): string {
   const match = String(seriesUrl || '').match(/\/series\/([^/?#]+)/);

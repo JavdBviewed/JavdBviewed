@@ -4,6 +4,7 @@ import { STATE } from '../state';
 import { showMessage } from '../ui/toast';
 import { showConfirm } from '../components/confirmModal';
 import {
+    dedupeCollectionListRecords,
     getCollectionExternalId,
     matchesDirectorRecord,
     matchesLabelRecord,
@@ -285,7 +286,7 @@ export class ListsTab {
             loaded = [];
         }
         if (!this.active || generation !== this.renderGeneration) return;
-        this.lists = loaded;
+        this.lists = dedupeCollectionListRecords(loaded);
         const signature = this.buildRenderSignature(loaded);
         if (signature === this.lastRenderSignature) {
             // 数据未变化：保留现有 DOM，跳过整片重绘（清单页二次激活卡顿的来源）。
