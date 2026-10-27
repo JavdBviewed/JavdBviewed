@@ -13,7 +13,7 @@ import { STATE } from '../../state';
 import { loadDrive115LibraryState, type Drive115LibraryIndexState } from '../../../features/drive115/mediaLibrary';
 import type { EmbyLibraryIndex } from '../../../features/embyLibrary/types';
 import type { VideoRecord } from '../../../types';
-import { buildMediaStateHitMap, type MediaStateHit } from './mediaStateFilterModel';
+import { buildMediaStateHitMap, getMediaStateRecordKey, normalizeMediaStateOverrides, type MediaStateHit } from './mediaStateFilterModel';
 
 export interface CreateMediaStateFilterRuntimeOptions {
   getRecords: () => VideoRecord[];
@@ -73,8 +73,33 @@ export function createMediaStateFilterRuntime(
     }
   };
 
+  /**
+   * 人工钉住指纹（10-27 pin）：索引/服务器版本之外的第三失效维度——
+   * 仅编辑保存改 override 不动索引时，靠本指纹让缓存键变化触发重算。
+   * 无钉住 = 空串（与旧行为零差异）；records 读取异常按无钉住处理。
+   */
+  const overridesFingerprint = (): string => {
+    const parts: string[] = [];
+    try {
+      for (const record of options.getRecords()) {
+        if (!record || typeof record !== 'object') continue;
+        const pinned = normalizeMediaStateOverrides(record.mediaStateOverrides);
+        if (!pinned) continue;
+        const key = getMediaStateRecordKey(record);
+        if (!key) continue;
+        const dim = (value?: boolean): string => (value === true ? '1' : value === false ? '0' : '-');
+        parts.push(`${key}:${dim(pinned.inLibrary)}:${dim(pinned.realWatched)}`);
+      }
+    } catch (error) {
+      logWarning('[Records] 人工钉住指纹计算失败（按无钉住处理）', error);
+      return '';
+    }
+    parts.sort();
+    return parts.join('|');
+  };
+
   const keyFor = (): string => (
-    `${embyIndex?.updatedAt ?? 0}:${drive115State?.updatedAt ?? 0}:${serversFingerprint()}`
+    `${embyIndex?.updatedAt ?? 0}:${drive115State?.updatedAt ?? 0}:${serversFingerprint()}:${overridesFingerprint()}`
   );
 
   const recompute = (key: string): void => {

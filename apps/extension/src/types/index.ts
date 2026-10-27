@@ -219,6 +219,12 @@ export interface VideoRecord {
   durationMs?: number;
   /** 观映完成标记；客户端「观映完成」映射协议既有 status='viewed'（无 'watched'，追加派单 10-08） */
   completed?: boolean;
+  /**
+   * 派生媒体态人工钉住（10-27-records-derived-state-pin）：
+   * true=钉住(强制命中) / false=强制关(索引命中也不计) / 缺=未钉住(回落派生判定)。
+   * inLibrary 与 realWatched 两维独立；旧记录无本字段=行为零变化（零回补）。
+   */
+  mediaStateOverrides?: { inLibrary?: boolean; realWatched?: boolean };
   enhancedData?: { coverImage?: string; [key: string]: any };
 }
 

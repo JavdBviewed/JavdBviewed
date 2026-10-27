@@ -75,13 +75,26 @@ export function isDerivedStatusValue(value: string | null | undefined): boolean 
   return value != null && derivedValueSet.has(String(value));
 }
 
+/** 人工钉住 chip 提示文案（10-27 pin）：与派生 hint 同构，label 不动（字典口径）。 */
+const PINNED_HINT_IN_LIBRARY = '人工钉住：已入库（不随资料库同步变化）';
+const PINNED_HINT_REAL_WATCHED = '人工钉住：真实已看（不随资料库同步变化）';
+
 /**
  * 派生 chip 决策（纯函数）：realWatched 命中优先（双命中只出 realWatched 一个）；
  * 未命中/无 hit = null（不渲染）。
+ * 10-27 pin：hit.pinned 对应维 = true（人工钉住）时 hint 换钉住文案，label/优先级不变。
  */
 export function resolveMediaStateChip(hit: MediaStateHit | null | undefined): RecordsStatusEntry | null {
   if (!hit || typeof hit !== 'object') return null;
-  if (hit.realWatched) return entryByValue.get(MEDIA_STATE_SELECT_VALUES[1]) ?? null;
-  if (hit.inLibrary) return entryByValue.get(MEDIA_STATE_SELECT_VALUES[0]) ?? null;
+  if (hit.realWatched) {
+    const entry = entryByValue.get(MEDIA_STATE_SELECT_VALUES[1]);
+    if (!entry) return null;
+    return hit.pinned?.realWatched === true ? { ...entry, hint: PINNED_HINT_REAL_WATCHED } : entry;
+  }
+  if (hit.inLibrary) {
+    const entry = entryByValue.get(MEDIA_STATE_SELECT_VALUES[0]);
+    if (!entry) return null;
+    return hit.pinned?.inLibrary === true ? { ...entry, hint: PINNED_HINT_IN_LIBRARY } : entry;
+  }
   return null;
 }

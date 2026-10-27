@@ -97,4 +97,36 @@ describe('records status dictionary', () => {
     const both: MediaStateHit = { inLibrary: true, realWatched: true };
     expect(resolveMediaStateChip(both)).toMatchObject({ value: 'realWatched', label: '真实已看' });
   });
+
+  it('keeps the derived hint for unpinned hits (regression)', () => {
+    expect(resolveMediaStateChip({ inLibrary: true, realWatched: false })?.hint)
+      .toBe('由资料库同步判定：已入库');
+    expect(resolveMediaStateChip({ inLibrary: false, realWatched: true })?.hint)
+      .toBe('由资料库同步判定：真实已看');
+  });
+
+  it('10-27 pin: pinned=true dimension swaps hint to the pin wording, label unchanged', () => {
+    const inLibrary = resolveMediaStateChip({ inLibrary: true, realWatched: false, pinned: { inLibrary: true } });
+    expect(inLibrary).toMatchObject({ value: 'inLibrary', label: '已入库', kind: 'derived' });
+    expect(inLibrary?.hint).toBe('人工钉住：已入库（不随资料库同步变化）');
+
+    const realWatched = resolveMediaStateChip({ inLibrary: false, realWatched: true, pinned: { realWatched: true } });
+    expect(realWatched).toMatchObject({ value: 'realWatched', label: '真实已看' });
+    expect(realWatched?.hint).toBe('人工钉住：真实已看（不随资料库同步变化）');
+  });
+
+  it('10-27 pin: double-hit realWatched priority is preserved, pinned hint follows the shown dimension', () => {
+    const both = resolveMediaStateChip({ inLibrary: true, realWatched: true, pinned: { inLibrary: true, realWatched: true } });
+    expect(both).toMatchObject({ value: 'realWatched', label: '真实已看' });
+    expect(both?.hint).toBe('人工钉住：真实已看（不随资料库同步变化）');
+
+    const onlyInLibraryPinned = resolveMediaStateChip({ inLibrary: true, realWatched: true, pinned: { inLibrary: true } });
+    expect(onlyInLibraryPinned?.hint).toBe('由资料库同步判定：真实已看');
+  });
+
+  it('10-27 pin: pinned=false never flips the hint (forced-off dimensions do not render as chip)', () => {
+    expect(resolveMediaStateChip({ inLibrary: false, realWatched: false, pinned: { inLibrary: false } })).toBeNull();
+    const derivedHint = resolveMediaStateChip({ inLibrary: true, realWatched: false, pinned: { inLibrary: false } });
+    expect(derivedHint?.hint).toBe('由资料库同步判定：已入库');
+  });
 });

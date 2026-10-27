@@ -1,5 +1,12 @@
 import type { VideoRecord, VideoStatus } from '../../../types';
-import { RECORDS_STATUS_ENTRIES, isStoredStatusValue } from './recordsStatusDictionary';
+import { MEDIA_STATE_SELECT_VALUES } from './filterModel';
+import { normalizeMediaStateOverrides } from './mediaStateFilterModel';
+import {
+  RECORDS_STATUS_ENTRIES,
+  isDerivedStatusValue,
+  isStoredStatusValue,
+  type RecordsStatusEntry,
+} from './recordsStatusDictionary';
 
 type MessageType = 'info' | 'warn' | 'warning' | 'error' | 'success';
 
@@ -130,18 +137,55 @@ function splitCommaList(value: string): string[] {
   return value ? value.split(',').map(item => item.trim()).filter(Boolean) : [];
 }
 
+/** 10-27 pin：人工钉住三态 select 值（unset=未钉住 / on=钉住 / off=强制关）。 */
+const PIN_VALUE_UNSET = 'unset';
+const PIN_VALUE_ON = 'on';
+const PIN_VALUE_OFF = 'off';
+
+function pinValueFromOverride(value: boolean | undefined): string {
+  return value === true ? PIN_VALUE_ON : value === false ? PIN_VALUE_OFF : PIN_VALUE_UNSET;
+}
+
+function pinValueToOverride(value: string): boolean | undefined {
+  return value === PIN_VALUE_ON ? true : value === PIN_VALUE_OFF ? false : undefined;
+}
+
+/** 10-27 pin：单一派生态维度的人工维护选项（label 取统一状态字典，不自创）。 */
+function pinSelectHtml(entry: RecordsStatusEntry, selectId: string, currentValue: string): string {
+  const option = (value: string, label: string): string => (
+    `<option value="${value}" ${currentValue === value ? 'selected' : ''}>${label}</option>`
+  );
+  return `
+    <div>
+      <label for="${selectId}">${entry.label}:</label>
+      <select id="${selectId}">
+        ${option(PIN_VALUE_UNSET, '未钉住（由资料库同步自动判定）')}
+        ${option(PIN_VALUE_ON, '钉住（强制开）')}
+        ${option(PIN_VALUE_OFF, '强制关（命中不计）')}
+      </select>
+    </div>`;
+}
+
 export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void {
   const { record, videoStatus } = options;
   const modal = document.createElement('div');
   modal.className = 'edit-record-modal';
 
-  // 10-24 state-dict：字典驱动 6 态下拉（4 存储态可选 / 2 派生态 disabled+「由资料库同步自动判定」）
+  // 10-24 state-dict：字典驱动 6 态下拉；10-27 pin：派生态解禁（选中=钉住该维 on），
+  // 存储态选项不变；两维人工维护走下方独立三态 select（显式取消钉住/强制关入口）
   const statusOptionsHtml = RECORDS_STATUS_ENTRIES.map((entry) => {
     const selected = record.status === entry.value ? 'selected' : '';
-    const disabled = entry.kind === 'derived' ? 'disabled' : '';
-    const label = entry.kind === 'derived' ? `${entry.label}（由资料库同步自动判定）` : entry.label;
-    return `<option value="${entry.value}" ${selected} ${disabled}>${label}</option>`;
+    const label = entry.kind === 'derived' ? `${entry.label}（钉住）` : entry.label;
+    return `<option value="${entry.value}" ${selected}>${label}</option>`;
   }).join('\n');
+
+  // 10-27 pin：人工维护入口（label 取字典；初始值取 record.mediaStateOverrides 三态）
+  // 字典常量内必含两派生态（recordsStatusDictionary 契约），find 不会落空
+  const inLibraryEntry = RECORDS_STATUS_ENTRIES.find((entry) => entry.value === MEDIA_STATE_SELECT_VALUES[0])!;
+  const realWatchedEntry = RECORDS_STATUS_ENTRIES.find((entry) => entry.value === MEDIA_STATE_SELECT_VALUES[1])!;
+  const initialOverrides = normalizeMediaStateOverrides(record.mediaStateOverrides);
+  const inLibraryPinInitial = pinValueFromOverride(initialOverrides?.inLibrary);
+  const realWatchedPinInitial = pinValueFromOverride(initialOverrides?.realWatched);
 
   modal.innerHTML = `
     <div class="edit-modal-content">
@@ -170,6 +214,14 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
                 <select id="edit-status">
                   ${statusOptionsHtml}
                 </select>
+              </div>
+            </div>
+            <div class="form-group media-state-pin-group">
+              <label>媒体状态人工维护:</label>
+              <small class="form-hint">派生态默认由资料库同步自动判定；钉住后不随同步变化</small>
+              <div class="form-row">
+                ${pinSelectHtml(inLibraryEntry, 'edit-inlibrary-pin', inLibraryPinInitial)}
+                ${pinSelectHtml(realWatchedEntry, 'edit-realwatched-pin', realWatchedPinInitial)}
               </div>
             </div>
             <div class="form-group">
@@ -254,12 +306,46 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
   const durationInput = modal.querySelector('#edit-duration') as HTMLInputElement;
   const userNotesInput = modal.querySelector('#edit-user-notes') as HTMLTextAreaElement;
   const isFavoriteInput = modal.querySelector('#edit-is-favorite') as HTMLInputElement;
+  const inLibraryPinSelect = modal.querySelector('#edit-inlibrary-pin') as HTMLSelectElement;
+  const realWatchedPinSelect = modal.querySelector('#edit-realwatched-pin') as HTMLSelectElement;
   const jsonTextarea = modal.querySelector('#edit-json') as HTMLTextAreaElement;
   const userRatingContainer = modal.querySelector('[data-field="userRating"]') as HTMLElement;
   const lockedFields = new Set<string>(record.manuallyEditedFields || []);
   let currentUserRating = record.userRating || 0;
   let isUpdatingFromForm = false;
   let isUpdatingFromJson = false;
+  // 10-27 pin：最近一次存储态选择（派生态选项不写回 status；选中派生时的回落值）
+  let lastStoredStatus: VideoStatus = isStoredStatusValue(record.status) ? record.status : videoStatus.UNTRACKED;
+
+  // 10-27 pin：状态下拉选派生态=钉住该维 on；显式切到（不同于初始的）存储态=取消钉住（两维清空回落派生）。
+  // 须在下方共享 forEach 注册之前，保证 formToJson 读到更新后的 lastStoredStatus / pin select。
+  statusSelect.addEventListener('change', () => {
+    const value = statusSelect.value;
+    if (isStoredStatusValue(value)) {
+      lastStoredStatus = value as VideoStatus;
+      if (value !== record.status) {
+        inLibraryPinSelect.value = PIN_VALUE_UNSET;
+        realWatchedPinSelect.value = PIN_VALUE_UNSET;
+      }
+      return;
+    }
+    if (value === MEDIA_STATE_SELECT_VALUES[0]) {
+      inLibraryPinSelect.value = PIN_VALUE_ON;
+    } else if (value === MEDIA_STATE_SELECT_VALUES[1]) {
+      realWatchedPinSelect.value = PIN_VALUE_ON;
+    }
+  });
+
+  // 10-27 pin：pin select 手动改动后，若状态下拉仍停在该维派生态且已不再钉住 → 回落最近存储态（程序写入不触发事件）
+  const syncStatusSelectAfterPinChange = () => {
+    const statusValue = statusSelect.value;
+    if (!isDerivedStatusValue(statusValue)) return;
+    const stillPinned = (statusValue === MEDIA_STATE_SELECT_VALUES[0] && inLibraryPinSelect.value === PIN_VALUE_ON)
+      || (statusValue === MEDIA_STATE_SELECT_VALUES[1] && realWatchedPinSelect.value === PIN_VALUE_ON);
+    if (!stillPinned) statusSelect.value = lastStoredStatus;
+  };
+  inLibraryPinSelect.addEventListener('change', syncStatusSelectAfterPinChange);
+  realWatchedPinSelect.addEventListener('change', syncStatusSelectAfterPinChange);
 
   const formToJson = () => {
     if (isUpdatingFromJson) return;
@@ -269,7 +355,8 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
       ...record,
       id: idInput.value.trim(),
       title: titleInput.value,
-      status: statusSelect.value as VideoStatus,
+      // 10-27 pin：派生态选项不写回 status（保留最近存储态），避免钉住操作毁掉记录存储态
+      status: (isStoredStatusValue(statusSelect.value) ? statusSelect.value : lastStoredStatus) as VideoStatus,
       releaseDate: releaseDateInput.value || undefined,
       javdbUrl: javdbUrlInput.value || undefined,
       javdbImage: javdbImageInput.value || undefined,
@@ -288,6 +375,16 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
       manuallyEditedFields: Array.from(lockedFields),
       updatedAt: Date.now(),
     };
+
+    // 10-27 pin：人工 override 由两枚 pin select 组出；全未钉住=删字段（旧数据零回补语义）
+    const overrides: { inLibrary?: boolean; realWatched?: boolean } = {};
+    const inLibraryOverride = pinValueToOverride(inLibraryPinSelect.value);
+    const realWatchedOverride = pinValueToOverride(realWatchedPinSelect.value);
+    if (inLibraryOverride !== undefined) overrides.inLibrary = inLibraryOverride;
+    if (realWatchedOverride !== undefined) overrides.realWatched = realWatchedOverride;
+    const normalizedOverrides = normalizeMediaStateOverrides(overrides);
+    if (normalizedOverrides) formData.mediaStateOverrides = normalizedOverrides;
+    else delete formData.mediaStateOverrides;
 
     jsonTextarea.value = JSON.stringify(formData, null, 2);
     isUpdatingFromForm = false;
@@ -315,6 +412,11 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
       durationInput.value = jsonData.duration || '';
       userNotesInput.value = jsonData.userNotes || '';
       isFavoriteInput.checked = jsonData.isFavorite || false;
+
+      // 10-27 pin：JSON 手改 mediaStateOverrides 同步回两枚 pin select
+      const jsonOverrides = normalizeMediaStateOverrides(jsonData.mediaStateOverrides);
+      inLibraryPinSelect.value = pinValueFromOverride(jsonOverrides?.inLibrary);
+      realWatchedPinSelect.value = pinValueFromOverride(jsonOverrides?.realWatched);
 
       currentUserRating = jsonData.userRating || 0;
       updateStarDisplay(userRatingContainer, currentUserRating, '#ff4444');
@@ -403,6 +505,8 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
     idInput,
     titleInput,
     statusSelect,
+    inLibraryPinSelect,
+    realWatchedPinSelect,
     releaseDateInput,
     javdbUrlInput,
     javdbImageInput,
@@ -454,6 +558,10 @@ export function openRecordsEditModal(options: OpenRecordsEditModalOptions): void
       if (!isStoredStatusValue(updatedRecord.status)) {
         updatedRecord.status = videoStatus.UNTRACKED;
       }
+      // 10-27 pin：override 归一（脏值维度=未钉住；全无效=删字段，旧记录零回补）
+      const normalizedOverrides = normalizeMediaStateOverrides(updatedRecord.mediaStateOverrides);
+      if (normalizedOverrides) updatedRecord.mediaStateOverrides = normalizedOverrides;
+      else delete updatedRecord.mediaStateOverrides;
       const result = await options.onSave(updatedRecord, record);
       if (result?.message) {
         options.showMessage(result.message, result.type || 'success');

@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildMediaStateHitMap,
   getMediaStateRecordKey,
+  normalizeMediaStateOverrides,
 } from './mediaStateFilterModel';
 import { filterAndSortRecords, type FilterAndSortRecordsInput } from './filterModel';
 import type { VideoRecord } from '../../../types';
@@ -31,6 +32,7 @@ function record(partial: Partial<VideoRecord>): VideoRecord {
     directorUrl: partial.directorUrl,
     isFavorite: partial.isFavorite,
     videoCode: partial.videoCode,
+    mediaStateOverrides: partial.mediaStateOverrides,
     createdAt: partial.createdAt,
     updatedAt: partial.updatedAt,
   };
@@ -306,5 +308,142 @@ describe('filterAndSortRecords 媒体库状态维度', () => {
   it('缺省入参（不传新字段）= 旧行为，命中数据不参与过滤', () => {
     const result = filterAndSortRecords(baseInput({ records, mediaStateHits: hitMap }));
     expect(result.map(item => item.id)).toEqual(['ABC-001', 'ABC-002', 'XYZ-001']);
+  });
+});
+
+describe('normalizeMediaStateOverrides（10-27 pin 归一）', () => {
+  it('null / undefined / 非对象 → null', () => {
+    expect(normalizeMediaStateOverrides(null)).toBeNull();
+    expect(normalizeMediaStateOverrides(undefined)).toBeNull();
+    expect(normalizeMediaStateOverrides('pin')).toBeNull();
+    expect(normalizeMediaStateOverrides([1, 0])).toBeNull();
+  });
+
+  it('脏值维度=未钉住；全脏 → null（等价旧数据无字段）', () => {
+    expect(normalizeMediaStateOverrides({ inLibrary: 'yes', realWatched: 1 })).toBeNull();
+    expect(normalizeMediaStateOverrides({ inLibrary: null, realWatched: undefined })).toBeNull();
+    expect(normalizeMediaStateOverrides({})).toBeNull();
+    expect(normalizeMediaStateOverrides({ inLibrary: 'yes', realWatched: false })).toEqual({ realWatched: false });
+  });
+
+  it('boolean 维度原样保留（含 false=强制关）', () => {
+    expect(normalizeMediaStateOverrides({ inLibrary: true, realWatched: false }))
+      .toEqual({ inLibrary: true, realWatched: false });
+  });
+});
+
+describe('buildMediaStateHitMap × 人工钉住（10-27 pin）', () => {
+  const NO_INDEX = { embyIndex: null, drive115State: null, servers: SERVERS };
+
+  it('钉住 realWatched（无索引）→ 命中且带 pinned 标记', () => {
+    const records = [record({ id: 'ABC-001', videoCode: 'abc-001', mediaStateOverrides: { realWatched: true } })];
+    const map = buildMediaStateHitMap({ records, ...NO_INDEX });
+    expect(map.get('ABC-001')).toEqual({ inLibrary: false, realWatched: true, pinned: { realWatched: true } });
+  });
+
+  it('钉住 inLibrary（无索引）→ 仅 inLibrary 命中', () => {
+    const records = [record({ id: 'ABC-001', videoCode: 'abc-001', mediaStateOverrides: { inLibrary: true } })];
+    const map = buildMediaStateHitMap({ records, ...NO_INDEX });
+    expect(map.get('ABC-001')).toEqual({ inLibrary: true, realWatched: false, pinned: { inLibrary: true } });
+  });
+
+  it('override 优先于派生：索引 played 命中 realWatched，人工强制关 → realWatched 不计（inLibrary 仍走派生）', () => {
+    const records = [
+      record({ id: 'ABC-001', videoCode: 'abc-001', mediaStateOverrides: { realWatched: false } }),
+    ];
+    const map = buildMediaStateHitMap({
+      records,
+      embyIndex: makeEmbyIndex({
+        'ABC-001': [makeEntry({ userData: { played: true, positionTicks: 0, runtimeTicks: 0, percent: 100, lastPlayedAt: 0 } })],
+      }),
+      drive115State: null,
+      servers: SERVERS,
+    });
+    expect(map.get('ABC-001')).toEqual({ inLibrary: true, realWatched: false, pinned: { realWatched: false } });
+  });
+
+  it('强制关 inLibrary 且无其他命中 → 不入 map（无 chip 无筛选）', () => {
+    const records = [
+      record({ id: 'ABC-001', videoCode: 'abc-001', mediaStateOverrides: { inLibrary: false, realWatched: false } }),
+    ];
+    const map = buildMediaStateHitMap({
+      records,
+      embyIndex: makeEmbyIndex({
+        'ABC-001': [makeEntry({ userData: { played: true } })],
+      }),
+      drive115State: null,
+      servers: SERVERS,
+    });
+    expect(map.size).toBe(0);
+  });
+
+  it('旧数据零回补：无 mediaStateOverrides 字段 → 纯派生，hit 不带 pinned（行为零变化）', () => {
+    const records = [record({ id: 'ABC-001', videoCode: 'abc-001' })];
+    const map = buildMediaStateHitMap({
+      records,
+      embyIndex: makeEmbyIndex({
+        'ABC-001': [makeEntry({ userData: { played: true } })],
+      }),
+      drive115State: null,
+      servers: SERVERS,
+    });
+    expect(map.get('ABC-001')).toEqual({ inLibrary: true, realWatched: true });
+    expect(map.get('ABC-001')?.pinned).toBeUndefined();
+  });
+
+  it('两维独立：钉住 inLibrary + 索引派生 realWatched → 双真，pinned 仅含钉住维', () => {
+    const records = [
+      record({ id: 'ABC-001', videoCode: 'abc-001', mediaStateOverrides: { inLibrary: true } }),
+    ];
+    const map = buildMediaStateHitMap({
+      records,
+      embyIndex: makeEmbyIndex({
+        'ABC-001': [makeEntry({ userData: { played: true } })],
+      }),
+      drive115State: null,
+      servers: SERVERS,
+    });
+    expect(map.get('ABC-001')).toEqual({ inLibrary: true, realWatched: true, pinned: { inLibrary: true } });
+  });
+
+  it('钉住可命中非番号 id 记录（无 videoCode 归一候选也可入账）', () => {
+    const records = [record({ id: 'my-note-1', videoCode: '', mediaStateOverrides: { inLibrary: true } })];
+    const map = buildMediaStateHitMap({ records, ...NO_INDEX });
+    expect(map.get('my-note-1')).toEqual({ inLibrary: true, realWatched: false, pinned: { inLibrary: true } });
+  });
+
+  it('脏值 override 不产生命中（回落派生；无索引 → 不入 map）', () => {
+    const records = [
+      record({ id: 'ABC-001', videoCode: 'abc-001', mediaStateOverrides: { inLibrary: 'yes', realWatched: 1 } }),
+    ];
+    expect(buildMediaStateHitMap({ records, ...NO_INDEX }).size).toBe(0);
+  });
+});
+
+describe('filterAndSortRecords × 人工钉住（10-27 pin）', () => {
+  it('钉住 realWatched（无索引）→ realWatchedFilterActive 命中；inLibraryFilterActive 不命中', () => {
+    const records = [
+      record({ id: 'ABC-001', videoCode: 'abc-001', isFavorite: true, updatedAt: 3, mediaStateOverrides: { realWatched: true } }),
+      record({ id: 'XYZ-001', videoCode: 'xyz-001', isFavorite: true, updatedAt: 2 }),
+    ];
+    const map = buildMediaStateHitMap({ records, ...{ embyIndex: null, drive115State: null, servers: SERVERS } });
+    const rw = filterAndSortRecords(baseInput({ records, mediaStateHits: map, realWatchedFilterActive: true }));
+    expect(rw.map(item => item.id)).toEqual(['ABC-001']);
+    const il = filterAndSortRecords(baseInput({ records, mediaStateHits: map, inLibraryFilterActive: true }));
+    expect(il).toHaveLength(0);
+  });
+
+  it('强制关 inLibrary → 索引命中也不进 inLibrary 筛选', () => {
+    const records = [
+      record({ id: 'ABC-001', videoCode: 'abc-001', isFavorite: true, updatedAt: 3, mediaStateOverrides: { inLibrary: false } }),
+    ];
+    const map = buildMediaStateHitMap({
+      records,
+      embyIndex: makeEmbyIndex({ 'ABC-001': [makeEntry({ userData: { played: true } })] }),
+      drive115State: null,
+      servers: SERVERS,
+    });
+    const result = filterAndSortRecords(baseInput({ records, mediaStateHits: map, inLibraryFilterActive: true }));
+    expect(result).toHaveLength(0);
   });
 });
