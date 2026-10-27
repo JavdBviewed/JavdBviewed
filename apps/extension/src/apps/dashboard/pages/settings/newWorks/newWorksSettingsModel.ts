@@ -193,6 +193,18 @@ export function mapFormStateToConfigPatch(form: NewWorksSettingsFormState): Part
   return patch;
 }
 
+/** 云扫描三字段是否有变更（保存成功后回读再拉门控，10-27-ext-scan-config-readback） */
+export function cloudScanFieldsChanged(
+  prev: NewWorksSettingsFormState,
+  next: NewWorksSettingsFormState,
+): boolean {
+  return (
+    prev.cloudScanEnabled !== next.cloudScanEnabled ||
+    prev.cloudScanBatchSize !== next.cloudScanBatchSize ||
+    prev.cloudScanIntervalMinutes !== next.cloudScanIntervalMinutes
+  );
+}
+
 /** 校验（5 条文案与旧 configModal 逐字一致；顺序同旧实现） */
 export function validateNewWorksForm(form: NewWorksSettingsFormState): { ok: true } | { ok: false; error: string } {
   if (form.checkInterval < 1 || form.checkInterval > 168) {

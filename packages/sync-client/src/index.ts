@@ -42,6 +42,7 @@ export type {
   RefreshCoordinator,
   SyncClientConfig,
   CloudApi,
+  CloudScanConfigReadback,
 } from './types';
 
 /** @deprecated Prefer createApiClient + createSyncEngine. */
