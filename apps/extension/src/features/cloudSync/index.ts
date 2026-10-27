@@ -21,6 +21,7 @@ export {
   createExtensionCloudClient,
   type ExtensionCloudClientOptions,
 } from './createExtensionCloudClient';
+export type { CloudScanConfigReadback } from '@javdb/sync-client';
 export {
   recoverCloudAuthSession,
   resetCloudAuthRecoveryState,
@@ -47,6 +48,7 @@ export {
 export {
   createExtensionCloudFacade,
   extensionCloudFacade,
+  getCloudScanConfig,
   type CloudFacadeState,
   type CloudHealthResult,
   type CloudHealthAuthState,

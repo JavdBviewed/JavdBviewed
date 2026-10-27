@@ -307,3 +307,47 @@ describe('NewWorksSettingsPage 云扫描区块（10-19 线 2：A.3 配置面）'
     }
   });
 });
+
+describe('NewWorksSettingsPage 云扫描回读提示（10-27-ext-scan-config-readback）', () => {
+  const apiClientSource = readFileSync(
+    join(here, '..', '..', '..', '..', '..', '..', '..', '..', 'packages', 'sync-client', 'src', 'apiClient.ts'),
+    'utf8',
+  );
+  const facadeSource = readFileSync(
+    join(here, '..', '..', '..', '..', '..', 'features', 'cloudSync', 'extensionCloudFacade.ts'),
+    'utf8',
+  );
+
+  it('提示行在位：id + 文案锁（PRD 逐字）+ 样式对齐登录态行', () => {
+    expect(pageSource).toContain('id="nwCloudScanConfigReadback"');
+    expect(pageSource).toContain('云端管理台配置优先生效');
+    expect(pageSource).toContain('拓展端修改仅在管理台未接管时生效');
+    expect(pageSource).toMatch(/id="nwCloudScanConfigReadback"[\s\S]*?text-\[12\.5px\][\s\S]*?text-\[var\(--color-text-secondary,#666\)\]/);
+  });
+
+  it('仅 source=admin 渲染（extension/default/null 均不显示）', () => {
+    expect(pageSource).toContain("scanConfigReadback?.source === 'admin'");
+  });
+
+  it('初拉在凭据门控内（无凭据不发请求）', () => {
+    expect(pageSource).toContain('cloudConnectedRef.current = connected;');
+    expect(pageSource).toContain('if (!cloudConnectedRef.current) return;');
+    const effectStart = pageSource.indexOf('cloudConnectedRef.current = connected;');
+    const effectEnd = pageSource.indexOf('}, [refreshCloudScanSession, refreshCloudScanConfig]);');
+    expect(effectStart).toBeGreaterThan(-1);
+    expect(effectEnd).toBeGreaterThan(effectStart);
+    expect(pageSource.slice(effectStart, effectEnd)).toContain('void refreshCloudScanConfig();');
+  });
+
+  it('保存再拉：persist 成功路径由 cloudScanFieldsChanged 门控', () => {
+    expect(pageSource).toContain('lastPersistedFormRef.current = nextForm;');
+    expect(pageSource).toContain('if (prev && cloudScanFieldsChanged(prev, nextForm)) {');
+  });
+
+  it('写通路零改动负锁：页面无 /v1/scan、facade 无硬编码路径、sync-client 读端点恰一次且 GET', () => {
+    expect(pageSource).not.toContain('/v1/scan');
+    expect(facadeSource).not.toContain('/v1/scan');
+    expect(apiClientSource.split("path: '/v1/scan/config'").length - 1).toBe(1);
+    expect(apiClientSource).toContain("method: 'GET', path: '/v1/scan/config'");
+  });
+});

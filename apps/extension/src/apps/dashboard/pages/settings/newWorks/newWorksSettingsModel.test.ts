@@ -10,6 +10,7 @@ import {
   splitNewWorksFilterValues,
 } from '../../../../../features/newWorks/categoryFilter';
 import {
+  cloudScanFieldsChanged,
   DEFAULT_NEW_WORKS_SETTINGS_FORM,
   filterCategoryDimGroups,
   getNewWorksCategoryDimGroups,
@@ -288,5 +289,23 @@ describe('newWorksSettingsModel 云扫描配置（10-19 线 2：C2 承载位 new
     expect(validateNewWorksForm({ ...base, cloudScanIntervalMinutes: 0 })).toEqual({ ok: false, error: '云扫描间隔必须在1-1440分钟之间' });
     expect(validateNewWorksForm({ ...base, cloudScanIntervalMinutes: 1441 })).toEqual({ ok: false, error: '云扫描间隔必须在1-1440分钟之间' });
     expect(validateNewWorksForm({ ...base, cloudScanEnabled: true, cloudScanBatchSize: 1, cloudScanIntervalMinutes: 1440 }).ok).toBe(true);
+  });
+});
+
+describe('cloudScanFieldsChanged（10-27-ext-scan-config-readback 保存再拉门控）', () => {
+  const base = { ...DEFAULT_NEW_WORKS_SETTINGS_FORM };
+
+  it('三字段全同 → false', () => {
+    expect(cloudScanFieldsChanged(base, { ...base })).toBe(false);
+  });
+
+  it('三字段各单独变更 → true', () => {
+    expect(cloudScanFieldsChanged(base, { ...base, cloudScanEnabled: true })).toBe(true);
+    expect(cloudScanFieldsChanged(base, { ...base, cloudScanBatchSize: 30 })).toBe(true);
+    expect(cloudScanFieldsChanged(base, { ...base, cloudScanIntervalMinutes: 15 })).toBe(true);
+  });
+
+  it('仅非云扫描字段变更 → false', () => {
+    expect(cloudScanFieldsChanged(base, { ...base, checkInterval: 48, autoCleanup: false })).toBe(false);
   });
 });

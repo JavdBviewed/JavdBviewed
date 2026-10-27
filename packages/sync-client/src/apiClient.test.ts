@@ -637,3 +637,112 @@ describe('syncEngine', () => {
     expect(all.some((e) => e.id === 'v1' && e.type === 'video')).toBe(true);
   });
 });
+
+describe('apiClient.getScanConfig (10-27-ext-scan-config-readback 冻结契约)', () => {
+  it('200：body 形状透传（GET /v1/scan/config + 携带 device token）', async () => {
+    const { transport } = createMockCloudTransport();
+    const scanBody = { enabled: true, batchSize: 25, intervalMinutes: 15, source: 'admin' as const };
+    const calls: Array<{ method: string; path: string; token: string | null }> = [];
+    const scanTransport: HttpTransport = {
+      async request<T>(opts: { method: string; path: string; body?: unknown; token?: string | null }): Promise<T> {
+        calls.push({ method: opts.method, path: opts.path, token: opts.token ?? null });
+        if (opts.method === 'GET' && opts.path === '/v1/scan/config') return scanBody as T;
+        return transport.request<T>(opts);
+      },
+    };
+    const tokens = createMemoryTokenStore();
+    const api = createApiClient({ baseUrl: 'http://mock', transport: scanTransport, tokens });
+    await api.register({ identifier: 'scan@t', password: 'p' });
+    await api.login({
+      identifier: 'scan@t',
+      password: 'p',
+      device: { id: 'dscan', label: 'Scan', clientType: 'extension' },
+    });
+
+    const result = await api.getScanConfig();
+    expect(result).toEqual({ enabled: true, batchSize: 25, intervalMinutes: 15, source: 'admin' });
+    expect(calls[calls.length - 1]).toEqual({
+      method: 'GET',
+      path: '/v1/scan/config',
+      token: expect.any(String),
+    });
+  });
+
+  it('503/403：SyncHttpError 原样重抛（本层不吞）且请求携带 token', async () => {
+    for (const status of [503, 403]) {
+      const seen: Array<{ method: string; path: string; token: string | null }> = [];
+      const transport: HttpTransport = {
+        async request<T>(opts: { method: string; path: string; body?: unknown; token?: string | null }): Promise<T> {
+          seen.push({ method: opts.method, path: opts.path, token: opts.token ?? null });
+          throw new SyncHttpError(status, `http ${status}`);
+        },
+      };
+      const tokens: TokenStore = {
+        async getAccessToken() {
+          return 'tok-device-1';
+        },
+        async getRefreshToken() {
+          return 'refresh-1';
+        },
+        async setTokens() {},
+        async clear() {},
+      };
+      const api = createApiClient({ baseUrl: 'http://mock', transport, tokens });
+      await expect(api.getScanConfig()).rejects.toMatchObject({ name: 'SyncHttpError', status });
+      expect(seen).toEqual([{ method: 'GET', path: '/v1/scan/config', token: 'tok-device-1' }]);
+    }
+  });
+
+  it('401 + 无 refresh token：onAuthFailure 触发并原样重抛', async () => {
+    let authFailures = 0;
+    const transport: HttpTransport = {
+      async request<T>(
+        _opts: { method: string; path: string; body?: unknown; token?: string | null },
+      ): Promise<T> {
+        throw new SyncHttpError(401, 'unauthorized');
+      },
+    };
+    const tokens: TokenStore = {
+      async getAccessToken() {
+        return 'tok-dead';
+      },
+      async getRefreshToken() {
+        return null;
+      },
+      async setTokens() {},
+      async clear() {},
+    };
+    const api = createApiClient({
+      baseUrl: 'http://mock',
+      transport,
+      tokens,
+      onAuthFailure: () => {
+        authFailures += 1;
+      },
+    });
+    await expect(api.getScanConfig()).rejects.toMatchObject({ name: 'SyncHttpError', status: 401 });
+    expect(authFailures).toBe(1);
+  });
+
+  it('网络错误（TypeError）原样重抛（静默口径在扩展 facade 层）', async () => {
+    const transport: HttpTransport = {
+      async request<T>(
+        _opts: { method: string; path: string; body?: unknown; token?: string | null },
+      ): Promise<T> {
+        throw new TypeError('Failed to fetch');
+      },
+    };
+    const tokens: TokenStore = {
+      async getAccessToken() {
+        return 'tok-device-1';
+      },
+      async getRefreshToken() {
+        return 'refresh-1';
+      },
+      async setTokens() {},
+      async clear() {},
+    };
+    const api = createApiClient({ baseUrl: 'http://mock', transport, tokens });
+    await expect(api.getScanConfig()).rejects.toThrow(TypeError);
+  });
+});

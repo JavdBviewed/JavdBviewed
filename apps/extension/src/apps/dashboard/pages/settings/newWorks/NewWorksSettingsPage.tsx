@@ -18,6 +18,7 @@ import { SettingsPageFrame } from '../shared/settingsPageFrame';
 import { useDebouncedSettingsSave } from '../shared/settingsPersist';
 import { loadNewWorksSettingsForm, persistNewWorksForm, toast } from './newWorksSettingsActions';
 import {
+  cloudScanFieldsChanged,
   filterCategoryDimGroups,
   getNewWorksCategoryDimGroups,
   DEFAULT_NEW_WORKS_SETTINGS_FORM,
@@ -27,8 +28,10 @@ import {
 import {
   deleteJavdbSessionVault,
   fetchJavdbSessionVaultStatus,
+  getCloudScanConfig,
   loadCloudSettings,
   pushJavdbSessionVaultIfEnabled,
+  type CloudScanConfigReadback,
 } from '../../../../../features/cloudSync';
 import { entryKey } from '@javdb/video-category-dict';
 
@@ -45,16 +48,24 @@ export function NewWorksSettingsPage() {
   const [blacklistQuery, setBlacklistQuery] = useState('');
   const formRef = useRef(form);
   formRef.current = form;
+  /** 最近一次落盘成功的表单（保存再拉门控的 prev 基线；load 完成时即设定） */
+  const lastPersistedFormRef = useRef<NewWorksSettingsFormState | null>(null);
 
   const persist = useCallback(async (nextForm: NewWorksSettingsFormState) => {
+    const prev = lastPersistedFormRef.current;
     const result = await persistNewWorksForm(nextForm);
     if (!result.ok) {
       setSaveError(result.error || '保存失败');
       await toast(result.error || '保存失败', 'error');
       return result;
     }
+    lastPersistedFormRef.current = nextForm;
     setSaveError(null);
     await toast('设置已保存', 'success');
+    // 保存成功且本次变更涉及云扫描三字段 → 回读再拉一次（未接管态下保存改变生效值）
+    if (prev && cloudScanFieldsChanged(prev, nextForm)) {
+      void refreshCloudScanConfig();
+    }
     return result;
   }, []);
 
@@ -70,6 +81,7 @@ export function NewWorksSettingsPage() {
         const next = await loadNewWorksSettingsForm();
         if (cancelled) return;
         formRef.current = next;
+        lastPersistedFormRef.current = next;
         setForm(next);
       } catch (err) {
         console.error('[NewWorksSettingsPage] load failed', err);
@@ -86,6 +98,10 @@ export function NewWorksSettingsPage() {
   const [cloudConnected, setCloudConnected] = useState(false);
   const [cloudScanSession, setCloudScanSession] = useState<'loading' | 'present' | 'absent' | 'error'>('loading');
   const hasSavedCredentials = cloudConnected;
+  /** 云端扫描配置回读（10-27-ext-scan-config-readback）：null=未拉到/失败/非 admin（均不显示） */
+  const [scanConfigReadback, setScanConfigReadback] = useState<CloudScanConfigReadback | null>(null);
+  /** 凭据门控最新值（供 fire-and-forget 读，避免 effect 链 setState 时序） */
+  const cloudConnectedRef = useRef(false);
 
   const refreshCloudScanSession = useCallback(async () => {
     try {
@@ -93,6 +109,12 @@ export function NewWorksSettingsPage() {
     } catch {
       setCloudScanSession('error');
     }
+  }, []);
+
+  /** 回读再拉（L88 门控：无凭据不发请求；失败静默降级由 getCloudScanConfig 内部处理） */
+  const refreshCloudScanConfig = useCallback(async () => {
+    if (!cloudConnectedRef.current) return;
+    setScanConfigReadback(await getCloudScanConfig());
   }, []);
 
   useEffect(() => {
@@ -106,13 +128,18 @@ export function NewWorksSettingsPage() {
         connected = false;
       }
       if (cancelled) return;
+      cloudConnectedRef.current = connected;
       setCloudConnected(connected);
-      if (connected) await refreshCloudScanSession();
+      if (connected) {
+        await refreshCloudScanSession();
+        // 初拉：页面加载且凭据在位
+        void refreshCloudScanConfig();
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [refreshCloudScanSession]);
+  }, [refreshCloudScanSession, refreshCloudScanConfig]);
 
   const handleSetCloudScanSession = useCallback(async () => {
     await pushJavdbSessionVaultIfEnabled('manual');
@@ -590,6 +617,17 @@ export function NewWorksSettingsPage() {
                   onChange={updateNumber('cloudScanIntervalMinutes')}
                 />
               </SettingField>
+              {scanConfigReadback?.source === 'admin' ? (
+                <div
+                  id="nwCloudScanConfigReadback"
+                  className="mt-2 text-[12.5px] leading-5 text-[var(--color-text-secondary,#666)]"
+                >
+                  <div>
+                    云端管理台配置优先生效：{scanConfigReadback.enabled ? '开' : '关'}，每 {scanConfigReadback.intervalMinutes} 分钟，每批 {scanConfigReadback.batchSize} 条
+                  </div>
+                  <div>拓展端修改仅在管理台未接管时生效</div>
+                </div>
+              ) : null}
               <div id="nwCloudScanSessionStatus" className="mt-2 flex items-center gap-2 text-[12.5px] text-[var(--color-text-secondary,#666)]">
                 <span>
                   登录态：

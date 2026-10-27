@@ -69,6 +69,18 @@ export interface SyncClientConfig {
   onAuthFailure?: (err: unknown) => void;
 }
 
+/**
+ * 云端扫描配置回读（GET /v1/scan/config）。
+ * 冻结契约（10-27-ext-scan-config-readback）：字段名与取值集合不得变更；
+ * source 语义：admin=管理台已接管 / extension=按拓展同步值生效 / default=云缺省。
+ */
+export interface CloudScanConfigReadback {
+  enabled: boolean;
+  batchSize: number;
+  intervalMinutes: number;
+  source: 'admin' | 'extension' | 'default';
+}
+
 export interface CloudApi {
   register(body: AuthRegisterRequest): Promise<AuthLoginResponse | AuthTokenPair>;
   login(body: AuthLoginRequest): Promise<AuthLoginResponse>;
@@ -91,4 +103,6 @@ export interface CloudApi {
   listVault(): Promise<VaultListResponse>;
   putVault(id: string, body: VaultPutRequest): Promise<VaultItem>;
   deleteVault(id: string): Promise<void>;
+  /** 读云端扫描配置（冻结契约；非 2xx 由 transport 抛 SyncHttpError，本层不吞）。 */
+  getScanConfig(): Promise<CloudScanConfigReadback>;
 }

@@ -28,7 +28,9 @@ vi.mock('./chromeTokenStore', () => ({ loadCloudSession: mocks.loadSession }));
 vi.mock('./autoSyncSettings', () => ({ loadCloudAutoSyncSettings: mocks.loadAutoSync }));
 vi.mock('./createExtensionCloudClient', () => ({ createExtensionCloudClient: vi.fn() }));
 
-import { createExtensionCloudFacade } from './extensionCloudFacade';
+import { createExtensionCloudClient } from './createExtensionCloudClient';
+import { createExtensionCloudFacade, getCloudScanConfig } from './extensionCloudFacade';
+import { SyncHttpError } from '@javdb/sync-client';
 
 function makeFetch(status: number, body: unknown): typeof fetch {
   return (vi.fn(async (url: unknown) => ({
@@ -119,5 +121,50 @@ describe('fetchCloudVersion', () => {
     const facade = makeFacade(fetchImpl);
     expect(await facade.fetchCloudVersion()).toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('getCloudScanConfig (10-27-ext-scan-config-readback 回读静默口径)', () => {
+  const ADMIN_BODY = { enabled: true, batchSize: 25, intervalMinutes: 15, source: 'admin' as const };
+
+  function mockApi(body: unknown, reject?: Error): ReturnType<typeof vi.fn> {
+    const getScanConfig = vi.fn();
+    if (reject) getScanConfig.mockRejectedValue(reject);
+    else getScanConfig.mockResolvedValue(body);
+    vi.mocked(createExtensionCloudClient).mockResolvedValue({ api: { getScanConfig } } as never);
+    return getScanConfig;
+  }
+
+  it('200：body 透传、走已存 settings、无 warn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const apiGet = mockApi(ADMIN_BODY);
+    const result = await getCloudScanConfig();
+    expect(result).toEqual(ADMIN_BODY);
+    expect(apiGet).toHaveBeenCalledTimes(1);
+    expect(mocks.loadSettings).toHaveBeenCalledTimes(1);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('503/401/403：SyncHttpError → null（各一次 warn）', async () => {
+    for (const status of [503, 401, 403]) {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockApi(null, new SyncHttpError(status, `http ${status}`));
+      expect(await getCloudScanConfig()).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('网络错误 → null（静默不抛）', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockApi(null, new TypeError('Failed to fetch'));
+    expect(await getCloudScanConfig()).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('loadCloudSettings 失败 → null（静默不抛）', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mocks.loadSettings.mockRejectedValue(new Error('storage down'));
+    expect(await getCloudScanConfig()).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 });

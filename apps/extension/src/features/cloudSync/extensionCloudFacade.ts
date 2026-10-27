@@ -4,7 +4,7 @@
  * @module features/cloudSync
  */
 import type { DeviceInfo } from '@javdb/sync-protocol';
-import type { HttpTransport } from '@javdb/sync-client';
+import type { CloudScanConfigReadback, HttpTransport } from '@javdb/sync-client';
 import {
   loadCloudAutoSyncSettings,
   saveCloudAutoSyncSettings,
@@ -357,6 +357,25 @@ export function createExtensionCloudFacade(
     },
     setAutoSync,
   };
+}
+
+/**
+ * 读云端扫描配置（10-27-ext-scan-config-readback 回读提示；端点路径由 sync-client 读端点统一定义）。
+ * 任一失败形态（503/401/403/网络/异常）静默降级 null：不 toast、不抛错、至多一条 warn。
+ */
+export async function getCloudScanConfig(
+  options: Pick<ExtensionCloudFacadeOptions, 'transport'> = {},
+): Promise<CloudScanConfigReadback | null> {
+  try {
+    const settings = await loadCloudSettings();
+    const { api } = await createExtensionCloudClient(settings, {
+      transport: options.transport,
+    });
+    return await api.getScanConfig();
+  } catch (err) {
+    console.warn('[cloudSync] 云端扫描配置回读失败（静默降级）', err);
+    return null;
+  }
 }
 
 export const extensionCloudFacade = createExtensionCloudFacade();

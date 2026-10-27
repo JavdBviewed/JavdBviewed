@@ -26,6 +26,7 @@ import {
 import { SyncHttpError, createFetchTransport } from './fetchTransport';
 import type {
   CloudApi,
+  CloudScanConfigReadback,
   HttpTransport,
   RequestBodyMetrics,
   RefreshCoordinator,
@@ -165,6 +166,12 @@ export function createApiClient(config: SyncClientConfig): ApiClient {
           path: `/v1/devices/${encodeURIComponent(deviceId)}`,
           token,
         }),
+      );
+    },
+
+    getScanConfig() {
+      return withAuthRetry((token) =>
+        transport.request<CloudScanConfigReadback>({ method: 'GET', path: '/v1/scan/config', token }),
       );
     },
 
