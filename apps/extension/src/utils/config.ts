@@ -133,21 +133,21 @@ export const DEFAULT_NEW_WORKS_CONFIG: NewWorksGlobalConfig = {
     maxWorksPerCheck: 100, // 固定值100，不再通过UI配置
     autoCleanup: true, // 默认启用自动清理
     cleanupDays: 30, // 30天后清理
-    // 注意：DEFAULT 不写 cloudScan 键（10-19 线 2：缺省=未配置，读侧归一为 关/20/10，未触碰不上行）
+    // 注意：DEFAULT 不写 cloudScan 键（10-19 线 2：缺省=未配置，读侧归一为 关/20/60，未触碰不上行）
 };
 
-// 云扫描缺省（10-19 线 2：C2 缺省 关/20/10；服务端夹取区间同源）
+// 云扫描缺省（10-19 线 2：C2 缺省 关/20/60；服务端夹取区间同源，Cloud 1.2.6 口径：batch 1-50 / interval 60-1440）
 export const CLOUD_SCAN_BATCH_SIZE_MIN = 1;
-export const CLOUD_SCAN_BATCH_SIZE_MAX = 100;
-export const CLOUD_SCAN_INTERVAL_MINUTES_MIN = 1;
+export const CLOUD_SCAN_BATCH_SIZE_MAX = 50;
+export const CLOUD_SCAN_INTERVAL_MINUTES_MIN = 60;
 export const CLOUD_SCAN_INTERVAL_MINUTES_MAX = 1440;
 export const DEFAULT_CLOUD_SCAN_CONFIG: CloudScanConfig = {
     enabled: false,
     batchSize: 20,
-    intervalMinutes: 10,
+    intervalMinutes: 60,
 };
 
-/** 云扫描配置值归一：缺省 关/20/10 + 区间夹取（batchSize 1-100 / intervalMinutes 1-1440）；垃圾形状不抛 */
+/** 云扫描配置值归一：缺省 关/20/60 + 区间夹取（batchSize 1-50 / intervalMinutes 60-1440）；垃圾形状不抛 */
 export function normalizeCloudScanConfig(value: unknown): CloudScanConfig {
     const v = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
     const clamp = (n: unknown, d: number, lo: number, hi: number): number => {

@@ -160,7 +160,7 @@ export async function decryptJavdbSessionCiphertext(b64: string, password: strin
 }
 
 // ---------------------------------------------------------------------------
-// 配置读取（new_works_config.cloudScan；读侧归一 关/20/10）
+// 配置读取（new_works_config.cloudScan；读侧归一 关/20/60）
 // ---------------------------------------------------------------------------
 
 function readStorageValue(key: string): Promise<unknown> {

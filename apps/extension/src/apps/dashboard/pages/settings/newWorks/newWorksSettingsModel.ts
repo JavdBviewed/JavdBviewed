@@ -45,9 +45,9 @@ export type NewWorksSettingsFormState = {
   blacklistValues: string[];
   /** 云扫描总开关（C2 承载位 new_works_config.cloudScan.enabled） */
   cloudScanEnabled: boolean;
-  /** 云端每轮处理的订阅演员数（1-100，缺省 20） */
+  /** 云端每轮处理的订阅演员数（1-50，缺省 20） */
   cloudScanBatchSize: number;
-  /** 云端两轮扫描间隔分钟（1-1440，缺省 10） */
+  /** 云端两轮扫描间隔分钟（60-1440，缺省 60） */
   cloudScanIntervalMinutes: number;
 };
 
@@ -70,7 +70,7 @@ export const DEFAULT_NEW_WORKS_SETTINGS_FORM: NewWorksSettingsFormState = {
   blacklistValues: [],
   cloudScanEnabled: false,
   cloudScanBatchSize: 20,
-  cloudScanIntervalMinutes: 10,
+  cloudScanIntervalMinutes: 60,
 };
 
 /** 白名单属性组（10-08 线：可播放 p / 含磁鏈 d / 含字幕 c；D3 真机验证；站点自报 label 用繁体「鏈」）。 */
@@ -223,13 +223,13 @@ export function validateNewWorksForm(form: NewWorksSettingsFormState): { ok: tru
     return { ok: false, error: '清理天数必须在7-365天之间' };
   }
   if (form.cloudScanBatchSize < CLOUD_SCAN_BATCH_SIZE_MIN || form.cloudScanBatchSize > CLOUD_SCAN_BATCH_SIZE_MAX) {
-    return { ok: false, error: '云扫描每批数量必须在1-100之间' };
+    return { ok: false, error: '云扫描每批数量必须在1-50之间' };
   }
   if (
     form.cloudScanIntervalMinutes < CLOUD_SCAN_INTERVAL_MINUTES_MIN ||
     form.cloudScanIntervalMinutes > CLOUD_SCAN_INTERVAL_MINUTES_MAX
   ) {
-    return { ok: false, error: '云扫描间隔必须在1-1440分钟之间' };
+    return { ok: false, error: '云扫描间隔必须在60-1440分钟之间' };
   }
   return { ok: true };
 }
