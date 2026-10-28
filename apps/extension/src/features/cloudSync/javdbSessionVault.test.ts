@@ -184,24 +184,29 @@ describe('javdbSessionVault cookie 过滤（纯函数）', () => {
 describe('javdbSessionVault 配置读取（new_works_config.cloudScan）', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('缺省 = 关/20/10', async () => {
+  it('缺省 = 关/20/60', async () => {
     makeChromeStub({});
-    expect(await readCloudScanConfig()).toEqual({ enabled: false, batchSize: 20, intervalMinutes: 10 });
+    expect(await readCloudScanConfig()).toEqual({ enabled: false, batchSize: 20, intervalMinutes: 60 });
   });
 
   it('显式值透传', async () => {
-    makeChromeStub({ config: { cloudScan: { enabled: true, batchSize: 50, intervalMinutes: 30 } } });
-    expect(await readCloudScanConfig()).toEqual({ enabled: true, batchSize: 50, intervalMinutes: 30 });
+    makeChromeStub({ config: { cloudScan: { enabled: true, batchSize: 50, intervalMinutes: 90 } } });
+    expect(await readCloudScanConfig()).toEqual({ enabled: true, batchSize: 50, intervalMinutes: 90 });
   });
 
-  it('越界夹取（batchSize 1-100 / intervalMinutes 1-1440）', async () => {
+  it('越界夹取（batchSize 1-50 / intervalMinutes 60-1440）', async () => {
     makeChromeStub({ config: { cloudScan: { batchSize: 999, intervalMinutes: 0 } } });
-    expect(await readCloudScanConfig()).toEqual({ enabled: false, batchSize: 100, intervalMinutes: 1 });
+    expect(await readCloudScanConfig()).toEqual({ enabled: false, batchSize: 50, intervalMinutes: 60 });
+  });
+
+  it('旧存量值夹取（存 10→60 / 存 80 批→50）', async () => {
+    makeChromeStub({ config: { cloudScan: { batchSize: 80, intervalMinutes: 10 } } });
+    expect(await readCloudScanConfig()).toEqual({ enabled: false, batchSize: 50, intervalMinutes: 60 });
   });
 
   it('垃圾形状 → 缺省（不抛）', async () => {
     makeChromeStub({ config: 'garbage' });
-    expect(await readCloudScanConfig()).toEqual({ enabled: false, batchSize: 20, intervalMinutes: 10 });
+    expect(await readCloudScanConfig()).toEqual({ enabled: false, batchSize: 20, intervalMinutes: 60 });
   });
 });
 
@@ -354,7 +359,7 @@ describe('javdbSessionVault cookie watcher（background 接线）', () => {
     vi.unstubAllGlobals();
   });
 
-  const enabledConfig = { cloudScan: { enabled: true, batchSize: 20, intervalMinutes: 10 } };
+  const enabledConfig = { cloudScan: { enabled: true, batchSize: 20, intervalMinutes: 60 } };
 
   async function emitAndSettle(change: unknown, stub: ReturnType<typeof makeChromeStub>): Promise<void> {
     stub.emitCookieChange(change);
@@ -410,7 +415,7 @@ describe('javdbSessionVault 手动入口（设置页「设置登录态」按钮�
   afterEach(() => vi.unstubAllGlobals());
 
   const COOKIES = [{ name: '_jdb_session', value: 'S-manual', domain: '.javdb570.com' }];
-  const enabledConfig = { cloudScan: { enabled: true, batchSize: 20, intervalMinutes: 10 } };
+  const enabledConfig = { cloudScan: { enabled: true, batchSize: 20, intervalMinutes: 60 } };
 
   it('云扫描未开启 → cloud-scan-disabled（不触 vault api）', async () => {
     makeChromeStub({ config: {}, cloudSettings: CLOUD_SETTINGS, cookies: COOKIES });

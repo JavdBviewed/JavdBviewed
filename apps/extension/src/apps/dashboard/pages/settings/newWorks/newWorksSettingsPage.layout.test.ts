@@ -286,8 +286,8 @@ describe('NewWorksSettingsPage 云扫描区块（10-19 线 2：A.3 配置面）'
     expect(batchInput).toContain('disabled={!form.cloudScanEnabled}');
     expect(intervalInput).toContain('disabled={!form.cloudScanEnabled}');
     expect(batchInput).toContain('min={1}');
-    expect(batchInput).toContain('max={100}');
-    expect(intervalInput).toContain('min={1}');
+    expect(batchInput).toContain('max={50}');
+    expect(intervalInput).toContain('min={60}');
     expect(intervalInput).toContain('max={1440}');
   });
 
@@ -298,7 +298,7 @@ describe('NewWorksSettingsPage 云扫描区块（10-19 线 2：A.3 配置面）'
       '每批订阅数',
       '云端每轮处理的订阅演员数，建议 20',
       '扫描间隔（分钟）',
-      '云端两轮扫描的间隔，建议 10 分钟以上',
+      '云端两轮扫描的间隔，建议 60 分钟以上',
       '登录态：',
       '设置登录态',
       '设置中…',

@@ -618,7 +618,7 @@ export function NewWorksSettingsPage() {
                   id="nwCloudScanBatchSize"
                   type="number"
                   min={1}
-                  max={100}
+                  max={50}
                   disabled={!form.cloudScanEnabled}
                   value={String(form.cloudScanBatchSize)}
                   onChange={updateNumber('cloudScanBatchSize')}
@@ -627,12 +627,12 @@ export function NewWorksSettingsPage() {
               <SettingField
                 id="nwCloudScanIntervalMinutes"
                 label="扫描间隔（分钟）"
-                description="云端两轮扫描的间隔，建议 10 分钟以上"
+                description="云端两轮扫描的间隔，建议 60 分钟以上"
               >
                 <Input
                   id="nwCloudScanIntervalMinutes"
                   type="number"
-                  min={1}
+                  min={60}
                   max={1440}
                   disabled={!form.cloudScanEnabled}
                   value={String(form.cloudScanIntervalMinutes)}

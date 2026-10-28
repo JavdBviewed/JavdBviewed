@@ -354,9 +354,9 @@ export interface ActorSubscription {
 /** 云扫描子配置（10-19 线 2：由云端服务器代扫订阅演员新作；缺省 = 未启用不上行） */
 export interface CloudScanConfig {
   enabled: boolean;
-  /** 每批处理的订阅数量（1-100，缺省 20） */
+  /** 每批处理的订阅数量（1-50，缺省 20） */
   batchSize: number;
-  /** 两轮扫描间隔，分钟（1-1440，缺省 10） */
+  /** 两轮扫描间隔，分钟（60-1440，缺省 60） */
   intervalMinutes: number;
 }
 
@@ -381,7 +381,7 @@ export interface NewWorksGlobalConfig {
   autoCleanup: boolean;
   cleanupDays: number;                                // 自动清理 N 天前的记录
   lastGlobalCheck?: number;
-  /** 云扫描（10-19 线 2：写 new_works_config.cloudScan；缺失=未配置，读侧归一为 关/20/10） */
+  /** 云扫描（10-19 线 2：写 new_works_config.cloudScan；缺失=未配置，读侧归一为 关/20/60） */
   cloudScan?: CloudScanConfig;
 }
 
