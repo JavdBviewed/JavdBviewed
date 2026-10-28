@@ -273,8 +273,8 @@ describe('NewWorksSettingsPage 云扫描区块（10-19 线 2：A.3 配置面）'
     expect(cloudPos).toBeGreaterThan(cleanupPos);
   });
 
-  it('控件 id 稳定（开关/批次/间隔/状态行/删除按钮）', () => {
-    for (const id of ['nwCloudScanEnabled', 'nwCloudScanBatchSize', 'nwCloudScanIntervalMinutes', 'nwCloudScanSessionStatus', 'nwCloudScanSessionDeleteBtn']) {
+  it('控件 id 稳定（开关/批次/间隔/状态行/设置按钮/删除按钮/代理提示）', () => {
+    for (const id of ['nwCloudScanEnabled', 'nwCloudScanBatchSize', 'nwCloudScanIntervalMinutes', 'nwCloudScanSessionStatus', 'nwCloudScanSessionSetBtn', 'nwCloudScanSessionDeleteBtn', 'nwCloudScanProxyHint']) {
       expect(pageSource).toContain(`id="${id}"`);
     }
   });
@@ -301,7 +301,9 @@ describe('NewWorksSettingsPage 云扫描区块（10-19 线 2：A.3 配置面）'
       '云端两轮扫描的间隔，建议 10 分钟以上',
       '登录态：',
       '设置登录态',
+      '设置中…',
       '移除登录态',
+      '云端扫描需直连 JavDB；若云端网络受限，请在 云服务管理台 → 设置 → 出站代理 配置代理（支持 http/socks5）',
     ]) {
       expect(pageSource).toContain(text);
     }

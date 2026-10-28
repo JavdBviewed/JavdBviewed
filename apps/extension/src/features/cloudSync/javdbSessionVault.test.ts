@@ -34,6 +34,7 @@ import {
   initJavdbSessionCookieWatcher,
   pushJavdbSessionVault,
   pushJavdbSessionVaultIfEnabled,
+  pushJavdbSessionVaultManual,
   readCloudScanConfig,
 } from './javdbSessionVault';
 
@@ -402,5 +403,70 @@ describe('javdbSessionVault cookie watcher（background 接线）', () => {
     makeChromeStub({ config: {} });
     await expect(pushJavdbSessionVaultIfEnabled('toggle-on')).resolves.toBeUndefined();
     expect(enqueueMocks.scheduleEnqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('javdbSessionVault 手动入口（设置页「设置登录态」按钮，10-28）', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const COOKIES = [{ name: '_jdb_session', value: 'S-manual', domain: '.javdb570.com' }];
+  const enabledConfig = { cloudScan: { enabled: true, batchSize: 20, intervalMinutes: 10 } };
+
+  it('云扫描未开启 → cloud-scan-disabled（不触 vault api）', async () => {
+    makeChromeStub({ config: {}, cloudSettings: CLOUD_SETTINGS, cookies: COOKIES });
+    const api = makeVaultApi();
+    const r = await pushJavdbSessionVaultManual({ vaultApi: api });
+    expect(r).toEqual({ ok: false, reason: 'cloud-scan-disabled' });
+    expect(api.listVault).not.toHaveBeenCalled();
+    expect(api.putVault).not.toHaveBeenCalled();
+  });
+
+  it('已开启但无云密码 → no-credentials 透传（不触 vault api）', async () => {
+    makeChromeStub({ config: enabledConfig, cloudSettings: { ...CLOUD_SETTINGS, accountPassword: '' }, cookies: COOKIES });
+    const api = makeVaultApi();
+    const r = await pushJavdbSessionVaultManual({ vaultApi: api });
+    expect(r).toEqual({ ok: false, reason: 'no-credentials' });
+    expect(api.putVault).not.toHaveBeenCalled();
+  });
+
+  it('已开启但白名单 cookie 为零 → no-cookies 透传（不触 vault api）', async () => {
+    makeChromeStub({ config: enabledConfig, cloudSettings: CLOUD_SETTINGS, cookies: [{ name: 'theme', value: 'dark', domain: '.javdb570.com' }] });
+    const api = makeVaultApi();
+    const r = await pushJavdbSessionVaultManual({ vaultApi: api });
+    expect(r).toEqual({ ok: false, reason: 'no-cookies' });
+    expect(api.putVault).not.toHaveBeenCalled();
+  });
+
+  it('putVault 失败 → push-failed 透传（不外抛）', async () => {
+    makeChromeStub({ config: enabledConfig, cloudSettings: CLOUD_SETTINGS, cookies: COOKIES });
+    const api = makeVaultApi({ putVault: vi.fn(async () => { throw new Error('boom'); }) });
+    const r = await pushJavdbSessionVaultManual({ vaultApi: api });
+    expect(r).toEqual({ ok: false, reason: 'push-failed' });
+  });
+
+  it('cookie 采集异常（getAll 同步抛错 → reject）→ push-failed（不外抛，不触 vault api）', async () => {
+    makeChromeStub({ config: enabledConfig, cloudSettings: CLOUD_SETTINGS, cookies: COOKIES });
+    (globalThis as { chrome: { cookies: { getAll: unknown } } }).chrome.cookies.getAll = vi.fn(
+      (_q: unknown, _cb: (c: unknown[]) => void) => {
+        throw new Error('simulated getAll failure');
+      },
+    );
+    const api = makeVaultApi();
+    const r = await pushJavdbSessionVaultManual({ vaultApi: api });
+    expect(r).toEqual({ ok: false, reason: 'push-failed' });
+    expect(api.putVault).not.toHaveBeenCalled();
+  });
+
+  it('成功路径 → ok + host + cookieCount（reason=manual，vault 项形状不变）', async () => {
+    makeChromeStub({ config: enabledConfig, cloudSettings: CLOUD_SETTINGS, cookies: COOKIES });
+    const api = makeVaultApi();
+    const r = await pushJavdbSessionVaultManual({ vaultApi: api });
+    expect(r).toEqual({ ok: true, host: 'javdb570.com', cookieCount: 1 });
+    expect(api.putVault).toHaveBeenCalledTimes(1);
+    const [id, body] = api.putVault.mock.calls[0] as unknown as [string, { protocolVersion: number; item: VaultItem }];
+    expect(id).toBe('javdb-session');
+    expect(body.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(body.item.id).toBe('javdb-session');
+    expect(body.item.kind).toBe('javdb-session');
   });
 });

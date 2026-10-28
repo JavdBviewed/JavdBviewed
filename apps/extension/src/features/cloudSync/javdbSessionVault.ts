@@ -51,6 +51,10 @@ export type PushJavdbSessionVaultResult =
   | { ok: true; host: string; cookieCount: number }
   | { ok: false; reason: 'no-credentials' | 'no-cookies' | 'push-failed' };
 
+export type PushJavdbSessionVaultManualResult =
+  | { ok: true; host: string; cookieCount: number }
+  | { ok: false; reason: 'cloud-scan-disabled' | 'no-credentials' | 'no-cookies' | 'push-failed' };
+
 type VaultApiLike = Pick<ApiClient, 'listVault' | 'putVault' | 'deleteVault'>;
 
 export type JavdbSessionVaultOptions = { vaultApi?: VaultApiLike };
@@ -271,6 +275,23 @@ export async function pushJavdbSessionVaultIfEnabled(reason: string): Promise<vo
     }
   } catch (err) {
     console.warn('[cloudSync] javdb 会话 vault 推送异常:', (err as Error)?.message || 'unknown');
+  }
+}
+
+/** 手动入口（设置页「设置登录态」按钮，10-28）：返回结果、不吞异常（对照 IfEnabled 静默 fire-and-forget）。
+ *  云扫描未启用 → 'cloud-scan-disabled'（不触 vault api）；其余复用 pushJavdbSessionVault('manual') 原因码；任何异常 → 'push-failed'。 */
+export async function pushJavdbSessionVaultManual(
+  options: JavdbSessionVaultOptions = {},
+): Promise<PushJavdbSessionVaultManualResult> {
+  try {
+    const cfg = await readCloudScanConfig();
+    if (!cfg.enabled) {
+      return { ok: false, reason: 'cloud-scan-disabled' };
+    }
+    return await pushJavdbSessionVault('manual', options);
+  } catch (err) {
+    console.warn('[cloudSync] javdb 会话 vault 手动推送异常:', (err as Error)?.message || 'unknown');
+    return { ok: false, reason: 'push-failed' };
   }
 }
 

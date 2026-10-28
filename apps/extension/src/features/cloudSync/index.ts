@@ -111,6 +111,7 @@ export {
   collectJavdbSessionCookies,
   pushJavdbSessionVault,
   pushJavdbSessionVaultIfEnabled,
+  pushJavdbSessionVaultManual,
   fetchJavdbSessionVaultStatus,
   deleteJavdbSessionVault,
   initJavdbSessionCookieWatcher,
@@ -118,5 +119,6 @@ export {
   type JavdbSessionCookieSnapshot,
   type JavdbSessionVaultStatus,
   type PushJavdbSessionVaultResult,
+  type PushJavdbSessionVaultManualResult,
   type JavdbSessionVaultOptions,
 } from './javdbSessionVault';
