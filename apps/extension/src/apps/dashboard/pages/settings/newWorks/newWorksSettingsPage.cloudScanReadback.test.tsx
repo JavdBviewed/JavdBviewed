@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   loadCloudSettings: vi.fn(),
   fetchJavdbSessionVaultStatus: vi.fn(),
   pushJavdbSessionVaultIfEnabled: vi.fn(),
+  pushJavdbSessionVaultManual: vi.fn(),
   deleteJavdbSessionVault: vi.fn(),
   getCloudScanConfig: vi.fn(),
   scheduleSave: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('../../../../../features/cloudSync', () => ({
   loadCloudSettings: mocks.loadCloudSettings,
   fetchJavdbSessionVaultStatus: mocks.fetchJavdbSessionVaultStatus,
   pushJavdbSessionVaultIfEnabled: mocks.pushJavdbSessionVaultIfEnabled,
+  pushJavdbSessionVaultManual: mocks.pushJavdbSessionVaultManual,
   deleteJavdbSessionVault: mocks.deleteJavdbSessionVault,
   getCloudScanConfig: mocks.getCloudScanConfig,
 }));
@@ -80,6 +82,7 @@ beforeEach(() => {
   mocks.toast.mockResolvedValue(undefined);
   mocks.fetchJavdbSessionVaultStatus.mockResolvedValue('present');
   mocks.pushJavdbSessionVaultIfEnabled.mockResolvedValue({ ok: true });
+  mocks.pushJavdbSessionVaultManual.mockResolvedValue({ ok: true, host: 'javdb570.com', cookieCount: 1 });
   mocks.deleteJavdbSessionVault.mockResolvedValue({ ok: true });
   mocks.getCloudScanConfig.mockResolvedValue(null);
   mocks.scheduleSave.mockImplementation((value: unknown) => {

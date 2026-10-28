@@ -30,7 +30,7 @@ import {
   fetchJavdbSessionVaultStatus,
   getCloudScanConfig,
   loadCloudSettings,
-  pushJavdbSessionVaultIfEnabled,
+  pushJavdbSessionVaultManual,
   type CloudScanConfigReadback,
 } from '../../../../../features/cloudSync';
 import { entryKey } from '@javdb/video-category-dict';
@@ -97,6 +97,9 @@ export function NewWorksSettingsPage() {
   /** 云扫描（10-19 线 2 A.3）：双门控——未存云凭据整块隐藏（第 1 层）+ 关态数值输入禁用（第 2 层） */
   const [cloudConnected, setCloudConnected] = useState(false);
   const [cloudScanSession, setCloudScanSession] = useState<'loading' | 'present' | 'absent' | 'error'>('loading');
+  /** 「设置登录态」推送中（10-28）：busy → 按钮 disabled +「设置中…」，finally 解；ref 防同帧重复点击（闭包 stale） */
+  const [cloudScanSessionBusy, setCloudScanSessionBusy] = useState(false);
+  const cloudScanSessionBusyRef = useRef(false);
   const hasSavedCredentials = cloudConnected;
   /** 云端扫描配置回读（10-27-ext-scan-config-readback）：null=未拉到/失败/非 admin（均不显示） */
   const [scanConfigReadback, setScanConfigReadback] = useState<CloudScanConfigReadback | null>(null);
@@ -142,8 +145,27 @@ export function NewWorksSettingsPage() {
   }, [refreshCloudScanSession, refreshCloudScanConfig]);
 
   const handleSetCloudScanSession = useCallback(async () => {
-    await pushJavdbSessionVaultIfEnabled('manual');
-    await refreshCloudScanSession();
+    if (cloudScanSessionBusyRef.current) return;
+    cloudScanSessionBusyRef.current = true;
+    setCloudScanSessionBusy(true);
+    try {
+      const res = await pushJavdbSessionVaultManual();
+      if (res.ok) {
+        await toast(`登录态已更新（${res.cookieCount} 个 cookie）`, 'success');
+      } else if (res.reason === 'cloud-scan-disabled') {
+        await toast('请先启用云扫描，再设置登录态', 'warning');
+      } else if (res.reason === 'no-credentials') {
+        await toast('未检测到云服务凭据，请先配置云服务', 'warning');
+      } else if (res.reason === 'no-cookies') {
+        await toast('未检测到 JavDB 登录 Cookie，请先在浏览器登录 JavDB 后再试', 'warning');
+      } else {
+        await toast('登录态推送失败，请检查云服务连接后重试', 'error');
+      }
+    } finally {
+      await refreshCloudScanSession();
+      setCloudScanSessionBusy(false);
+      cloudScanSessionBusyRef.current = false;
+    }
   }, [refreshCloudScanSession]);
 
   const handleDeleteCloudScanSession = useCallback(async () => {
@@ -635,12 +657,14 @@ export function NewWorksSettingsPage() {
                 </span>
                 <button
                   type="button"
-                  className="rounded-[var(--radius-2)] text-[12.5px] text-[var(--color-primary)] hover:underline focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)]"
+                  id="nwCloudScanSessionSetBtn"
+                  className="rounded-[var(--radius-2)] text-[12.5px] text-[var(--color-primary)] hover:underline focus-visible:outline-none focus-visible:shadow-[var(--ring-focus)] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={cloudScanSessionBusy}
                   onClick={() => {
                     void handleSetCloudScanSession();
                   }}
                 >
-                  设置登录态
+                  {cloudScanSessionBusy ? '设置中…' : '设置登录态'}
                 </button>
                 <button
                   type="button"
@@ -652,6 +676,12 @@ export function NewWorksSettingsPage() {
                 >
                   移除登录态
                 </button>
+              </div>
+              <div
+                id="nwCloudScanProxyHint"
+                className="mt-1 text-[12.5px] leading-5 text-[var(--color-text-secondary,#666)]"
+              >
+                云端扫描需直连 JavDB；若云端网络受限，请在 云服务管理台 → 设置 → 出站代理 配置代理（支持 http/socks5）
               </div>
             </SettingSection>
           ) : null}
