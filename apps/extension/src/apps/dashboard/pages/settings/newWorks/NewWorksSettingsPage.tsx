@@ -63,7 +63,7 @@ export function NewWorksSettingsPage() {
     lastPersistedFormRef.current = nextForm;
     setSaveError(null);
     await toast('设置已保存', 'success');
-    // 保存成功且本次变更涉及云扫描三字段 → 回读再拉一次（未接管态下保存改变生效值）
+    // 保存成功且本次变更涉及云扫描三字段 → 回读再拉一次（本次保存成为最新写入，生效值与最后写入方可变）
     if (prev && cloudScanFieldsChanged(prev, nextForm)) {
       void refreshCloudScanConfig();
     }
@@ -681,9 +681,9 @@ export function NewWorksSettingsPage() {
                   className="mt-2 text-[12.5px] leading-5 text-[var(--color-text-secondary,#666)]"
                 >
                   <div>
-                    云端管理台配置优先生效：{scanConfigReadback.enabled ? '开' : '关'}，每 {scanConfigReadback.intervalMinutes} 分钟，每批 {scanConfigReadback.batchSize} 条
+                    当前参数最后由云端管理台更新：{scanConfigReadback.enabled ? '开' : '关'}，每 {scanConfigReadback.intervalMinutes} 分钟，每批 {scanConfigReadback.batchSize} 条
                   </div>
-                  <div>拓展端修改仅在管理台未接管时生效</div>
+                  <div>多端同步，最新写入生效</div>
                 </div>
               ) : null}
               <div id="nwCloudScanSessionStatus" className="mt-2 flex items-center gap-2 text-[12.5px] text-[var(--color-text-secondary,#666)]">
