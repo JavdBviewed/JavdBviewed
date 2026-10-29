@@ -63,7 +63,7 @@ export function NewWorksSettingsPage() {
     lastPersistedFormRef.current = nextForm;
     setSaveError(null);
     await toast('设置已保存', 'success');
-    // 保存成功且本次变更涉及云扫描三字段 → 回读再拉一次（未接管态下保存改变生效值）
+    // 保存成功且本次变更涉及云扫描三字段 → 回读再拉一次（本次保存成为最新写入，生效值与最后写入方可变）
     if (prev && cloudScanFieldsChanged(prev, nextForm)) {
       void refreshCloudScanConfig();
     }

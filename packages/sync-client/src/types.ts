@@ -72,7 +72,7 @@ export interface SyncClientConfig {
 /**
  * 云端扫描配置回读（GET /v1/scan/config）。
  * 冻结契约（10-27-ext-scan-config-readback）：字段名与取值集合不得变更；
- * source 语义：admin=管理台已接管 / extension=按拓展同步值生效 / default=云缺省。
+ * source 语义（最后写入方，10-29-cloud-scan-latest-wins 去接管化）：admin=最后写入方是管理台 / extension=最后写入方是拓展设备 / default=无实体。
  */
 export interface CloudScanConfigReadback {
   enabled: boolean;
