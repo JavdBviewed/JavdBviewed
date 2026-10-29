@@ -336,6 +336,7 @@ export class NewWorksTab {
             batchOpenSelected: () => this.batchOpenSelected(),
             batchDeleteSelected: () => this.batchDeleteSelected(),
         });
+        this.setupEnableCloudScanHelpIcon();
     }
 
     /**
@@ -608,6 +609,17 @@ export class NewWorksTab {
         if (!helpIcon) return;
 
         const helpText = '立即检查所有已启用的订阅演员的新作品。\n\n系统会根据设置的并发数量同时检查多个演员，并自动过滤已看、已浏览等状态的作品。\n\n检查完成后，新发现的作品会显示在下方列表中。';
+        attachNewWorksHelpTooltip(helpIcon, helpText);
+    }
+
+    /**
+     * 设置开启云扫描按钮的帮助图标
+     */
+    private setupEnableCloudScanHelpIcon(): void {
+        const helpIcon = document.getElementById('enableCloudScanHelpIcon');
+        if (!helpIcon) return;
+
+        const helpText = '云扫描未开启：电脑关机期间，云服务会按你的订阅列表定时扫描新作品。\n\n点击前往设置页开启云扫描；开启后由云端定时执行，无需本机保持开机。';
         attachNewWorksHelpTooltip(helpIcon, helpText);
     }
 

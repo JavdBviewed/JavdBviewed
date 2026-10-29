@@ -30,16 +30,18 @@
         </div>
       </div>
       <div class="config-controls">
-        <div id="cloudScanGuidanceRow" class="control-row cloud-scan-guidance-row" hidden>
-          <span class="cloud-scan-guidance-text"><i class="fas fa-cloud" aria-hidden="true"></i>云扫描未开启：电脑关机期间，云服务会按你的订阅列表定时扫描新作品</span>
-          <button id="cloudScanGuidanceBtn" type="button" class="btn-action btn-secondary">去开启</button>
-        </div>
         <div class="control-row command-row">
           <button id="checkNowBtn" class="btn-action btn-with-help">
             <span class="btn-content">
               <i class="fas fa-search"></i> 立即检查
             </span>
             <i class="fas fa-question-circle help-icon" id="checkNowHelpIcon"></i>
+          </button>
+          <button id="enableCloudScanBtn" class="btn-action btn-secondary btn-with-help" hidden>
+            <span class="btn-content">
+              <i class="fas fa-cloud"></i> 开启云扫描
+            </span>
+            <i class="fas fa-question-circle help-icon" id="enableCloudScanHelpIcon"></i>
           </button>
           <button id="syncStatusBtn" class="btn-info btn-with-help">
             <span class="btn-content">
