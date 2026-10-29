@@ -31,6 +31,9 @@ const FAILURE_TTL_MS = 10 * 60 * 1000; // 10 分钟
 // 与网络失败分开标记，避免真实状态被混淆；TTL 取 1 小时——比 10 分钟抑制
 // 请求风暴，又不至于用户登录后长期看不到穿透行。
 const LOGIN_REQUIRED_TTL_MS = 60 * 60 * 1000; // 1 小时
+// 「限流」独立状态（10-30-ext-actor-penetration-paging RC-B）：429/503 是瞬态而非稳定
+// 失败，TTL 取 60s——比 10 分钟失败抑制短（尽快恢复重试），又足够压住 429 期间的请求风暴。
+const RATE_LIMITED_TTL_MS = 60 * 1000; // 60 秒
 const FAILURE_SENTINEL = { actors: [] as DetailActor[], hasMore: false, fetchedAt: 0 };
 
 /** 把番号规范化成缓存键（小写、去空白）。 */
@@ -73,4 +76,10 @@ export async function writeActorPenetrationFailure(code: string): Promise<void> 
 export async function writeActorPenetrationLoginRequired(code: string): Promise<void> {
   const key = KEY_PREFIX + normalizeCodeKey(code);
   await globalCache.set(key, { failed: true, loginRequired: true, ...FAILURE_SENTINEL }, LOGIN_REQUIRED_TTL_MS).catch(() => undefined);
+}
+
+/** 写入「限流」缓存（60 秒 TTL）：429/503 瞬态，短抑制 + 到期可重试（F3）。 */
+export async function writeActorPenetrationRateLimited(code: string): Promise<void> {
+  const key = KEY_PREFIX + normalizeCodeKey(code);
+  await globalCache.set(key, { failed: true, rateLimited: true, ...FAILURE_SENTINEL }, RATE_LIMITED_TTL_MS).catch(() => undefined);
 }

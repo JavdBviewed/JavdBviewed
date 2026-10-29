@@ -136,7 +136,9 @@ class ListEnhancementManager {
     appendSuperRankingPage: page => appendSuperRankingTop250Page(page),
     fetchText: async url => {
       const response = await fetch(url);
-      return response.text();
+      // F4（10-30 RC-C）：回传 status，loadNextPage 可显式分类非 2xx（429 冷却防静默重发）；
+      // 不回传则走旧语义（仅 html），既有调用兼容。
+      return { html: await response.text(), status: response.status };
     },
     processVisibleItems: () => processVisibleItems(),
     clearActorCaches: () => this.actorNameMarkPrep.clearActorCaches(),
