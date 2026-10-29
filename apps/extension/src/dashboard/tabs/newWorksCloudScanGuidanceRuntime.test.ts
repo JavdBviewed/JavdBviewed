@@ -1,7 +1,7 @@
 /**
  * @file newWorksCloudScanGuidanceRuntime.test.ts
  * @description 新作品页「云托管扫描引导」入口单测：
- * 纯函数判定（4 组合零噪声）、runtime 防御路径（行不存在不抛/读失败隐藏/接线幂等与点击行为）、
+ * 纯函数判定（4 组合零噪声）、runtime 防御路径（按钮不存在不抛/读失败隐藏/接线幂等与点击行为）、
  * marker 常量一致性锁（runtime 与设置页同源）
  * @module dashboard/tabs
  */
@@ -69,7 +69,7 @@ describe('shouldShowCloudScanGuidance 纯函数判定', () => {
 });
 
 describe('updateNewWorksCloudScanGuidance 防御路径', () => {
-  it('引导行不存在 → 静默返回且不触发任何读取', async () => {
+  it('引导按钮不存在 → 静默返回且不触发任何读取', async () => {
     stubDocument({});
 
     await expect(updateNewWorksCloudScanGuidance()).resolves.toBeUndefined();
@@ -80,7 +80,7 @@ describe('updateNewWorksCloudScanGuidance 防御路径', () => {
 
   it('凭据读取抛异常 → 行隐藏（不抛出）', async () => {
     const row = { hidden: false };
-    stubDocument({ cloudScanGuidanceRow: row });
+    stubDocument({ enableCloudScanBtn: row });
     loadCloudSettingsMock.mockRejectedValueOnce(new Error('storage unavailable'));
 
     await expect(updateNewWorksCloudScanGuidance()).resolves.toBeUndefined();
@@ -90,7 +90,7 @@ describe('updateNewWorksCloudScanGuidance 防御路径', () => {
 
   it('全局配置读取抛异常 → 行隐藏（不抛出）', async () => {
     const row = { hidden: false };
-    stubDocument({ cloudScanGuidanceRow: row });
+    stubDocument({ enableCloudScanBtn: row });
     loadCloudSettingsMock.mockResolvedValueOnce({ ...CREDENTIALS });
     getGlobalConfigMock.mockRejectedValueOnce(new Error('config unavailable'));
 
@@ -99,9 +99,9 @@ describe('updateNewWorksCloudScanGuidance 防御路径', () => {
     expect(row.hidden).toBe(true);
   });
 
-  it('凭据已存 + 云扫描未开启 → 行显示', async () => {
+  it('凭据已存 + 云扫描未开启 → 按钮显示', async () => {
     const row = { hidden: true };
-    stubDocument({ cloudScanGuidanceRow: row, cloudScanGuidanceBtn: { addEventListener: vi.fn() } });
+    stubDocument({ enableCloudScanBtn: row });
     loadCloudSettingsMock.mockResolvedValueOnce({ ...CREDENTIALS });
     getGlobalConfigMock.mockResolvedValueOnce({ ...CONFIG_OFF });
 
@@ -115,19 +115,19 @@ describe('引导按钮接线（幂等 + 点击行为）', () => {
   function makeVisibleDom() {
     const clickHandlers: Array<() => void> = [];
     const button = {
+      hidden: false,
       addEventListener: (type: string, handler: () => void) => {
         if (type === 'click') clickHandlers.push(handler);
       },
     };
-    const row = { hidden: false };
-    stubDocument({ cloudScanGuidanceRow: row, cloudScanGuidanceBtn: button });
+    stubDocument({ enableCloudScanBtn: button });
     loadCloudSettingsMock.mockResolvedValue({ ...CREDENTIALS });
     getGlobalConfigMock.mockResolvedValue({ ...CONFIG_OFF });
     const setItem = vi.fn();
     vi.stubGlobal('sessionStorage', { setItem, getItem: vi.fn(() => null), removeItem: vi.fn() });
     const location = { hash: '#tab-new-works' };
     vi.stubGlobal('location', location);
-    return { row, button, clickHandlers, setItem, location };
+    return { button, clickHandlers, setItem, location };
   }
 
   it('点击 → 写 marker 并跳转设置页新作品路由（逐字 hash）', async () => {

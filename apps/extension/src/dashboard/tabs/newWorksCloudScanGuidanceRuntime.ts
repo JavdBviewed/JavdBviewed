@@ -1,11 +1,11 @@
 /**
  * @file newWorksCloudScanGuidanceRuntime.ts
  * @description 新作品页「云托管扫描引导」入口 runtime：
- * 纯函数显示判定 + 引导行显隐更新 + 按钮幂等接线（一键跳设置页云扫描区块并高亮）。
+ * 纯函数显示判定 + 引导按钮显隐更新 + 点击幂等接线（一键跳设置页云扫描区块并高亮）。
  * @module dashboard/tabs
  *
  * 显示条件（零噪声）：云凭据已存（双非空）且云扫描未开启且两次读取均成功；
- * 其余一律隐藏（无凭据/已开启/读失败）。引导行不存在或任何异常均静默——
+ * 其余一律隐藏（无凭据/已开启/读失败）。引导按钮不存在或任何异常均静默——
  * 引导失败不得影响新作品页本身。
  */
 import { loadCloudSettings } from '../../features/cloudSync/cloudSettingsStorage';
@@ -61,8 +61,8 @@ async function readGuidanceState(): Promise<CloudScanGuidanceDecision> {
 }
 
 /**
- * 更新引导行显隐。fire-and-forget 调用点：新作品页 render 完成路径。
- * - 引导行不存在（DOM 未渲染/后续变更）：静默返回，不触发读取；
+ * 更新引导按钮显隐。fire-and-forget 调用点：新作品页 render 完成路径。
+ * - 引导按钮不存在（DOM 未渲染/后续变更）：静默返回，不触发读取；
  * - 任何异常：内部吞掉并隐藏，零噪声。
  */
 export async function updateNewWorksCloudScanGuidance(): Promise<void> {
@@ -70,16 +70,16 @@ export async function updateNewWorksCloudScanGuidance(): Promise<void> {
     const scope = globalThis as {
       document?: { getElementById(id: string): { hidden?: boolean; addEventListener?: (type: string, handler: () => void) => void } | null };
     };
-    const row = scope.document?.getElementById('cloudScanGuidanceRow') ?? null;
-    if (!row) return;
+    // 显隐目标 = 点击目标 = 同一节点（#enableCloudScanBtn）
+    const button = scope.document?.getElementById('enableCloudScanBtn') ?? null;
+    if (!button) return;
 
     const decision = await readGuidanceState();
     const visible = shouldShowCloudScanGuidance(decision);
-    row.hidden = !visible;
+    button.hidden = !visible;
     if (!visible) return;
 
-    const button = scope.document?.getElementById('cloudScanGuidanceBtn') ?? null;
-    if (!button || !button.addEventListener || wiredButtons.has(button)) return;
+    if (!button.addEventListener || wiredButtons.has(button)) return;
     wiredButtons.add(button);
     button.addEventListener('click', () => {
       const runtimeScope = globalThis as {
