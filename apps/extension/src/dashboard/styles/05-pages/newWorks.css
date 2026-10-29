@@ -3519,3 +3519,28 @@ input:checked + .toggle-slider:before {
         flex-wrap: wrap;
     }
 }
+
+/* === 云托管扫描引导行（凭据已存且云扫描未开启时显示；引导按钮=页内 btn-action 同观感）=== */
+.new-works-page .cloud-scan-guidance-row {
+    gap: 10px;
+}
+
+.new-works-page .cloud-scan-guidance-row .cloud-scan-guidance-text {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+}
+
+.new-works-page .cloud-scan-guidance-row .cloud-scan-guidance-text i {
+    color: var(--primary);
+}
+
+/* 设置页云扫描区块引导高亮：从新作品页跳转后施加，2s 自动移除，无残留 */
+.new-works-cloud-scan-highlight {
+    outline: 2px solid var(--primary);
+    outline-offset: 4px;
+    border-radius: 12px;
+    transition: outline-color 0.4s ease;
+}
