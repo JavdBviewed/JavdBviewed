@@ -2,6 +2,7 @@
 // 新作品标签页实现
 
 import { newWorksManager } from '../../features/newWorks';
+import { updateNewWorksCloudScanGuidance } from './newWorksCloudScanGuidanceRuntime';
 // 移除未使用的 actorManager 与 newWorksCollector 引用
 import { actorSelector } from '../components/actorSelector';
 import { showMessage } from '../ui/toast';
@@ -177,6 +178,7 @@ export class NewWorksTab {
                 if (!this.active) return;
                 console.log('[NewWorks] 收到刷新事件，重新渲染列表');
                 this.render();
+                void updateNewWorksCloudScanGuidance();
             };
             window.addEventListener('newworks-refresh', this.refreshEventHandler);
 
@@ -185,6 +187,8 @@ export class NewWorksTab {
                 'page.initialize.render.duration',
                 () => this.render(),
             );
+            // 云托管扫描引导行复评（fire-and-forget；判定失败静默隐藏，不影响页面）
+            void updateNewWorksCloudScanGuidance();
 
             this.isInitialized = true;
             // issue#52：刷新/重开后向 SW 查询扫描状态回填（fire-and-forget；查询失败 logError 静默跳过）
@@ -383,6 +387,7 @@ export class NewWorksTab {
                 this.statsScheduler.setActive(true);
                 if (this.isInitialized) {
                     void this.render();
+                    void updateNewWorksCloudScanGuidance();
                     this.updateBatchOpenUnreadButton();
                 } else {
                     // 初始化可能在隐藏时被取消，恢复后允许重新建立一次初始化流程。

@@ -33,6 +33,7 @@ import {
   pushJavdbSessionVaultManual,
   type CloudScanConfigReadback,
 } from '../../../../../features/cloudSync';
+import { NWS_GUIDANCE_FOCUS_KEY } from '../../../../../dashboard/tabs/newWorksCloudScanGuidanceRuntime';
 import { entryKey } from '@javdb/video-category-dict';
 
 const AUTO_SAVE_MS = 1000;
@@ -143,6 +144,41 @@ export function NewWorksSettingsPage() {
       cancelled = true;
     };
   }, [refreshCloudScanSession, refreshCloudScanConfig]);
+
+  // 云托管扫描引导跳转：marker 存在则滚到云扫描区块并短暂高亮（一次性，读完即删）。
+  // 区块由凭据异步门控渲染，mount 时尚可能不在 DOM：有限轮询（200ms × 15）兜底。
+  useEffect(() => {
+    let highlightTimer: number | undefined;
+    let probe: number | undefined;
+    const applyHighlight = (): boolean => {
+      const section = document.getElementById('new-works-cloud-scan');
+      if (!section) return false;
+      section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      section.classList.add('new-works-cloud-scan-highlight');
+      highlightTimer = window.setTimeout(() => {
+        section.classList.remove('new-works-cloud-scan-highlight');
+      }, 2000);
+      return true;
+    };
+    try {
+      if (sessionStorage.getItem(NWS_GUIDANCE_FOCUS_KEY) !== '1') return;
+      sessionStorage.removeItem(NWS_GUIDANCE_FOCUS_KEY);
+      if (!applyHighlight()) {
+        let attempts = 0;
+        probe = window.setInterval(() => {
+          attempts += 1;
+          if (applyHighlight() || attempts >= 15) window.clearInterval(probe);
+        }, 200);
+      }
+    } catch {
+      // 滚动/高亮失败静默，不影响设置页本身
+      if (probe !== undefined) window.clearInterval(probe);
+    }
+    return () => {
+      if (probe !== undefined) window.clearInterval(probe);
+      if (highlightTimer !== undefined) window.clearTimeout(highlightTimer);
+    };
+  }, []);
 
   const handleSetCloudScanSession = useCallback(async () => {
     if (cloudScanSessionBusyRef.current) return;
