@@ -681,9 +681,9 @@ export function NewWorksSettingsPage() {
                   className="mt-2 text-[12.5px] leading-5 text-[var(--color-text-secondary,#666)]"
                 >
                   <div>
-                    云端管理台配置优先生效：{scanConfigReadback.enabled ? '开' : '关'}，每 {scanConfigReadback.intervalMinutes} 分钟，每批 {scanConfigReadback.batchSize} 条
+                    当前参数最后由云端管理台更新：{scanConfigReadback.enabled ? '开' : '关'}，每 {scanConfigReadback.intervalMinutes} 分钟，每批 {scanConfigReadback.batchSize} 条
                   </div>
-                  <div>拓展端修改仅在管理台未接管时生效</div>
+                  <div>多端同步，最新写入生效</div>
                 </div>
               ) : null}
               <div id="nwCloudScanSessionStatus" className="mt-2 flex items-center gap-2 text-[12.5px] text-[var(--color-text-secondary,#666)]">

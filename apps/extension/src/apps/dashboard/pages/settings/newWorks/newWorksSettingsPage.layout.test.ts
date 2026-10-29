@@ -322,8 +322,8 @@ describe('NewWorksSettingsPage 云扫描回读提示（10-27-ext-scan-config-rea
 
   it('提示行在位：id + 文案锁（PRD 逐字）+ 样式对齐登录态行', () => {
     expect(pageSource).toContain('id="nwCloudScanConfigReadback"');
-    expect(pageSource).toContain('云端管理台配置优先生效');
-    expect(pageSource).toContain('拓展端修改仅在管理台未接管时生效');
+    expect(pageSource).toContain('当前参数最后由云端管理台更新');
+    expect(pageSource).toContain('多端同步，最新写入生效');
     expect(pageSource).toMatch(/id="nwCloudScanConfigReadback"[\s\S]*?text-\[12\.5px\][\s\S]*?text-\[var\(--color-text-secondary,#666\)\]/);
   });
 

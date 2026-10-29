@@ -132,8 +132,8 @@ describe('NewWorksSettingsPage 云扫描回读提示（运行时）', () => {
     expect(mocks.getCloudScanConfig).toHaveBeenCalledTimes(1);
     const el = document.getElementById('nwCloudScanConfigReadback');
     expect(el).not.toBeNull();
-    expect(el?.textContent).toContain('云端管理台配置优先生效：开，每 15 分钟，每批 25 条');
-    expect(el?.textContent).toContain('拓展端修改仅在管理台未接管时生效');
+    expect(el?.textContent).toContain('当前参数最后由云端管理台更新：开，每 15 分钟，每批 25 条');
+    expect(el?.textContent).toContain('多端同步，最新写入生效');
   });
 
   it('source=extension → 无提示行（区块与页面行为不变）', async () => {
