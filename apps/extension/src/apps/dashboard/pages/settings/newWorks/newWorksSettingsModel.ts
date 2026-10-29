@@ -10,12 +10,13 @@
  * @module apps/dashboard/pages/settings/newWorks
  */
 import { BUILTIN_CATEGORY_DICTIONARY, entryKey, type DimKey } from '@javdb/video-category-dict';
-import type { NewWorksGlobalConfig } from '../../../../../types';
+import type { CloudScanConfig, NewWorksGlobalConfig } from '../../../../../types';
 import {
   CLOUD_SCAN_BATCH_SIZE_MAX,
   CLOUD_SCAN_BATCH_SIZE_MIN,
   CLOUD_SCAN_INTERVAL_MINUTES_MAX,
   CLOUD_SCAN_INTERVAL_MINUTES_MIN,
+  DEFAULT_CLOUD_SCAN_CONFIG,
   normalizeCloudScanConfig,
 } from '../../../../../utils/config';
 import {
@@ -157,8 +158,18 @@ export function mapConfigToFormState(config: NewWorksGlobalConfig): NewWorksSett
   };
 }
 
-/** 表单 → 落盘补丁（manager 与既有 config 合并；不碰 maxWorksPerCheck/lastGlobalCheck） */
-export function mapFormStateToConfigPatch(form: NewWorksSettingsFormState): Partial<NewWorksGlobalConfig> {
+/**
+ * 表单 → 落盘补丁（manager 与既有 config 合并；不碰 maxWorksPerCheck/lastGlobalCheck）
+ *
+ * 值差规则（C2，10-19 线 2）：全缺省=不写键（零上行）；任一偏离缺省才落 cloudScan 完整三键对象。
+ * 显式落 off（10-29 线）：existingCloudScan != null（存量配置已有 cloudScan 键）且表单全缺省
+ * → 显式写缺省对象（=DEFAULT_CLOUD_SCAN_CONFIG 关/20/60）。机理：manager 浅合并「省略键=保留存量」，
+ * 关开关不落键会保留已落盘的 ON；不删键（云侧键级合并保留旧值，pull 又回来）。第二参缺省=旧行为（兼容）。
+ */
+export function mapFormStateToConfigPatch(
+  form: NewWorksSettingsFormState,
+  existingCloudScan?: CloudScanConfig,
+): Partial<NewWorksGlobalConfig> {
   const patch: Partial<NewWorksGlobalConfig> = {
     checkInterval: form.checkInterval,
     requestInterval: form.requestInterval,
@@ -189,6 +200,9 @@ export function mapFormStateToConfigPatch(form: NewWorksSettingsFormState): Part
       batchSize: form.cloudScanBatchSize,
       intervalMinutes: form.cloudScanIntervalMinutes,
     };
+  } else if (existingCloudScan != null) {
+    // 10-29：存量有键+全缺省 → 显式写缺省对象（本地/云端两侧收敛 off，不删键）
+    patch.cloudScan = { ...DEFAULT_CLOUD_SCAN_CONFIG };
   }
   return patch;
 }

@@ -293,6 +293,38 @@ describe('newWorksSettingsModel 云扫描配置（10-19 线 2：C2 承载位 new
   });
 });
 
+describe('mapFormStateToConfigPatch 显式落 off（10-29-cloudscan-toggle-off-persist：存量有键+全缺省→显式写缺省对象，开/关对称）', () => {
+  const OFF_DEFAULT = { enabled: false, batchSize: 20, intervalMinutes: 60 };
+
+  it('存量有键+全缺省 → patch.cloudScan={off,20,60} 显式在位（修复核心：关开关必落盘 off）', () => {
+    const patch = mapFormStateToConfigPatch(
+      { ...DEFAULT_NEW_WORKS_SETTINGS_FORM },
+      { enabled: true, batchSize: 20, intervalMinutes: 60 }, // 存量=用户曾开启后落盘值
+    );
+    expect(patch.cloudScan).toEqual(OFF_DEFAULT);
+  });
+
+  it('存量无键+全缺省 → 无 cloudScan 键（零上行回归锁：从未配置不写键）', () => {
+    const patch = mapFormStateToConfigPatch({ ...DEFAULT_NEW_WORKS_SETTINGS_FORM }, undefined);
+    expect(patch).not.toHaveProperty('cloudScan');
+  });
+
+  it('存量有键+偏离（batch=30 关态）→ {off,30,60}（既有值差规则行为回归锁）', () => {
+    const patch = mapFormStateToConfigPatch({ ...DEFAULT_NEW_WORKS_SETTINGS_FORM, cloudScanBatchSize: 30 }, OFF_DEFAULT);
+    expect(patch.cloudScan).toEqual({ enabled: false, batchSize: 30, intervalMinutes: 60 });
+  });
+
+  it('存量有键+开启态 → {on,20,60}（显式开启值回归锁）', () => {
+    const patch = mapFormStateToConfigPatch({ ...DEFAULT_NEW_WORKS_SETTINGS_FORM, cloudScanEnabled: true }, OFF_DEFAULT);
+    expect(patch.cloudScan).toEqual({ enabled: true, batchSize: 20, intervalMinutes: 60 });
+  });
+
+  it('第二参缺省（不传）→ 旧行为：全缺省不写键（兼容锁：调用方漏传不致回归）', () => {
+    const patch = mapFormStateToConfigPatch({ ...DEFAULT_NEW_WORKS_SETTINGS_FORM });
+    expect(patch).not.toHaveProperty('cloudScan');
+  });
+});
+
 describe('cloudScanFieldsChanged（10-27-ext-scan-config-readback 保存再拉门控）', () => {
   const base = { ...DEFAULT_NEW_WORKS_SETTINGS_FORM };
 

@@ -47,7 +47,7 @@ export async function persistNewWorksForm(form: NewWorksSettingsFormState): Prom
   try {
     const prev = await newWorksManager.getGlobalConfig();
     const prevCloudScanEnabled = prev.cloudScan?.enabled === true;
-    await newWorksManager.updateGlobalConfig(mapFormStateToConfigPatch(form));
+    await newWorksManager.updateGlobalConfig(mapFormStateToConfigPatch(form, prev.cloudScan));
     // 显式开启（false→true）→ 立即推一次会话 vault（10-19 线 2 A.2；推送失败仅 warn，不阻断保存）
     if (form.cloudScanEnabled && !prevCloudScanEnabled) {
       void pushJavdbSessionVaultIfEnabled('toggle-on');
