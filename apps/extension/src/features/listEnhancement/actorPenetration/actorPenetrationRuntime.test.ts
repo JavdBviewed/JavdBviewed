@@ -9,6 +9,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { createActorPenetrationRuntime, detectLoginRequired } from './actorPenetrationRuntime';
+import { renderActorRow } from './renderActorRow';
 import type { ActorPenetrationCacheResult, ActorPenetrationCacheValue } from './actorPenetrationCache';
 import type { DetailActor } from './parseDetailActors';
 
@@ -366,5 +367,319 @@ describe('pending 转圈占位行（获取期视觉反馈）', () => {
     expect(fetchText).not.toHaveBeenCalled();
     expect(item.querySelector('.x-ap-actor-row-spinner')).toBeNull();
     expect(item.querySelector('.x-ap-actor-row-container')).toBeNull();
+  });
+});
+
+const RATE_LIMIT_HTML = '<html><head><title>429</title></head><body>Too Many Requests</body></html>';
+
+/**
+ * F2（10-30-ext-actor-penetration-paging RC-B）：fetchAndParse 原来不查 res.status，
+ * 429 body 解析出 0 演员被误判 'empty'（删已有行+不写缓存→重试风暴）。
+ * 修复：ActorPenetrationFetchResult 可选 status；login 判定后/parse 前分类：
+ * 429/503→'rate-limited'，其余非 2xx→'fetch-error'；无 status（旧注入）跳过分类。
+ * F3：rate-limited 分支——保留已有好行（仅清本次 pending 行）、写 60s 回退抑制、
+ * 独立埋点 actorPenetration.rateLimited。
+ * R2（裁决=选项 A + 并发 2）：runtime 有界 fetch 队列（可注入并发值）+ pop 时刻
+ * 视窗优先级（0=严格在视口 / 1=视窗外，seq FIFO 平手）。
+ */
+describe('F2：fetch status 分类', () => {
+  it('429 → rate-limited（写 rate-limited 短缓存，不误判 empty / fetch-error）', async () => {
+    const cache = makeCacheMock();
+    const writeRateLimited = vi.fn(async () => undefined);
+    const fetchText = vi.fn(async () => ({ html: RATE_LIMIT_HTML, finalUrl: 'https://javdb.com/v/RL1', status: 429 }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, writeRateLimited, bindQuickActions: noopBind });
+    const item = makeItem();
+    await runtime.process({ item, code: 'RL-1', detailUrl: '/v/RL-1' });
+    expect(writeRateLimited).toHaveBeenCalledWith('RL-1');
+    expect(cache.writeFailure).not.toHaveBeenCalled();
+    expect(cache.writeSuccess).not.toHaveBeenCalled();
+    item.remove();
+  });
+
+  it('503 → rate-limited（同 429 处理）', async () => {
+    const cache = makeCacheMock();
+    const writeRateLimited = vi.fn(async () => undefined);
+    const fetchText = vi.fn(async () => ({ html: '<html><body>unavailable</body></html>', finalUrl: 'https://javdb.com/v/RL2', status: 503 }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, writeRateLimited, bindQuickActions: noopBind });
+    const item = makeItem();
+    await runtime.process({ item, code: 'RL-2', detailUrl: '/v/RL-2' });
+    expect(writeRateLimited).toHaveBeenCalledWith('RL-2');
+    expect(cache.writeFailure).not.toHaveBeenCalled();
+    item.remove();
+  });
+
+  it('404 → fetch-error（非 2xx 非限流：写失败抑制，不写 rate-limited）', async () => {
+    const cache = makeCacheMock();
+    const writeRateLimited = vi.fn(async () => undefined);
+    const fetchText = vi.fn(async () => ({ html: '<html><body>not found</body></html>', finalUrl: 'https://javdb.com/v/NE1', status: 404 }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, writeRateLimited, bindQuickActions: noopBind });
+    const item = makeItem();
+    await runtime.process({ item, code: 'NE-1', detailUrl: '/v/NE-1' });
+    expect(cache.writeFailure).toHaveBeenCalledWith('NE-1');
+    expect(writeRateLimited).not.toHaveBeenCalled();
+    item.remove();
+  });
+
+  it('500 → fetch-error（同 404 处理）', async () => {
+    const cache = makeCacheMock();
+    const writeRateLimited = vi.fn(async () => undefined);
+    const fetchText = vi.fn(async () => ({ html: '<html><body>server error</body></html>', finalUrl: 'https://javdb.com/v/SE1', status: 500 }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, writeRateLimited, bindQuickActions: noopBind });
+    const item = makeItem();
+    await runtime.process({ item, code: 'SE-1', detailUrl: '/v/SE-1' });
+    expect(cache.writeFailure).toHaveBeenCalledWith('SE-1');
+    expect(writeRateLimited).not.toHaveBeenCalled();
+    item.remove();
+  });
+
+  it('login 判定优先于 status：302→/login 且 status 429 → login-required', async () => {
+    const cache = makeCacheMock();
+    const writeRateLimited = vi.fn(async () => undefined);
+    const fetchText = vi.fn(async () => ({ html: LOGIN_HTML, finalUrl: 'https://javdb.com/login', status: 429 }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, writeRateLimited, bindQuickActions: noopBind });
+    const item = makeItem();
+    await runtime.process({ item, code: 'LP-1', detailUrl: '/v/LP-1' });
+    expect(cache.writeLoginRequired).toHaveBeenCalledWith('LP-1');
+    expect(writeRateLimited).not.toHaveBeenCalled();
+    item.remove();
+  });
+
+  it('旧路径兼容：注入 fetchText 无 status 字段 → 语义不变（有演员仍成功）', async () => {
+    const cache = makeCacheMock();
+    const writeRateLimited = vi.fn(async () => undefined);
+    const fetchText = vi.fn(async () => ({ html: FEMALE_HTML, finalUrl: 'https://javdb.com/v/LS1' }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, writeRateLimited, bindQuickActions: noopBind });
+    const item = makeItem();
+    await runtime.process({ item, code: 'LS-1', detailUrl: '/v/LS-1' });
+    expect(item.querySelectorAll('a.x-ap-actor').length).toBe(2);
+    expect(cache.writeSuccess).toHaveBeenCalled();
+    expect(writeRateLimited).not.toHaveBeenCalled();
+    item.remove();
+  });
+});
+
+describe('F3：rate-limited 分支（保留好行 + 60s 回退抑制）', () => {
+  it('429：清 pending 行（spinner），写 rate-limited，不写成功缓存', async () => {
+    const cache = makeCacheMock();
+    const writeRateLimited = vi.fn(async () => undefined);
+    let resolveFetch!: (v: { html: string; finalUrl?: string; status?: number }) => void;
+    const fetchText = vi.fn(() => new Promise<{ html: string; finalUrl?: string; status?: number }>(resolve => {
+      resolveFetch = resolve;
+    }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, writeRateLimited, bindQuickActions: noopBind });
+    const item = makeItem();
+    const p = runtime.process({ item, code: 'RLP-1', detailUrl: '/v/RLP-1' });
+    await vi.waitFor(() => {
+      expect(item.querySelector('.x-ap-actor-row-spinner')).toBeTruthy();
+    });
+    resolveFetch!({ html: RATE_LIMIT_HTML, status: 429 });
+    await p;
+    expect(item.querySelector('.x-ap-actor-row-container')).toBeNull(); // pending 行被清
+    expect(writeRateLimited).toHaveBeenCalledTimes(1);
+    expect(cache.writeSuccess).not.toHaveBeenCalled();
+    item.remove();
+  });
+
+  it('429：60s 回退抑制期内二次 process 不再请求', async () => {
+    const cache = makeCacheMock();
+    const writeRateLimited = vi.fn(async (code: string) => {
+      await cache.writeFailure(code); // 模拟 rate-limited 写入 failed 短缓存（read 路径按 failed 抑制）
+    });
+    const fetchText = vi.fn(async () => ({ html: RATE_LIMIT_HTML, finalUrl: 'https://javdb.com/v/RLS1', status: 429 }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, writeRateLimited, bindQuickActions: noopBind });
+    const item = makeItem();
+    await runtime.process({ item, code: 'RLS-1', detailUrl: '/v/RLS-1' });
+    expect(fetchText).toHaveBeenCalledTimes(1);
+    await runtime.process({ item, code: 'RLS-1', detailUrl: '/v/RLS-1' });
+    expect(fetchText).toHaveBeenCalledTimes(1); // 抑制期内不重发
+    item.remove();
+  });
+
+  it('429：已有正式演员行（好行）保留，不被删除（RC-B 实锤缺陷 52→51 的修复）', async () => {
+    const cache = makeCacheMock();
+    const writeRateLimited = vi.fn(async () => undefined);
+    const fetchText = vi.fn(async () => ({ html: RATE_LIMIT_HTML, finalUrl: 'https://javdb.com/v/RKG1', status: 429 }));
+    const runtime = createActorPenetrationRuntime({ ...cache, fetchText, writeRateLimited, bindQuickActions: noopBind });
+    const item = makeItem();
+    renderActorRow({ item, actors: FEMALE, bindQuickActions: noopBind }); // 预置正式行
+    expect(item.querySelectorAll('a.x-ap-actor').length).toBe(2);
+    await runtime.process({ item, code: 'RKG-1', detailUrl: '/v/RKG-1' });
+    expect(item.querySelectorAll('a.x-ap-actor').length).toBe(2); // 好行保留
+    expect(writeRateLimited).toHaveBeenCalledTimes(1);
+    item.remove();
+  });
+});
+
+describe('R2：有界 fetch 队列（并发上限 + pop 时刻视窗优先级）', () => {
+  const WIN_H = 800;
+
+  function makeRectItem(rect: { top: number; bottom: number }): HTMLElement {
+    const item = document.createElement('div');
+    item.className = 'item';
+    document.body.appendChild(item);
+    vi.spyOn(item, 'getBoundingClientRect').mockReturnValue({
+      top: rect.top,
+      bottom: rect.bottom,
+      left: 0,
+      right: 300,
+      width: 300,
+      height: rect.bottom - rect.top,
+      x: 0,
+      y: rect.top,
+      toJSON: () => ({}),
+    } as DOMRect);
+    return item;
+  }
+
+  function makeHoldingFetch() {
+    const gates = new Map<string, (v: { html: string }) => void>();
+    const fetchText = vi.fn(
+      (url: string) =>
+        new Promise<{ html: string; finalUrl?: string }>(resolve => {
+          const code = /\/v\/(.+)$/.exec(url)?.[1] ?? '';
+          gates.set(code, resolve as (v: { html: string }) => void);
+        }),
+    );
+    return { fetchText, gates };
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('并发上限=2：5 卡入队，任意时刻在途详情请求 ≤2，完成一个补一个', async () => {
+    const cache = makeCacheMock();
+    const { fetchText, gates } = makeHoldingFetch();
+    const runtime = createActorPenetrationRuntime({
+      ...cache,
+      fetchText,
+      bindQuickActions: noopBind,
+      maxConcurrency: 2,
+      getViewportHeight: () => WIN_H,
+    });
+    const items = Array.from({ length: 5 }, () => makeRectItem({ top: 10, bottom: 210 }));
+    const promises = items.map((item, i) => runtime.process({ item, code: `Q${i}`, detailUrl: `/v/Q${i}` }));
+
+    await vi.waitFor(() => expect(fetchText).toHaveBeenCalledTimes(2));
+    expect(fetchText).toHaveBeenCalledTimes(2); // 2 在途，3 排队
+
+    const gateQ0 = gates.get('Q0'); if (gateQ0) gateQ0({ html: FEMALE_HTML });
+    await vi.waitFor(() => expect(fetchText).toHaveBeenCalledTimes(3));
+    expect(fetchText).toHaveBeenCalledTimes(3); // 只补一个
+
+    // 放走 2 在途（Q1/Q2），让 Q3/Q4 入队并被调（gates 在被调时才注册）
+    const g1 = gates.get('Q1'); if (g1) g1({ html: FEMALE_HTML });
+    const g2 = gates.get('Q2'); if (g2) g2({ html: FEMALE_HTML });
+    await vi.waitFor(() => expect(fetchText).toHaveBeenCalledTimes(5));
+
+    const g3 = gates.get('Q3'); if (g3) g3({ html: FEMALE_HTML });
+    const g4 = gates.get('Q4'); if (g4) g4({ html: FEMALE_HTML });
+    await Promise.all(promises);
+    expect(fetchText).toHaveBeenCalledTimes(5);
+    items.forEach(item => item.remove());
+  });
+
+  it('pop 时刻视窗优先级：排队中滚出视口的卡片让位于当前视口内卡片（即使入队更晚）', async () => {
+    const cache = makeCacheMock();
+    const { fetchText, gates } = makeHoldingFetch();
+    const runtime = createActorPenetrationRuntime({
+      ...cache,
+      fetchText,
+      bindQuickActions: noopBind,
+      maxConcurrency: 1,
+      getViewportHeight: () => WIN_H,
+    });
+    // 槽位先被 W（此时在视口内）占用；随后用户下滚：C 滚出视口上方，A 进入视口
+    const wItem = makeRectItem({ top: 10, bottom: 210 });
+    const cItem = makeRectItem({ top: -5000, bottom: -4900 }); // 已划走
+    const aItem = makeRectItem({ top: 100, bottom: 300 }); // 当前视口内
+
+    const pW = runtime.process({ item: wItem, code: 'W', detailUrl: '/v/W' });
+    await vi.waitFor(() => expect(fetchText).toHaveBeenCalledTimes(1));
+    const pC = runtime.process({ item: cItem, code: 'C', detailUrl: '/v/C' }); // 先排队
+    const pA = runtime.process({ item: aItem, code: 'A', detailUrl: '/v/A' }); // 后排队但视口内
+
+    const gateW = gates.get('W'); if (gateW) gateW({ html: FEMALE_HTML });
+    await pW;
+    await vi.waitFor(() => expect(fetchText).toHaveBeenCalledTimes(2));
+    expect(fetchText.mock.calls[1][0]).toContain('/v/A'); // A 先于 C（优先级 0 < 1）
+
+    const gateA = gates.get('A'); if (gateA) gateA({ html: FEMALE_HTML });
+    await pA;
+    await vi.waitFor(() => expect(fetchText).toHaveBeenCalledTimes(3));
+    expect(fetchText.mock.calls[2][0]).toContain('/v/C');
+
+    const gateC = gates.get('C'); if (gateC) gateC({ html: FEMALE_HTML });
+    await pC;
+    [wItem, cItem, aItem].forEach(item => item.remove());
+  });
+
+  it('同优先级 FIFO：视窗外卡片按入队顺序取队列', async () => {
+    const cache = makeCacheMock();
+    const { fetchText, gates } = makeHoldingFetch();
+    const runtime = createActorPenetrationRuntime({
+      ...cache,
+      fetchText,
+      bindQuickActions: noopBind,
+      maxConcurrency: 1,
+      getViewportHeight: () => WIN_H,
+    });
+    const wItem = makeRectItem({ top: 10, bottom: 210 });
+    const dItem = makeRectItem({ top: -5000, bottom: -4900 });
+    const eItem = makeRectItem({ top: 900, bottom: 1100 });
+
+    const pW = runtime.process({ item: wItem, code: 'W', detailUrl: '/v/W' });
+    await vi.waitFor(() => expect(fetchText).toHaveBeenCalledTimes(1));
+    const pD = runtime.process({ item: dItem, code: 'D', detailUrl: '/v/D' });
+    const pE = runtime.process({ item: eItem, code: 'E', detailUrl: '/v/E' });
+
+    const gateW = gates.get('W'); if (gateW) gateW({ html: FEMALE_HTML });
+    await pW;
+    await vi.waitFor(() => expect(fetchText).toHaveBeenCalledTimes(2));
+    expect(fetchText.mock.calls[1][0]).toContain('/v/D'); // D 先入队
+
+    const gateD = gates.get('D'); if (gateD) gateD({ html: FEMALE_HTML });
+    await pD;
+    await vi.waitFor(() => expect(fetchText).toHaveBeenCalledTimes(3));
+    expect(fetchText.mock.calls[2][0]).toContain('/v/E');
+
+    const gateE = gates.get('E'); if (gateE) gateE({ html: FEMALE_HTML });
+    await pE;
+    [wItem, dItem, eItem].forEach(item => item.remove());
+  });
+
+  it('reset：排队中的任务作废（不发起请求），对应 process() promise 不悬挂', async () => {
+    const cache = makeCacheMock();
+    const { fetchText, gates } = makeHoldingFetch();
+    const runtime = createActorPenetrationRuntime({
+      ...cache,
+      fetchText,
+      bindQuickActions: noopBind,
+      maxConcurrency: 1,
+      getViewportHeight: () => WIN_H,
+    });
+    const wItem = makeRectItem({ top: 10, bottom: 210 });
+    const cItem = makeRectItem({ top: -5000, bottom: -4900 });
+    const aItem = makeRectItem({ top: 100, bottom: 300 });
+
+    const pW = runtime.process({ item: wItem, code: 'W', detailUrl: '/v/W' });
+    await vi.waitFor(() => expect(fetchText).toHaveBeenCalledTimes(1));
+    const pC = runtime.process({ item: cItem, code: 'C', detailUrl: '/v/C' });
+    const pA = runtime.process({ item: aItem, code: 'A', detailUrl: '/v/A' });
+
+    // 等 C/A 真正入队（process 异步，入队在 readCache await 之后的微任务）
+    await vi.waitFor(() => {
+      const queue = (runtime as unknown as { fetchQueue: unknown[] }).fetchQueue;
+      expect(queue.length).toBe(2);
+    });
+
+    runtime.reset(); // 排队 C/A 作废
+    await Promise.all([pC, pA]); // 不悬挂
+    expect(fetchText).toHaveBeenCalledTimes(1); // 只有 W 在途
+
+    const gateW = gates.get('W'); if (gateW) gateW({ html: FEMALE_HTML });
+    await pW;
+    [wItem, cItem, aItem].forEach(item => item.remove());
   });
 });

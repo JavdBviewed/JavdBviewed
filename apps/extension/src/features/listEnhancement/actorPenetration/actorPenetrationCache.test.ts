@@ -20,6 +20,7 @@ vi.mock('../../../platform/storage/cache', () => ({
 
 import {
   readActorPenetrationCache,
+  writeActorPenetrationRateLimited,
   writeActorPenetrationSuccess,
 } from './actorPenetrationCache';
 
@@ -74,5 +75,28 @@ describe('ActorPenetrationCacheValue.categories 兼容', () => {
     expect(key).toBe('actorPenetration:abc-123');
     expect((value as { categories?: string[] }).categories).toEqual(['c1=157']);
     expect(ttl).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * F3（10-30-ext-actor-penetration-paging RC-B）：429/503 限流态独立短缓存——
+ * 60s TTL（比 10min 失败抑制短：限流是瞬态，到期可重试）；写入 failed 形态，
+ * 既有 read 路径按 failed 返回 → 自动抑制，零读侧改动。
+ */
+describe('writeActorPenetrationRateLimited（60s 回退抑制）', () => {
+  it('写 failed 短缓存（TTL=60s，键规范化）', async () => {
+    setMock.mockClear();
+    await writeActorPenetrationRateLimited('ABC-123');
+    expect(setMock).toHaveBeenCalledOnce();
+    const [key, value, ttl] = setMock.mock.calls[0] as [string, { failed?: boolean }, number];
+    expect(key).toBe('actorPenetration:abc-123');
+    expect(value.failed).toBe(true);
+    expect(ttl).toBe(60_000);
+  });
+
+  it('read 路径按 failed 返回（抑制重试，零读侧改动）', async () => {
+    getMock.mockResolvedValue({ failed: true, rateLimited: true, actors: [], hasMore: false, fetchedAt: 0 });
+    const result = await readActorPenetrationCache('ABC-123');
+    expect(result.status).toBe('failed');
   });
 });

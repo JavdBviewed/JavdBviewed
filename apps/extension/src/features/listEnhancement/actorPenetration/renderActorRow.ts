@@ -8,7 +8,8 @@
 import type { DetailActor } from './parseDetailActors';
 
 const ROW_CLASS = 'x-ap-actor-row';
-const ROW_CONTAINER_CLASS = 'x-ap-actor-row-container';
+/** 演员行容器 class（F3：rate-limited 分支区分 pending 行 / 好行时复用）。 */
+export const ROW_CONTAINER_CLASS = 'x-ap-actor-row-container';
 const ROW_DATA_ATTR = 'data-x-ap-actor-row';
 
 /** 演员行默认（未展开）显示的演员数；穿透缓存与渲染层共用此口径。 */
