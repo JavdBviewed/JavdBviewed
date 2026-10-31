@@ -197,3 +197,25 @@ describe('EmbySettingsPage cross-device live refresh (storage.onChanged)', () =>
     expect(pageSource).not.toContain('window.location.reload');
   });
 });
+
+describe('EmbySettingsPage manual sync cancel UI (10-31-ext-emby-syncbtn-unstick)', () => {
+  it('locks cancel wording, disabled-reason hint wording and control ids (U6)', () => {
+    // 取消态按钮文案
+    expect(pageSource).toContain("syncing ? '取消同步' : '立即同步资料库'");
+    // 禁用态解释：按钮 title + 按钮行下方提示行（文案逐字）
+    expect(pageSource).toContain('请先开启「启用资料库同步」');
+    expect(pageSource).toContain('请先开启「启用资料库同步」后再同步资料库。');
+    expect(pageSource).toContain('id="sync-emby-library-hint"');
+    // 既有控件 id 保持（布局锁兼容）
+    expect(pageSource).toContain('id="sync-emby-library"');
+    expect(pageSource).toContain('id="emby-library-sync-status"');
+    // 同步中按钮必须可点：disabled 不再包含 syncing
+    expect(pageSource).not.toContain('disabled={!libraryEnabled || syncing}');
+    // 取消动作接线
+    expect(pageSource).toContain('runManualLibrarySyncCancel');
+    expect(pageSource).toContain('onCancelSync');
+    // 面板 canceled 态渲染（warning 色调 + 标题「已取消」）
+    expect(pageSource).toContain("status.kind === 'canceled'");
+    expect(pageSource).toContain('已取消');
+  });
+});

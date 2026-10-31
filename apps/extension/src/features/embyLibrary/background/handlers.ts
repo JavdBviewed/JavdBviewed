@@ -62,6 +62,42 @@ const DEFAULT_STATE: EmbyLibraryState = { entries: {}, updatedAt: 0 };
 const DEFAULT_LIBRARY_REQUEST_TIMEOUT_MS = EMBY_LIBRARY_REQUEST_TIMEOUT_MS;
 const TICKS_PER_SECOND = 10_000_000;
 
+/** 手动资料库同步在途控制器（仅 manual 同步使用；alarm 自动同步路径不接、不受影响） */
+let manualSyncAbort: AbortController | null = null;
+
+/** 识别在途中断为「用户取消」（与 45s 连接超时区分：两者 fetch 侧同为 AbortError） */
+export class EmbyLibrarySyncCanceledError extends Error {
+  constructor() {
+    super('同步已取消');
+    this.name = 'EmbyLibrarySyncCanceledError';
+  }
+}
+
+/**
+ * 合成多个中止信号（单请求 45s 超时 + 外部取消信号；无外部信号时即原超时行为）。
+ * 优先 AbortSignal.any；不可用（旧运行时）时以 AbortController 监听回退合成；
+ * 空输入 → undefined，单信号 → 原样返回。
+ */
+export function composeAbortSignals(
+  signals: Array<AbortSignal | undefined>,
+): AbortSignal | undefined {
+  const active = signals.filter((signal): signal is AbortSignal => signal !== undefined);
+  if (active.length === 0) return undefined;
+  if (active.length === 1) return active[0];
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.any === 'function') {
+    return AbortSignal.any(active);
+  }
+  const fallback = new AbortController();
+  for (const signal of active) {
+    if (signal.aborted) {
+      fallback.abort();
+      break;
+    }
+    signal.addEventListener('abort', () => fallback.abort(), { once: true });
+  }
+  return fallback.signal;
+}
+
 function defaultDeps(): EmbyLibraryHandlerDeps {
   return {
     getSettings,
@@ -182,21 +218,24 @@ async function fetchAllMediaItems(
   fetchImpl: typeof fetch,
   searchTerm?: string,
   parentId?: string,
+  signal?: AbortSignal,
 ): Promise<EmbyMediaItem[]> {
   // 搜索场景：结果量天然有界，保持单请求（行为与原来一致）
   if (searchTerm) {
-    const page = await fetchMediaItemsPage(server, fetchImpl, { searchTerm, parentId });
+    const page = await fetchMediaItemsPage(server, fetchImpl, { searchTerm, parentId }, signal);
     return page.Items;
   }
   // 全量同步场景：分页拉取。单包从整库缩到一页，45s 超时窗口按页拆分，
   // 也降低 SW 内单包 JSON 的峰值内存；任一页失败抛错，保持整体 all-or-nothing
-  const first = await fetchMediaItemsPage(server, fetchImpl, { parentId, startIndex: 0 });
+  const first = await fetchMediaItemsPage(server, fetchImpl, { parentId, startIndex: 0 }, signal);
   const items: EmbyMediaItem[] = [...first.Items];
   // 以首页 TotalRecordCount 为总量（越界页在部分服务器上会回 0，不能重新读取）
   const total = first.TotalRecordCount > 0 ? first.TotalRecordCount : first.Items.length;
   let pages = 1;
   while (items.length < total && pages < EMBY_ITEMS_MAX_PAGES) {
-    const next = await fetchMediaItemsPage(server, fetchImpl, { parentId, startIndex: items.length });
+    // 取消在页边界生效：已挂起页被中断抛错，未开始的页不再发起
+    if (signal?.aborted) throw new EmbyLibrarySyncCanceledError();
+    const next = await fetchMediaItemsPage(server, fetchImpl, { parentId, startIndex: items.length }, signal);
     if (next.Items.length === 0) break;
     items.push(...next.Items);
     pages += 1;
@@ -212,6 +251,7 @@ async function fetchMediaItemsPage(
   server: EmbyMediaServer,
   fetchImpl: typeof fetch,
   opts: { searchTerm?: string; parentId?: string; startIndex?: number },
+  signal?: AbortSignal,
 ): Promise<EmbyItemsPage> {
   // 凭据守卫：无 accessToken 也无 API Key 时直接失败，不发无鉴权请求
   // （旧行为=请求裸奔 → 401 → 误报「API Key 错误」；仅账号+密码未登录的服务
@@ -250,14 +290,20 @@ async function fetchMediaItemsPage(
   const timeoutId = controller
     ? setTimeout(() => controller.abort(), DEFAULT_LIBRARY_REQUEST_TIMEOUT_MS)
     : null;
+  // 单请求 45s 超时与外部取消信号合成（手动同步取消；无外部信号时与原行为一致）
+  const composed = composeAbortSignals(controller ? [controller.signal, signal] : [signal]);
   let response: Response;
   try {
     response = await fetchImpl(url, {
       method: 'GET',
       headers,
-      ...(controller ? { signal: controller.signal } : {}),
+      ...(composed ? { signal: composed } : {}),
     });
   } catch (error: any) {
+    // 用户取消优先于超时措辞：45s 超时与取消在 fetch 侧同为 AbortError，需先判外部信号
+    if (signal?.aborted) {
+      throw new EmbyLibrarySyncCanceledError();
+    }
     if (error?.name === 'AbortError') {
       throw new Error('连接超时');
     }
@@ -454,16 +500,19 @@ async function fetchMoviesForServer(
   server: EmbyMediaServer,
   deps: Pick<EmbyLibraryHandlerDeps, 'fetchImpl' | 'getSettings' | 'saveSettings'>,
   searchTerm?: string,
+  signal?: AbortSignal,
 ): Promise<EmbyMediaItem[]> {
   const scopedServer = await resolveServerUserScope(server, deps);
+  if (signal?.aborted) throw new EmbyLibrarySyncCanceledError();
   const libraryIds = (server.libraryIds || []).map((id) => String(id).trim()).filter(Boolean);
   if (libraryIds.length === 0) {
-    return fetchAllMediaItems(scopedServer, deps.fetchImpl, searchTerm);
+    return fetchAllMediaItems(scopedServer, deps.fetchImpl, searchTerm, undefined, signal);
   }
 
   const buckets: EmbyMediaItem[] = [];
   for (const parentId of libraryIds) {
-    const items = await fetchAllMediaItems(scopedServer, deps.fetchImpl, searchTerm, parentId);
+    if (signal?.aborted) throw new EmbyLibrarySyncCanceledError();
+    const items = await fetchAllMediaItems(scopedServer, deps.fetchImpl, searchTerm, parentId, signal);
     buckets.push(...items);
   }
   return deduplicateMediaItemsById(buckets);
@@ -488,6 +537,18 @@ export async function handleEmbyLibrarySync(
   sendResponse: SendResponse,
   deps: EmbyLibraryHandlerDeps = defaultDeps(),
 ): Promise<void> {
+  const isManual = message?.manual === true;
+  // 重入防护：manual 在途期间再次 manual 直接拒绝（防 alarm 并发下 controller 被覆盖；
+  // alarm 自动同步路径不读 manualSyncAbort，按既有语义执行，不受影响）
+  if (isManual && manualSyncAbort !== null) {
+    mediaLog.info('手动资料库同步在途，拒绝重复触发');
+    sendResponse({ success: false, error: '已有同步在途' });
+    return;
+  }
+  const manualController: AbortController | null = isManual
+    ? (manualSyncAbort = new AbortController())
+    : null;
+  const manualSignal = manualController?.signal;
   try {
     const [settings, previousState] = await Promise.all([
       deps.getSettings(),
@@ -522,8 +583,22 @@ export async function handleEmbyLibrarySync(
     const successfulServerIds = new Set<string>();
 
     for (const server of servers) {
+      // 取消在服务器边界生效：未开始的服务器直接标记「已取消」，不再发起请求
+      if (manualSignal?.aborted) {
+        serverResults.push({
+          serverId: server.id,
+          serverType: server.type,
+          serverName: server.name,
+          success: false,
+          itemCount: 0,
+          indexedCount: 0,
+          error: '已取消',
+          checkedAt: now,
+        });
+        continue;
+      }
       try {
-        const items = await fetchMoviesForServer(server, deps);
+        const items = await fetchMoviesForServer(server, deps, undefined, manualSignal);
         const index = buildLibraryIndex(server, items, now);
         indexes.push(index);
         successfulServerIds.add(server.id);
@@ -561,9 +636,11 @@ export async function handleEmbyLibrarySync(
     // recognitionEnabled/libraryEnabled 字段时它要求 emby.enabled===true，否则会误判为关闭）。
     // 定时/实时同步（manual !== true）不清空，避免关闭功能期间把最后快照也丢掉。
     const libraryFeatureEnabled = isLibraryFeatureEnabled(settings?.emby);
+    // 取消不算「关闭即清空」的全量同步：aborted 时 wipeEntries 必须为 false（关键正确性点）
     const wipeEntries = message?.manual === true
       && servers.length === allEnabledServers.length
-      && !libraryFeatureEnabled;
+      && !libraryFeatureEnabled
+      && !manualSignal?.aborted;
 
     // ① 替换：把本次同步成功的服务器的旧 entry 换掉，交由新索引回填，避免新旧重复。
     const nextEntries = removeEntriesForSyncedServers(previousState, servers, indexes, successfulServerIds);
@@ -629,18 +706,25 @@ export async function handleEmbyLibrarySync(
     const firstError = serverResults.find((result) => !result.success)?.error;
 
     // 入库关闭 + 无成功服务器 + 非全量手动同步 → 整轮同步对持久化无影响，返回 skipped 即可。
-    if (!persistState && synced === 0) {
+    // 取消轮不走 skipped 短路：页面需要 canceled 响应落地「已取消」面板与部分结果。
+    if (!persistState && synced === 0 && !manualSignal?.aborted) {
       mediaLog.info('媒体库同步跳过（入库关闭且无成功服务器）', { failed });
       sendResponse({ success: true, synced: 0, failed: 0, serverResults: [], skipped: true });
       return;
     }
 
-    mediaLog.info('媒体库同步结束', { synced, failed, firstError: firstError || null });
+    mediaLog.info('媒体库同步结束', {
+      synced,
+      failed,
+      canceled: manualSignal?.aborted === true,
+      firstError: firstError || null,
+    });
     sendResponse({
       success: synced > 0,
       synced,
       failed,
       serverResults,
+      ...(manualController ? { canceled: manualSignal?.aborted === true } : {}),
       ...(cleanupSummary ? {
         newCleanupItems: cleanupSummary.enqueuedCount,
         historicalWatchedCandidates: cleanupSummary.baselineCount,
@@ -649,8 +733,42 @@ export async function handleEmbyLibrarySync(
     });
   } catch (error) {
     mediaLog.error('媒体库同步异常', { error: sanitizeError(error) });
-    sendResponse({ success: false, error: sanitizeError(error) });
+    sendResponse({
+      success: false,
+      error: sanitizeError(error),
+      ...(manualController ? { canceled: manualSignal?.aborted === true } : {}),
+    });
+  } finally {
+    if (manualController) manualSyncAbort = null;
   }
+}
+
+/**
+ * 取消在途手动资料库同步（模块级 controller，幂等）。
+ * 对齐 drive115 取消范式：无在途 → running:false（幂等不报错）；
+ * 在途 → abort + running:true，最终态由在途同步自身的响应落地（canceled）。
+ */
+export function handleEmbyLibraryCancelSync(
+  _message: unknown,
+  sendResponse: SendResponse,
+): boolean {
+  void (async () => {
+    try {
+      if (!manualSyncAbort) {
+        sendResponse({ success: true, running: false, message: '当前没有正在运行的手动同步' });
+        return;
+      }
+      try {
+        manualSyncAbort.abort();
+      } catch {
+        /* ignore */
+      }
+      sendResponse({ success: true, running: true, message: '正在取消同步…' });
+    } catch (e: unknown) {
+      sendResponse({ success: false, message: e instanceof Error ? e.message : String(e) });
+    }
+  })();
+  return true;
 }
 
 export async function handleEmbyLibraryCheckCodes(

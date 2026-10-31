@@ -113,6 +113,7 @@ describe('emby library background handlers', () => {
     // api_key 会出现在封面 URL 中，但响应其它字段不应泄露
     expect(JSON.stringify(savedState.serverResults)).not.toContain('api-secret');
     expect(sendResponse).toHaveBeenCalledWith({
+    canceled: false,
       success: true,
       synced: 1,
       failed: 0,
@@ -409,6 +410,7 @@ describe('emby library background handlers', () => {
       ],
     }));
     expect(sendResponse).toHaveBeenCalledWith({
+    canceled: false,
       success: false,
       synced: 0,
       failed: 1,
@@ -427,6 +429,7 @@ describe('emby library background handlers', () => {
     await handleEmbyLibrarySync({ manual: true }, sendResponse, deps);
 
     expect(sendResponse).toHaveBeenCalledWith({
+    canceled: false,
       success: false,
       synced: 0,
       failed: 1,
@@ -509,6 +512,7 @@ describe('emby library background handlers', () => {
       ],
     }));
     expect(sendResponse).toHaveBeenCalledWith({
+    canceled: false,
       success: false,
       synced: 0,
       failed: 1,
@@ -555,6 +559,7 @@ describe('emby library background handlers', () => {
         ],
       }));
       expect(sendResponse).toHaveBeenCalledWith({
+        canceled: false,
         success: false,
         synced: 0,
         failed: 1,

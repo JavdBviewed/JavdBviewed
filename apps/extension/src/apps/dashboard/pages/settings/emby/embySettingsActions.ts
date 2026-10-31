@@ -36,6 +36,7 @@ export type LibrarySyncResponse = {
   synced?: number;
   failed?: number;
   skipped?: boolean;
+  canceled?: boolean;
   error?: string;
   serverResults?: LibrarySyncServerResult[];
 };
@@ -61,6 +62,11 @@ export type LibrarySyncUiState =
     }
   | {
       kind: 'success' | 'error';
+      summary: string;
+      serverResults: LibrarySyncServerResult[];
+    }
+  | {
+      kind: 'canceled';
       summary: string;
       serverResults: LibrarySyncServerResult[];
     };
@@ -332,6 +338,18 @@ export async function runManualLibrarySync(
     const failed = Number(response?.failed || 0);
     const serverResults = normalizeLibrarySyncServerResults(response?.serverResults);
 
+    if (response?.canceled === true) {
+      await toast('已取消资料库同步', 'warning');
+      return {
+        ui: {
+          kind: 'canceled',
+          summary: `已取消：成功 ${synced} 个服务器，失败 ${failed} 个（部分结果）`,
+          serverResults,
+        },
+        toast: { message: '已取消资料库同步', type: 'warning' },
+      };
+    }
+
     if (synced === 0 && failed === 0 && serverResults.length === 0) {
       await toast('还没有可同步的媒体服务器', 'warning');
       return {
@@ -373,6 +391,25 @@ export async function runManualLibrarySync(
       ui: { kind: 'error', summary: `同步失败：${message}`, serverResults: [] },
       toast: { message: `资料库同步失败：${message}`, type: 'error' },
     };
+  }
+}
+
+/**
+ * 取消在途手动资料库同步（SW 侧模块级 controller，幂等）。
+ * 消息 reject（SW 未就绪等）不抛；最终态由在途同步自身的响应落地，本动作不预改面板。
+ */
+export async function runManualLibrarySyncCancel(): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const response = await sendRuntimeMessage<{ success?: boolean; running?: boolean; error?: string }>({
+      type: 'EMBY_LIBRARY_CANCEL_SYNC',
+    });
+    if (response && response.success === false) {
+      return { ok: false, message: response.error || '取消失败' };
+    }
+    return { ok: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, message };
   }
 }
 

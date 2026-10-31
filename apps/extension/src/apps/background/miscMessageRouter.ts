@@ -32,6 +32,7 @@ import {
 } from './tabMessageHandlers';
 import { enqueueWatchedForCleanup } from '../../features/drive115/v2/drive115CleanupActions';
 import {
+  handleEmbyLibraryCancelSync,
   handleEmbyLibraryCheckCodes,
   handleEmbyLibraryGetItemDetail,
   handleEmbyLibraryListFolders,
@@ -216,6 +217,9 @@ export function registerMiscRouter(): void {
         case 'EMBY_LIBRARY_SYNC': {
           handleEmbyLibrarySync(message, sendResponse);
           return true;
+        }
+        case 'EMBY_LIBRARY_CANCEL_SYNC': {
+          return handleEmbyLibraryCancelSync(message, sendResponse);
         }
         case 'EMBY_LIBRARY_CHECK_CODES': {
           handleEmbyLibraryCheckCodes(message, sendResponse);
