@@ -27,8 +27,10 @@ import {
   persistEmbyForm,
   runLibraryCheck,
   runManualLibrarySync,
+  runManualLibrarySyncCancel,
   toast,
   type LibraryCheckUiState,
+  type LibrarySyncServerResult,
   type LibrarySyncUiState,
 } from './embySettingsActions';
 import {
@@ -443,9 +445,23 @@ export function EmbySettingsPage() {
       await flush(formRef.current);
       const result = await runManualLibrarySync(formRef.current, removedServerIdsRef.current);
       setSyncStatus(result.ui);
+    } catch (error) {
+      // flush 或同步链路异常：错误面板 + toast + 按钮恢复（finally 保留）
+      const message = error instanceof Error ? error.message : String(error || '同步准备失败');
+      await toast(`资料库同步失败：${message}`, 'error');
+      setSyncStatus({ kind: 'error', summary: `同步失败：${message}`, serverResults: [] });
     } finally {
       setSyncing(false);
     }
+  };
+
+  const onCancelSync = async () => {
+    if (!syncing) return;
+    const result = await runManualLibrarySyncCancel();
+    if (!result.ok) {
+      await toast(`取消资料库同步失败：${result.message || '未知原因'}`, 'error');
+    }
+    // 最终态由在途同步自身的响应落地（「已取消」面板），此处不预改 syncStatus
   };
 
   const onTestLibraryCheck = async () => {
@@ -565,14 +581,24 @@ export function EmbySettingsPage() {
               </Button>
               <Button
                 id="sync-emby-library"
-                variant="primary"
-                disabled={!libraryEnabled || syncing}
-                onClick={() => void onManualSync()}
+                variant={syncing ? 'secondary' : 'primary'}
+                disabled={!libraryEnabled}
+                title={libraryEnabled ? undefined : '请先开启「启用资料库同步」'}
+                onClick={syncing ? () => void onCancelSync() : () => void onManualSync()}
               >
-                <i className="fas fa-sync-alt" aria-hidden="true" />{' '}
-                {syncing ? '同步中…' : '立即同步资料库'}
+                <i className={syncing ? 'fas fa-stop' : 'fas fa-sync-alt'} aria-hidden="true" />{' '}
+                {syncing ? '取消同步' : '立即同步资料库'}
               </Button>
             </div>
+
+            {!libraryEnabled ? (
+              <div
+                id="sync-emby-library-hint"
+                className="mx-2 mb-1 text-[12.5px] text-[var(--color-fg-muted)]"
+              >
+                请先开启「启用资料库同步」后再同步资料库。
+              </div>
+            ) : null}
 
             <LibrarySyncStatusPanel status={syncStatus} />
 
@@ -1595,6 +1621,20 @@ function LibrarySyncStatusPanel({ status }: { status: LibrarySyncUiState }) {
     );
   }
 
+  if (status.kind === 'canceled') {
+    return (
+      <div
+        id="emby-library-sync-status"
+        className="emby-library-sync-status is-canceled mx-2 mb-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[13px]"
+        aria-live="polite"
+      >
+        <div className="font-medium text-[var(--color-warning,#d68910)]">已取消</div>
+        <div className="mt-1 text-[var(--color-fg-muted)]">{status.summary}</div>
+        <LibrarySyncServerResultsList results={status.serverResults} />
+      </div>
+    );
+  }
+
   const toneClass =
     status.kind === 'success'
       ? 'text-[var(--color-success,#27ae60)]'
@@ -1607,48 +1647,54 @@ function LibrarySyncStatusPanel({ status }: { status: LibrarySyncUiState }) {
       aria-live="polite"
     >
       <div className={`font-medium ${toneClass}`}>{status.summary}</div>
-      {status.serverResults.length > 0 ? (
-        <div className="mt-2 flex flex-col gap-2">
-          {status.serverResults.map((result, i) => {
-            const success = result.success === true;
-            const serverName = String(result.serverName || result.serverId || '未命名服务器');
-            const serverType = String(result.serverType || 'media').toUpperCase();
-            if (success) {
-              return (
-                <div
-                  key={`${result.serverId || serverName}-${i}`}
-                  className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2"
-                >
-                  <div className="flex flex-wrap gap-2 font-medium">
-                    <span>{serverName}</span>
-                    <span className="text-[var(--color-fg-muted)]">{serverType}</span>
-                  </div>
-                  <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
-                    读取 {Number(result.itemCount || 0)} 个媒体条目，索引{' '}
-                    {Number(result.indexedCount || 0)} 个番号。
-                  </div>
-                </div>
-              );
-            }
-            const diagnosis = getLibrarySyncDiagnosis(String(result.error || '同步失败'));
-            return (
-              <div
-                key={`${result.serverId || serverName}-${i}`}
-                className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2"
-              >
-                <div className="flex flex-wrap gap-2 font-medium">
-                  <span>{serverName}</span>
-                  <span className="text-[var(--color-fg-muted)]">{serverType}</span>
-                </div>
-                <div className="mt-1 text-[var(--color-danger,#c0392b)]">{diagnosis.title}</div>
-                <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
-                  {diagnosis.description}
-                </div>
+      <LibrarySyncServerResultsList results={status.serverResults} />
+    </div>
+  );
+}
+
+/** 同步面板服务器结果列表（success/error/canceled 三态共用） */
+function LibrarySyncServerResultsList({ results }: { results: LibrarySyncServerResult[] }) {
+  if (results.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      {results.map((result, i) => {
+        const success = result.success === true;
+        const serverName = String(result.serverName || result.serverId || '未命名服务器');
+        const serverType = String(result.serverType || 'media').toUpperCase();
+        if (success) {
+          return (
+            <div
+              key={`${result.serverId || serverName}-${i}`}
+              className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2"
+            >
+              <div className="flex flex-wrap gap-2 font-medium">
+                <span>{serverName}</span>
+                <span className="text-[var(--color-fg-muted)]">{serverType}</span>
               </div>
-            );
-          })}
-        </div>
-      ) : null}
+              <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
+                读取 {Number(result.itemCount || 0)} 个媒体条目，索引{' '}
+                {Number(result.indexedCount || 0)} 个番号。
+              </div>
+            </div>
+          );
+        }
+        const diagnosis = getLibrarySyncDiagnosis(String(result.error || '同步失败'));
+        return (
+          <div
+            key={`${result.serverId || serverName}-${i}`}
+            className="rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2"
+          >
+            <div className="flex flex-wrap gap-2 font-medium">
+              <span>{serverName}</span>
+              <span className="text-[var(--color-fg-muted)]">{serverType}</span>
+            </div>
+            <div className="mt-1 text-[var(--color-danger,#c0392b)]">{diagnosis.title}</div>
+            <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
+              {diagnosis.description}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
