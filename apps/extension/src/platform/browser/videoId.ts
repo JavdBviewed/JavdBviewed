@@ -38,10 +38,26 @@ export function extractVideoId(rawText: string): string | null {
 
 // 严格番号提取（10-22）：getFirstVideoCodeFromText 命中即采纳（含 western-dot），未命中返回 null
 // —— 不做首词兜底；extractVideoIdFromPage 方法1/2 专用。
+//
+// 内置 ID 兜底（10-31-ext-javdb-internal-id）：严格全模式未命中后，JavDB 无标准番号影片的
+// 内置 ID（形如 yrnknkjdvaj-00743a）保守采纳，保持页面原始大小写；护栏=单 token（无空白）+
+// 首段 8-16 位字母-4-8 位数字-0-4 位字母数字（单样本定形，宁漏勿错，同 10-22 基调）。
+const JAVDB_INTERNAL_ID_PATTERN = /^[A-Za-z]{8,16}-\d{4,8}[A-Za-z0-9]{0,4}$/;
+
+function isJavdbInternalId(candidate: string): boolean {
+    return !/\s/.test(candidate) && JAVDB_INTERNAL_ID_PATTERN.test(candidate);
+}
+
 function extractStrictVideoId(rawText: string): string | null {
     const trimmed = rawText.trim();
     if (!trimmed) return null;
-    return getFirstVideoCodeFromText(trimmed, { allowStandaloneFc2Number: true })?.display ?? null;
+    const strict = getFirstVideoCodeFromText(trimmed, { allowStandaloneFc2Number: true })?.display ?? null;
+    if (strict) return strict;
+    if (isJavdbInternalId(trimmed)) {
+        logVideoId(`JavDB internal id adopted: "${trimmed}"`);
+        return trimmed;
+    }
+    return null;
 }
 
 // 缓存提取结果，避免重复日志

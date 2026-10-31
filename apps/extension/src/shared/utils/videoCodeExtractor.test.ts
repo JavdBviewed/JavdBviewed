@@ -108,3 +108,41 @@ describe('videoCodeExtractor western-dot（欧美点分号）', () => {
     expect(values(result, 'kind')).toEqual(['jav', 'western-dot', 'western-dot']);
   });
 });
+
+describe('videoCodeExtractor standalone-fc2 小写边界（10-31-ext-javdb-internal-id R1）', () => {
+  it('JavDB 内置 ID 不再产出 FC2 碎片候选', () => {
+    const result = extractVideoCodesFromText('yrnknkjdvaj-00743a', { allowStandaloneFc2Number: true });
+
+    expect(result).toEqual([]);
+    expect(getFirstVideoCodeFromText('yrnknkjdvaj-00743a', { allowStandaloneFc2Number: true })).toBeNull();
+  });
+
+  it('无分隔字母数字连写保持标准候选（零变化回归锁）', () => {
+    const result = extractVideoCodesFromText('abc123456', { allowStandaloneFc2Number: true });
+
+    expect(values(result, 'normalized')).toEqual(['ABC-123456']);
+    expect(values(result, 'kind')).toEqual(['jav']);
+  });
+
+  it('空格/句读分隔的真独立 FC2 号仍命中（回归锁）', () => {
+    const result = extractVideoCodesFromText('编号 1234567 ，确认', { allowStandaloneFc2Number: true });
+
+    expect(values(result, 'normalized')).toEqual(['FC2-PPV-1234567']);
+    expect(values(result, 'kind')).toEqual(['fc2']);
+  });
+
+  it('FC2 前缀番号命中零漂移（回归锁）', () => {
+    const result = extractVideoCodesFromText('FC2-PPV-123456', { allowStandaloneFc2Number: true });
+
+    expect(values(result, 'normalized')).toEqual(['FC2-PPV-123456']);
+    expect(values(result, 'kind')).toEqual(['fc2']);
+  });
+
+  it('分隔符形态行为不回归', () => {
+    expect(extractVideoCodesFromText('123456-abc', { allowStandaloneFc2Number: true })).toEqual([]);
+
+    const result = extractVideoCodesFromText('abc-123456', { allowStandaloneFc2Number: true });
+    expect(values(result, 'normalized')).toEqual(['ABC-123456']);
+    expect(values(result, 'kind')).toEqual(['jav']);
+  });
+});

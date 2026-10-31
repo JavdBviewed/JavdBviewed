@@ -181,7 +181,7 @@ function addWesternDotCandidates(text: string, candidates: Candidate[]): void {
 }
 
 function addStandaloneFc2NumberCandidates(text: string, candidates: Candidate[]): void {
-  const pattern = /(?<![A-Z0-9])(\d{5,10})(?![-_A-Z0-9])/g;
+  const pattern = /(?<![A-Z0-9])(\d{5,10})(?![-_A-Za-z0-9])/g;
   for (const match of text.matchAll(pattern)) {
     const raw = match[0];
     const number = match[1];
