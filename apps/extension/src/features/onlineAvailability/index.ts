@@ -294,6 +294,17 @@ export class OnlineAvailabilityManager {
   private async checkSite(site: OnlineAvailabilitySite, videoId: string, force = false): Promise<OnlineAvailabilityResult> {
     const url = buildOnlineAvailabilityUrl(site, videoId);
     const result = await this.checkSiteUrl(site, videoId, url, force);
+    // 双版本（有码/无码）探测：base 页 available 时二次探无码镜像（同 checkSiteUrl 通路/32KB 窗口/force 透传，
+    // cacheId 随 url 天然不同=各自 12min 缓存）；双 available → 改开搜索页（含两条 detail 链接，由用户自取）；
+    // 二次探不可用返回主结果原样（单版本行为零变化）；主探不可用不触发（成本守卫）
+    if (result.available && site.key === 'missav') {
+      const variantUrl = buildMissavVariantUrl(site, videoId);
+      const variantResult = await this.checkSiteUrl(site, videoId, variantUrl, force);
+      if (variantResult.available) {
+        return { ...result, url: buildMissavSearchUrl(videoId) };
+      }
+      return result;
+    }
     if (result.available || site.key !== 'jable') {
       return result;
     }
@@ -461,6 +472,20 @@ export function findOnlineAvailabilityInsertionTarget(): OnlineAvailabilityInser
 export function buildOnlineAvailabilityUrl(site: OnlineAvailabilitySite, videoId: string): string {
   const formatted = site.codeFormatter ? site.codeFormatter(videoId) : videoId.toLowerCase();
   return site.url.replace('{{code}}', encodeURIComponent(formatted));
+}
+
+/** missav 无码镜像页 URL（路径 code 小写，同 buildOnlineAvailabilityUrl 归一化口径；模板后缀 -uncensored-leak） */
+export function buildMissavVariantUrl(site: OnlineAvailabilitySite, videoId: string): string {
+  const code = String(videoId || '').trim().toLowerCase();
+  if (!code) return '';
+  return site.url.replace('{{code}}', `${encodeURIComponent(code)}-uncensored-leak`);
+}
+
+/** missav 搜索页 URL（路径式 /search/{CODE}，CODE 大写——真机验证大写 200；query 式为 404，勿改形态） */
+export function buildMissavSearchUrl(videoId: string): string {
+  const code = String(videoId || '').trim().toUpperCase();
+  if (!code) return '';
+  return `https://missav.ws/search/${encodeURIComponent(code)}`;
 }
 
 export function parseOnlineAvailabilityDocument(
