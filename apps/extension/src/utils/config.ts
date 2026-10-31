@@ -592,7 +592,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
         enableExternalEntryPanel: true,
         enableExternalSearch: true,
         enableOnlineAvailability: true,
-        showOnlineAvailabilityFailures: false,
+        showOnlineAvailabilityFailures: true,
         onlineAvailabilitySites: {},
         enableSubtitleSearch: true,
     },

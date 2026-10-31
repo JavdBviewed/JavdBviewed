@@ -52,7 +52,7 @@ describe('onlineAvailability 重检按钮（D 项 P2）', () => {
       fromCache: true,
     }));
     manager = new OnlineAvailabilityManager();
-    manager.updateConfig({ sites: [parserSite, getSite] });
+    manager.updateConfig({ autoCheck: true, sites: [parserSite, getSite] });
   });
 
   afterEach(() => {

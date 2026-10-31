@@ -75,16 +75,17 @@ describe('mergeEnhancementSettingsForSave', () => {
     expect(preservedMerged.listEnhancement?.sorting).toEqual(enabledMerged.listEnhancement?.sorting);
   });
 
-  it('persists the online availability failure tag toggle with a default off value', () => {
+  it('persists the online availability failure tag toggle with a default on value', () => {
     const current = structuredClone(DEFAULT_SETTINGS);
 
     const defaultMerged = mergeEnhancementSettingsForSave(current, {} as any);
-    const enabledMerged = mergeEnhancementSettingsForSave(current, {
-      veShowOnlineAvailabilityFailures: { checked: true },
+    const disabledMerged = mergeEnhancementSettingsForSave(current, {
+      veShowOnlineAvailabilityFailures: { checked: false },
     } as any);
 
-    expect(defaultMerged.videoEnhancement?.showOnlineAvailabilityFailures).toBe(false);
-    expect(enabledMerged.videoEnhancement?.showOnlineAvailabilityFailures).toBe(true);
+    // 10-31-ext-onlineavail-lazy-click G2：失败站点默认显示（默认值 false→true 翻转）
+    expect(defaultMerged.videoEnhancement?.showOnlineAvailabilityFailures).toBe(true);
+    expect(disabledMerged.videoEnhancement?.showOnlineAvailabilityFailures).toBe(false);
   });
 
   it('persists the detail subtitle search toggle with a default on value', () => {

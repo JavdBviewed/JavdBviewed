@@ -1,10 +1,11 @@
 /**
  * @vitest-environment jsdom
  * @file missavVariant.test.ts
- * @description 10-31-ext-missav-multi-version：missav 双版本（有码/无码）探测 → 打开搜索页
- * 口径（PRD G1/G2）：
+ * @description 10-31-ext-missav-multi-version（10-31-ext-onlineavail-lazy-click G3 改写）：
+ * missav 双版本（有码/无码）探测 → 主链接=有码真页 + alternatives=无码真页（双选项）
+ * 口径：
  * - 主探 available 且 site.key==='missav' → 二次探 {code}-uncensored-leak（同 checkSiteUrl 通路/32KB 窗口/force 透传/各自缓存）
- * - 双 available → result.url 换 https://missav.ws/search/{CODE 大写}，tags 保留主探
+ * - 双 available → result.url 保持 base 真页，tags 追加「有码」，alternatives=[{url: leak 真页, label:'无码'}]
  * - 二次探不可用 / 主探不可用 / 非 missav 站点 → 行为与请求数零变化
  * fixture=合成最小 HTML（canonical/og:url/title 含 code 的 detail 页），
  * 经 new DOMParser().parseFromString(html.slice(0, 32768), 'text/html') 模拟 maxBodyBytes 截断。
@@ -26,7 +27,6 @@ import { getOrFetchSessionResult } from '../../platform/storage/sessionResultCac
 import {
   DEFAULT_ONLINE_AVAILABILITY_SITES,
   OnlineAvailabilityManager,
-  buildMissavSearchUrl,
   buildMissavVariantUrl,
   type OnlineAvailabilitySite,
 } from './index';
@@ -91,7 +91,7 @@ describe('onlineAvailability missav 双版本探测（10-31-ext-missav-multi-ver
     vi.mocked(defaultHttpClient.getDocument).mockReset();
   });
 
-  it('双版本（主 available + leak available）→ url 换搜索页、available 保留、tags=主探 tags', async () => {
+  it('双版本（主 available + leak available）→ url=base 真页、tags 追加「有码」、alternatives=无码真页（G3 双选项）', async () => {
     vi.mocked(defaultHttpClient.getDocument)
       .mockResolvedValueOnce(toDoc(CENSORED_PAGE))
       .mockResolvedValueOnce(toDoc(LEAK_PAGE));
@@ -103,9 +103,12 @@ describe('onlineAvailability missav 双版本探测（10-31-ext-missav-multi-ver
     expect(vi.mocked(defaultHttpClient.getDocument).mock.calls[0][0]).toBe('https://missav.ws/fthtd-243/');
     expect(vi.mocked(defaultHttpClient.getDocument).mock.calls[1][0]).toBe('https://missav.ws/fthtd-243-uncensored-leak/');
     expect(result.available).toBe(true);
-    expect(result.url).toBe('https://missav.ws/search/FTHTD-243');
+    expect(result.url).toBe('https://missav.ws/fthtd-243/');
     expect(result.siteKey).toBe('missav');
-    expect(result.tags).toEqual(['字幕']);
+    expect(result.tags).toEqual(['字幕', '有码']);
+    expect(result.alternatives).toEqual([
+      { url: 'https://missav.ws/fthtd-243-uncensored-leak/', label: '无码' },
+    ]);
   });
 
   it('单版本（主 available + leak 404 reject）→ url=主 detail 页、available 保留', async () => {
@@ -170,18 +173,15 @@ describe('onlineAvailability missav 双版本探测（10-31-ext-missav-multi-ver
     expect(result.url).toBe('https://www.dmm.co.jp/digital/videoa/-/detail/=/cid=AB12345/');
   });
 
-  it('build* 纯函数 URL 形状锁（路径 code 小写 / 搜索 code 大写 + trim）+ 源码锁（仅 missav 调用点）', () => {
+  it('buildMissavVariantUrl 纯函数 URL 形状锁（路径 code 小写 + trim）+ 源码锁（仅 missav 调用点）', () => {
     expect(buildMissavVariantUrl(missavSite, 'FTHTD-243')).toBe('https://missav.ws/fthtd-243-uncensored-leak/');
     expect(buildMissavVariantUrl(missavSite, ' fthtd-243 ')).toBe('https://missav.ws/fthtd-243-uncensored-leak/');
     expect(buildMissavVariantUrl(missavSite, 'FthTd-243')).toBe('https://missav.ws/fthtd-243-uncensored-leak/');
-    expect(buildMissavSearchUrl('fthtd-243')).toBe('https://missav.ws/search/FTHTD-243');
-    expect(buildMissavSearchUrl(' FTHTD-243 ')).toBe('https://missav.ws/search/FTHTD-243');
-    expect(buildMissavSearchUrl('FthTd-243')).toBe('https://missav.ws/search/FTHTD-243');
 
-    // 源码锁：variant/search 各仅 1 个定义 + 1 个调用点（调用点位于 key==='missav' 守卫内）
+    // 源码锁：variant 仅 1 个定义 + 1 个调用点（调用点位于 key==='missav' 守卫内）
     const source = readFileSync(resolve(process.cwd(), 'apps/extension/src/features/onlineAvailability/index.ts'), 'utf8');
     expect(source.match(/buildMissavVariantUrl\s*\(/g)).toHaveLength(2);
-    expect(source.match(/buildMissavSearchUrl\s*\(/g)).toHaveLength(2);
+    expect(source).not.toContain('buildMissavSearchUrl');
     expect(source).toContain("site.key === 'missav'");
   });
 });

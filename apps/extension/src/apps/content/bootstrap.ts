@@ -527,7 +527,7 @@ async function initialize(): Promise<void> {
         initOrchestrator.add('idle', async () => {
             onlineAvailabilityManager.updateConfig({
                 enabled: true,
-                autoCheck: true,
+                autoCheck: false,
                 showUnavailable: videoEnhancement.showOnlineAvailabilityFailures === true,
                 timeoutMs: Number(videoEnhancement.onlineAvailabilityTimeoutMs || 8000),
                 sites: applyOnlineAvailabilitySitePreferences(

@@ -456,7 +456,7 @@ export class EnhancementSettings extends BaseSettingsPanel {
                 enableExternalEntryPanel: true,
                 enableExternalSearch: true,
                 enableOnlineAvailability: true,
-                showOnlineAvailabilityFailures: false,
+                showOnlineAvailabilityFailures: true,
                 onlineAvailabilitySites: {},
                 enableSubtitleSearch: true,
             } as any;
