@@ -501,7 +501,7 @@ describe('online availability helpers', () => {
     expect(document.querySelector('.jdb-online-unavailable')?.textContent).toBe('Missing 失败');
   });
 
-  it('hides unavailable tags by default', async () => {
+  it('shows unavailable tags by default', async () => {
     vi.spyOn(defaultHttpClient, 'getDocument').mockRejectedValue(new Error('HTTP 404'));
     document.body.innerHTML = `
       <h2 class="title is-4"><strong>SSIS-795</strong></h2>
@@ -515,6 +515,37 @@ describe('online availability helpers', () => {
       enabled: true,
       autoCheck: true,
       timeoutMs: 50,
+      sites: [{
+        key: 'missing',
+        name: 'Missing',
+        url: 'https://missing.test/{{code}}',
+        fetchType: 'get',
+        enabled: true,
+      }],
+    });
+
+    await manager.initialize();
+
+    // 10-31-ext-onlineavail-lazy-click G2：失败站点默认显示（缺省不传 showUnavailable=默认 true）
+    expect(document.querySelector('.jdb-online-unavailable')?.textContent).toBe('Missing 失败');
+    expect(document.querySelector('#jdb-online-availability-panel')?.textContent).not.toContain('暂无命中');
+  });
+
+  it('hides unavailable tags when showUnavailable is off', async () => {
+    vi.spyOn(defaultHttpClient, 'getDocument').mockRejectedValue(new Error('HTTP 404'));
+    document.body.innerHTML = `
+      <h2 class="title is-4"><strong>SSIS-795</strong></h2>
+      <nav class="panel movie-panel-info">
+        <div class="review-buttons"></div>
+      </nav>
+    `;
+
+    const manager = new OnlineAvailabilityManager();
+    manager.updateConfig({
+      enabled: true,
+      autoCheck: true,
+      timeoutMs: 50,
+      showUnavailable: false,
       sites: [{
         key: 'missing',
         name: 'Missing',

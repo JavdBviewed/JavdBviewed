@@ -353,7 +353,7 @@ export const DEFAULT_ENHANCEMENT_SETTINGS_FORM: EnhancementSettingsFormState = {
   enableVideoFavoriteRating: true,
   veEnableExternalEntryPanel: true,
   veEnableOnlineAvailability: true,
-  veShowOnlineAvailabilityFailures: false,
+  veShowOnlineAvailabilityFailures: true,
   onlineAvailabilitySites: defaultOnlineAvailabilitySites(),
   veEnableExternalSearch: true,
   veEnableSubtitleSearch: true,

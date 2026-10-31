@@ -202,7 +202,7 @@ export function VideoTab({
                 <SettingToggleRow
                   id="veShowOnlineAvailabilityFailures"
                   label="显示检测失败站点"
-                  description="检测失败或未命中的站点会以红色标签显示；默认只显示命中的可看站点。"
+                  description="检测失败或未命中的站点会以红色标签显示（默认开启），可在此关闭。"
                   checked={form.veShowOnlineAvailabilityFailures}
                   onChange={(v) => setToggle('veShowOnlineAvailabilityFailures', v)}
                 />

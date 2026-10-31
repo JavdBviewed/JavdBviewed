@@ -34,6 +34,8 @@ export interface OnlineAvailabilityResult {
   available: boolean;
   url: string;
   tags: string[];
+  /** 同站点多真页选项（仅 missav 双版本填：主链接=有码真页，alternative=无码真页）；无该字段的站点渲染零行为变化 */
+  alternatives?: { url: string; label: string }[];
   error?: string;
 }
 
@@ -188,8 +190,10 @@ export const DEFAULT_ONLINE_AVAILABILITY_SITES: OnlineAvailabilitySite[] = [
 
 const DEFAULT_CONFIG: OnlineAvailabilityConfig = {
   enabled: true,
-  autoCheck: true,
-  showUnavailable: false,
+  // 10-31-ext-onlineavail-lazy-click G1：绝对点击触发，fallback 态不得自探
+  autoCheck: false,
+  // G2：检测失败站点默认显示
+  showUnavailable: true,
   timeoutMs: 8000,
   sites: DEFAULT_ONLINE_AVAILABILITY_SITES,
 };
@@ -216,6 +220,8 @@ export class OnlineAvailabilityManager {
   private currentVideoId: string | null = null;
   /** 手动重检进行中：防重复并发探测 */
   private rechecking = false;
+  /** 当前番号是否已完成过至少一次检测（首次完成后置位：按钮「开始检测」回落「重检」） */
+  private hasChecked = false;
 
   updateConfig(config: Partial<OnlineAvailabilityConfig>): void {
     this.config = {
@@ -230,11 +236,13 @@ export class OnlineAvailabilityManager {
     this.currentVideoId = extractVideoIdFromPage();
     if (!this.currentVideoId) return;
 
-    this.injectPanel('checking');
+    // G1：点击触发=首帧「未检测」态；autoCheck=true 既有路径保持「检测中」首帧
+    this.injectPanel(this.config.autoCheck ? 'checking' : 'idle');
     this.initialized = true;
 
     if (this.config.autoCheck) {
       await this.checkAvailability(this.currentVideoId);
+      this.refreshPanelButton();
     }
   }
 
@@ -242,6 +250,7 @@ export class OnlineAvailabilityManager {
     const sites = this.config.sites.filter(site => site.enabled);
     if (sites.length === 0) {
       this.renderResults([], 0);
+      this.hasChecked = true;
       return;
     }
 
@@ -251,39 +260,71 @@ export class OnlineAvailabilityManager {
       results.push(result);
       this.renderResults([...results], sites.length);
     }));
+    this.hasChecked = true;
   }
 
   /**
-   * 面板"重检此番号"按钮入口：绕过缓存重探当前番号（force 跳过缓存读，结果回写缓存）。
-   * 重检进行中拒绝重入，避免同 key 并发双发。
+   * 面板按钮统一入口（G1 两态并入同一 handler）：
+   * 首次=「开始检测」（正常缓存读），完成过=「重检」（force 跳过缓存读，结果回写缓存）。
+   * 检测进行中拒绝重入（按钮 disabled+「检测中…」），避免同 key 并发双发。
+   */
+  handlePanelButtonClick(): Promise<void> {
+    return this.beginCheck(this.hasChecked);
+  }
+
+  /**
+   * 面板"重检此番号"按钮入口（保留既有公共 API）：绕过缓存重探当前番号（force 恒 true）。
    */
   recheckCurrentVideo(): Promise<void> {
+    return this.beginCheck(true);
+  }
+
+  private beginCheck(force: boolean): Promise<void> {
     if (!this.currentVideoId || this.rechecking) return Promise.resolve();
     this.rechecking = true;
-    const button = document.querySelector<HTMLButtonElement>('#jdb-online-availability-panel .jdb-online-recheck');
-    if (button) {
-      button.disabled = true;
-      button.textContent = '检测中…';
-    }
-    return this.checkAvailability(this.currentVideoId, true).finally(() => {
+    this.refreshPanelButton();
+    return this.checkAvailability(this.currentVideoId, force).finally(() => {
       this.rechecking = false;
+      this.hasChecked = true;
+      this.refreshPanelButton();
     });
   }
 
   /**
-   * 面板尾部追加"重检"按钮（复用宿主页 Bulma 样式，不引新 CSS）
+   * 面板尾部追加检测按钮（复用宿主页 Bulma 样式，不引新 CSS）；
+   * 文案三态：检测中「检测中…」/ 完成过「重检」/ 首次「开始检测」（G1）
    */
   private attachRecheckButton(panel: HTMLElement): void {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'button is-light is-small jdb-online-recheck';
-    button.title = '重新检测此番号（绕过缓存）';
-    button.textContent = '重检';
+    this.applyPanelButtonState(button);
     button.addEventListener('click', (event) => {
       event.stopPropagation();
-      void this.recheckCurrentVideo();
+      void this.handlePanelButtonClick();
     });
     panel.appendChild(button);
+  }
+
+  private applyPanelButtonState(button: HTMLButtonElement): void {
+    if (this.rechecking) {
+      button.disabled = true;
+      button.textContent = '检测中…';
+      button.title = '检测进行中';
+    } else if (this.hasChecked) {
+      button.disabled = false;
+      button.textContent = '重检';
+      button.title = '重新检测此番号（绕过缓存）';
+    } else {
+      button.disabled = false;
+      button.textContent = '开始检测';
+      button.title = '检测此番号的在线可看站点';
+    }
+  }
+
+  private refreshPanelButton(): void {
+    const button = document.querySelector<HTMLButtonElement>('#jdb-online-availability-panel .jdb-online-recheck');
+    if (button) this.applyPanelButtonState(button);
   }
 
   destroy(): void {
@@ -295,13 +336,17 @@ export class OnlineAvailabilityManager {
     const url = buildOnlineAvailabilityUrl(site, videoId);
     const result = await this.checkSiteUrl(site, videoId, url, force);
     // 双版本（有码/无码）探测：base 页 available 时二次探无码镜像（同 checkSiteUrl 通路/32KB 窗口/force 透传，
-    // cacheId 随 url 天然不同=各自 12min 缓存）；双 available → 改开搜索页（含两条 detail 链接，由用户自取）；
+    // cacheId 随 url 天然不同=各自 12min 缓存）；双 available → 主链接=有码真页 + alternatives=无码真页（用户二选一）；
     // 二次探不可用返回主结果原样（单版本行为零变化）；主探不可用不触发（成本守卫）
     if (result.available && site.key === 'missav') {
       const variantUrl = buildMissavVariantUrl(site, videoId);
       const variantResult = await this.checkSiteUrl(site, videoId, variantUrl, force);
       if (variantResult.available) {
-        return { ...result, url: buildMissavSearchUrl(videoId) };
+        return {
+          ...result,
+          tags: [...result.tags, '有码'],
+          alternatives: [{ url: variantUrl, label: '无码' }],
+        };
       }
       return result;
     }
@@ -358,7 +403,7 @@ export class OnlineAvailabilityManager {
     }
   }
 
-  private injectPanel(status: 'checking' | 'ready'): void {
+  private injectPanel(status: 'checking' | 'ready' | 'idle'): void {
     if (document.getElementById('jdb-online-availability-panel')) return;
 
     const target = findOnlineAvailabilityInsertionTarget();
@@ -370,7 +415,7 @@ export class OnlineAvailabilityManager {
     panel.innerHTML = `
       <strong>在线可看:</strong>
       &nbsp;<span class="value jdb-online-availability-links">
-        <span class="jdb-online-status">${status === 'checking' ? '检测中...' : ''}</span>
+        <span class="jdb-online-status">${status === 'checking' ? '检测中...' : status === 'idle' ? '未检测' : ''}</span>
       </span>
     `;
     this.attachRecheckButton(panel);
@@ -402,6 +447,16 @@ export class OnlineAvailabilityManager {
       link.className = 'tag is-success is-light is-small';
       link.textContent = result.tags.length ? `${result.siteName} ${result.tags.join(' ')}` : result.siteName;
       value.appendChild(link);
+      // G3：同站点多真页选项（有码/无码），主链接后逐条绿 tag 链接，各开对应真页
+      (result.alternatives ?? []).forEach(alt => {
+        const altLink = document.createElement('a');
+        altLink.href = alt.url;
+        altLink.target = '_blank';
+        altLink.rel = 'noopener noreferrer';
+        altLink.className = 'tag is-success is-light is-small';
+        altLink.textContent = `${result.siteName} ${alt.label}`;
+        value.appendChild(altLink);
+      });
     });
 
     unavailable.forEach(result => {
@@ -479,13 +534,6 @@ export function buildMissavVariantUrl(site: OnlineAvailabilitySite, videoId: str
   const code = String(videoId || '').trim().toLowerCase();
   if (!code) return '';
   return site.url.replace('{{code}}', `${encodeURIComponent(code)}-uncensored-leak`);
-}
-
-/** missav 搜索页 URL（路径式 /search/{CODE}，CODE 大写——真机验证大写 200；query 式为 404，勿改形态） */
-export function buildMissavSearchUrl(videoId: string): string {
-  const code = String(videoId || '').trim().toUpperCase();
-  if (!code) return '';
-  return `https://missav.ws/search/${encodeURIComponent(code)}`;
 }
 
 export function parseOnlineAvailabilityDocument(
