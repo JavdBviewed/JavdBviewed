@@ -1711,21 +1711,13 @@ class Drive115V2Service {
         kind: 'video_play',
         init: () => ({ method: 'GET' }),
       },
-      {
-        url: `${base}/open/video/play`,
-        kind: 'video_play',
-        init: () => {
-          const body = new FormData();
-          body.set('pick_code', pickCode);
-          return { method: 'POST', body };
-        },
-      },
+      // POST /open/video/play（FormData）= 115 开放平台不存在端点，网关恒定回假错误，已删
     ];
 
     let lastMsg = '获取播放地址失败';
+    let firstBizMsg = '';
     for (const endpoint of endpoints) {
       try {
-        await addLogV2({ timestamp: Date.now(), level: 'debug', message: `尝试取流：${endpoint.url.split('?')[0]}` });
         const res = await fetch(endpoint.url, {
           ...endpoint.init(),
           headers: {
@@ -1734,9 +1726,17 @@ class Drive115V2Service {
           },
         });
         const json: any = await res.json().catch(() => ({} as any));
+        // bizMsg=真实业务错误：json 解析成功且 state===false 时取 message/error 非空值（首个非空优先，
+        // 最相关=端点 1 的 pick_code/文件业务错误）；终末失败 message 优先用 firstBizMsg，
+        // 全端点无 bizMsg 才回退末轮 lastMsg
+        const bizMsg = json && typeof json === 'object' && json.state === false
+          ? String(json.message || json.error || '').trim()
+          : '';
+        if (bizMsg && !firstBizMsg) firstBizMsg = bizMsg;
         const ok = typeof json.state === 'boolean' ? json.state : res.ok;
         if (!ok || !res.ok) {
           lastMsg = describe115Error(json) || json.message || json.error || `取流失败 (${res.status})`;
+          await addLogV2({ timestamp: Date.now(), level: 'debug', message: `取流结果：${endpoint.url.split('?')[0]}，status=${res.status}，bizMsg=${bizMsg ? bizMsg.slice(0, 200) : '-'}` });
           continue;
         }
         const streamUrl = extractStreamUrlFromPlayResponse(json);
@@ -1756,11 +1756,13 @@ class Drive115V2Service {
           return { success: true, streamUrl, streamType, raw: json, endpoint: endpoint.url, debugSafeUrl };
         }
         lastMsg = '响应中无可用播放地址';
+        await addLogV2({ timestamp: Date.now(), level: 'debug', message: `取流结果：${endpoint.url.split('?')[0]}，status=${res.status}，bizMsg=-（响应中无可用播放地址）` });
       } catch (e: any) {
         lastMsg = describe115Error(e) || e?.message || '取流请求异常';
+        await addLogV2({ timestamp: Date.now(), level: 'debug', message: `取流结果：${endpoint.url.split('?')[0]}，status=network-error，bizMsg=-` });
       }
     }
-    return { success: false, message: lastMsg };
+    return { success: false, message: firstBizMsg || lastMsg };
   }
 
   /**

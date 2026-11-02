@@ -35,12 +35,6 @@ describe('installDrive115V2Proxy video playback proxy', () => {
             },
           };
         }
-        if (url === 'https://proapi.115.com/open/video/play' && init?.method === 'POST') {
-          return {
-            state: true,
-            data: { video_url: { hd: 'https://stream.example/video.m3u8' } },
-          };
-        }
         return { state: false, message: 'Method GET does not exist' };
       },
     }));

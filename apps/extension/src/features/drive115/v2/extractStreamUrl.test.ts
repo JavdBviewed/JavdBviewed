@@ -99,12 +99,6 @@ describe('Drive115V2Service playback/download URL requests', () => {
             },
           };
         }
-        if (url === 'https://proapi.115.com/open/video/play' && init?.method === 'POST') {
-          return {
-            state: true,
-            data: { video_url: { hd: 'https://stream.example/video.m3u8' } },
-          };
-        }
         return { state: false, message: 'Method GET does not exist' };
       },
     }));
@@ -130,17 +124,11 @@ describe('Drive115V2Service playback/download URL requests', () => {
     expect((init.body as FormData).get('pick_code')).toBe('video-pick');
   });
 
-  it('falls back to POST video/play when downurl has no playable URL', async () => {
+  it('reports first bizMsg when all live endpoints fail, zero POST /open/video/play', async () => {
     vi.stubGlobal('chrome', undefined);
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => ({
+    const fetchMock = vi.fn(async () => ({
       ok: true,
       json: async () => {
-        if (url === 'https://proapi.115.com/open/video/play' && init?.method === 'POST') {
-          return {
-            state: true,
-            data: { video_url: { hd: 'https://stream.example/video.m3u8' } },
-          };
-        }
         return { state: false, message: 'no stream' };
       },
     }));
@@ -152,16 +140,15 @@ describe('Drive115V2Service playback/download URL requests', () => {
     });
 
     expect(ret).toMatchObject({
-      success: true,
-      streamUrl: 'https://stream.example/video.m3u8',
-      streamType: 'm3u8',
-      endpoint: 'https://proapi.115.com/open/video/play',
+      success: false,
+      message: 'no stream',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    const [url, init] = fetchMock.mock.calls[3] as [string, RequestInit];
-    expect(url).toBe('https://proapi.115.com/open/video/play');
-    expect(init.method).toBe('POST');
-    expect(init.body).toBeInstanceOf(FormData);
-    expect((init.body as FormData).get('pick_code')).toBe('video-pick');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const calls = fetchMock.mock.calls as Array<[string, RequestInit]>;
+    for (const [url, init] of calls) {
+      // URL+method 双断言：被删端点 4 = POST /open/video/play（FormData），不得出现
+      if (init?.method === 'POST') expect(url).not.toBe('https://proapi.115.com/open/video/play');
+      if (url === 'https://proapi.115.com/open/video/play') expect(init?.method).not.toBe('POST');
+    }
   });
 });
