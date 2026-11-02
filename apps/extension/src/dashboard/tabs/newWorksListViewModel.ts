@@ -1,4 +1,5 @@
 import type { NewWorkRecord } from '../../types';
+import { buildRecordsPaginationModel } from './records/paginationModel';
 
 export interface BuildNewWorkItemHtmlOptions {
   selected?: boolean;
@@ -74,34 +75,27 @@ export function buildNewWorkItemHtml(work: NewWorkRecord, options: BuildNewWorkI
         `;
 }
 
+// 11-02 G4：页码窗口改 records 同形（复用 buildRecordsPaginationModel 纯函数）：
+// 首末页恒显 + 当前页±2 窗口 + 空隙省略号；data-page/disabled 字符串契约不变
 export function buildNewWorksPaginationHtml(input: BuildNewWorksPaginationHtmlInput): string {
-  const pageCount = Math.ceil(input.total / input.pageSize);
-  if (pageCount <= 1) {
-    return '';
-  }
+  const model = buildRecordsPaginationModel({
+    totalCount: input.total,
+    recordsPerPage: input.pageSize,
+    currentPage: input.currentPage,
+  });
+  if (!model.visible) return '';
 
   let paginationHtml = '';
-
-  if (input.currentPage > 1) {
-    paginationHtml += `<button class="page-button" data-page="${input.currentPage - 1}">上一页</button>`;
-  } else {
-    paginationHtml += '<button class="page-button" disabled>上一页</button>';
+  for (const item of model.items) {
+    if (item.kind === 'ellipsis') {
+      paginationHtml += '<button class="page-button ellipsis" disabled>...</button>';
+    } else if (item.kind === 'page') {
+      paginationHtml += `<button class="page-button${item.active ? ' active' : ''}" data-page="${item.page}">${item.page}</button>`;
+    } else {
+      const targetPage = Math.min(Math.max(item.page, 1), model.pageCount);
+      paginationHtml += `<button class="page-button" data-page="${targetPage}" title="${item.title}"${item.disabled ? ' disabled' : ''}>${item.html}</button>`;
+    }
   }
-
-  const startPage = Math.max(1, input.currentPage - 2);
-  const endPage = Math.min(pageCount, input.currentPage + 2);
-
-  for (let page = startPage; page <= endPage; page++) {
-    const activeClass = page === input.currentPage ? 'active' : '';
-    paginationHtml += `<button class="page-button ${activeClass}" data-page="${page}">${page}</button>`;
-  }
-
-  if (input.currentPage < pageCount) {
-    paginationHtml += `<button class="page-button" data-page="${input.currentPage + 1}">下一页</button>`;
-  } else {
-    paginationHtml += '<button class="page-button" disabled>下一页</button>';
-  }
-
   return paginationHtml;
 }
 

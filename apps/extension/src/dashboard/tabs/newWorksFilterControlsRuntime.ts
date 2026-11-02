@@ -1,4 +1,5 @@
 import type { NewWorksFilters, NewWorksFilterValue } from './newWorksFilterTypes';
+import { clampNewWorksPageSize } from './newWorksBatchOpenPolicy';
 
 export interface NewWorksFilterControlsDeps {
   setPage(page: number): void;
@@ -40,4 +41,18 @@ export function attachNewWorksFilterControls(
       deps.render();
     });
   }
+}
+
+export interface NewWorksPageSizeControlDeps {
+  select: HTMLSelectElement;
+  getPageSize(): number;
+  onPageSizeChange(size: number): void;
+}
+
+// 11-02 G1：每页数量选择器接线（change → 夹取后回调，调用方负责落盘 + 回 1 页 + 重渲染）
+export function attachNewWorksPageSizeControl(deps: NewWorksPageSizeControlDeps): void {
+  deps.select.value = String(clampNewWorksPageSize(deps.getPageSize()));
+  deps.select.addEventListener('change', () => {
+    deps.onPageSizeChange(clampNewWorksPageSize(parseInt(deps.select.value, 10)));
+  });
 }

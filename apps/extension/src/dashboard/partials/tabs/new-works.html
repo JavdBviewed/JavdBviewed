@@ -101,8 +101,20 @@
             <option value="releaseDate_desc">按发行时间排序 (最新)</option>
             <option value="actorName_asc">按演员姓名排序</option>
           </select>
+          <!-- 11-02 G1：每页数量选择器（缺省 10，持久化） -->
+          <div class="records-per-page-selector">
+            <label for="newWorksPageSizeSelect">每页</label>
+            <select id="newWorksPageSizeSelect">
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </div>
         </div>
       </div>
+      <!-- 11-02 G2：搜索结果计数（仅搜索非空时显示） -->
+      <div id="newWorksSearchCount" class="search-result-count" style="display: none;"></div>
       <div class="new-works-batch-toolbar">
         <button id="batchOpenUnreadBtn" class="btn-action" title="打开当前页所有未读新作品（最多10个，15秒冷却）">
           <i class="fas fa-external-link-alt"></i> 批量打开未读（当页）
@@ -130,6 +142,8 @@
     </div>
 
     <div class="pagination-controls">
+      <!-- 11-02 G3：分页旁总数（恒显，空态含 0） -->
+      <span id="newWorksTotalCount" class="new-works-total-count"></span>
       <div class="pagination" id="newWorksPagination">
         <!-- 分页控件将由 JS 动态填充 -->
       </div>

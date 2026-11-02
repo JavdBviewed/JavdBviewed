@@ -9,10 +9,14 @@ import { showMessage } from '../ui/toast';
 import { showConfirm, showDanger } from '../components/confirmModal';
 import {
     MAX_UNREAD_BATCH_OPEN_COUNT,
+    NEW_WORKS_PAGE_SIZE_DEFAULT,
     getNewWorksPageSize,
 } from './newWorksBatchOpenPolicy';
 import { runUnreadBatchOpenWorkflow } from './newWorksBatchOpenWorkflow';
-import { attachNewWorksFilterControls } from './newWorksFilterControlsRuntime';
+import {
+    attachNewWorksFilterControls,
+    attachNewWorksPageSizeControl,
+} from './newWorksFilterControlsRuntime';
 import { createNewWorksTabState } from './newWorksTabState';
 import { renderNewWorksListRuntime, type RenderNewWorksListResult } from './newWorksListRuntime';
 import {
@@ -84,6 +88,18 @@ import { createNewWorksAutoSyncScheduler } from './newWorksAutoSyncScheduler';
 import { measureNewWorksInitializationPhase } from './newWorksInitializationDiagnostics';
 import { scheduleHomeChartRender } from '../home/homeRenderScheduler';
 import { enableNewWorksDiagnosticsFromQuery, recordNewWorksDiagnosticCounter, beginNewWorksDiagnosticSpan } from '../../features/newWorks/newWorksDiagnostics';
+import { STATE } from '../state';
+import { STORAGE_KEYS } from '../../utils/config';
+import { getValue, saveSettings } from '../../utils/storage';
+import { saveSettingsTopLevelDelta, type SettingsDeltaWriter } from '../../utils/settingsDelta';
+
+// 11-02 G1：新作品页内保存迁顶层键 delta 原语——只写本页负责的 newWorksPageSize，
+// 写前紧贴重读 raw，不再整包写 STATE.settings 快照（抹掉并发落盘的其他节）。
+const newWorksSettingsDeltaWriter: SettingsDeltaWriter = {
+    readRawSettings: () => getValue(STORAGE_KEYS.SETTINGS, undefined),
+    getMergedSettings: async () => ({ ...STATE.settings }),
+    saveSettings,
+};
 
 export class NewWorksTab {
     public isInitialized: boolean = false;
@@ -167,6 +183,9 @@ export class NewWorksTab {
             );
             if (!domReady) return;
 
+            // 11-02 G1：先恢复每页数量再绑定事件（保证首轮渲染即按持久化页大小取数）
+            this.loadNewWorksPageSize();
+
             // 设置事件监听器
             await measureNewWorksInitializationPhase(
                 'page.initialize.eventListeners.duration',
@@ -237,7 +256,30 @@ export class NewWorksTab {
     }
 
     private getCurrentPageSize(): number {
-        return getNewWorksPageSize(this.state.filters.filter);
+        return getNewWorksPageSize(this.state.filters.filter, this.state.getPageSize());
+    }
+
+    // 11-02 G1：每页数量初始化/持久化（settings 顶层键 newWorksPageSize，缺省 10）
+    private loadNewWorksPageSize(): void {
+        const stored = STATE.settings?.newWorksPageSize;
+        this.state.setPageSize(typeof stored === 'number' ? stored : NEW_WORKS_PAGE_SIZE_DEFAULT);
+    }
+
+    private persistNewWorksPageSize(size: number): void {
+        STATE.settings.newWorksPageSize = size;
+        void saveSettingsTopLevelDelta(
+            newWorksSettingsDeltaWriter,
+            STATE.settings,
+            ['newWorksPageSize'],
+            () => ({ newWorksPageSize: STATE.settings.newWorksPageSize }),
+        ).catch(() => {});
+    }
+
+    private applyNewWorksPageSizeChange(size: number): void {
+        this.state.setPageSize(size);
+        this.state.setPage(1);
+        this.persistNewWorksPageSize(size);
+        void this.render();
     }
 
     private getUnreadBatchOpenCooldownRemaining(now: number = Date.now()): number {
@@ -348,6 +390,16 @@ export class NewWorksTab {
             render: () => this.render(),
             debounceRender: () => this.debounceRender(),
         });
+
+        // 11-02 G1：每页数量选择器（change → 落盘 + 回 1 页 + 重渲染）
+        const pageSizeSelect = document.getElementById('newWorksPageSizeSelect') as HTMLSelectElement | null;
+        if (pageSizeSelect) {
+            attachNewWorksPageSizeControl({
+                select: pageSizeSelect,
+                getPageSize: () => this.state.getPageSize(),
+                onPageSizeChange: size => this.applyNewWorksPageSizeChange(size),
+            });
+        }
     }
 
     /**
