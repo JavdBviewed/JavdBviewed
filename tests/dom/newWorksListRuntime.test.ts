@@ -278,4 +278,105 @@ describe('new works list runtime', () => {
     expect(logError).toHaveBeenCalledWith('渲染新作品列表失败:', expect.any(Error));
     expect(document.getElementById('newWorksList')?.textContent).toContain('加载新作品列表失败');
   });
+
+  it('shows the search count only while searching and always shows the total near pagination', async () => {
+    document.body.innerHTML = `
+      <div id="newWorksList"></div>
+      <div id="newWorksPagination"></div>
+      <div id="newWorksSearchCount" class="search-result-count" style="display: none;"></div>
+      <span id="newWorksTotalCount"></span>
+    `;
+
+    const run = async (search: string, total: number, works: number) => {
+      await renderNewWorksListRuntime({
+        filters: { search, filter: 'all', sort: 'discoveredAt_desc' },
+        page: 1,
+        pageSize: 10,
+        selectedWorks: new Set(),
+        deps: {
+          getNewWorks: vi.fn(async () => ({ works: Array.from({ length: works }, (_, index) => work({ id: `w-${index}` })), total })),
+          setPage: vi.fn(),
+          render: vi.fn(),
+          updateBatchOpenUnreadButton: vi.fn(),
+          markWorksAsRead: vi.fn(),
+          visitWork: vi.fn(),
+          deleteWorks: vi.fn(),
+          updateBatchOperations: vi.fn(),
+          logInfo: vi.fn(),
+          logWarn: vi.fn(),
+          logError: vi.fn(),
+        },
+      });
+    };
+
+    await run('alice', 3, 3);
+    expect(document.getElementById('newWorksSearchCount')?.style.display).not.toBe('none');
+    expect(document.getElementById('newWorksSearchCount')?.textContent).toContain('共 3 条结果');
+    expect(document.getElementById('newWorksTotalCount')?.textContent).toBe('共 3 条');
+
+    await run('', 3, 3);
+    expect(document.getElementById('newWorksSearchCount')?.style.display).toBe('none');
+    expect(document.getElementById('newWorksTotalCount')?.textContent).toBe('共 3 条');
+
+    await run('', 0, 0);
+    expect(document.getElementById('newWorksSearchCount')?.style.display).toBe('none');
+    expect(document.getElementById('newWorksTotalCount')?.textContent).toBe('共 0 条');
+    expect(document.getElementById('newWorksPagination')?.innerHTML).toBe('');
+  });
+
+  it('renders records-shaped pagination with first/last arrows and inert ellipsis', async () => {
+    document.body.innerHTML = `
+      <div id="newWorksList"></div>
+      <div id="newWorksPagination"></div>
+      <span id="selectedCountLabel"></span>
+      <button id="batchOpenSelectedBtn"></button>
+      <button id="batchDeleteSelectedBtn"></button>
+      <button id="clearSelectionBtn"></button>
+    `;
+    const setPage = vi.fn();
+    const render = vi.fn();
+
+    await renderNewWorksListRuntime({
+      filters: { search: '', filter: 'all', sort: 'discoveredAt_desc' },
+      page: 1,
+      pageSize: 10,
+      selectedWorks: new Set(),
+      deps: {
+        getNewWorks: vi.fn(async () => ({ works: [work()], total: 100 })),
+        setPage,
+        render,
+        updateBatchOpenUnreadButton: vi.fn(),
+        markWorksAsRead: vi.fn(),
+        visitWork: vi.fn(),
+        deleteWorks: vi.fn(),
+        updateBatchOperations: () => syncNewWorksBatchOperations(new Set()),
+        logInfo: vi.fn(),
+        logWarn: vi.fn(),
+        logError: vi.fn(),
+      },
+    });
+
+    const first = document.querySelector<HTMLElement>('.page-button[title="首页"]');
+    const previous = document.querySelector<HTMLElement>('.page-button[title="上一页"]');
+    const next = document.querySelector<HTMLElement>('.page-button[title="下一页"]');
+    const last = document.querySelector<HTMLElement>('.page-button[title="末页"]');
+    expect(first).not.toBeNull();
+    expect(previous).not.toBeNull();
+    expect(next).not.toBeNull();
+    expect(last).not.toBeNull();
+    expect(first?.hasAttribute('disabled')).toBe(true);
+    expect(previous?.hasAttribute('disabled')).toBe(true);
+    expect(document.querySelector('.page-button.active[data-page="1"]')).not.toBeNull();
+    expect(document.querySelector('.page-button[data-page="10"]')).not.toBeNull();
+
+    const ellipses = document.querySelectorAll('.page-button.ellipsis');
+    expect(ellipses.length).toBeGreaterThan(0);
+    expect(ellipses[0].hasAttribute('disabled')).toBe(true);
+    ellipses[0]?.click();
+    expect(setPage).not.toHaveBeenCalled();
+
+    next?.click();
+    expect(setPage).toHaveBeenCalledWith(2);
+    expect(render).toHaveBeenCalledTimes(1);
+  });
 });

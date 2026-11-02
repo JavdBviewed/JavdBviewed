@@ -381,6 +381,13 @@
     min-height: 400px;
 }
 
+/* 11-02 G3：分页旁总数（仅字号/颜色/间距级，无布局行为） */
+.new-works-page .new-works-total-count {
+    color: var(--nw-muted);
+    font-size: 13px;
+    white-space: nowrap;
+}
+
 #newWorksList {
     list-style: none;
     padding: 0;

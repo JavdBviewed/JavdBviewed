@@ -62,14 +62,58 @@ describe('new works list view model', () => {
     expect(buildNewWorksErrorHtml()).toContain('加载新作品列表失败');
   });
 
-  it('builds pagination window with disabled edges and active page', () => {
+  it('renders no pagination buttons when there is at most one page', () => {
+    expect(buildNewWorksPaginationHtml({ total: 0, currentPage: 1, pageSize: 10 })).toBe('');
+    expect(buildNewWorksPaginationHtml({ total: 10, currentPage: 1, pageSize: 10 })).toBe('');
     expect(buildNewWorksPaginationHtml({ total: 20, currentPage: 1, pageSize: 20 })).toBe('');
+  });
 
-    const html = buildNewWorksPaginationHtml({ total: 100, currentPage: 3, pageSize: 10 });
+  it('first page: first/previous disabled, pages 1-3, ellipsis, last page, next enabled', () => {
+    const html = buildNewWorksPaginationHtml({ total: 100, currentPage: 1, pageSize: 10 });
 
-    expect(html).toContain('<button class="page-button" data-page="2">上一页</button>');
-    expect(html).toContain('<button class="page-button active" data-page="3">3</button>');
-    expect(html).toContain('<button class="page-button" data-page="4">下一页</button>');
+    expect(html).toContain('<button class="page-button" data-page="1" title="首页" disabled><i class="fas fa-angles-left"></i></button>');
+    expect(html).toContain('<button class="page-button" data-page="1" title="上一页" disabled><i class="fas fa-angle-left"></i></button>');
+    expect(html).toContain('<button class="page-button active" data-page="1">1</button>');
+    expect(html).toContain('<button class="page-button" data-page="2">2</button>');
+    expect(html).toContain('<button class="page-button" data-page="3">3</button>');
+    expect(html).toContain('<button class="page-button ellipsis" disabled>...</button>');
+    expect(html).toContain('<button class="page-button" data-page="10">10</button>');
+    expect(html).toContain('<button class="page-button" data-page="2" title="下一页"><i class="fas fa-angle-right"></i></button>');
+    expect(html).toContain('<button class="page-button" data-page="10" title="末页"><i class="fas fa-angles-right"></i></button>');
+    expect(html).not.toContain('data-page="4"');
+    expect(html).not.toContain('data-page="9"');
+  });
+
+  it('middle page: first enabled, window around current, ellipses on both gaps', () => {
+    const html = buildNewWorksPaginationHtml({ total: 100, currentPage: 6, pageSize: 10 });
+
+    expect(html).toContain('<button class="page-button" data-page="1" title="首页"><i class="fas fa-angles-left"></i></button>');
+    expect(html).toContain('<button class="page-button" data-page="5" title="上一页"><i class="fas fa-angle-left"></i></button>');
+    expect(html).toContain('<button class="page-button" data-page="1">1</button>');
+    expect(html).toContain('<button class="page-button" data-page="4">4</button>');
+    expect(html).toContain('<button class="page-button active" data-page="6">6</button>');
+    expect(html).toContain('<button class="page-button" data-page="8">8</button>');
+    expect(html).toContain('<button class="page-button" data-page="10">10</button>');
+    expect(html).toContain('<button class="page-button" data-page="7" title="下一页"><i class="fas fa-angle-right"></i></button>');
+    expect(html).toContain('<button class="page-button" data-page="10" title="末页"><i class="fas fa-angles-right"></i></button>');
+    expect((html.match(/page-button ellipsis/g) || []).length).toBe(2);
+    expect(html).not.toContain('data-page="3"');
+  });
+
+  it('last page: last active, next/last arrows disabled', () => {
+    const html = buildNewWorksPaginationHtml({ total: 100, currentPage: 10, pageSize: 10 });
+
+    expect(html).toContain('<button class="page-button" data-page="1" title="首页"><i class="fas fa-angles-left"></i></button>');
+    expect(html).toContain('<button class="page-button" data-page="9" title="上一页"><i class="fas fa-angle-left"></i></button>');
+    expect(html).toContain('<button class="page-button active" data-page="10">10</button>');
+    expect(html).toContain('<button class="page-button" data-page="10" title="下一页" disabled><i class="fas fa-angle-right"></i></button>');
+    expect(html).toContain('<button class="page-button" data-page="10" title="末页" disabled><i class="fas fa-angles-right"></i></button>');
+  });
+
+  it('adjacent pages only: no ellipsis', () => {
+    expect(buildNewWorksPaginationHtml({ total: 20, currentPage: 1, pageSize: 10 })).not.toContain('ellipsis');
+    expect(buildNewWorksPaginationHtml({ total: 30, currentPage: 2, pageSize: 10 })).not.toContain('ellipsis');
+    expect(buildNewWorksPaginationHtml({ total: 50, currentPage: 3, pageSize: 10 })).not.toContain('ellipsis');
   });
 });
 

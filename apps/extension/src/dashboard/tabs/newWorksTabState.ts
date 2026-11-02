@@ -1,4 +1,6 @@
 import {
+  NEW_WORKS_PAGE_SIZE_DEFAULT,
+  clampNewWorksPageSize,
   getUnreadBatchOpenCooldownRemaining,
   getUnreadBatchOpenCooldownSeconds,
 } from './newWorksBatchOpenPolicy';
@@ -13,6 +15,8 @@ export interface NewWorksTabState {
   selectedWorks: Set<string>;
   getPage(): number;
   setPage(page: number): void;
+  getPageSize(): number;
+  setPageSize(size: number): void;
   isLoading(): boolean;
   setLoading(loading: boolean): void;
   clearSelection(): void;
@@ -24,6 +28,7 @@ export interface NewWorksTabState {
 export function createNewWorksTabState(options: NewWorksTabStateOptions = {}): NewWorksTabState {
   const now = options.now || Date.now;
   let page = 1;
+  let pageSize = NEW_WORKS_PAGE_SIZE_DEFAULT;
   let loading = false;
   let lastUnreadBatchOpenAt = 0;
 
@@ -40,6 +45,10 @@ export function createNewWorksTabState(options: NewWorksTabStateOptions = {}): N
     getPage: () => page,
     setPage: value => {
       page = value;
+    },
+    getPageSize: () => pageSize,
+    setPageSize: value => {
+      pageSize = clampNewWorksPageSize(value);
     },
     isLoading: () => loading,
     setLoading: value => {

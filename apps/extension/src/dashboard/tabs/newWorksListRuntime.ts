@@ -64,6 +64,7 @@ export async function renderNewWorksListRuntime(input: RenderNewWorksListRuntime
     if (result.works.length === 0) {
       deps.logInfo('没有新作品数据，显示空状态');
       container.innerHTML = buildNewWorksEmptyHtml();
+      renderNewWorksCounts(filters, 0, doc);
       renderNewWorksPagination({ total: 0, page, pageSize, deps, doc });
       return result;
     }
@@ -72,6 +73,7 @@ export async function renderNewWorksListRuntime(input: RenderNewWorksListRuntime
     container.innerHTML = result.works
       .map(work => buildNewWorkItemHtml(work, { selected: selectedWorks.has(work.id) }))
       .join('');
+    renderNewWorksCounts(filters, result.total, doc);
     renderNewWorksPagination({ total: result.total, page, pageSize, deps, doc });
     deps.updateBatchOpenUnreadButton();
     attachNewWorkItemListeners(selectedWorks, deps, doc);
@@ -115,6 +117,23 @@ function renderNewWorksPagination(input: RenderNewWorksPaginationInput): void {
       deps.render();
     });
   });
+}
+
+// 11-02 G2/G3：搜索结果计数（仅搜索非空时显示）+ 分页旁总数（恒显，空态含 0）
+function renderNewWorksCounts(filters: NewWorksFilters, total: number, doc: Document): void {
+  const searchCount = doc.getElementById('newWorksSearchCount');
+  if (searchCount) {
+    if (filters.search.trim() !== '') {
+      searchCount.innerHTML = `共 <span class="count-number">${total}</span> 条结果`;
+      searchCount.style.display = 'flex';
+    } else {
+      searchCount.style.display = 'none';
+    }
+  }
+  const totalCount = doc.getElementById('newWorksTotalCount');
+  if (totalCount) {
+    totalCount.textContent = `共 ${total} 条`;
+  }
 }
 
 export function syncNewWorksBatchOperations(selectedWorks: Set<string>, doc: Document = document): void {
