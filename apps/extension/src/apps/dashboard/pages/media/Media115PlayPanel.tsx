@@ -103,7 +103,8 @@ export function Media115PlayPanel({
           onStreamReady,
         });
       } else {
-        setMessage(stream.message || '取流失败，可改用搜索或网页播放');
+        const baseMessage = stream.message || '取流失败，可改用搜索或网页播放';
+        setMessage(`${baseMessage}（索引 pick_code 可能已失效，可改用搜索获取最新播放地址）`);
       }
     } finally {
       setLoading(false);

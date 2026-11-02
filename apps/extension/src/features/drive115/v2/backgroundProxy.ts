@@ -404,18 +404,11 @@ export function installDrive115V2Proxy(): void {
                 kind: 'video_play',
                 init: () => ({ method: 'GET' }),
               },
-              {
-                url: `${base}/open/video/play`,
-                kind: 'video_play',
-                init: () => {
-                  const body = new FormData();
-                  body.set('pick_code', pickCode);
-                  return { method: 'POST', body };
-                },
-              },
+              // POST /open/video/play（FormData）= 115 开放平台不存在端点，网关恒定回假错误，已删
             ];
 
             const extractUrl = (json: unknown): string | undefined => extractStreamUrlFromPlayResponse(json);
+            let firstBizMsg = '';
             const tryNext = (idx: number) => {
               if (idx >= endpoints.length) {
                 sendResponse({ success: false, message: '取流接口均不可用' });
@@ -431,6 +424,12 @@ export function installDrive115V2Proxy(): void {
               })
                 .then(async (res) => {
                   const raw = await res.json().catch(() => ({} as any));
+                  // bizMsg=真实业务错误：json 解析成功且 state===false 时取 message/error 非空值（首个非空优先，
+                  // 最相关=端点 1 的 pick_code/文件业务错误）；终末失败 message 优先用 firstBizMsg
+                  const bizMsg = raw && typeof raw === 'object' && raw.state === false
+                    ? String(raw.message || raw.error || '').trim()
+                    : '';
+                  if (bizMsg && !firstBizMsg) firstBizMsg = bizMsg;
                   const ok = (typeof raw.state === 'boolean' ? raw.state : res.ok) && res.ok;
                   const streamUrl = ok ? extractUrl(raw) : undefined;
                   if (streamUrl) {
@@ -444,20 +443,22 @@ export function installDrive115V2Proxy(): void {
                     sendResponse({ success: true, streamUrl, streamType, raw, endpoint: endpoint.url, debugSafeUrl });
                     return;
                   }
+                  logDrive115Proxy(`取流结果：${endpoint.url.split('?')[0]}，status=${res.status}，bizMsg=${bizMsg ? bizMsg.slice(0, 200) : '-'}`);
                   if (idx + 1 < endpoints.length) {
                     tryNext(idx + 1);
                     return;
                   }
                   sendResponse({
                     success: false,
-                    message: raw?.message || raw?.error || '响应中无播放地址',
+                    message: firstBizMsg || raw?.message || raw?.error || '响应中无播放地址',
                     raw,
                     endpoint: endpoint.url,
                   });
                 })
                 .catch(() => {
+                  logDrive115Proxy(`取流结果：${endpoint.url.split('?')[0]}，status=network-error，bizMsg=-`);
                   if (idx + 1 < endpoints.length) tryNext(idx + 1);
-                  else sendResponse({ success: false, message: '后台取流请求失败' });
+                  else sendResponse({ success: false, message: firstBizMsg || '后台取流请求失败' });
                 });
             };
             tryNext(0);
