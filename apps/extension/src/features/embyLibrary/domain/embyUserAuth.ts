@@ -46,6 +46,9 @@ export async function authenticateEmbyUser(params: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        // 双头同发：新 Jellyfin（12+/legacy 关）只读标准 Authorization 头，
+        // Emby 读 X-Emby-Authorization；两值相同，任一端点均可认证
+        'Authorization': authHeader,
         'X-Emby-Authorization': authHeader,
         Accept: 'application/json',
       },
@@ -61,6 +64,9 @@ export async function authenticateEmbyUser(params: {
       const msg =
         raw?.message
         || raw?.Message
+        // RFC7807 ProblemDetails（Jellyfin 400 常见形态只有 title 无 message）
+        || raw?.title
+        || raw?.Title
         || (res.status === 401 ? '用户名或密码错误' : `登录失败 (${res.status})`);
       return { success: false, message: msg, raw };
     }
@@ -140,6 +146,9 @@ export function buildEmbyAuthHeaders(server: Pick<EmbyMediaServer, 'accessToken'
   if (server.accessToken) {
     headers['X-Emby-Token'] = server.accessToken;
     headers['X-Emby-Authorization'] = buildMediaBrowserAuthHeader({ token: server.accessToken });
+    // 标准 Authorization 头含 Token：Jellyfin 12+（legacy 默认关）只认这个头，
+    // 登录后的所有 API 调用（播放/进度/库读取）都经本函数，缺它=未认证态
+    headers['Authorization'] = buildMediaBrowserAuthHeader({ token: server.accessToken });
   }
   return headers;
 }
