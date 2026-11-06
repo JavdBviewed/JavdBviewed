@@ -12,6 +12,7 @@ import '../../../../../dashboard/styles/05-pages/settings/drive115.css';
 import { Badge } from '../../../../../ui/primitives/Badge/Badge';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
+import { OpenListSettingsSection } from './OpenListSettingsSection';
 import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 import { STORAGE_KEYS } from '../../../../../utils/config';
 import { getValue } from '../../../../../utils/storage';
@@ -71,6 +72,7 @@ const DRIVE115_SECTION_IDS = {
   pkce: 'drive115-section-pkce',
   credentials: 'drive115-section-credentials',
   download: 'drive115-section-download',
+  openlistPush: 'drive115-section-openlist-push',
   mediaLibrary: 'drive115-section-media-library',
   logs: 'drive115-section-logs',
 } as const;
@@ -1192,6 +1194,7 @@ export function Drive115SettingsPage() {
     },
     { id: DRIVE115_SECTION_IDS.credentials, label: '凭据与状态', shortLabel: '凭据' },
     { id: DRIVE115_SECTION_IDS.download, label: '下载设置', shortLabel: '下载' },
+    { id: DRIVE115_SECTION_IDS.openlistPush, label: 'OpenList 推送', shortLabel: '推送' },
     {
       id: DRIVE115_SECTION_IDS.mediaLibrary,
       label: '资料库',
@@ -1786,6 +1789,10 @@ export function Drive115SettingsPage() {
                 />
               </Drive115Field>
             </div>
+          </Drive115Group>
+
+          <Drive115Group title="OpenList 推送" navId={DRIVE115_SECTION_IDS.openlistPush}>
+            <OpenListSettingsSection />
           </Drive115Group>
 
           <Drive115Group title="资料库" navId={DRIVE115_SECTION_IDS.mediaLibrary} beta>

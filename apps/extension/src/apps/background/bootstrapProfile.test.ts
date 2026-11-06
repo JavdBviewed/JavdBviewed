@@ -21,4 +21,11 @@ describe('background bootstrap diagnostic profile', () => {
     expect(shouldRunBackgroundBootstrapStep(profile, 'task-center-restore')).toBe(false);
     expect(shouldRunBackgroundBootstrapStep(profile, 'alarm-wiring')).toBe(true);
   });
+
+  it('can disable OpenList proxy without disabling 115 proxy', () => {
+    const profile = parseBackgroundBootstrapSkipProfile('openlist-proxy');
+    expect(profile).toEqual(['openlist-proxy']);
+    expect(shouldRunBackgroundBootstrapStep(profile, 'openlist-proxy')).toBe(false);
+    expect(shouldRunBackgroundBootstrapStep(profile, 'drive115-proxy')).toBe(true);
+  });
 });
