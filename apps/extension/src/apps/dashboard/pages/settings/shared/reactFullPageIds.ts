@@ -6,7 +6,7 @@
  * 产品决策（2026-07-15）：设置子页内容默认保持遗留 partial + 原 CSS/弹窗交互，
  * 仅索引页与返回壳走 React。完整 React 内容页按名单渐进接入。
  *
- * 说明：drive115 已作为 W4.1 试点进入 REACT_FULL；回退时从名单移除即可回到 partial。
+ * 说明：网盘设置已作为 W4.1 试点进入 REACT_FULL；回退时从名单移除即可回到 partial。
  * 媒体库片库配置在设置页内维护。
  */
 
@@ -15,7 +15,7 @@ export const REACT_FULL_SETTINGS_PAGE_IDS = new Set<string>([
   // Cloud 为新能力，无遗留 partial 样式负担
   'cloud-settings',
   // W4.1：115 设置保真 React 全页（用户点验启用）
-  'drive115-settings',
+  'drive-settings',
   // 媒体服务器配置已迁移为摘要列表 + 弹窗编辑
   // （2026-10-03 IA 裁决：emby-settings 改名 media-library-settings，旧 hash 先经路由别名归一化）
   'media-library-settings',

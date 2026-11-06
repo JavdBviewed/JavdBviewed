@@ -50,5 +50,5 @@ export function mountSettingsIndexPage(hostSelector = '#tab-settings'): void {
 export function unmountSettingsIndexPage(hostSelector = '#tab-settings'): void {
   const host = document.querySelector(hostSelector);
   if (!host) return;
-  clearSettingsReactRoot(host);
+  if (getSettingsReactRoot(host)?.kind === 'index') clearSettingsReactRoot(host);
 }

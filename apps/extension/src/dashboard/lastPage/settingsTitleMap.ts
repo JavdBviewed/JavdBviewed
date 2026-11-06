@@ -17,7 +17,7 @@ export const SETTINGS_SUBPATH_TITLES: Readonly<Record<string, string>> = {
   'media-library-settings': '资料库设置',
   'webdav-settings': 'WebDAV 冷备份',
   'cloud-settings': 'Cloud 多端同步',
-  'sync-settings': '同步设置',  'drive115-settings': '115网盘设置',
+  'sync-settings': '同步设置',  'drive-settings': '网盘设置 · 115',
   'insights-settings': '报告设置',
   'log-settings': '日志设置',
   'logging-settings': '日志设置',
@@ -33,5 +33,7 @@ export const SETTINGS_SUBPATH_TITLES: Readonly<Record<string, string>> = {
 
 export function resolveSettingsSubPathTitle(subPath: string): string {
   const key = subPath.trim();
+  if (key === 'drive-settings/115') return '网盘设置 · 115';
+  if (key === 'drive-settings/openlist') return '网盘设置 · OpenList';
   return SETTINGS_SUBPATH_TITLES[key] || key || '设置';
 }

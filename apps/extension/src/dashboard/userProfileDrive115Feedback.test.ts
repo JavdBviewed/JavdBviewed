@@ -12,7 +12,7 @@ describe('drive115 user profile feedback copy', () => {
     expect(feedback.toastMessage).toBe('115 登录状态已失效，请到 115 设置重新授权后再刷新。');
     expect(feedback.toastType).toBe('warning');
     expect(feedback.action).toEqual({
-      hash: '#tab-settings/drive115-settings',
+      hash: '#tab-settings/drive-settings/115',
       label: '打开 115 设置',
     });
   });

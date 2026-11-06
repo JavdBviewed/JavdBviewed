@@ -3,6 +3,7 @@
  * @description Dashboard 9C 导航分组模型与 hash 解析
  * @module dashboard/tabs
  */
+import { normalizeSettingsSubPath } from '../../apps/dashboard/pages/settings/shared/settingsRouteAliases';
 
 export type DashboardNavItem = {
   id: string;
@@ -173,7 +174,10 @@ export function resolveDashboardNavState(hash: string | null | undefined): Dashb
     return getDefaultNavState();
   }
 
-  const [tabId = '', subPath] = normalized.split('/');
+  const [tabId = '', ...pathSegments] = normalized.split('/');
+  const subPath = tabId === 'tab-settings' && pathSegments.length > 0
+    ? normalizeSettingsSubPath(pathSegments.join('/'))
+    : pathSegments[0];
   if (!tabId) {
     return getDefaultNavState();
   }

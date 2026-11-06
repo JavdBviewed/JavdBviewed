@@ -47,6 +47,15 @@ describe('settingsNavModel', () => {
     expect(settingsNavHref('enhancement-settings')).toBe('#tab-settings/enhancement-settings');
   });
 
+  it('offers one drive settings entry for 115 and OpenList', () => {
+    const drive = SETTINGS_NAV_ITEMS.find((item) => item.id === 'drive-settings');
+    expect(drive?.title).toBe('网盘设置');
+    expect(drive?.description).toContain('OpenList');
+    expect(resolveSettingsSubpageMeta('drive-settings').title).toBe('网盘设置');
+    expect(settingsNavHref('drive-settings')).toBe('#tab-settings/drive-settings/115');
+    expect(SETTINGS_NAV_ITEMS.some((item) => item.id === 'drive115-settings')).toBe(false);
+  });
+
   it('drops the display-settings entry after the IA migration', () => {
     // 2026-09-27 IA 裁决：显示设置整页迁入功能增强 · 列表页增强，入口卡片随之移除
     expect(SETTINGS_NAV_ITEMS.some((i) => i.id === 'display-settings')).toBe(false);

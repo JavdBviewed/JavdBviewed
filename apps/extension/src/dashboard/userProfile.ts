@@ -208,7 +208,7 @@ function bindUserProfileEvents(): void {
     if (drive115GotoSettingsBtn) {
         drive115GotoSettingsBtn.addEventListener('click', () => {
             // 使用 hash 导航到设置页面的 115 网盘设置
-            window.location.hash = '#tab-settings/drive115-settings';
+            window.location.hash = '#tab-settings/drive-settings/115';
         });
     }
 

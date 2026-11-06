@@ -16,6 +16,7 @@
 export const LEGACY_SETTINGS_SUBSECTION_ALIASES: Readonly<Record<string, string>> = {
   'global-actions': 'advanced-settings',
   'emby-settings': 'media-library-settings',
+  'drive115-settings': 'drive-settings',
 };
 
 /**
@@ -26,4 +27,11 @@ export function normalizeSettingsSubSectionId(subSection: string | null | undefi
   const trimmed = subSection.trim();
   if (!trimmed) return '';
   return LEGACY_SETTINGS_SUBSECTION_ALIASES[trimmed] ?? trimmed;
+}
+
+export function normalizeSettingsSubPath(subPath: string): string {
+  const [rawId, ...segments] = subPath.split('/');
+  const id = normalizeSettingsSubSectionId(rawId);
+  if (id === 'drive-settings') return [id, segments[0] || '115', ...segments.slice(1)].join('/');
+  return [id, ...segments].join('/');
 }

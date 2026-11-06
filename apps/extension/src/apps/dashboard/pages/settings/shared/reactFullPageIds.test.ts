@@ -50,4 +50,9 @@ describe('React full settings pages', () => {
       expect(isReactFullSettingsPage(item.id), item.id).toBe(true);
     }
   });
+
+  it('mounts the renamed drive settings page rather than treating the old id as a new page', () => {
+    expect(isReactFullSettingsPage('drive-settings')).toBe(true);
+    expect(isReactFullSettingsPage('drive115-settings')).toBe(false);
+  });
 });
