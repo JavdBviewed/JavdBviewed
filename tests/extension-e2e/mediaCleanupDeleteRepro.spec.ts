@@ -74,6 +74,62 @@ function installCleanupDeleteMock() {
 }
 
 test.describe('media cleanup delete failure repro (mocked background)', () => {
+  test('footer 清除失效条目先确认，取消零写入，确认后更新本地状态', async ({}, testInfo) => {
+    const harnessOptions = resolveExtensionHarnessOptions({
+      ...process.env,
+      JAVDB_EXTENSION_USE_CHROME_DATA: '0',
+      JAVDB_EXTENSION_PROFILE: testInfo.outputPath('profile-clear-invalid'),
+    }, process.cwd());
+    const context = await launchExtensionContext(harnessOptions, { headless: false, channel: 'chromium' });
+    try {
+      const extensionId = await readExtensionId(context);
+      await suppressReleaseAnnouncementForTest(context);
+      const page = await context.newPage();
+      await page.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-media'), { waitUntil: 'domcontentloaded' });
+      await dismissReleaseAnnouncementIfPresent(page);
+      const keys = { settings: STORAGE_KEYS.SETTINGS, cleanup: STORAGE_KEYS.MEDIA_CLEANUP_STATE };
+      await page.evaluate(({ settings, cleanup }) => chrome.storage.local.set({
+        [settings]: {
+          emby: { enabled: true, mediaServers: [{
+            id: 'active', type: 'emby', name: 'Active', url: 'http://media.local:8096', apiKey: 'mock', enabled: true,
+          }] },
+        },
+        [cleanup]: {
+          version: 1,
+          items: { 'MOCK-001': {
+            id: 'MOCK-001', titleId: 'MOCK-001', code: 'MOCK-001', title: 'MOCK-001', reason: 'watched',
+            addedAt: 1, updatedAt: 1,
+            copies: { orphan: {
+              copyId: 'orphan', source: 'emby', serverName: 'Removed', serverUrl: 'http://removed.invalid:8096',
+              itemId: 'missing', fileName: 'MOCK-001.mp4', lastFoundAt: 1, status: 'pending', updatedAt: 1,
+            } },
+          } },
+          observedWatchedCopyIds: [], updatedAt: 1,
+        },
+      }), keys);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: '媒体库工具' }).click();
+      await page.getByRole('button', { name: /已看影片整理/ }).click();
+      const overlay = page.locator('[data-media-cleanup-overlay="1"]');
+      const button = overlay.locator('.ml-cleanup-footer').getByRole('button', { name: '清除失效条目（1）' });
+      await expect(button).toBeVisible();
+      await button.click();
+      const dialog = overlay.getByRole('alertdialog', { name: '确认清除 1 个失效条目？' });
+      await expect(dialog).toContainText('1 部影片');
+      await dialog.getByRole('button', { name: '取消' }).click();
+      expect(await page.evaluate((key) => chrome.storage.local.get(key).then((data) =>
+        data[key].items['MOCK-001'].copies.orphan.status), keys.cleanup)).toBe('pending');
+      await button.click();
+      await overlay.getByRole('alertdialog', { name: '确认清除 1 个失效条目？' })
+        .getByRole('button', { name: '确认清除' }).click();
+      await expect(button).toHaveCount(0);
+      expect(await page.evaluate((key) => chrome.storage.local.get(key).then((data) =>
+        data[key].items['MOCK-001'].copies.orphan.status), keys.cleanup)).toBe('skipped');
+    } finally {
+      await context.close();
+    }
+  });
+
   // 需要真实 Chrome 用户数据基线（Windows %LOCALAPPDATA%\Google\Chrome\User Data），
   // 在 Linux 主机上无法提供，先标记 fixme；UI 契约（失败切「操作记录」tab）由本文件前两个用例 + 单测覆盖。
   test.fixme('mixed batch: 115 ok + Emby failed → 失败原因可见且持久化', async ({}, testInfo) => {

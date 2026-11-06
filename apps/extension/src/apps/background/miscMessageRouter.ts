@@ -351,20 +351,55 @@ export function registerMiscRouter(): void {
         }
         case 'MEDIA_CLEANUP_CLEAR_INVALID_COPIES': {
           // 清除来源已失效的副本：本地删索引条目 + 副本置 skipped（操作记录），不联网
+          // 目标逐个校验后按批处理，保留旧版单目标请求的兼容路径。
           void (async () => {
             try {
-              const titleId = String(message?.titleId || '').trim();
-              const copyId = String(message?.copyId || '').trim();
-              if (!titleId || !copyId) {
-                sendResponse({ success: false, error: '缺少影片或来源副本标识' });
-                return;
+              let targets: Array<{ titleId: string; copyId: string }>;
+              if (Array.isArray(message?.targets)) {
+                const rawTargets = message.targets as Array<Record<string, unknown>>;
+                if (rawTargets.length === 0) {
+                  sendResponse({ success: false, error: '清除目标为空，无可清除条目' });
+                  return;
+                }
+                if (rawTargets.length > 1000) {
+                  sendResponse({ success: false, error: '清除目标数量超过上限（1000）' });
+                  return;
+                }
+                targets = rawTargets.map((t) => ({
+                  titleId: String(t?.titleId || '').trim(),
+                  copyId: String(t?.copyId || '').trim(),
+                }));
+                if (targets.some((target) => !target.titleId || !target.copyId)) {
+                  sendResponse({ success: false, error: '清除目标包含无效影片或来源副本标识' });
+                  return;
+                }
+              } else {
+                // 单目标回退：与历史行为逐字等价，现有调用方零改动
+                const titleId = String(message?.titleId || '').trim();
+                const copyId = String(message?.copyId || '').trim();
+                if (!titleId || !copyId) {
+                  sendResponse({ success: false, error: '缺少影片或来源副本标识' });
+                  return;
+                }
+                targets = [{ titleId, copyId }];
               }
-              const result = await clearInvalidSourceCopies({ targets: [{ titleId, copyId }] });
+              const CLEAR_INVALID_COPIES_BATCH_SIZE = 500;
+              let clearedCount = 0;
+              let removedEntryCount = 0;
+              let skippedCount = 0;
+              // 顺序处理各批，任一批抛错进入既有 catch；已累加计数不回滚也不上报
+              for (let offset = 0; offset < targets.length; offset += CLEAR_INVALID_COPIES_BATCH_SIZE) {
+                const batchTargets = targets.slice(offset, offset + CLEAR_INVALID_COPIES_BATCH_SIZE);
+                const result = await clearInvalidSourceCopies({ targets: batchTargets });
+                clearedCount += result.clearedCount;
+                removedEntryCount += result.removedEntryCount;
+                skippedCount += result.skippedCount;
+              }
               sendResponse({
                 success: true,
-                clearedCount: result.clearedCount,
-                removedEntryCount: result.removedEntryCount,
-                skippedCount: result.skippedCount,
+                clearedCount,
+                removedEntryCount,
+                skippedCount,
               });
             } catch (e) {
               sendResponse({ success: false, error: e?.message || String(e) });
