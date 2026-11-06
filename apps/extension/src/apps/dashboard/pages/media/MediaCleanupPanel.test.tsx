@@ -9,7 +9,8 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sendRuntimeMessage } = vi.hoisted(() => ({
+const { sendRuntimeMessage, showMessage } = vi.hoisted(() => ({
+  showMessage: vi.fn(),
   sendRuntimeMessage: vi.fn(async (message: { type?: string }) => {
     if (message?.type === 'MEDIA_CLEANUP_CLEAR_INVALID_COPIES') {
       return { success: true, clearedCount: 1, removedEntryCount: 1, skippedCount: 0 };
@@ -21,6 +22,8 @@ const { sendRuntimeMessage } = vi.hoisted(() => ({
 vi.mock('../../../../platform/browser/runtimeMessages', () => ({
   sendRuntimeMessage,
 }));
+
+vi.mock('../../../../dashboard/ui/toast', () => ({ showMessage }));
 
 import { MediaCleanupPanel } from './MediaCleanupPanel';
 
@@ -187,7 +190,112 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function findFooterClearButton(): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>('.ml-cleanup-footer button'))
+    .find((button) => button.textContent?.includes('清除失效条目'));
+}
+
+function findConfirmButton(label: string): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll<HTMLButtonElement>('.ml-cleanup-confirm button'))
+    .find((button) => button.textContent === label);
+}
+
 describe('来源已失效（孤儿）副本', () => {
+  it('footer 展示所有待处理失效副本数量，取消确认不发送消息，历史页隐藏 footer', async () => {
+    const state = cleanupStateFixture();
+    state.items['AAA-001'].copies['orphan-deleting'] = {
+      ...state.items['AAA-001'].copies[ORPHAN_COPY_ID],
+      copyId: 'orphan-deleting',
+      status: 'deleting',
+    };
+    chromeStub.store.media_cleanup_state = state;
+    await renderPanel();
+
+    const clearButton = findFooterClearButton();
+    expect(clearButton?.textContent).toContain('清除失效条目（2）');
+    expect(clearButton?.closest('.ml-cleanup-bulk-actions')).toBeNull();
+    await clickInAct(clearButton as HTMLButtonElement);
+    expect(container.querySelector('[role="alertdialog"]')?.textContent).toContain('2 个失效条目');
+    expect(container.querySelector('[role="alertdialog"]')?.textContent).toContain('1 部影片');
+    expect(sendRuntimeMessage).not.toHaveBeenCalled();
+    await clickInAct(findConfirmButton('取消') as HTMLButtonElement);
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(sendRuntimeMessage).not.toHaveBeenCalled();
+
+    const historyTab = Array.from(container.querySelectorAll<HTMLElement>('[role="tab"]'))
+      .find((tab) => tab.textContent === '操作记录');
+    await clickInAct(historyTab as HTMLElement);
+    expect(container.querySelector('.ml-cleanup-footer')).toBeNull();
+  });
+
+  it('没有待处理失效副本时不显示 footer 清除按钮', async () => {
+    const state = cleanupStateFixture();
+    state.items['AAA-001'].copies[ORPHAN_COPY_ID].status = 'deleted';
+    chromeStub.store.media_cleanup_state = state;
+    await renderPanel();
+    expect(findFooterClearButton()).toBeUndefined();
+  });
+
+  it('确认后只发送待处理失效副本，累计结果展示并重新加载', async () => {
+    await renderPanel();
+    await clickInAct(findFooterClearButton() as HTMLButtonElement);
+    await clickInAct(findConfirmButton('确认清除') as HTMLButtonElement);
+
+    expect(sendRuntimeMessage).toHaveBeenCalledWith({
+      type: 'MEDIA_CLEANUP_CLEAR_INVALID_COPIES',
+      targets: [{ titleId: 'AAA-001', copyId: ORPHAN_COPY_ID }],
+    });
+    expect(showMessage).toHaveBeenCalledWith(
+      '已清除 1 个失效条目（移除索引 1 条、跳过 0 条）', 'success', 6000,
+    );
+    expect(chromeStub.get).toHaveBeenCalled();
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
+  it('600 个失效副本顺序分为 500 和 100 两批', async () => {
+    const state = cleanupStateFixture();
+    const copies = state.items['AAA-001'].copies;
+    for (let index = 1; index < 600; index += 1) {
+      const copyId = `orphan-${index}`;
+      copies[copyId] = { ...copies[ORPHAN_COPY_ID], copyId };
+    }
+    chromeStub.store.media_cleanup_state = state;
+    sendRuntimeMessage.mockImplementationOnce(async () => ({ success: true, clearedCount: 500, removedEntryCount: 400, skippedCount: 0 }));
+    sendRuntimeMessage.mockImplementationOnce(async () => ({ success: true, clearedCount: 100, removedEntryCount: 80, skippedCount: 0 }));
+    await renderPanel();
+    await clickInAct(findFooterClearButton() as HTMLButtonElement);
+    await clickInAct(findConfirmButton('确认清除') as HTMLButtonElement);
+    const clearCalls = sendRuntimeMessage.mock.calls.filter(([request]) => request.type === 'MEDIA_CLEANUP_CLEAR_INVALID_COPIES');
+    expect(clearCalls).toHaveLength(2);
+    expect(clearCalls[0][0].targets).toHaveLength(500);
+    expect(clearCalls[1][0].targets).toHaveLength(100);
+    expect(showMessage).toHaveBeenCalledWith(
+      '已清除 600 个失效条目（移除索引 480 条、跳过 0 条）', 'success', 6000,
+    );
+  });
+
+  it('批量后台处理失败时报告已完成数，不继续发后续批次', async () => {
+    const state = cleanupStateFixture();
+    const copies = state.items['AAA-001'].copies;
+    for (let index = 1; index < 1001; index += 1) {
+      const copyId = `orphan-${index}`;
+      copies[copyId] = { ...copies[ORPHAN_COPY_ID], copyId };
+    }
+    chromeStub.store.media_cleanup_state = state;
+    sendRuntimeMessage.mockImplementationOnce(async () => ({ success: true, clearedCount: 500, removedEntryCount: 300, skippedCount: 0 }));
+    sendRuntimeMessage.mockImplementationOnce(async () => ({ success: false, error: '本地存储失败' }));
+    await renderPanel();
+    await clickInAct(findFooterClearButton() as HTMLButtonElement);
+    await clickInAct(findConfirmButton('确认清除') as HTMLButtonElement);
+
+    const clearCalls = sendRuntimeMessage.mock.calls.filter(([request]) => request.type === 'MEDIA_CLEANUP_CLEAR_INVALID_COPIES');
+    expect(clearCalls).toHaveLength(2);
+    expect(showMessage).toHaveBeenCalledWith(
+      '已清除 500 个失效条目，后续批次未完成：本地存储失败', 'error', 7000,
+    );
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
   it('待处理页：孤儿行标记 + 勾选禁用；正常副本可勾选，卡片级全选只选可勾选副本', async () => {
     await renderPanel();
 

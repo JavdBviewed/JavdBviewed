@@ -371,6 +371,7 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
   const [pageNumber, setPageNumber] = useState(1);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
+  const [confirmingInvalid, setConfirmingInvalid] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [settings, setSettings] = useState<unknown>(null);
@@ -403,6 +404,24 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
     }
     return keys;
   }, [cleanup.items, validSourceKeys]);
+
+  const invalidPendingTargets = useMemo<SelectedCopy[]>(() => {
+    const targets: SelectedCopy[] = [];
+    for (const item of Object.values(cleanup.items)) {
+      for (const copy of Object.values(item.copies)) {
+        if ((copy.status === 'pending' || copy.status === 'deleting')
+          && invalidCopyKeys.has(selectionKey(item.titleId, copy.copyId))) {
+          targets.push({ titleId: item.titleId, copyId: copy.copyId });
+        }
+      }
+    }
+    return targets;
+  }, [cleanup.items, invalidCopyKeys]);
+
+  const invalidPendingTitleCount = useMemo(
+    () => new Set(invalidPendingTargets.map((target) => target.titleId)).size,
+    [invalidPendingTargets],
+  );
 
   const titleGroups = useMemo<MediaCleanupTitleGroup[]>(() => Object.values(cleanup.items).map((item) => {
     // 待处理只展示可操作状态（pending/deleting）；
@@ -584,6 +603,63 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
     }
   };
 
+  const clearInvalidCopies = async () => {
+    if (busy || invalidPendingTargets.length === 0) return;
+    setBusy(true);
+    setMessage(`正在清除 0 / ${invalidPendingTargets.length} 个失效条目`);
+    let clearedCount = 0;
+    let removedEntryCount = 0;
+    let skippedCount = 0;
+    let failureReason = '';
+    const batchSize = 500;
+    try {
+      for (let offset = 0; offset < invalidPendingTargets.length; offset += batchSize) {
+        const targets = invalidPendingTargets.slice(offset, offset + batchSize);
+        try {
+          const response = await sendRuntimeMessage<{
+            success?: boolean;
+            error?: string;
+            clearedCount?: number;
+            removedEntryCount?: number;
+            skippedCount?: number;
+          }>({
+            type: 'MEDIA_CLEANUP_CLEAR_INVALID_COPIES',
+            targets,
+          });
+          if (!response?.success) {
+            failureReason = response?.error || '后台处理失败';
+            break;
+          }
+          clearedCount += response.clearedCount || 0;
+          removedEntryCount += response.removedEntryCount || 0;
+          skippedCount += response.skippedCount || 0;
+          setMessage(`正在清除 ${Math.min(offset + targets.length, invalidPendingTargets.length)} / ${invalidPendingTargets.length} 个失效条目`);
+        } catch {
+          failureReason = '无法连接后台服务';
+          break;
+        }
+      }
+      setConfirmingInvalid(false);
+      if (failureReason) {
+        const failureMessage = `已清除 ${clearedCount} 个失效条目，后续批次未完成：${failureReason}`;
+        setMessage(failureMessage);
+        showMessage(failureMessage, 'error', 7000);
+        return;
+      }
+      if (clearedCount > 0) {
+        const successMessage = `已清除 ${clearedCount} 个失效条目（移除索引 ${removedEntryCount} 条、跳过 ${skippedCount} 条）`;
+        setMessage(successMessage);
+        showMessage(successMessage, 'success', 6000);
+      } else {
+        setMessage('该条目已无待清除内容');
+        showMessage('该条目已无待清除内容', 'info', 4000);
+      }
+    } finally {
+      setBusy(false);
+      await reload();
+    }
+  };
+
   const scanWatched = async () => {
     if (busy) return;
     setBusy(true);
@@ -747,12 +823,34 @@ export function MediaCleanupPanel({ refreshKey = 0, onScan }: MediaCleanupPanelP
         <div className="ml-cleanup-footer">
           <span>已选择 {selectedTitleCount} 部影片 / {selected.length} 个文件</span>
           <div>
+            {invalidPendingTargets.length > 0 ? (
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => setConfirmingInvalid(true)}
+              >
+                清除失效条目（{invalidPendingTargets.length}）
+              </Button>
+            ) : null}
             <Button variant="secondary" disabled={busy || selected.length === 0} onClick={() => setSelectedKeys(new Set())}>
               清空选择
             </Button>
             <Button disabled={busy || selected.length === 0} onClick={() => setConfirming(true)}>
               删除选中的文件
             </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmingInvalid ? (
+        <div className="ml-cleanup-confirm" role="alertdialog" aria-modal="true" aria-labelledby="cleanup-invalid-confirm-title">
+          <div className="ml-cleanup-confirm-body">
+            <h3 id="cleanup-invalid-confirm-title">确认清除 {invalidPendingTargets.length} 个失效条目？</h3>
+            <p>本次会处理 {invalidPendingTitleCount} 部影片。此操作只移除本地索引中的失效来源记录，不访问媒体服务器。</p>
+            <div className="ml-cleanup-confirm-actions">
+              <Button variant="secondary" disabled={busy} onClick={() => setConfirmingInvalid(false)}>取消</Button>
+              <Button disabled={busy} onClick={() => void clearInvalidCopies()}>{busy ? '清除中…' : '确认清除'}</Button>
+            </div>
           </div>
         </div>
       ) : null}
