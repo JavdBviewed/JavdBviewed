@@ -31,6 +31,7 @@ import {
   clearCloudPending,
   ensureInitialPending,
   listCloudPending,
+  refreshCloudPendingWatchedFields,
 } from './chromePendingStore';
 import {
   CLOUD_SETTINGS_STORAGE_KEY,
@@ -686,6 +687,13 @@ export function createExtensionEntityStore(): LocalEntityStore {
         if (works[0]?.id) await newWorksGet(works[0].id);
       } catch {
         // 忽略：探测失败不阻断远端应用
+      }
+
+      try {
+        await refreshCloudPendingWatchedFields(entities);
+      } catch (error) {
+        // 刷新 pending 失败不阻断远端应用
+        console.warn('[cloudSync] 刷新 pending 失败，不阻断远端应用', error);
       }
     },
     async listPending() {

@@ -231,3 +231,78 @@ export async function ensureInitialPending(snapshot: SyncEntity[]): Promise<numb
     return merged.length;
   });
 }
+
+/**
+ * 镜像来源：JavdBviewed-Cloud/internal/store/patch_overlay.go video 白名单（9-18 行）。
+ * 字面六项、顺序固定，云端白名单变更须同步此处（11-05-ext-pending-watched-refresh PRD §4）。
+ */
+export const CLOUD_OVERLAY_WATCHED_FIELDS = [
+  'sourceType',
+  'sourceId',
+  'positionMs',
+  'durationMs',
+  'completed',
+  'status',
+] as const;
+
+/**
+ * 纯函数：payload 仅覆盖云端白名单六键；source 某键为 undefined 则保留 pending 原值（不写 null、
+ * 不写 undefined 键）；status 必选恒可覆盖，另五个可选。信封字段 id/type/revision/updatedAt/deletedAt
+ * 一律取 pending 原值、不 bump updatedAt，其余 payload 字段逐字保留。六键全同时返回原引用，
+ * 可被既有 stableStringify 判等短路（不自造归一/深拷贝）。
+ */
+export function overlayWatchedFieldsOnPending(pendingEntity: SyncEntity, source: Record<string, unknown>): SyncEntity {
+  const pendingPayload = (pendingEntity.payload ?? {}) as Record<string, unknown>;
+  const nextPayload: Record<string, unknown> = { ...pendingPayload };
+  let changed = false;
+  for (const field of CLOUD_OVERLAY_WATCHED_FIELDS) {
+    const sourceValue = source[field];
+    if (sourceValue === undefined) continue;
+    if (pendingPayload[field] !== sourceValue) changed = true;
+    nextPayload[field] = sourceValue;
+  }
+  if (!changed) return pendingEntity;
+  return { ...pendingEntity, payload: nextPayload };
+}
+
+/** 入站 video 仅刷新已存在的 pending 快照，不把入站数据作为新待推送变更入队。 */
+export async function refreshCloudPendingWatchedFields(entities: SyncEntity[]): Promise<number> {
+  return enqueuePendingMutation(async () => {
+    const pending = await readPendingStorage();
+    const effective = new Map(
+      mergePending(pending.base, pending.delta).map((entity) => [entityKey(entity.type, entity.id), entity]),
+    );
+    const nextDelta: Record<string, SyncEntity> = { ...pending.delta };
+    const changedKeys = new Set<string>();
+
+    for (const entity of entities) {
+      if (entity.type !== 'video') continue;
+      const key = entityKey(entity.type, entity.id);
+      const current = effective.get(key);
+      if (!current) continue;
+
+      const inboundPayload = (entity.payload ?? {}) as Record<string, unknown>;
+      if (overlayWatchedFieldsOnPending(current, inboundPayload) === current) continue;
+
+      let source = inboundPayload;
+      try {
+        const { viewedGet } = await import('../../platform/storage/indexedDb');
+        const viewed = await viewedGet(entity.id);
+        if (viewed) source = viewed as unknown as Record<string, unknown>;
+      } catch {
+        // 入站批次可能是旧的本地快照，IDB 故障时不能据此覆盖 pending。
+        continue;
+      }
+
+      const patched = overlayWatchedFieldsOnPending(current, source);
+      if (stableStringify(patched) === stableStringify(current)) continue;
+      nextDelta[key] = patched;
+      effective.set(key, patched);
+      changedKeys.add(key);
+    }
+
+    if (!changedKeys.size) return 0;
+    await writePending({ [CLOUD_PENDING_DELTA_STORAGE_KEY]: nextDelta });
+    return changedKeys.size;
+  });
+}
