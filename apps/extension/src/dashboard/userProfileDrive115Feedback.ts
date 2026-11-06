@@ -25,7 +25,7 @@ export function buildDrive115UserInfoFailureCopy(detail: string): Drive115UserIn
       toastMessage: '115 登录状态已失效，请到 115 设置重新授权后再刷新。',
       toastType: 'warning',
       action: {
-        hash: '#tab-settings/drive115-settings',
+        hash: '#tab-settings/drive-settings/115',
         label: '打开 115 设置',
       },
     };

@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   LEGACY_SETTINGS_SUBSECTION_ALIASES,
+  normalizeSettingsSubPath,
   normalizeSettingsSubSectionId,
 } from './settingsRouteAliases';
 
@@ -14,10 +15,12 @@ describe('legacy settings route aliases', () => {
     // 全局操作并入高级配置；emby-settings 改名 media-library-settings
     expect(normalizeSettingsSubSectionId('global-actions')).toBe('advanced-settings');
     expect(normalizeSettingsSubSectionId('emby-settings')).toBe('media-library-settings');
+    expect(normalizeSettingsSubSectionId('drive115-settings')).toBe('drive-settings');
   });
 
-  it('keeps the alias table to exactly the two retired ids', () => {
+  it('keeps the alias table to the retired ids', () => {
     expect(Object.keys(LEGACY_SETTINGS_SUBSECTION_ALIASES).sort()).toEqual([
+      'drive115-settings',
       'emby-settings',
       'global-actions',
     ]);
@@ -43,5 +46,15 @@ describe('legacy settings route aliases', () => {
 
   it('trims surrounding whitespace before lookup', () => {
     expect(normalizeSettingsSubSectionId('  emby-settings  ')).toBe('media-library-settings');
+  });
+
+  it('normalizes the retired drive hash without dropping the selected tab', () => {
+    expect(normalizeSettingsSubPath('drive115-settings')).toBe('drive-settings/115');
+    expect(normalizeSettingsSubPath('drive115-settings/115')).toBe('drive-settings/115');
+    expect(normalizeSettingsSubPath('drive115-settings/openlist')).toBe('drive-settings/openlist');
+    expect(normalizeSettingsSubPath('drive-settings')).toBe('drive-settings/115');
+    expect(normalizeSettingsSubPath('drive-settings/openlist')).toBe('drive-settings/openlist');
+    expect(normalizeSettingsSubPath('emby-settings')).toBe('media-library-settings');
+    expect(normalizeSettingsSubPath('enhancement-settings/list')).toBe('enhancement-settings/list');
   });
 });

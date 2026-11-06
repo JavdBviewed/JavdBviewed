@@ -62,9 +62,9 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     description: 'JavDB数据同步配置',
     icon: 'fa-sync-alt',
   },  {
-    id: 'drive115-settings',
-    title: '115网盘',
-    description: '授权、离线下载与资料库片库',
+    id: 'drive-settings',
+    title: '网盘设置',
+    description: '115 授权、离线下载与 OpenList 推送',
     icon: 'fa-cloud-download-alt',
   },
   {
@@ -118,7 +118,7 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
  * 生成设置子页 hash
  */
 export function settingsNavHref(id: string): string {
-  return `#tab-settings/${id}`;
+  return `#tab-settings/${id === 'drive-settings' ? 'drive-settings/115' : id}`;
 }
 
 /**

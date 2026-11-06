@@ -13,6 +13,7 @@ import { Badge } from '../../../../../ui/primitives/Badge/Badge';
 import { Button } from '../../../../../ui/primitives/Button/Button';
 import { Input } from '../../../../../ui/primitives/Input/Input';
 import { OpenListSettingsSection } from './OpenListSettingsSection';
+import { DriveSettingsTabs } from './DriveSettingsTabs';
 import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 import { STORAGE_KEYS } from '../../../../../utils/config';
 import { getValue } from '../../../../../utils/storage';
@@ -1194,7 +1195,6 @@ export function Drive115SettingsPage() {
     },
     { id: DRIVE115_SECTION_IDS.credentials, label: '凭据与状态', shortLabel: '凭据' },
     { id: DRIVE115_SECTION_IDS.download, label: '下载设置', shortLabel: '下载' },
-    { id: DRIVE115_SECTION_IDS.openlistPush, label: 'OpenList 推送', shortLabel: '推送' },
     {
       id: DRIVE115_SECTION_IDS.mediaLibrary,
       label: '资料库',
@@ -1206,8 +1206,8 @@ export function Drive115SettingsPage() {
 
   return (
     <SettingsPageFrame
-      title="115 网盘"
-      description="授权、离线下载，以及资料库片库目录。片库依赖你已整理的封面与 NFO；扩展只做限频索引，不在线深刮。"
+      title="网盘设置"
+      description="115 网盘授权与离线下载、资料库片库，以及 OpenList 推送。"
       rootId="drive115-settings"
       sectionNavItems={sectionNavItems}
       rootDataAttrs={{ 'data-drive115-settings-react': '1' }}
@@ -1215,7 +1215,8 @@ export function Drive115SettingsPage() {
       {loading ? (
         <p className="m-0 text-[13px] text-[var(--color-fg-muted)]">加载中…</p>
       ) : (
-        <div className="drive115-settings-container">
+        <DriveSettingsTabs
+          drive115={<div className="drive115-settings-container">
           {saveError ? (
             <p className="m-0 rounded-[var(--radius-2)] border border-[var(--color-danger,#c0392b)]/40 bg-[var(--color-surface-2)] px-3 py-2 text-[12.5px] text-[var(--color-danger,#c0392b)]">
               保存失败：{saveError}
@@ -1791,10 +1792,6 @@ export function Drive115SettingsPage() {
             </div>
           </Drive115Group>
 
-          <Drive115Group title="OpenList 推送" navId={DRIVE115_SECTION_IDS.openlistPush}>
-            <OpenListSettingsSection />
-          </Drive115Group>
-
           <Drive115Group title="资料库" navId={DRIVE115_SECTION_IDS.mediaLibrary} beta>
             <p className="m-0 px-2 text-[12.5px] leading-relaxed text-[var(--color-fg-muted)]">
               配置你已自备刮削的片库根目录（典型：每部影片一个文件夹，内含视频 + 封面 + NFO）。
@@ -2109,7 +2106,13 @@ export function Drive115SettingsPage() {
               )}
             </div>
           </Drive115Group>
-        </div>
+          </div>}
+          openlist={<div className="drive115-settings-container">
+            <Drive115Group title="OpenList 推送" navId={DRIVE115_SECTION_IDS.openlistPush}>
+              <OpenListSettingsSection />
+            </Drive115Group>
+          </div>}
+        />
       )}
     </SettingsPageFrame>
   );

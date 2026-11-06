@@ -227,7 +227,7 @@ export async function initSettingsPage(): Promise<void> {
                 const { getSyncSettings } = await import('./sync');
                 (await getSyncSettings()).init();
             },
-            'drive115-settings': async () => {
+            'drive-settings': async () => {
                 const { getDrive115SettingsV2 } = await import('./drive115');
                 (await getDrive115SettingsV2()).init();
             },
@@ -344,7 +344,7 @@ export async function initSettingsTab(): Promise<void> {
                 const { getSyncSettings } = await import('./sync');
                 (await getSyncSettings()).init();
             },
-            'drive115-settings': async () => {
+            'drive-settings': async () => {
                 const { getDrive115SettingsV2 } = await import('./drive115');
                 (await getDrive115SettingsV2()).init();
             },

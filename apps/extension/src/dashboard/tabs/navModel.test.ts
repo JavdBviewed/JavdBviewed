@@ -13,6 +13,18 @@ import {
 } from './navModel';
 
 describe('Dashboard 9C navigation model', () => {
+  it('preserves settings drive subtab hashes during navigation', () => {
+    const state = resolveDashboardNavState('#tab-settings/drive-settings/openlist');
+    expect(state.subPath).toBe('drive-settings/openlist');
+    expect(buildDashboardNavHash(state)).toBe('#tab-settings/drive-settings/openlist');
+    for (const [legacy, canonical] of [
+      ['#tab-settings/drive115-settings', '#tab-settings/drive-settings/115'],
+      ['#tab-settings/drive115-settings/115', '#tab-settings/drive-settings/115'],
+      ['#tab-settings/drive115-settings/openlist', '#tab-settings/drive-settings/openlist'],
+    ]) {
+      expect(buildDashboardNavHash(resolveDashboardNavState(legacy))).toBe(canonical);
+    }
+  });
   it('defines the accepted top-level groups with full second-level labels', () => {
     expect(DASHBOARD_NAV_GROUPS.map(group => group.label)).toEqual([
       '首页',
@@ -94,7 +106,7 @@ describe('Dashboard 9C navigation model', () => {
       groupId: 'settings',
       itemId: 'settings-center',
       tabId: 'tab-settings',
-      subPath: 'drive115-settings',
+      subPath: 'drive-settings/115',
     });
   });
 

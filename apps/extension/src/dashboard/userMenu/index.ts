@@ -120,7 +120,7 @@ function bindMenuEvents(root: HTMLElement): () => void {
       return;
     }
     if (action === 'drive115') {
-      window.location.hash = '#tab-settings/drive115-settings';
+      window.location.hash = '#tab-settings/drive-settings/115';
       setOpen(false);
       return;
     }

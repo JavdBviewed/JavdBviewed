@@ -4,7 +4,7 @@
 import { ensureMounted, loadPartial, injectPartial } from '../loaders/partialsLoader';
 import { ensureStylesLoaded } from '../loaders/stylesLoader';
 import { TAB_PARTIALS } from './resources';
-import { normalizeSettingsSubSectionId } from '../../apps/dashboard/pages/settings/shared/settingsRouteAliases';
+import { normalizeSettingsSubPath } from '../../apps/dashboard/pages/settings/shared/settingsRouteAliases';
 
 function getTabPartial(tabId: string) {
   return TAB_PARTIALS[tabId] ?? null;
@@ -15,14 +15,15 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
     // 处理设置页面的子路径（tab-settings/xxx-settings）
     if (tabId === 'tab-settings') {
       const hash = window.location.hash.substring(1);
-      const [mainTab, rawSubSection] = hash.split('/');
-      // 2026-10-03 IA 裁决：退役路由 id 归一化（global-actions → advanced-settings、
-      // emby-settings → media-library-settings）。必须早于 display-settings 分支 /
-      // isReactFullSettingsPage 判定 / 遗留 init，两处判断都只能看到新 id。
-      const subSection = normalizeSettingsSubSectionId(rawSubSection);
-      if (mainTab === 'tab-settings' && rawSubSection && subSection !== rawSubSection) {
+      const [mainTab, ...pathSegments] = hash.split('/');
+      // 退役路由 id 归一化必须早于 React 全页判定与遗留 init；
+      // 网盘旧路由保留子标签，没有后缀时落到 115。
+      const rawSubPath = pathSegments.join('/');
+      const normalizedSubPath = normalizeSettingsSubPath(rawSubPath);
+      const [subSection] = normalizedSubPath.split('/');
+      if (mainTab === 'tab-settings' && rawSubPath && normalizedSubPath !== rawSubPath) {
         // 旧书签/深链打开即规范 hash（replaceState 不触发 hashchange，无二次激活竞态）
-        history.replaceState(null, '', `#tab-settings/${subSection}`);
+        history.replaceState(null, '', `#tab-settings/${normalizedSubPath}`);
         console.debug('[mount] 设置子页：退役路由 id 已归一化 →', subSection);
       }
       
@@ -57,7 +58,7 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
               console.debug('[mount] 设置子页：React 全页 cloud-settings');
               return;
             }
-            if (subSection === 'drive115-settings') {
+            if (subSection === 'drive-settings') {
               // 先加载 115 页级 CSS（React 页也会自行 import，这里保证 partial 同源样式就绪）
               try {
                 const subCfg = getTabPartial('tab-settings-drive115');
@@ -67,7 +68,7 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
               } catch {}
               const { mountDrive115SettingsPage } = await import('../../apps/dashboard/pages/settings/drive115/mountDrive115SettingsPage');
               mountDrive115SettingsPage('#tab-settings');
-              console.debug('[mount] 设置子页：React 全页 drive115-settings');
+              console.debug('[mount] 设置子页：React 全页 drive-settings');
               return;
             }
             if (subSection === 'media-library-settings') {
@@ -155,7 +156,9 @@ export async function mountTabIfNeeded(tabId: string): Promise<void> {
 
         // 设置子页：统一 React 壳（固定返回钮）+ 原 partial HTML/CSS/弹窗交互
         // 完整 React 内容页默认极少接入，避免覆盖已微调样式
-        const subPageKey = `tab-settings-${subSection.replace('-settings', '')}`;
+        const subPageKey = subSection === 'drive-settings'
+          ? 'tab-settings-drive115'
+          : `tab-settings-${subSection.replace('-settings', '')}`;
         const subCfg = getTabPartial(subPageKey);
 
         console.debug('[mount] 子页面配置键:', subPageKey);

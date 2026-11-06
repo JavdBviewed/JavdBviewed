@@ -1800,7 +1800,7 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
                     size="sm"
                     variant="secondary"
                     onClick={() => {
-                      window.location.hash = '#tab-settings/drive115-settings';
+                      window.location.hash = '#tab-settings/drive-settings/115';
                     }}
                   >
                     配置 115 片库
@@ -1812,7 +1812,7 @@ export function MediaLibraryPage({ isActive = true }: MediaLibraryPageProps) {
                   onClick={() => {
                     window.location.hash =
                       filter === '115'
-                        ? '#tab-settings/drive115-settings'
+                        ? '#tab-settings/drive-settings/115'
                         : '#tab-settings/media-library-settings';
                   }}
                 >

@@ -1,5 +1,50 @@
 /* 115网盘设置样式 */
 
+#drive115-settings .drive-settings-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 0 0 18px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+#drive115-settings .drive-settings-tabs a {
+    display: inline-block;
+    padding: 8px 16px;
+    color: var(--color-fg-muted);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+}
+
+#drive115-settings .drive-settings-tabs a.active {
+    color: var(--color-fg);
+    border-bottom-color: var(--drive115-settings-primary);
+    font-weight: 600;
+}
+
+#drive115-settings .drive-settings-tabs a:focus-visible {
+    outline: 2px solid var(--drive115-settings-primary);
+    outline-offset: -2px;
+}
+
+#drive115-settings:has([data-drive-tab="openlist"]:not([hidden])) .settings-section-nav-aside {
+    display: none;
+}
+
+#drive115-settings:has([data-drive-tab="openlist"]:not([hidden])) .settings-section-nav-layout {
+    display: block;
+}
+
+@media (min-width: 1101px) and (max-width: 1659px) {
+    #drive115-settings:has([data-drive-tab="openlist"]:not([hidden])) .settings-section-nav-content {
+        width: 100%;
+        margin-right: 0;
+    }
+}
+
+#drive115-settings [data-drive-tab][hidden] {
+    display: none;
+}
+
 /* CSS变量定义 - 浅色主题（仅用于设置页面） */
 #drive115-settings {
     --drive115-settings-primary: #ff6b35;
