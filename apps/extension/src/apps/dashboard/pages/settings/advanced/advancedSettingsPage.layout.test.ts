@@ -86,7 +86,7 @@ describe('AdvancedSettingsPage merged layout', () => {
   });
 
   it('normalizes retired settings route ids before the React full-page decision', () => {
-    expect(mountSource).toContain('normalizeSettingsSubSectionId');
+    expect(mountSource).toContain('normalizeSettingsSubPath');
     expect(mountSource).toContain('settingsRouteAliases');
     // 旧 hash 落页即规范为新 hash（照 display-settings 先例用 replaceState）
     expect(mountSource).toContain('history.replaceState');

@@ -33,7 +33,7 @@ describe('EmbySettingsPage media server layout', () => {
     expect(mountSource).toContain('mountEmbySettingsPage');
     expect(mountSource).toContain("subSection === 'media-library-settings'");
     expect(legacySettingsSource).toContain('isReactFullSettingsPage');
-    for (const pageId of ['cloud-settings', 'drive115-settings', 'media-library-settings']) {
+    for (const pageId of ['cloud-settings', 'drive-settings', 'media-library-settings']) {
       expect(reactFullSource).toContain(`'${pageId}'`);
     }
   });
