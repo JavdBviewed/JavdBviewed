@@ -22,6 +22,7 @@ import {
   getServerIndexKey,
   handleEmbyLibraryCheckCodes,
   handleEmbyLibraryGetItemDetail,
+  handleEmbyLibraryListFolders,
   handleEmbyLibraryReportProgress,
   handleEmbyLibraryResolveStream,
   handleEmbyLibrarySetPlayed,
@@ -69,6 +70,55 @@ function createDeps(fetchImpl: typeof fetch, storedState: EmbyLibraryState = { e
 }
 
 describe('emby library background handlers', () => {
+  it('reads Jellyfin 12 items through /Items with a userId query', async () => {
+    const sendResponse = vi.fn();
+    const jfServer: EmbyMediaServer = { ...server, type: 'jellyfin', accessToken: 'user-token', userId: 'user-1' };
+    const fetchImpl = createFetchMock(async () => new Response(JSON.stringify({ Items: [] }), { status: 200 }));
+    const deps = { ...createDeps(fetchImpl), getSettings: vi.fn(async () => ({ emby: { mediaServers: [jfServer], libraryStatus: { enabled: true } } })) };
+    await handleEmbyLibrarySync({ manual: true }, sendResponse, deps);
+    const url = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(url.pathname).toBe('/Items');
+    expect(url.searchParams.get('UserId')).toBe('user-1');
+    expect(url.searchParams.get('Fields')?.split(',')).toEqual(['Path']);
+  });
+
+  it('lists Jellyfin media folders with a login token when no API key is configured', async () => {
+    const sendResponse = vi.fn();
+    const jfServer: EmbyMediaServer = { ...server, type: 'jellyfin', apiKey: '', accessToken: 'user-token', userId: 'user-1' };
+    const fetchImpl = createFetchMock(async () => new Response(JSON.stringify({ Items: [{ Id: 'library-1', Name: 'Movies' }] }), { status: 200 }));
+    const deps = { ...createDeps(fetchImpl), getSettings: vi.fn(async () => ({ emby: { mediaServers: [jfServer] } })) };
+    await handleEmbyLibraryListFolders({ serverId: 'main' }, sendResponse, deps);
+    expect(fetchImpl).toHaveBeenCalled();
+    expect(new URL(String(fetchImpl.mock.calls[0][0])).pathname).toBe('/Library/VirtualFolders');
+    expect(new URL(String(fetchImpl.mock.calls[0][0])).searchParams.has('api_key')).toBe(false);
+    expect(fetchImpl.mock.calls[0][1]?.headers).toMatchObject({ Authorization: expect.stringContaining('Token="user-token"') });
+  });
+
+  it.each([true, false])('marks Jellyfin 12 played=%s with the user session endpoint', async (played) => {
+    const sendResponse = vi.fn();
+    const jfServer: EmbyMediaServer = { ...server, type: 'jellyfin', accessToken: 'user-token', userId: 'user-1' };
+    const fetchImpl = createFetchMock(async () => new Response('{}', { status: 200 }));
+    const deps = { ...createDeps(fetchImpl), getSettings: vi.fn(async () => ({ emby: { mediaServers: [jfServer] } })) };
+    await handleEmbyLibrarySetPlayed({ itemId: 'movie-1', serverUrl: server.url, played }, sendResponse, deps);
+    const url = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(url.pathname).toBe('/UserPlayedItems/movie-1');
+    expect(url.searchParams.get('userId')).toBe('user-1');
+    expect(fetchImpl.mock.calls[0][1]?.method).toBe(played ? 'POST' : 'DELETE');
+    expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+  });
+
+  it('writes Jellyfin 12 user data through its API key endpoint', async () => {
+    const sendResponse = vi.fn();
+    const jfServer: EmbyMediaServer = { ...server, type: 'jellyfin', userId: 'user-1' };
+    const fetchImpl = createFetchMock(async () => new Response('{}', { status: 200 }));
+    const deps = { ...createDeps(fetchImpl), getSettings: vi.fn(async () => ({ emby: { mediaServers: [jfServer] } })) };
+    await handleEmbyLibrarySetPlayed({ itemId: 'movie-1', serverUrl: server.url, played: true }, sendResponse, deps);
+    const url = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(url.pathname).toBe('/UserItems/movie-1/UserData');
+    expect(url.searchParams.get('userId')).toBe('user-1');
+    expect(url.searchParams.get('api_key')).toBe('api-secret');
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });

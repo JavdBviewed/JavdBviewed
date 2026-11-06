@@ -108,6 +108,7 @@ export async function reportEmbyPlaybackProgress(params: {
     // 2) 会话态：播放中写 Progress；关闭时 Stop，避免后台「仍在播放」
     if (hasEmbyUserSession(params.server) && params.server.userId && params.server.accessToken) {
       try {
+        const isJellyfin = params.server.type === 'jellyfin';
         if (isStopped) {
           progOk = await stopPlayingItemSession({
             base,
@@ -120,17 +121,21 @@ export async function reportEmbyPlaybackProgress(params: {
           });
         } else {
           // 部分服务器要求先 Start（刷新 Now Playing 会话）
-          const startUrl = `${base}/Users/${encodeURIComponent(params.server.userId)}/PlayingItems/${encodeURIComponent(itemId)}`;
+          const startUrl = isJellyfin
+            ? `${base}/Sessions/Playing`
+            : `${base}/Users/${encodeURIComponent(params.server.userId)}/PlayingItems/${encodeURIComponent(itemId)}`;
           const startQ = new URLSearchParams();
           if (params.mediaSourceId) startQ.set('MediaSourceId', params.mediaSourceId);
           if (params.playSessionId) startQ.set('PlaySessionId', params.playSessionId);
-          await timedFetch(`${startUrl}?${startQ.toString()}`, {
+          await timedFetch(isJellyfin ? startUrl : `${startUrl}?${startQ.toString()}`, {
             method: 'POST',
             headers: {
               ...buildEmbyAuthHeaders(params.server),
               'Content-Type': 'application/json',
             },
-            body: '{}',
+            body: isJellyfin
+              ? JSON.stringify({ ItemId: itemId, MediaSourceId: params.mediaSourceId, PlaySessionId: params.playSessionId, PositionTicks: positionTicks, IsPaused: false })
+              : '{}',
           }).catch(() => undefined);
 
           const q = new URLSearchParams();
@@ -138,7 +143,9 @@ export async function reportEmbyPlaybackProgress(params: {
           if (params.mediaSourceId) q.set('MediaSourceId', params.mediaSourceId);
           if (params.playSessionId) q.set('PlaySessionId', params.playSessionId);
 
-          const url = `${base}/Users/${encodeURIComponent(params.server.userId)}/PlayingItems/${encodeURIComponent(itemId)}/Progress?${q.toString()}`;
+          const url = isJellyfin
+            ? `${base}/Sessions/Playing/Progress`
+            : `${base}/Users/${encodeURIComponent(params.server.userId)}/PlayingItems/${encodeURIComponent(itemId)}/Progress?${q.toString()}`;
           const res = await timedFetch(url, {
             method: 'POST',
             headers: {
@@ -147,8 +154,8 @@ export async function reportEmbyPlaybackProgress(params: {
             },
             body: JSON.stringify({
               PositionTicks: positionTicks,
+              ...(isJellyfin ? { ItemId: itemId } : { PlayedToCompletion: false }),
               IsPaused: false,
-              PlayedToCompletion: false,
               MediaSourceId: params.mediaSourceId,
               PlaySessionId: params.playSessionId,
             }),
@@ -189,7 +196,7 @@ export async function reportEmbyPlaybackProgress(params: {
  */
 async function stopPlayingItemSession(params: {
   base: string;
-  server: Pick<EmbyMediaServer, 'accessToken' | 'apiKey' | 'userId'>;
+  server: Pick<EmbyMediaServer, 'accessToken' | 'apiKey' | 'userId' | 'type'>;
   itemId: string;
   positionTicks: number;
   mediaSourceId?: string;
@@ -209,6 +216,19 @@ async function stopPlayingItemSession(params: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
   };
+
+  if (server.type === 'jellyfin') {
+    try {
+      const res = await fetchImpl(`${base}/Sessions/Playing/Stopped`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ItemId: itemId, MediaSourceId: mediaSourceId, PlaySessionId: playSessionId, PositionTicks: positionTicks > 0 ? positionTicks : 0, Failed: false }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
 
   const playingItemUrl = `${base}/Users/${encodeURIComponent(server.userId)}/PlayingItems/${encodeURIComponent(itemId)}${qs ? `?${qs}` : ''}`;
 
@@ -257,7 +277,7 @@ async function stopPlayingItemSession(params: {
 
 async function postUserDataProgress(params: {
   base: string;
-  server: Pick<EmbyMediaServer, 'apiKey' | 'accessToken' | 'userId'>;
+  server: Pick<EmbyMediaServer, 'apiKey' | 'accessToken' | 'userId' | 'type'>;
   itemId: string;
   positionTicks: number;
   isCompleted?: boolean;
@@ -269,7 +289,9 @@ async function postUserDataProgress(params: {
     let url: string;
     let headers: Record<string, string>;
     if (server.userId && server.accessToken && !params.useApiKeyQuery) {
-      url = `${base}/Users/${encodeURIComponent(server.userId)}/Items/${encodeURIComponent(itemId)}/UserData`;
+      url = server.type === 'jellyfin'
+        ? `${base}/UserItems/${encodeURIComponent(itemId)}/UserData?userId=${encodeURIComponent(server.userId)}`
+        : `${base}/Users/${encodeURIComponent(server.userId)}/Items/${encodeURIComponent(itemId)}/UserData`;
       headers = {
         ...buildEmbyAuthHeaders(server as EmbyMediaServer),
         'Content-Type': 'application/json',
@@ -283,7 +305,9 @@ async function postUserDataProgress(params: {
           method: 'none',
         };
       }
-      url = `${base}/Users/${encodeURIComponent(server.userId)}/Items/${encodeURIComponent(itemId)}/UserData?api_key=${encodeURIComponent(server.apiKey)}`;
+      url = server.type === 'jellyfin'
+        ? `${base}/UserItems/${encodeURIComponent(itemId)}/UserData?userId=${encodeURIComponent(server.userId)}&api_key=${encodeURIComponent(server.apiKey)}`
+        : `${base}/Users/${encodeURIComponent(server.userId)}/Items/${encodeURIComponent(itemId)}/UserData?api_key=${encodeURIComponent(server.apiKey)}`;
       headers = {
         'Content-Type': 'application/json',
         Accept: 'application/json',

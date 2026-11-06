@@ -264,7 +264,7 @@ async function fetchMediaItemsPage(
     IncludeItemTypes: 'Movie',
     // 仅请求官方稳定 Fields；ParentThumb* 若服务端有会自带，不强制写入 Fields 以免部分版本 4xx
     // PrimaryImageAspectRatio 仅详情页单条目请求（embyItemDetail）使用，列表同步不读，瘦身掉
-    Fields: 'Path,ImageTags,PrimaryImageTag,BackdropImageTags,UserData,RunTimeTicks',
+    Fields: server.type === 'jellyfin' ? 'Path' : 'Path,ImageTags,PrimaryImageTag,BackdropImageTags,UserData,RunTimeTicks',
   });
   if (opts.searchTerm) {
     params.set('SearchTerm', opts.searchTerm);
@@ -281,7 +281,10 @@ async function fetchMediaItemsPage(
     params.set('api_key', server.apiKey);
   }
 
-  const itemPath = server.userId
+  if (server.type === 'jellyfin' && server.userId) {
+    params.set('UserId', server.userId);
+  }
+  const itemPath = server.userId && server.type !== 'jellyfin'
     ? `/Users/${encodeURIComponent(server.userId)}/Items`
     : '/Items';
   const url = `${normalizeServerUrl(server.url)}${itemPath}?${params.toString()}`;
@@ -435,17 +438,17 @@ async function resolveServerUserScope(
  * Emby: /Library/MediaFolders  Jellyfin: 同路径或 /Library/VirtualFolders
  */
 export async function fetchServerLibraryFolders(
-  server: Pick<EmbyMediaServer, 'url' | 'apiKey'>,
+  server: Pick<EmbyMediaServer, 'url' | 'apiKey' | 'accessToken' | 'type'>,
   fetchImpl: typeof fetch = fetch,
 ): Promise<EmbyLibraryFolderOption[]> {
   const base = normalizeServerUrl(server.url);
   const apiKey = String(server.apiKey || '');
-  if (!base || !apiKey) return [];
-
-  const endpoints = [
-    `${base}/Library/MediaFolders?api_key=${encodeURIComponent(apiKey)}`,
-    `${base}/Library/VirtualFolders?api_key=${encodeURIComponent(apiKey)}`,
-  ];
+  const useToken = server.type === 'jellyfin' && Boolean(server.accessToken);
+  if (!base || (!apiKey && !useToken)) return [];
+  const query = useToken ? '' : `?api_key=${encodeURIComponent(apiKey)}`;
+  const endpoints = useToken
+    ? [`${base}/Library/VirtualFolders`, `${base}/Library/MediaFolders`]
+    : [`${base}/Library/MediaFolders${query}`, `${base}/Library/VirtualFolders${query}`];
 
   for (const url of endpoints) {
     try {
@@ -457,6 +460,7 @@ export async function fetchServerLibraryFolders(
       try {
         response = await fetchImpl(url, {
           method: 'GET',
+          ...(useToken ? { headers: buildEmbyAuthHeaders(server) } : {}),
           ...(controller ? { signal: controller.signal } : {}),
         });
       } finally {
@@ -875,7 +879,9 @@ export async function handleEmbyLibrarySetPlayed(
     let response: Response;
 
     if (hasEmbyUserSession(scopedServer) && scopedServer.userId && scopedServer.accessToken) {
-      const path = `${base}/Users/${encodeURIComponent(scopedServer.userId)}/PlayedItems/${encodeURIComponent(itemId)}`;
+      const path = scopedServer.type === 'jellyfin'
+        ? `${base}/UserPlayedItems/${encodeURIComponent(itemId)}?userId=${encodeURIComponent(scopedServer.userId)}`
+        : `${base}/Users/${encodeURIComponent(scopedServer.userId)}/PlayedItems/${encodeURIComponent(itemId)}`;
       // 超时守卫：服务器黑洞时「标记已看」不再永久「写入中…」
       response = await fetchWithTimeout(deps.fetchImpl, path, {
         method: played ? 'POST' : 'DELETE',
@@ -899,7 +905,9 @@ export async function handleEmbyLibrarySetPlayed(
         });
         return;
       }
-      const userDataUrl = `${base}/Users/${encodeURIComponent(scopedServer.userId)}/Items/${encodeURIComponent(itemId)}/UserData?api_key=${encodeURIComponent(scopedServer.apiKey)}`;
+      const userDataUrl = scopedServer.type === 'jellyfin'
+        ? `${base}/UserItems/${encodeURIComponent(itemId)}/UserData?userId=${encodeURIComponent(scopedServer.userId)}&api_key=${encodeURIComponent(scopedServer.apiKey)}`
+        : `${base}/Users/${encodeURIComponent(scopedServer.userId)}/Items/${encodeURIComponent(itemId)}/UserData?api_key=${encodeURIComponent(scopedServer.apiKey)}`;
       response = await fetchWithTimeout(deps.fetchImpl, userDataUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -1053,9 +1061,9 @@ export async function handleEmbyLibraryListFolders(
     }
 
     const target = server
-      ? { url: server.url, apiKey: apiKeyOverride || server.apiKey }
+      ? { url: server.url, apiKey: apiKeyOverride || server.apiKey, accessToken: apiKeyOverride ? undefined : server.accessToken, type: server.type }
       : serverUrl && apiKeyOverride
-        ? { url: serverUrl, apiKey: apiKeyOverride }
+        ? { url: serverUrl, apiKey: apiKeyOverride, type: 'emby' as const }
         : null;
 
     if (!target) {

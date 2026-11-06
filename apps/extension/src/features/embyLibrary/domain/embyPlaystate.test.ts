@@ -7,6 +7,39 @@ import { describe, expect, it, vi } from 'vitest';
 import { reportEmbyPlaybackProgress, secondsToTicks, ticksToSeconds } from './embyPlaystate';
 
 describe('embyPlaystate', () => {
+  it('uses Jellyfin 12 user data and session endpoints with a user token', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const server = { url: 'http://jf.local', apiKey: 'key', accessToken: 'token', userId: 'user-1', type: 'jellyfin' as const };
+    const active = await reportEmbyPlaybackProgress({ server, itemId: 'movie-1', positionSeconds: 42, mediaSourceId: 'source-1', playSessionId: 'session-1', fetchImpl });
+    expect(active.success).toBe(true);
+    expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname)).toEqual([
+      '/UserItems/movie-1/UserData', '/Sessions/Playing', '/Sessions/Playing/Progress',
+    ]);
+    expect(new URL(String(fetchImpl.mock.calls[0][0])).searchParams.get('userId')).toBe('user-1');
+    expect(JSON.parse(String(fetchImpl.mock.calls[1][1]?.body))).toMatchObject({ ItemId: 'movie-1', MediaSourceId: 'source-1', PlaySessionId: 'session-1' });
+    expect(JSON.parse(String(fetchImpl.mock.calls[2][1]?.body))).not.toHaveProperty('PlayedToCompletion');
+
+    fetchImpl.mockClear();
+    const stopped = await reportEmbyPlaybackProgress({ server, itemId: 'movie-1', positionSeconds: 55, isStopped: true, fetchImpl });
+    expect(stopped.success).toBe(true);
+    expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname)).toEqual([
+      '/UserItems/movie-1/UserData', '/Sessions/Playing/Stopped',
+    ]);
+  });
+
+  it('uses Jellyfin 12 user data endpoint with an API key', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const result = await reportEmbyPlaybackProgress({
+      server: { url: 'http://jf.local', apiKey: 'key', userId: 'user-1', type: 'jellyfin' },
+      itemId: 'movie-1', positionSeconds: 22, fetchImpl,
+    });
+    expect(result.success).toBe(true);
+    const url = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(url.pathname).toBe('/UserItems/movie-1/UserData');
+    expect(url.searchParams.get('userId')).toBe('user-1');
+    expect(url.searchParams.get('api_key')).toBe('key');
+  });
+
   it('converts seconds and ticks', () => {
     expect(secondsToTicks(1)).toBe(10_000_000);
     expect(secondsToTicks(12.5)).toBe(125_000_000);

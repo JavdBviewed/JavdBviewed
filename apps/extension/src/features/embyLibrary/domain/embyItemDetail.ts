@@ -42,6 +42,8 @@ const DETAIL_FIELDS = [
 ].join(',');
 
 const RELATED_FIELDS = 'PrimaryImageAspectRatio,Overview,ProductionYear,ImageTags,PrimaryImageTag';
+const JELLYFIN_DETAIL_FIELDS = 'Overview,Taglines,Genres,Studios,Tags,People,Path,MediaSources,MediaStreams,Chapters';
+const JELLYFIN_RELATED_FIELDS = 'PrimaryImageAspectRatio,Overview';
 
 type ServerAuth = Pick<EmbyMediaServer, 'url' | 'apiKey' | 'accessToken' | 'userId' | 'type'>;
 
@@ -159,16 +161,17 @@ async function fetchItemJson(
   const headers = buildEmbyAuthHeaders(server);
   const tried: string[] = [];
   const userId = String(server.userId || '').trim();
+  const fields = server.type === 'jellyfin' ? JELLYFIN_DETAIL_FIELDS : DETAIL_FIELDS;
 
   // Emby 4.9 用户库权限：优先 /Users/{UserId}/Items/{Id}，再回退 /Items/{Id}
   const candidates: string[] = [];
-  if (userId) {
-    const uq = new URLSearchParams({ Fields: DETAIL_FIELDS });
+  if (userId && server.type !== 'jellyfin') {
+    const uq = new URLSearchParams({ Fields: fields });
     appendApiKeyQuery(uq, server);
     candidates.push(`${base}/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}?${uq.toString()}`);
   }
   {
-    const qs = new URLSearchParams({ Fields: DETAIL_FIELDS });
+    const qs = new URLSearchParams({ Fields: fields });
     if (userId) qs.set('UserId', userId);
     appendApiKeyQuery(qs, server);
     candidates.push(`${base}/Items/${encodeURIComponent(itemId)}?${qs.toString()}`);
@@ -177,7 +180,7 @@ async function fetchItemJson(
   {
     const qs = new URLSearchParams({
       Ids: itemId,
-      Fields: DETAIL_FIELDS,
+      Fields: fields,
       Limit: '1',
     });
     if (userId) qs.set('UserId', userId);
@@ -228,7 +231,7 @@ export async function fetchSimilarItems(
   try {
     const qs = new URLSearchParams({
       Limit: String(limit),
-      Fields: RELATED_FIELDS,
+      Fields: server.type === 'jellyfin' ? JELLYFIN_RELATED_FIELDS : RELATED_FIELDS,
     });
     if (server.userId) qs.set('UserId', server.userId);
     appendApiKeyQuery(qs, server);
@@ -265,8 +268,21 @@ export async function fetchCollectionsContainingItem(
 ): Promise<EmbyRelatedItemView[]> {
   const base = normalizeServerUrl(server.url);
   const userId = String(server.userId || '').trim();
-  if (!base || !itemId || !userId) return [];
+  if (!base || !itemId || (server.type !== 'jellyfin' && !userId)) return [];
   try {
+    if (server.type === 'jellyfin') {
+      const qs = new URLSearchParams({ Limit: String(limit), Fields: JELLYFIN_RELATED_FIELDS });
+      if (userId) qs.set('UserId', userId);
+      appendApiKeyQuery(qs, server);
+      const res = await fetchImpl(`${base}/Items/${encodeURIComponent(itemId)}/Collections?${qs.toString()}`, {
+        method: 'GET', headers: buildEmbyAuthHeaders(server), ...(signal ? { signal } : {}),
+      });
+      if (!res.ok) return [];
+      const raw = (await res.json().catch(() => ({}))) as { Items?: EmbyMediaItem[] };
+      return (Array.isArray(raw.Items) ? raw.Items : [])
+        .map((it) => mapRelatedItem(server, it))
+        .filter((it): it is EmbyRelatedItemView => Boolean(it));
+    }
     const qs = new URLSearchParams({
       Recursive: 'true',
       IncludeItemTypes: 'BoxSet',
