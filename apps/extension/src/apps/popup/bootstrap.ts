@@ -543,11 +543,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // 保存静音前的音量
         let volumeBeforeMute = currentVolume > 0 ? currentVolume : 50;
+        let saveTimeout: number | null = null;
+        let latestVolume = currentVolume;
+        const notifyVolumeChange = (volume: number) => {
+            latestVolume = volume;
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                if (volume === latestVolume && tabs[0]?.url?.includes('javdb') && tabs[0].id) {
+                    chrome.tabs.sendMessage(tabs[0].id, { type: 'volume-changed', volume: volume / 100 });
+                }
+            });
+        };
 
         // 静音按钮点击事件
         muteBtn.addEventListener('click', async () => {
             const currentVol = parseInt(volumeSlider.value);
             console.log('[Popup] Mute button clicked, current volume:', currentVol);
+            if (saveTimeout !== null) clearTimeout(saveTimeout);
             
             if (currentVol === 0) {
                 // 取消静音，恢复之前的音量
@@ -557,6 +568,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 volumeSlider.value = restoreVolume.toString();
                 volumeValue.textContent = `${restoreVolume}%`;
                 updateMuteIcon(restoreVolume);
+                notifyVolumeChange(restoreVolume);
                 
                 // 保存设置
                 const currentSettings = await getSettingsSafely();
@@ -565,15 +577,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     await saveSettings(currentSettings);
                     console.log('[Popup] Settings saved, volume:', restoreVolume / 100);
                     
-                    // 通知内容脚本
-                    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                        if (tabs[0]?.url?.includes('javdb') && tabs[0].id) {
-                            chrome.tabs.sendMessage(tabs[0].id, {
-                                type: 'volume-changed',
-                                volume: restoreVolume / 100
-                            });
-                        }
-                    });
                 }
             } else {
                 // 静音
@@ -583,6 +586,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 volumeSlider.value = '0';
                 volumeValue.textContent = '0%';
                 updateMuteIcon(0);
+                notifyVolumeChange(0);
                 
                 // 保存设置
                 const currentSettings = await getSettingsSafely();
@@ -591,26 +595,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                     await saveSettings(currentSettings);
                     console.log('[Popup] Settings saved, volume: 0');
                     
-                    // 通知内容脚本
-                    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                        if (tabs[0]?.url?.includes('javdb') && tabs[0].id) {
-                            chrome.tabs.sendMessage(tabs[0].id, {
-                                type: 'volume-changed',
-                                volume: 0
-                            });
-                        }
-                    });
                 }
             }
         });
 
         // 监听滑块变化 - 使用防抖来避免频繁保存
-        let saveTimeout: number | null = null;
         volumeSlider.addEventListener('input', (e) => {
             const volume = parseInt((e.target as HTMLInputElement).value);
             console.log('[Popup] Slider input, volume:', volume);
             volumeValue.textContent = `${volume}%`;
             updateMuteIcon(volume);
+            notifyVolumeChange(volume);
 
             // 如果用户手动调整音量到非0，更新volumeBeforeMute
             if (volume > 0) {
@@ -649,17 +644,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await saveSettings(currentSettings);
                 console.log('[Popup] Settings saved from slider, volume:', volume / 100);
 
-                // 通知内容脚本音量已更改
-                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                    if (tabs[0]?.url?.includes('javdb')) {
-                        if (tabs[0].id) {
-                            chrome.tabs.sendMessage(tabs[0].id, {
-                                type: 'volume-changed',
-                                volume: volume / 100
-                            });
-                        }
-                    }
-                });
             }, 300); // 300ms 防抖
         });
     }
