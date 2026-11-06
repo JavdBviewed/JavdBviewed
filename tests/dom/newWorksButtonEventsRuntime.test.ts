@@ -15,6 +15,7 @@ function renderButtons() {
     <button id="cleanupReadWorksBtn"></button>
     <button id="batchOpenUnreadBtn"></button>
     <button id="selectAllCurrentPageBtn"></button>
+    <button id="selectAllResultsBtn"></button>
     <button id="clearSelectionBtn"></button>
     <button id="batchOpenSelectedBtn"></button>
     <button id="batchDeleteSelectedBtn"></button>
@@ -37,6 +38,7 @@ function handlers(overrides: Partial<Parameters<typeof attachNewWorksButtonEvent
     batchOpenUnread: vi.fn(async () => undefined),
     updateBatchOpenUnreadButton: vi.fn(),
     selectAllCurrentPage: vi.fn(),
+    selectAllResults: vi.fn(async () => undefined),
     clearSelection: vi.fn(),
     batchOpenSelected: vi.fn(async () => undefined),
     batchDeleteSelected: vi.fn(async () => undefined),
@@ -70,6 +72,7 @@ describe('new works button events runtime', () => {
     document.getElementById('manageSubscriptionsBtn')?.click();
     document.getElementById('batchOpenUnreadBtn')?.click();
     document.getElementById('selectAllCurrentPageBtn')?.click();
+    document.getElementById('selectAllResultsBtn')?.click();
     document.getElementById('clearSelectionBtn')?.click();
     document.getElementById('batchOpenSelectedBtn')?.click();
     document.getElementById('batchDeleteSelectedBtn')?.click();
@@ -84,6 +87,7 @@ describe('new works button events runtime', () => {
     expect(runtime.batchOpenUnread).toHaveBeenCalledTimes(1);
     expect(runtime.updateBatchOpenUnreadButton).toHaveBeenCalledTimes(1);
     expect(runtime.selectAllCurrentPage).toHaveBeenCalledTimes(1);
+    expect(runtime.selectAllResults).toHaveBeenCalledTimes(1);
     expect(runtime.clearSelection).toHaveBeenCalledTimes(1);
     expect(runtime.batchOpenSelected).toHaveBeenCalledTimes(1);
     expect(runtime.batchDeleteSelected).toHaveBeenCalledTimes(1);

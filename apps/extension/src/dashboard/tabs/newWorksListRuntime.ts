@@ -14,6 +14,7 @@ export interface NewWorksListRuntimeHandlers {
   visitWork(workId: string): Promise<void>;
   deleteWorks(workIds: string[]): Promise<void>;
   updateBatchOperations(): void;
+  onSelectionChanged?(): void;
 }
 
 export interface RenderNewWorksListResult {
@@ -27,6 +28,7 @@ export interface RenderNewWorksListRuntimeDeps extends NewWorksListRuntimeHandle
   setPage(page: number): void;
   render(): Promise<void>;
   updateBatchOpenUnreadButton(): void;
+  setAllResultsAvailable?(total: number | undefined): void;
   logInfo(message: string, data?: unknown): void;
   logWarn(message: string): void;
   logError(message: string, error: unknown): void;
@@ -51,6 +53,7 @@ export async function renderNewWorksListRuntime(input: RenderNewWorksListRuntime
 
   try {
     deps.logInfo('开始渲染新作品列表，当前过滤条件:', filters);
+    deps.setAllResultsAvailable?.(undefined);
     container.innerHTML = buildNewWorksLoadingHtml();
 
     const result = await deps.getNewWorks({
@@ -66,6 +69,7 @@ export async function renderNewWorksListRuntime(input: RenderNewWorksListRuntime
       container.innerHTML = buildNewWorksEmptyHtml();
       renderNewWorksCounts(filters, 0, doc);
       renderNewWorksPagination({ total: 0, page, pageSize, deps, doc });
+      deps.setAllResultsAvailable?.(0);
       return result;
     }
 
@@ -77,11 +81,13 @@ export async function renderNewWorksListRuntime(input: RenderNewWorksListRuntime
     renderNewWorksPagination({ total: result.total, page, pageSize, deps, doc });
     deps.updateBatchOpenUnreadButton();
     attachNewWorkItemListeners(selectedWorks, deps, doc);
+    deps.setAllResultsAvailable?.(result.total);
     deps.logInfo('新作品列表渲染完成');
     return result;
   } catch (error) {
     deps.logError('渲染新作品列表失败:', error);
     container.innerHTML = buildNewWorksErrorHtml();
+    deps.setAllResultsAvailable?.(undefined);
     return undefined;
   }
 }
@@ -206,6 +212,7 @@ export function attachNewWorkItemListeners(
         selectedWorks.delete(workId);
         item.classList.remove('selected');
       }
+      handlers.onSelectionChanged?.();
       handlers.updateBatchOperations();
     });
 
@@ -258,6 +265,7 @@ export function attachNewWorkItemListeners(
         }
         item.classList.add('selected');
       }
+      handlers.onSelectionChanged?.();
       handlers.updateBatchOperations();
     });
   });

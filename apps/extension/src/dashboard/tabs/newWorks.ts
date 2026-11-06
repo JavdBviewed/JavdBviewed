@@ -18,6 +18,7 @@ import {
     attachNewWorksPageSizeControl,
 } from './newWorksFilterControlsRuntime';
 import { createNewWorksTabState } from './newWorksTabState';
+import { createNewWorksAllResultsSelectionRuntime } from './newWorksAllResultsSelectionRuntime';
 import { renderNewWorksListRuntime, type RenderNewWorksListResult } from './newWorksListRuntime';
 import {
     clearNewWorksSelection,
@@ -104,6 +105,11 @@ const newWorksSettingsDeltaWriter: SettingsDeltaWriter = {
 export class NewWorksTab {
     public isInitialized: boolean = false;
     private readonly state = createNewWorksTabState();
+    private readonly allResultsSelection = createNewWorksAllResultsSelectionRuntime({
+        selectedWorks: this.state.selectedWorks,
+        getNewWorks: query => newWorksManager.getNewWorks(query),
+        showMessage,
+    });
     private readonly subscriptionActions = createNewWorksSubscriptionActionsRuntime({
         initialize: () => newWorksManager.initialize(),
         getSubscriptions: () => newWorksManager.getSubscriptions(),
@@ -331,10 +337,11 @@ export class NewWorksTab {
                 const manageSubscriptionsBtn = document.getElementById('manageSubscriptionsBtn');
                 const batchOpenUnreadBtn = document.getElementById('batchOpenUnreadBtn');
                 const selectAllCurrentPageBtn = document.getElementById('selectAllCurrentPageBtn');
+                const selectAllResultsBtn = document.getElementById('selectAllResultsBtn');
                 const clearSelectionBtn = document.getElementById('clearSelectionBtn');
                 const batchOpenSelectedBtn = document.getElementById('batchOpenSelectedBtn');
 
-                return Boolean(newWorksTab && checkNowBtn && syncStatusBtn && cleanupReadBtn && addSubscriptionBtn && manageSubscriptionsBtn && batchOpenUnreadBtn && selectAllCurrentPageBtn && clearSelectionBtn && batchOpenSelectedBtn);
+                return Boolean(newWorksTab && checkNowBtn && syncStatusBtn && cleanupReadBtn && addSubscriptionBtn && manageSubscriptionsBtn && batchOpenUnreadBtn && selectAllCurrentPageBtn && selectAllResultsBtn && clearSelectionBtn && batchOpenSelectedBtn);
         }, { signal: controller.signal });
 
         if (this.domReadyController === controller) {
@@ -374,6 +381,7 @@ export class NewWorksTab {
             batchOpenUnread: () => this.batchOpenCurrentPageUnread(),
             updateBatchOpenUnreadButton: () => this.updateBatchOpenUnreadButton(),
             selectAllCurrentPage: () => this.selectAllCurrentPage(),
+            selectAllResults: () => this.allResultsSelection.toggle(this.state.filters),
             clearSelection: () => this.clearSelection(),
             batchOpenSelected: () => this.batchOpenSelected(),
             batchDeleteSelected: () => this.batchDeleteSelected(),
@@ -389,6 +397,8 @@ export class NewWorksTab {
             setPage: page => { this.state.setPage(page); },
             render: () => this.render(),
             debounceRender: () => this.debounceRender(),
+            clearSelection: () => this.clearSelection(),
+            setAllResultsAvailable: total => this.allResultsSelection.setAvailable(total),
         });
 
         // 11-02 G1：每页数量选择器（change → 落盘 + 回 1 页 + 重渲染）
@@ -465,6 +475,8 @@ export class NewWorksTab {
     }
 
     private suspendForHiddenTab(): void {
+        this.allResultsSelection.invalidate();
+        this.allResultsSelection.setAvailable(undefined);
         this.active = false;
         this.autoSyncScheduler.setActive(false);
         this.statsScheduler.setActive(false);
@@ -533,6 +545,8 @@ export class NewWorksTab {
                 visitWork: workId => this.visitWork(workId),
                 deleteWorks: workIds => this.deleteWorks(workIds),
                 updateBatchOperations: () => this.updateBatchOperations(),
+                onSelectionChanged: () => this.allResultsSelection.onSelectionChanged(),
+                setAllResultsAvailable: total => this.allResultsSelection.setAvailable(total),
                 logInfo: (message, data) => data === undefined ? console.log(message) : console.log(message, data),
                 logWarn: message => console.warn(message),
                 logError: (message, error) => console.error(message, error),
@@ -593,7 +607,7 @@ export class NewWorksTab {
             deps: {
                 confirm: message => confirm(message),
                 deleteWorks: ids => newWorksManager.deleteWorks(ids),
-                clearSelection: () => this.state.clearSelection(),
+                clearSelection: () => this.clearSelection(),
                 render: () => this.render(),
                 logError: (message, error) => console.error(message, error),
             },
@@ -686,6 +700,7 @@ export class NewWorksTab {
      * 本页全选
      */
     private selectAllCurrentPage(): void {
+        this.allResultsSelection.onSelectionChanged();
         selectAllCurrentNewWorksPage(this.state.selectedWorks);
         this.updateBatchOperations();
     }
@@ -694,6 +709,7 @@ export class NewWorksTab {
      * 清空选择
      */
     private clearSelection(): void {
+        this.allResultsSelection.onSelectionChanged();
         console.log('执行清空选择，当前选中数量:', this.state.selectedWorks.size);
         clearNewWorksSelection(this.state.selectedWorks);
         this.updateBatchOperations();
@@ -714,7 +730,10 @@ export class NewWorksTab {
                 findWorkById: id => findSelectedBatchWorkById(id, query => newWorksManager.getNewWorks(query)),
                 openWorkUrl: url => this.openNewWorkUrl(url),
                 markAsRead: workIds => newWorksManager.markAsRead(workIds),
-                removeSelection: workIds => workIds.forEach(workId => this.state.selectedWorks.delete(workId)),
+                removeSelection: workIds => {
+                    workIds.forEach(workId => this.state.selectedWorks.delete(workId));
+                    this.allResultsSelection.onSelectionChanged();
+                },
                 render: () => this.render(),
                 showMessage,
                 updateBatchOperations: () => this.updateBatchOperations(),
@@ -740,7 +759,10 @@ export class NewWorksTab {
             deps: {
                 confirm: options => showConfirm(options),
                 setDeletingButtonLoading: (loading, selectedCount) => this.setBatchDeleteSelectedLoading(loading, selectedCount),
-                deleteWorks: workIds => newWorksManager.deleteWorks(workIds),
+                deleteWorks: async workIds => {
+                    await newWorksManager.deleteWorks(workIds);
+                    this.allResultsSelection.onSelectionChanged();
+                },
                 render: () => this.render(),
                 showMessage,
                 updateBatchOperations: () => this.updateBatchOperations(),

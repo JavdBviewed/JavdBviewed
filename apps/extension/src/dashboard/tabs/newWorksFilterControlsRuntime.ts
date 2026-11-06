@@ -5,6 +5,8 @@ export interface NewWorksFilterControlsDeps {
   setPage(page: number): void;
   render(): void;
   debounceRender(): void;
+  clearSelection?(): void;
+  setAllResultsAvailable?(total: number | undefined): void;
   doc?: Document;
 }
 
@@ -17,7 +19,11 @@ export function attachNewWorksFilterControls(
   const searchInput = doc.getElementById('newWorksSearchInput') as HTMLInputElement | null;
   if (searchInput) {
     searchInput.addEventListener('input', event => {
-      filters.search = (event.target as HTMLInputElement).value;
+      const search = (event.target as HTMLInputElement).value;
+      if (filters.search === search) return;
+      deps.clearSelection?.();
+      deps.setAllResultsAvailable?.(undefined);
+      filters.search = search;
       deps.setPage(1);
       deps.debounceRender();
     });
@@ -27,7 +33,11 @@ export function attachNewWorksFilterControls(
   if (filterSelect) {
     filterSelect.value = filters.filter;
     filterSelect.addEventListener('change', event => {
-      filters.filter = (event.target as HTMLSelectElement).value as NewWorksFilterValue;
+      const filter = (event.target as HTMLSelectElement).value as NewWorksFilterValue;
+      if (filters.filter === filter) return;
+      deps.clearSelection?.();
+      deps.setAllResultsAvailable?.(undefined);
+      filters.filter = filter;
       deps.setPage(1);
       deps.render();
     });
@@ -36,7 +46,11 @@ export function attachNewWorksFilterControls(
   const sortSelect = doc.getElementById('newWorksSortSelect') as HTMLSelectElement | null;
   if (sortSelect) {
     sortSelect.addEventListener('change', event => {
-      filters.sort = (event.target as HTMLSelectElement).value;
+      const sort = (event.target as HTMLSelectElement).value;
+      if (filters.sort === sort) return;
+      deps.clearSelection?.();
+      deps.setAllResultsAvailable?.(undefined);
+      filters.sort = sort;
       deps.setPage(1);
       deps.render();
     });
