@@ -8,6 +8,7 @@ import { getRepoRawUrl } from '../../shared/repoIdentity';
 import type { ExtensionSettings } from '../../types';
 import { buildServerApiUrl, verifyJsonChecksum } from '../../platform/network/serverEndpointResolver';
 import { createDefaultRouteSettings } from './defaultRoutes';
+import { reconcileBackgroundJavdbRoute } from '../../shared/javdbRouteSync';
 import type { RouteSettings } from './defaultRoutes';
 
 export type ServiceType = 'javdb' | 'javbus';
@@ -490,7 +491,8 @@ export class RouteManager {
                     url: remote.url,
                     enabled: true,
                     description: remote.description,
-                    addedAt: Date.parse(remote.addedAt) || Date.now()
+                    addedAt: javdbCurrent.alternatives.find((route: RouteAlternative) => route.url === remote.url)?.addedAt
+                        ?? (Date.parse(remote.addedAt) || Date.now())
                 })),
                 ...javdbCustomRoutes
             ];
@@ -518,7 +520,8 @@ export class RouteManager {
                 javdb: {
                     primary: javdbRemote.primary,
                     preferredUrl: javdbCurrent.preferredUrl,
-                    alternatives: javdbMergedAlternatives
+                    alternatives: javdbMergedAlternatives,
+                    updatedAt: javdbCurrent.updatedAt
                 },
                 javbus: {
                     primary: javbusRemote.primary,
@@ -544,9 +547,13 @@ export class RouteManager {
     private mutateRoutes(mutator: (currentRoutes: RouteSettings) => RouteSettings): Promise<void> {
         const run = this.settingsWriteChain.then(async () => {
             const base = await this.getSettings();
-            const nextRoutes = mutator(base.routes || DEFAULT_ROUTES);
+            const initialRoutes = base.routes || DEFAULT_ROUTES;
+            const nextRoutes = mutator(initialRoutes);
             const fresh = await this.getSettings();
-            fresh.routes = nextRoutes;
+            fresh.routes = {
+                ...nextRoutes,
+                javdb: reconcileBackgroundJavdbRoute(initialRoutes.javdb, fresh.routes?.javdb || DEFAULT_ROUTES.javdb, nextRoutes.javdb),
+            };
             await this.saveSettings(fresh);
         });
         this.settingsWriteChain = run.then(() => undefined, () => undefined);

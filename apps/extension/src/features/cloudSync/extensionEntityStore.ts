@@ -47,6 +47,7 @@ import {
   requestEmbyLibrarySyncAfterConfigChange,
 } from '../embyLibrary/libraryIndexReconcile';
 import { mergeDrive115SessionForPull } from '../../shared/drive115SessionSync';
+import { mergeJavdbRoutesForPull } from '../../shared/javdbRouteSync';
 
 export const EXTENSION_SYNC_ENTITY_TYPES: readonly SyncEntityType[] = [
   'video',
@@ -607,7 +608,7 @@ async function applyOne(entity: SyncEntity): Promise<void> {
       // settings 键（10-13）：115 会话逐键方向性保护——local 非空 + 远端空 → 保 local（防另一台设备无关设置写抹会话）
       const mergedValue =
         key === STORAGE_KEYS.SETTINGS
-          ? mergeDrive115SessionForPull(localValue, mergeEmbyMediaServersForPull(localValue, value))
+          ? mergeJavdbRoutesForPull(localValue, mergeDrive115SessionForPull(localValue, mergeEmbyMediaServersForPull(localValue, value)))
           : mergeMediaCleanupStorageValue(key, localValue, value);
       markCloudStorageWrite(key, mergedValue);
       await setValue(key, mergedValue);

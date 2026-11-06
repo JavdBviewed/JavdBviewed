@@ -54,6 +54,7 @@ import {
   mapSettingsToNetworkTestForm,
   resetDefaultRoutes,
   setPreferredJavdbRoute,
+  stampEditedJavdbRoutes,
   toggleJavdbRoute,
   validateNetworkTestForm,
   type GithubProxyService,
@@ -191,7 +192,7 @@ export function NetworkTestSettingsPage() {
 
   const commitRoutes = useCallback(
     async (routes: RoutesConfig, options?: { immediate?: boolean }) => {
-      const next = { ...formRef.current, routes };
+      const next = { ...formRef.current, routes: stampEditedJavdbRoutes(formRef.current.routes, routes) };
       formRef.current = next;
       setForm(next);
       if (options?.immediate) {
@@ -199,7 +200,7 @@ export function NetworkTestSettingsPage() {
       } else {
         scheduleSave(next);
       }
-      hydrateLatencies(routes);
+      hydrateLatencies(next.routes);
     },
     [flush, hydrateLatencies, scheduleSave],
   );

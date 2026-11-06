@@ -4,6 +4,7 @@
  * @module apps/dashboard/pages/settings/networkTest
  */
 import type { ExtensionSettings } from '../../../../../types';
+import { mergeJavdbRoutesForPull, stampJavdbRouteEdit } from '../../../../../shared/javdbRouteSync';
 
 /** GitHub 加速代理服务 */
 export type GithubProxyService =
@@ -24,6 +25,7 @@ export type ServiceRoutesConfig = {
   primary: string;
   preferredUrl?: string;
   alternatives: RouteAlternative[];
+  updatedAt?: number;
 };
 
 export type RoutesConfig = {
@@ -154,9 +156,16 @@ function normalizeServiceRoutes(
     typeof raw?.preferredUrl === 'string' && raw.preferredUrl
       ? raw.preferredUrl
       : undefined;
-  return preferredUrl
-    ? { primary, preferredUrl, alternatives }
-    : { primary, alternatives };
+  return {
+    primary,
+    ...(preferredUrl ? { preferredUrl } : {}),
+    alternatives,
+    ...(Number.isSafeInteger(raw?.updatedAt) && raw.updatedAt > 0 ? { updatedAt: raw.updatedAt } : {}),
+  };
+}
+
+export function stampEditedJavdbRoutes(previous: RoutesConfig, next: RoutesConfig, now = Date.now()): RoutesConfig {
+  return { ...next, javdb: stampJavdbRouteEdit(previous.javdb, next.javdb, now) };
 }
 
 /**
@@ -210,7 +219,7 @@ export function applyNetworkTestFormToSettings(
         customProxyUrl: form.customProxyUrl,
       },
     },
-    routes: cloneRoutes(form.routes),
+    routes: (mergeJavdbRoutesForPull(current, { routes: cloneRoutes(form.routes) }) as { routes: RoutesConfig }).routes,
   };
 }
 

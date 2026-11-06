@@ -4,6 +4,7 @@
  */
 
 import { getRepoRawUrl } from '../../../../shared/repoIdentity';
+import { mergeJavdbRoutesForPull, stampJavdbRouteEdit } from '../../../../shared/javdbRouteSync';
 import { BaseSettingsPanel } from '../base/BaseSettingsPanel';
 import { showMessage } from '../../../ui/toast';
 import type { ExtensionSettings } from '../../../../types';
@@ -286,9 +287,6 @@ export class NetworkTestSettings extends BaseSettingsPanel {
 
             settings.networkAcceleration = networkAcceleration;
 
-            // 保存线路配置（从当前 UI 状态获取）
-            settings.routes = this.getCurrentRoutesConfig();
-
             await this.saveStoredSettings(settings);
             console.log('[NetworkTestSettings] [DEBUG] 设置保存成功');
             return { success: true };
@@ -368,6 +366,16 @@ export class NetworkTestSettings extends BaseSettingsPanel {
      * 保存设置到存储
      */
     private async saveStoredSettings(settings: ExtensionSettings): Promise<void> {
+        const previous = await this.getStoredSettings();
+        if (settings.routes?.javdb) {
+            const merged = mergeJavdbRoutesForPull(previous, settings) as ExtensionSettings;
+            settings.routes.javdb = merged.routes.javdb === previous.routes?.javdb
+                ? previous.routes.javdb
+                : stampJavdbRouteEdit(
+                    previous.routes?.javdb || { primary: 'https://javdb.com', alternatives: [] },
+                    settings.routes.javdb,
+                );
+        }
         return new Promise((resolve) => {
             chrome.storage.local.set({ settings }, () => {
                 resolve();

@@ -19,6 +19,7 @@ import {
   getProxyBaseUrl,
   mapSettingsToNetworkTestForm,
   resetDefaultRoutes,
+  stampEditedJavdbRoutes,
   setPreferredJavdbRoute,
   toggleJavdbRoute,
   validateNetworkTestForm,
@@ -53,6 +54,7 @@ describe('networkTestSettingsModel', () => {
         javdb: {
           primary: 'https://javdb.com',
           preferredUrl: 'https://javdb570.com',
+          updatedAt: 1234,
           alternatives: [
             {
               url: 'https://javdb570.com',
@@ -73,7 +75,24 @@ describe('networkTestSettingsModel', () => {
     expect(form.proxyService).toBe('jsdelivr');
     expect(form.customProxyUrl).toBe('https://proxy.example/');
     expect(form.routes.javdb.preferredUrl).toBe('https://javdb570.com');
+    expect(form.routes.javdb.updatedAt).toBe(1234);
     expect(form.routes.javdb.alternatives).toHaveLength(1);
+    expect((applyNetworkTestFormToSettings({} as any, form) as any).routes.javdb.updatedAt).toBe(1234);
+  });
+
+  it('timestamps real JavDB edits monotonically and leaves JavBus unchanged', () => {
+    const previous = { ...DEFAULT_ROUTES, javdb: { ...DEFAULT_ROUTES.javdb, updatedAt: 2000 } };
+    const edited = { ...previous, javdb: { ...previous.javdb, preferredUrl: 'https://javdb575.com' } };
+    const result = stampEditedJavdbRoutes(previous, edited, 1500);
+    expect(result.javdb.updatedAt).toBe(2001);
+    expect(result.javbus).toEqual(previous.javbus);
+    expect(stampEditedJavdbRoutes(previous, previous, 4000).javdb.updatedAt).toBe(2000);
+  });
+
+  it('saving unrelated settings preserves a newer route pulled while the form was open', () => {
+    const current = { routes: { javdb: { ...DEFAULT_ROUTES.javdb, preferredUrl: 'https://javdb580.com', updatedAt: 3000 }, javbus: DEFAULT_ROUTES.javbus } } as any;
+    const form = { ...DEFAULT_NETWORK_TEST_FORM, routes: { ...DEFAULT_ROUTES, javdb: { ...DEFAULT_ROUTES.javdb, preferredUrl: 'https://javdb575.com', updatedAt: 1000 } }, githubEnabled: false };
+    expect((applyNetworkTestFormToSettings(current, form) as any).routes.javdb.preferredUrl).toBe('https://javdb580.com');
   });
 
   it('applies form into networkAcceleration and routes', () => {
