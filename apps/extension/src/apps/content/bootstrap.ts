@@ -20,6 +20,7 @@ import {
 import { checkAndUpdateVideoStatus, isStatusPollingSignatureStoppable } from '../../features/videoStatus';
 import { initExportFeature } from '../../features/pageExport/content';
 import { initDrive115Features } from '../../features/drive115/content';
+import { initOpenListPush } from '../../features/openlist/content';
 import { defaultDataAggregator } from '../../features/dataAggregator';
 import { contentFilterManager } from '../../features/contentFilter';
 import { keyboardShortcutsManager } from '../../features/keyboardShortcuts';
@@ -348,6 +349,7 @@ async function initialize(): Promise<void> {
     }
     if (isCurrentVideoPage) {
         initOrchestrator.add('idle', () => initDrive115Features(), { label: 'drive115:init:video', idle: true, idleTimeout: 5000, delayMs: 1500 });
+        initOrchestrator.add('idle', () => initOpenListPush(), { label: 'openlist:init:video', idle: true, idleTimeout: 5000, delayMs: 1600 });
 
         initOrchestrator.add('idle', async () => {
             await initInsightsCollector();

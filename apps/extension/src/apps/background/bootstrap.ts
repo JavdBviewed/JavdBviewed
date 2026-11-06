@@ -14,6 +14,7 @@ if (typeof self === 'undefined' || !(self as any).registration) {
 }
 
 import { installDrive115V2Proxy } from '../../features/drive115/v2/backgroundProxy';
+import { installOpenListProxy } from '../../features/openlist/backgroundProxy';
 import { ensureMigrationsStart } from '../../platform/storage/migrations';
 import { registerMiscRouter } from './miscMessageRouter';
 import { registerWebDAVRouter } from '../../features/webdavSync/background/controller';
@@ -59,6 +60,7 @@ if (skippedBootstrapSteps.length > 0) {
 
 installConsoleProxyWithSettings();
 if (shouldRunBootstrapStep('drive115-proxy')) installDrive115V2Proxy();
+if (shouldRunBootstrapStep('openlist-proxy')) installOpenListProxy();
 if (shouldRunBootstrapStep('migrations')) ensureMigrationsStart();
 if (shouldRunBootstrapStep('release-announcement')) registerReleaseAnnouncementEvents();
 if (shouldRunBootstrapStep('telemetry')) {

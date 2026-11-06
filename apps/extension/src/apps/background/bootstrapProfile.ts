@@ -1,6 +1,7 @@
 export const BACKGROUND_BOOTSTRAP_STEPS = [
   'release-announcement',
   'drive115-proxy',
+  'openlist-proxy',
   'migrations',
   'telemetry',
   'task-center-restore',
