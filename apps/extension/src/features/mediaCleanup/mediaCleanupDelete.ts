@@ -163,6 +163,13 @@ function buildEmbyProbeRequest(
   if (cred.mode === 'token') {
     const userId = String(server.userId || '').trim();
     if (userId) {
+      if (server.type === 'jellyfin') {
+        return {
+          url: `${serverUrl}/Items/${encodeURIComponent(itemId)}?userId=${encodeURIComponent(userId)}`,
+          headers: buildEmbyAuthHeaders(server),
+          shape: 'single',
+        };
+      }
       return {
         url: `${serverUrl}/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(itemId)}`,
         headers: buildEmbyAuthHeaders(server),

@@ -154,9 +154,9 @@ describe('mediaCleanupDelete: multi-source failure paths (mock)', () => {
     expect(result.message).toBe(
       '删除前校验失败：媒体服务器凭证均无效（Jellyfin JF-1，item=item-9）：用户令牌（u） HTTP 401，请检查服务器设置中的账号 / API 密钥',
     );
-    // 探测走 GET /Users/{uid}/Items/{id}（令牌头鉴权）；未发出 DELETE
+    // Jellyfin 12 探测走 GET /Items/{id}?userId=（令牌头鉴权）；未发出 DELETE
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://jf.example.local/Users/user-1/Items/item-9',
+      'http://jf.example.local/Items/item-9?userId=user-1',
       expect.objectContaining({}),
     );
     const methods = fetchImpl.mock.calls.map((call) => (call[1] as RequestInit | undefined)?.method);

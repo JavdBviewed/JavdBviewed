@@ -132,6 +132,40 @@ describe('embyItemDetail mapping', () => {
 });
 
 describe('fetchEmbyItemDetail parallel', () => {
+  it('loads Jellyfin collections with an API key even without a user id', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/Items/movie-1') return new Response(JSON.stringify({ Id: 'movie-1', Name: 'Movie' }), { status: 200 });
+      if (path === '/Items/movie-1/Collections') return new Response(JSON.stringify({ Items: [{ Id: 'box-1', Name: 'Box', Type: 'BoxSet' }] }), { status: 200 });
+      return new Response(JSON.stringify({ Items: [] }), { status: 200 });
+    });
+    const result = await fetchEmbyItemDetail({ server: { ...server, type: 'jellyfin', accessToken: '', userId: '' }, itemId: 'movie-1', fetchImpl });
+    expect(result.detail?.collections.map(({ itemId }) => itemId)).toEqual(['box-1']);
+    expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname)).toContain('/Items/movie-1/Collections');
+  });
+
+  it('uses Jellyfin 12 item and collections routes without legacy user paths', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/Items/movie-1') return new Response(JSON.stringify({ Id: 'movie-1', Name: 'Movie' }), { status: 200 });
+      if (path === '/Items/movie-1/Collections') return new Response(JSON.stringify({ Items: [{ Id: 'box-1', Name: 'Box', Type: 'BoxSet' }] }), { status: 200 });
+      return new Response(JSON.stringify({ Items: [] }), { status: 200 });
+    });
+    const result = await fetchEmbyItemDetail({ server: { ...server, type: 'jellyfin' }, itemId: 'movie-1', fetchImpl });
+    expect(result.success).toBe(true);
+    expect(result.detail?.collections.map(({ itemId }) => itemId)).toEqual(['box-1']);
+    const paths = fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname);
+    expect(paths).toContain('/Items/movie-1');
+    expect(paths).toContain('/Items/movie-1/Collections');
+    expect(paths.some((path) => path.startsWith('/Users/'))).toBe(false);
+    for (const [request] of fetchImpl.mock.calls) {
+      const fields = new URL(String(request)).searchParams.get('Fields')?.split(',') || [];
+      expect(fields).not.toContain('ImageTags');
+      expect(fields).not.toContain('UserData');
+      expect(fields).not.toContain('PrimaryImageTag');
+    }
+  });
+
   it('fetches item + similar + collections when userId present', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       const u = String(url);

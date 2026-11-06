@@ -49,6 +49,20 @@ function lifecycleFetch(deleteStatus: number, postDeleteGet: { status: number; b
 }
 
 describe('mediaCleanupDelete', () => {
+  it('probes a Jellyfin 12 item using its supported single-item route', async () => {
+    const fetchImpl = lifecycleFetch(204, { status: 404 });
+    const copy = embyCopy({ copyId: 'jellyfin:http://jf.local:item-1', source: 'jellyfin', serverUrl: 'http://jf.local' });
+    const result = await deleteMediaCleanupCopy(copy, {
+      getSettings: async () => ({ emby: { mediaServers: [{ id: 'jf', type: 'jellyfin', name: 'JF', url: 'http://jf.local', apiKey: 'key', accessToken: 'token', userId: 'user-1', enabled: true }] } }),
+      fetchImpl: fetchImpl as typeof fetch,
+      deleteDrive115File: vi.fn(),
+    });
+    expect(result.ok).toBe(true);
+    const probe = new URL(String(fetchImpl.mock.calls[0][0]));
+    expect(probe.pathname).toBe('/Items/item-1');
+    expect(probe.searchParams.get('userId')).toBe('user-1');
+  });
+
   it('deletes an Emby copy through its configured server (probe → DELETE /Items/{Id} → verify)', async () => {
     const fetchImpl = lifecycleFetch(204, { status: 404 });
     const result = await deleteMediaCleanupCopy(embyCopy(), {
