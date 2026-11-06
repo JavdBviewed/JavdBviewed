@@ -116,11 +116,14 @@
       <!-- 11-02 G2：搜索结果计数（仅搜索非空时显示） -->
       <div id="newWorksSearchCount" class="search-result-count" style="display: none;"></div>
       <div class="new-works-batch-toolbar">
-        <button id="batchOpenUnreadBtn" class="btn-action" title="打开当前页所有未读新作品（最多10个，15秒冷却）">
+        <button id="batchOpenUnreadBtn" class="btn-action" title="打开当前页未读新作品（最多6个，15秒冷却）">
           <i class="fas fa-external-link-alt"></i> 批量打开未读（当页）
         </button>
         <button id="selectAllCurrentPageBtn" class="btn-secondary" title="选择当前页的全部作品">
           <i class="fas fa-check-square"></i> 本页全选
+        </button>
+        <button id="selectAllResultsBtn" class="btn-secondary" disabled title="选择当前筛选条件下的全部作品">
+          <i class="fas fa-check-double"></i> 全选结果
         </button>
         <button id="clearSelectionBtn" class="btn-secondary" title="清空所有已选择的作品">
           <i class="fas fa-eraser"></i> 清空选择

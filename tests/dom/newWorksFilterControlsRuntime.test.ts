@@ -103,4 +103,38 @@ describe('new works filter controls runtime', () => {
     expect(setPage).toHaveBeenCalledWith(1);
     expect(render).toHaveBeenCalledTimes(1);
   });
+
+  it('clears selection immediately when search or status changes, including before debounced rendering', () => {
+    const filters: NewWorksFilters = { search: '', filter: 'unread', sort: 'discoveredAt_desc' };
+    const selected = new Set(['one']);
+    const clearSelection = vi.fn(() => selected.clear());
+    attachNewWorksFilterControls(filters, {
+      setPage: vi.fn(), render: vi.fn(), debounceRender: vi.fn(), clearSelection,
+    });
+    const input = document.getElementById('newWorksSearchInput') as HTMLInputElement;
+    input.value = 'Alice';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(clearSelection).toHaveBeenCalledTimes(1);
+    expect(selected.size).toBe(0);
+
+    selected.add('two');
+    const select = document.getElementById('newWorksFilterSelect') as HTMLSelectElement;
+    select.value = 'all';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(clearSelection).toHaveBeenCalledTimes(2);
+    expect(selected.size).toBe(0);
+  });
+
+  it('disables all-results selection while a new search is pending', () => {
+    const filters: NewWorksFilters = { search: '', filter: 'unread', sort: 'discoveredAt_desc' };
+    const setAllResultsAvailable = vi.fn();
+    attachNewWorksFilterControls(filters, {
+      setPage: vi.fn(), render: vi.fn(), debounceRender: vi.fn(),
+      clearSelection: vi.fn(), setAllResultsAvailable,
+    });
+    const input = document.getElementById('newWorksSearchInput') as HTMLInputElement;
+    input.value = 'Alice';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(setAllResultsAvailable).toHaveBeenCalledWith(undefined);
+  });
 });

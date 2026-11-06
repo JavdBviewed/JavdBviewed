@@ -16,6 +16,7 @@ export interface NewWorksButtonEventHandlers {
   batchOpenUnread(): MaybePromise<void>;
   updateBatchOpenUnreadButton(): void;
   selectAllCurrentPage(): void;
+  selectAllResults(): MaybePromise<void>;
   clearSelection(): void;
   batchOpenSelected(): MaybePromise<void>;
   batchDeleteSelected(): MaybePromise<void>;
@@ -38,6 +39,7 @@ export function attachNewWorksButtonEvents(
   bindCleanupRead(doc, handlers);
   bindClick(doc, 'batchOpenUnreadBtn', handlers.batchOpenUnread, () => handlers.updateBatchOpenUnreadButton());
   bindClick(doc, 'selectAllCurrentPageBtn', handlers.selectAllCurrentPage);
+  bindClick(doc, 'selectAllResultsBtn', handlers.selectAllResults);
   bindClick(doc, 'clearSelectionBtn', handlers.clearSelection, undefined, event => event.stopPropagation());
   bindClick(doc, 'batchOpenSelectedBtn', handlers.batchOpenSelected);
   bindClick(doc, 'batchDeleteSelectedBtn', handlers.batchDeleteSelected);
