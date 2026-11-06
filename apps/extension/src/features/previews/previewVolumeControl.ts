@@ -16,11 +16,29 @@ export async function installPreviewVolumeControl(): Promise<void> {
         currentVolume = settings.listEnhancement?.previewVolume ?? 0.2;
         log(`🎵 Volume control init: ${Math.round(currentVolume * 100)}%`);
 
+        const livePreviews = new WeakSet<HTMLVideoElement>();
+        const restoreLiveVolume = (event: Event): void => {
+            const video = event.target;
+            if (!(video instanceof HTMLVideoElement) || !livePreviews.has(video)) return;
+            if (!isActivePreviewVideo(video)) {
+                livePreviews.delete(video);
+                return;
+            }
+            if (event.type === 'volumechange' && video.dataset.jdbNativePreviewAttached === '1' && video.paused) return;
+            if (video.muted || video.volume !== currentVolume) applyVolume(video, false);
+        };
+        document.addEventListener('playing', restoreLiveVolume, true);
+        document.addEventListener('volumechange', restoreLiveVolume, true);
+
         chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             if (message.type === 'volume-changed') {
                 currentVolume = message.volume;
                 log(`🎚️ Volume updated: ${Math.round(currentVolume * 100)}%`);
-                applyVolumeToAllVideos();
+                document.querySelectorAll<HTMLVideoElement>('video').forEach(video => {
+                    if (!isActivePreviewVideo(video)) return;
+                    livePreviews.add(video);
+                    applyVolume(video, false);
+                });
                 sendResponse({ success: true });
                 return false;
             }
@@ -124,6 +142,13 @@ function isPreviewVideo(video: HTMLVideoElement): boolean {
            video.closest('.preview-video-container') !== null;
 }
 
+function isActivePreviewVideo(video: HTMLVideoElement): boolean {
+    return isPreviewVideo(video) && getComputedStyle(video).display !== 'none' &&
+           (video.closest('.fancybox-is-open, .preview-video-container, .x-holding') !== null ||
+            video.dataset.jdbNativePreviewAttached === '1' ||
+            (video.id === 'preview-video' && !video.paused));
+}
+
 function applyVolume(video: HTMLVideoElement, activateMedia = true): void {
     log(`🔧 Applying volume ${Math.round(currentVolume * 100)}% to: ${video.id}`);
 
@@ -140,16 +165,6 @@ function applyVolume(video: HTMLVideoElement, activateMedia = true): void {
     } catch (error) {
         log('❌ Apply volume error:', error);
     }
-}
-
-function applyVolumeToAllVideos(): void {
-    const videos = document.querySelectorAll('video');
-    videos.forEach(video => {
-        const v = video as HTMLVideoElement;
-        if (isPreviewVideo(v)) {
-            applyVolume(v, false);
-        }
-    });
 }
 
 function addVolumeIndicator(video: HTMLVideoElement): void {
