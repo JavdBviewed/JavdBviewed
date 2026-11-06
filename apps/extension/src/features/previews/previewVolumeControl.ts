@@ -119,14 +119,16 @@ function startPreviewVideoWatcher(): void {
 
 function isPreviewVideo(video: HTMLVideoElement): boolean {
     return video.id === 'preview-video' ||
-           video.className.includes('fancybox-video');
+           video.classList.contains('fancybox-video') ||
+           video.classList.contains('x-preview-video') ||
+           video.closest('.preview-video-container') !== null;
 }
 
-function applyVolume(video: HTMLVideoElement): void {
+function applyVolume(video: HTMLVideoElement, activateMedia = true): void {
     log(`🔧 Applying volume ${Math.round(currentVolume * 100)}% to: ${video.id}`);
 
     try {
-        activatePreviewVideoPreload(video);
+        if (activateMedia) activatePreviewVideoPreload(video);
         log(`  Before: muted=${video.muted}, volume=${video.volume}`);
 
         video.muted = false;
@@ -145,8 +147,7 @@ function applyVolumeToAllVideos(): void {
     videos.forEach(video => {
         const v = video as HTMLVideoElement;
         if (isPreviewVideo(v)) {
-            activatePreviewVideoPreload(v);
-            applyVolume(v);
+            applyVolume(v, false);
         }
     });
 }

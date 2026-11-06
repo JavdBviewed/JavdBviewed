@@ -105,14 +105,18 @@ describe('影片页实体快捷收藏 manager', () => {
     await Promise.resolve();
     await Promise.resolve();
     const fetchMock = vi.mocked(fetch);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const collectCalls = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'POST');
+    expect(collectCalls).toHaveLength(1);
+    const [url, init] = collectCalls[0] as unknown as [string, RequestInit];
     expect(url).toBe(`${ORIGIN}/makers/AEO/collect`);
     expect(init.method).toBe('POST');
     expect(init.credentials).toBe('include');
     const headers = (init.headers || {}) as Record<string, string>;
     expect(headers['X-CSRF-Token']).toBe('tok-123');
     expect(headers['X-Requested-With']).toBe('XMLHttpRequest');
+    expect(fetchMock.mock.calls.some(([requestUrl, options]) =>
+      String(requestUrl).includes('/users/collection_makers') && (options as RequestInit | undefined)?.credentials === 'include',
+    )).toBe(true);
     await Promise.resolve();
     await Promise.resolve();
     expect(tooltip.textContent).toContain('已收藏');

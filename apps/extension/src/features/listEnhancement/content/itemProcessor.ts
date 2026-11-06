@@ -21,6 +21,7 @@ import { countContentPerformanceEvent } from '../../../platform/tasks';
 import { renderListFavoriteQuickAction } from './favoriteQuickAction';
 import { renderResourceTagsForItems } from './resourceTags';
 import { renderListStatusQuickActions } from './statusQuickActions';
+import { findPagedMovieList } from '../application/scrollPaging';
 import {
     selectListItemsByCodes,
     selectListItemsForProcessing,
@@ -163,7 +164,7 @@ export function processListItems(items: readonly HTMLElement[], options: ListPro
 }
 
 export function setupObserver(): void {
-    const targetNode = document.querySelector('.movie-list');
+    const targetNode = findPagedMovieList(document);
     if (!targetNode) return;
 
     STATE.observer = new MutationObserver(mutations => {

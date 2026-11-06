@@ -11,7 +11,7 @@ import {
   type ListSortingPositionStrategy,
   type ListSortMode,
 } from '../application/listSorting';
-import type { ListScrollPagingAppendEvent } from '../application/scrollPaging';
+import { findPagedMovieList, type ListScrollPagingAppendEvent } from '../application/scrollPaging';
 
 const TOOLBAR_CLASS = 'x-list-sort-toolbar';
 const NOTICE_CLASS = 'x-list-sort-notice';
@@ -67,7 +67,7 @@ function findNativeSortButtons(documentRef: Document): HTMLElement | null {
 }
 
 function findMovieList(documentRef: Document): HTMLElement | null {
-  return documentRef.querySelector('.movie-list') as HTMLElement | null;
+  return findPagedMovieList(documentRef);
 }
 
 function rememberNativeSelectedButtons(buttons: HTMLElement): void {
@@ -385,7 +385,7 @@ export function createListSortingController(options: ListSortingControllerOption
   const applyDomOrder = (mode: ListSortMode): void => {
     const movieList = findMovieList(options.document);
     if (!movieList) return;
-    const sorted = sortSortableItems(readSortableItems(options.document), mode);
+    const sorted = sortSortableItems(readSortableItems(movieList), mode);
     sorted.forEach(item => {
       movieList.appendChild(item.element);
     });
@@ -409,7 +409,8 @@ export function createListSortingController(options: ListSortingControllerOption
 
   const handleItemsAppended = (event: ListScrollPagingAppendEvent): void => {
     if (!config.enabled) return;
-    readSortableItems(options.document);
+    const movieList = findMovieList(options.document);
+    if (movieList) readSortableItems(movieList);
     if (activeMode === 'original') return;
 
     if (config.appendStrategy === 'auto-resort') {
@@ -440,7 +441,8 @@ export function createListSortingController(options: ListSortingControllerOption
         cleanup();
         return;
       }
-      readSortableItems(options.document);
+      const movieList = findMovieList(options.document);
+      if (movieList) readSortableItems(movieList);
       renderToolbar();
     },
 

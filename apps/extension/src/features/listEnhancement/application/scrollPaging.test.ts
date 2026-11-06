@@ -6,7 +6,31 @@
  * @module features/listEnhancement
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createListScrollPagingController, type ListScrollPagingAppendEvent } from './scrollPaging';
+import { appendFetchedMovieItems, createListScrollPagingController, type ListScrollPagingAppendEvent } from './scrollPaging';
+
+describe('主列表翻页不污染每周推荐', () => {
+  afterEach(() => { document.body.innerHTML = ''; });
+
+  it('首页推荐在前、分页列表在后时只追加主列表影片', () => {
+    document.body.innerHTML = `
+      <section class="weekly-recommend"><div class="movie-list"><div class="item">weekly</div></div></section>
+      <section class="latest"><div class="movie-list"><div class="item">page1</div></div></section>
+      <nav class="pagination"><a class="pagination-link" href="/?page=2">2</a></nav>`;
+    const fetched = `<section class="weekly-recommend"><div class="movie-list"><div class="item">weekly-again</div></div></section>
+      <section class="latest"><div class="movie-list"><div class="item">page2</div></div></section>
+      <nav class="pagination"><a class="pagination-link" href="/?page=3">3</a></nav>`;
+
+    expect(appendFetchedMovieItems(document, fetched)).toBe(1);
+    expect([...document.querySelectorAll('.weekly-recommend .item')].map(item => item.textContent)).toEqual(['weekly']);
+    expect([...document.querySelectorAll('.latest .item')].map(item => item.textContent)).toEqual(['page1', 'page2']);
+  });
+
+  it('单列表页面继续正常追加', () => {
+    document.body.innerHTML = '<div class="movie-list"><div class="item">page1</div></div>';
+    expect(appendFetchedMovieItems(document, '<div class="movie-list"><div class="item">page2</div></div>')).toBe(1);
+    expect([...document.querySelectorAll('.movie-list .item')].map(item => item.textContent)).toEqual(['page1', 'page2']);
+  });
+});
 
 describe('listScrollPaging super-ranking 分支 items 透传', () => {
   it('onItemsAppended 事件 items = appendSuperRankingPage 返回的节点（不再恒空）', async () => {

@@ -5,6 +5,7 @@
  */
 export { parseEntityLink, buildCollectUrl, extractCSRFToken } from './entityCollect';
 export type { CollectibleEntity, ParsedEntityLink } from './entityCollect';
+export { installSiteFavoritesSync } from './siteFavoritesSync';
 export {
     COLLECTION_QUICK_ACTIONS_BOUND_ATTR,
     COLLECTION_QUICK_ACTIONS_TOOLTIP_SELECTOR,

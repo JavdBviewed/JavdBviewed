@@ -57,6 +57,25 @@ describe('list item observer', () => {
     expect(newItemBatches).toEqual([['direct', 'nested']]);
   });
 
+  it('observes the paginated list after a recommendation list', async () => {
+    document.body.innerHTML = '<div class="movie-list" id="weekly"></div><div class="movie-list" id="main"></div><nav class="pagination"></nav>';
+    const processed: string[] = [];
+    const observer = observeListItems({
+      document,
+      enhanceItem: item => processed.push(item.id),
+      onNewItems: () => {},
+    });
+
+    const item = document.createElement('div');
+    item.className = 'item';
+    item.id = 'next-page';
+    document.getElementById('main')?.appendChild(item);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    observer?.disconnect();
+
+    expect(processed).toEqual(['next-page']);
+  });
+
   it('returns null when no movie list exists', () => {
     const processed: HTMLElement[] = [];
     const observer = observeListItems({

@@ -10,6 +10,7 @@
 import { buildCollectUrl, extractCSRFToken, parseEntityLink } from './entityCollect';
 import type { ParsedEntityLink } from './entityCollect';
 import { showToast } from '../../platform/browser/toast';
+import { parseSiteFavoriteTarget, reconcileSiteFavorite } from './siteFavoritesSync';
 
 export const COLLECTION_QUICK_ACTIONS_BOUND_ATTR = 'data-x-collection-quick-bound';
 export const COLLECTION_QUICK_ACTIONS_TOOLTIP_SELECTOR = '.x-collection-quick-tooltip';
@@ -218,6 +219,8 @@ class CollectionQuickActionsManager {
         if (resp.ok) {
             btn.textContent = TOOLTIP_TEXT.collected;
             btn.disabled = true;
+            const page = parseSiteFavoriteTarget(`/${target.entity === 'code' ? 'video_codes' : target.entity === 'maker' ? 'makers' : target.entity === 'director' ? 'directors' : 'series'}/${encodeURIComponent(target.id)}`, origin, link.textContent || target.id);
+            if (page) void reconcileSiteFavorite(page, true).catch(() => {});
         } else {
             showToast(TOOLTIP_TEXT.failed, 'error');
         }

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STATE } from '../../apps/extension/src/features/contentState';
 import { VIDEO_STATUS } from '../../apps/extension/src/utils/config';
 import type { VideoRecord } from '../../apps/extension/src/types';
-import { processVisibleItems } from '../../apps/extension/src/features/listEnhancement/content/itemProcessor';
+import { processVisibleItems, setupObserver } from '../../apps/extension/src/features/listEnhancement/content/itemProcessor';
 
 vi.mock('../../apps/extension/src/features/videoDetail', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../apps/extension/src/features/videoDetail')>();
@@ -90,6 +90,18 @@ describe('list item processor', () => {
     const tag = document.querySelector('.custom-status-tag');
     expect(tag?.textContent).toBe('已观看');
     expect(tag?.className).toContain('is-success');
+  });
+
+  it('processes cards appended to the paginated list after weekly recommendations', async () => {
+    document.body.innerHTML = '<div class="movie-list" id="weekly"></div><div class="movie-list" id="main"></div><nav class="pagination"></nav>';
+    STATE.records['NEW-001'] = createRecord('NEW-001', VIDEO_STATUS.VIEWED);
+    setupObserver();
+
+    const item = renderListItem('NEW-001');
+    document.getElementById('main')?.appendChild(item);
+    await waitForListItemProcessing(item);
+
+    expect(item.querySelector('.custom-status-tag')?.textContent).toBe('已观看');
   });
 
   it('hides VR list items when the display setting is enabled', async () => {

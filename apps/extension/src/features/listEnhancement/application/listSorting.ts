@@ -45,7 +45,8 @@ function readRatingText(item: HTMLElement): string {
 }
 
 export function readSortableItems(root: ParentNode): ListSortableItem[] {
-  const elements = Array.from(root.querySelectorAll<HTMLElement>('.movie-list .item'));
+  const selector = root instanceof Element && root.matches('.movie-list') ? ':scope .item' : '.movie-list .item';
+  const elements = Array.from(root.querySelectorAll<HTMLElement>(selector));
   const existingIndexes = elements
     .map(element => parseOriginalIndex(element.getAttribute(ORIGINAL_INDEX_ATTR)))
     .filter((index): index is number => index !== null);

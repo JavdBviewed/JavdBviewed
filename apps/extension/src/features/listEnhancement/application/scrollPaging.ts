@@ -161,11 +161,21 @@ export function setScrollLoadingIndicatorVisible(documentRef: Document, visible:
   }
 }
 
+export function findPagedMovieList(documentRef: Document): HTMLElement | null {
+  const lists = Array.from(documentRef.querySelectorAll<HTMLElement>('.movie-list'));
+  const pagination = documentRef.querySelector('.pagination');
+  if (pagination) {
+    const preceding = lists.filter(list => Boolean(list.compareDocumentPosition(pagination) & Node.DOCUMENT_POSITION_FOLLOWING));
+    if (preceding.length > 0) return preceding[preceding.length - 1];
+  }
+  return lists[lists.length - 1] ?? null;
+}
+
 function appendFetchedMovieItemsWithRefs(documentRef: Document, html: string): { appended: number; items: HTMLElement[]; maxPage: number | null } {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
-  const newItems = doc.querySelectorAll('.movie-list .item');
-  const movieList = documentRef.querySelector('.movie-list');
+  const newItems = findPagedMovieList(doc)?.querySelectorAll('.item') ?? [];
+  const movieList = findPagedMovieList(documentRef);
 
   if (!movieList || newItems.length === 0) {
     return { appended: 0, items: [], maxPage: null };
