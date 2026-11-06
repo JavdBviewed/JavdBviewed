@@ -316,7 +316,7 @@ describe('Dashboard 9C navigation runtime', () => {
     await initTabs();
     await flushNavigationTasks();
 
-    expect(window.location.hash).toBe('#tab-settings/drive115-settings');
+    expect(window.location.hash).toBe('#tab-settings/drive-settings/115');
     expect(document.querySelector('.dashboard-main-tab.active')?.textContent).toBe('设置');
     expect(readButtonLabels('.dashboard-sub-tab')).toEqual([]);
     expect(document.getElementById('dashboard-section-nav')?.hidden).toBe(true);
