@@ -3,6 +3,9 @@
  * @description listItemObserver
  * @module features/listEnhancement
  */
+import { findPagedMovieList } from '../application/scrollPaging';
+import { countContentPerformanceEvent } from '../../../platform/tasks';
+
 export function processExistingListItems(
   document: Document,
   enhanceItem: (item: HTMLElement) => void,
@@ -18,7 +21,7 @@ export interface ListItemObserverOptions {
 }
 
 export function observeListItems(options: ListItemObserverOptions): MutationObserver | null {
-  const targetNode = options.document.querySelector('.movie-list');
+  const targetNode = findPagedMovieList(options.document);
   if (!targetNode) return null;
 
   const observer = new MutationObserver(mutations => {
@@ -49,4 +52,3 @@ export function observeListItems(options: ListItemObserverOptions): MutationObse
   observer.observe(targetNode, { childList: true, subtree: true });
   return observer;
 }
-import { countContentPerformanceEvent } from '../../../platform/tasks';

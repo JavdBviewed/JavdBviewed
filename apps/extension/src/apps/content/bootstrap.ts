@@ -29,7 +29,7 @@ import { listEnhancementManager } from '../../features/listEnhancement';
 import { resolveCategoryFilterEnabled } from '../../features/list-hiding';
 import { actorEnhancementManager, actorQuickActionsManager } from '../../features/actorEnhancement';
 import { categoryQuickActionsManager } from '../../features/categoryQuickActions';
-import { collectionQuickActionsManager } from '../../features/collectionQuick';
+import { collectionQuickActionsManager, installSiteFavoritesSync } from '../../features/collectionQuick';
 import { isActorEnhancementEnabled } from '../../features/actorEnhancement/actorEnhancementGate';
 import { normalizeActorDefaultTags } from '../../features/actorEnhancement/defaultTagsSelection';
 import { isVideoEnhancementSubOn } from '../../features/videoDetail/videoEnhancementGate';
@@ -94,6 +94,7 @@ void installPreviewVolumeControl();
 exposePreviewVolumeDebug();
 exposeContentDebugManagers();
 installContentLifecycleHandlers([
+    installSiteFavoritesSync(),
     disposeContentConsoleSettingsBridge,
     disposeContentScreenshotStorageListener,
     () => contentScreenshotBlurController.destroy(),

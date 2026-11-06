@@ -121,6 +121,22 @@ describe('list sorting helpers', () => {
 });
 
 describe('list sorting controller', () => {
+  it('多列表首页排序只整理分页主列表，不搬走每周推荐卡片', () => {
+    document.body.innerHTML = `
+      <section class="weekly"><div class="movie-list"><div class="item" data-case="weekly"><div class="score">5 分</div></div></div></section>
+      <div class="toolbar"><div class="buttons has-addons"><a class="button is-selected is-info" href="/?vst=1">原站排序</a></div></div>
+      <section class="latest"><div class="movie-list"><div class="item" data-case="low"><div class="score">2 分</div></div><div class="item" data-case="high"><div class="score">4 分</div></div></div></section>
+      <nav class="pagination"><a class="pagination-link" href="/?page=2">2</a></nav>`;
+    const controller = createListSortingController({
+      document, window,
+      config: { enabled: true, appendStrategy: 'prompt', autoResortPosition: 'preserve' },
+    });
+    controller.init();
+    controller.applySort('rating-desc');
+    expect([...document.querySelectorAll('.weekly .item')].map(item => (item as HTMLElement).dataset.case)).toEqual(['weekly']);
+    expect([...document.querySelectorAll('.latest .item')].map(item => (item as HTMLElement).dataset.case)).toEqual(['high', 'low']);
+    controller.cleanup();
+  });
   afterEach(() => {
     listEnhancementManager.updateConfig({
       sorting: { enabled: false, appendStrategy: 'prompt', autoResortPosition: 'preserve' },
