@@ -3212,7 +3212,7 @@ input:checked + .toggle-slider:before {
 
 .new-works-page .new-works-filter-bar {
     display: grid;
-    grid-template-columns: minmax(260px, 1.2fr) minmax(320px, 1fr);
+    grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr);
     gap: 9px;
     align-items: center;
 }
@@ -3238,8 +3238,17 @@ input:checked + .toggle-slider:before {
 
 .new-works-page .new-works-select-grid {
     display: grid;
-    grid-template-columns: minmax(130px, 0.8fr) minmax(210px, 1.2fr);
+    grid-template-columns: minmax(120px, 1fr) minmax(200px, 1.5fr) minmax(110px, 0.75fr);
     gap: 10px;
+}
+
+.new-works-page .new-works-select-grid > *,
+.new-works-page .records-per-page-selector {
+    min-width: 0;
+}
+
+.new-works-page .records-per-page-selector select {
+    min-width: 0;
 }
 
 .new-works-page .list-controls input,
@@ -3365,7 +3374,7 @@ input:checked + .toggle-slider:before {
     }
 
     .new-works-page .new-works-select-grid {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: minmax(120px, 1fr) minmax(200px, 1.5fr) minmax(110px, 0.75fr);
     }
 }
 

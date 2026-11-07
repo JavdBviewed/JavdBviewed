@@ -122,13 +122,15 @@ export interface IndexReportResult {
 }
 
 /** Bound to the caller's connection/account/user/device for the entire request, including refresh. */
-export interface IndexReportRequestOptions {
+export interface AuthenticatedRequestOptions {
   signal?: AbortSignal;
   auth?: {
     baseUrl: string;
     assertCurrent(): Promise<void>;
   };
 }
+
+export type IndexReportRequestOptions = AuthenticatedRequestOptions;
 
 /** Additive API: old servers and transports need not implement these methods. */
 export interface IndexReportApi {
@@ -157,8 +159,8 @@ export interface CloudApi extends IndexReportApi {
   ): Promise<SyncSessionResponse>;
   /** Permanently removes explicitly allowed non-business sync types for this account. */
   cleanupSyncData(types: readonly string[]): Promise<{ deleted: Record<string, number> }>;
-  listVault(): Promise<VaultListResponse>;
-  putVault(id: string, body: VaultPutRequest): Promise<VaultItem>;
+  listVault(options?: AuthenticatedRequestOptions): Promise<VaultListResponse>;
+  putVault(id: string, body: VaultPutRequest, options?: AuthenticatedRequestOptions): Promise<VaultItem>;
   deleteVault(id: string): Promise<void>;
   /** 读云端扫描配置（冻结契约；非 2xx 由 transport 抛 SyncHttpError，本层不吞）。 */
   getScanConfig(): Promise<CloudScanConfigReadback>;

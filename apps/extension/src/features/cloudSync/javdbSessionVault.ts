@@ -16,12 +16,15 @@
  * 永不自动删除 vault 项（移除仅经设置页显式按钮）。
  */
 import type { VaultItem } from '@javdb/sync-protocol';
-import { PROTOCOL_VERSION, type ApiClient } from '@javdb/sync-client';
+import { PROTOCOL_VERSION, SyncHttpError, type ApiClient, type AuthenticatedRequestOptions } from '@javdb/sync-client';
 import type { CloudScanConfig } from '../../types';
 import { STORAGE_KEYS, normalizeCloudScanConfig } from '../../utils/config';
 import { loadCloudSettings } from './cloudSettingsStorage';
 import { createExtensionCloudClient } from './createExtensionCloudClient';
 import { scheduleEnqueue } from './enqueueLocalChange';
+import { loadCloudSession } from './chromeTokenStore';
+import { recoverCloudAuthSession } from './cloudAuthRecovery';
+import { isCurrentCloudVaultIdentity, type CloudVaultIdentity } from './cloudSessionIdentity';
 
 export const JAVDB_SESSION_VAULT_ITEM_ID = 'javdb-session';
 export const JAVDB_SESSION_VAULT_KIND = 'javdb-session';
@@ -47,13 +50,15 @@ export type JavdbSessionCookieSnapshot = {
 
 export type JavdbSessionVaultStatus = 'present' | 'absent' | 'error';
 
+export type JavdbSessionPushFailure = 'no-credentials' | 'no-cookies' | 'push-failed' | 'session-locked' | 'session-invalid' | 'session-unavailable' | 'session-conflict' | 'identity-changed';
+
 export type PushJavdbSessionVaultResult =
   | { ok: true; host: string; cookieCount: number }
-  | { ok: false; reason: 'no-credentials' | 'no-cookies' | 'push-failed' };
+  | { ok: false; reason: JavdbSessionPushFailure };
 
 export type PushJavdbSessionVaultManualResult =
   | { ok: true; host: string; cookieCount: number }
-  | { ok: false; reason: 'cloud-scan-disabled' | 'no-credentials' | 'no-cookies' | 'push-failed' };
+  | { ok: false; reason: 'cloud-scan-disabled' | JavdbSessionPushFailure };
 
 type VaultApiLike = Pick<ApiClient, 'listVault' | 'putVault' | 'deleteVault'>;
 
@@ -212,56 +217,83 @@ async function resolveVaultApi(options: JavdbSessionVaultOptions): Promise<Vault
   return api;
 }
 
-/** 采集会话 cookie → AES-GCM 加密 → PUT vault 项（id/kind 固定，label=采集时镜像 host） */
+function sessionPushFailure(error: unknown): JavdbSessionPushFailure {
+  if (error instanceof SessionIdentityChanged) return 'identity-changed';
+  if (error instanceof SyncHttpError) {
+    if (error.status === 409 && error.message === 'vault-session-locked') return 'session-locked';
+    if (error.status === 422 && error.message === 'vault-session-invalid') return 'session-invalid';
+    if (error.status === 503 && error.message === 'vault-session-unavailable') return 'session-unavailable';
+  }
+  return 'push-failed';
+}
+
+class SessionIdentityChanged extends Error {}
+
+/** 密文可能被 Cloud 转为 v2，只核对本次写入的元数据，不把 LWW 返回的旧项当成成功。 */
+function acceptedSessionWrite(actual: VaultItem, expected: VaultItem): boolean {
+  return Boolean(actual && actual.id === expected.id && actual.kind === expected.kind &&
+    actual.revision === expected.revision && actual.updatedAt === expected.updatedAt &&
+    actual.updatedByDeviceId === expected.updatedByDeviceId && !actual.deletedAt && actual.ciphertext);
+}
+
+/** 采集并上传一次；Cloud 未解锁时同账号重新认证，重新读 revision 后最多重试一次。 */
 export async function pushJavdbSessionVault(
   reason: string,
   options: JavdbSessionVaultOptions = {},
 ): Promise<PushJavdbSessionVaultResult> {
-  const settings = await loadCloudSettings();
-  if (!settings.accountPassword) {
+  const [settings, session] = await Promise.all([loadCloudSettings(), loadCloudSession()]);
+  if (!settings.accountPassword || !session?.accessToken || !session.userId) {
     return { ok: false, reason: 'no-credentials' };
   }
-  let snapshot: JavdbSessionCookieSnapshot;
-  try {
-    snapshot = await collectJavdbSessionCookies();
-  } catch (err) {
-    console.warn('[cloudSync] javdb 会话 cookie 采集失败（reason 码）:', (err as Error)?.message || 'unknown');
-    return { ok: false, reason: 'push-failed' };
-  }
-  const cookieCount = Object.keys(snapshot.cookies).length;
-  if (cookieCount === 0) {
-    return { ok: false, reason: 'no-cookies' };
-  }
-  const api = await resolveVaultApi(options);
-  // 云侧 PutVault 对 item.Revision < existing.Revision 静默返回原项（JavdBviewed-Cloud store.go PutVault）：
-  // 先读当前 revision 正序 +1，否则推送静默 no-op（18091 盘上 rev=3 场景）。读失败 fallback=1（服务端 stale 守卫拒收更旧 revision，不会静默覆写）。
-  let revision = 1;
-  try {
-    const listRes = await api.listVault();
-    const existing = (listRes.items || []).find((i) => i.id === JAVDB_SESSION_VAULT_ITEM_ID);
-    if (existing && existing.revision > 0) revision = existing.revision + 1;
-  } catch {
-    // 读失败 → 保持 fallback 1
-  }
-  const payload: JavdbSessionPayload = { cookies: snapshot.cookies, obtainedAt: Date.now() };
-  const ciphertext = await encryptJavdbSessionPayload(payload, settings.accountPassword);
-  const item: VaultItem = {
-    id: JAVDB_SESSION_VAULT_ITEM_ID,
-    kind: JAVDB_SESSION_VAULT_KIND,
-    label: snapshot.host ?? undefined,
-    ciphertext,
-    revision,
-    updatedAt: Date.now(),
-    updatedByDeviceId: settings.deviceId,
+  const identity: CloudVaultIdentity = { ...settings, userId: session.userId };
+  const assertCurrent = async () => {
+    if (!await isCurrentCloudVaultIdentity(identity)) throw new SessionIdentityChanged();
   };
+  const requestOptions: AuthenticatedRequestOptions = { auth: { baseUrl: settings.baseUrl, assertCurrent } };
   try {
-    await api.putVault(JAVDB_SESSION_VAULT_ITEM_ID, { protocolVersion: PROTOCOL_VERSION, item });
-  } catch (err) {
-    console.warn('[cloudSync] javdb 会话 vault 推送失败（reason 码）:', (err as Error)?.message || 'unknown');
-    return { ok: false, reason: 'push-failed' };
+    await assertCurrent();
+    const snapshot = await collectJavdbSessionCookies();
+    const cookieCount = Object.keys(snapshot.cookies).length;
+    if (cookieCount === 0) return { ok: false, reason: 'no-cookies' };
+    const api = options.vaultApi ?? (await createExtensionCloudClient(settings)).api;
+    const payload: JavdbSessionPayload = { cookies: snapshot.cookies, obtainedAt: Date.now() };
+    const ciphertext = await encryptJavdbSessionPayload(payload, settings.accountPassword);
+    let previousTimestamp = 0;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await assertCurrent();
+      // 读失败不猜 revision；登录可能迁移旧值，所以每次发送前都重新读。
+      const list = await api.listVault(requestOptions);
+      await assertCurrent();
+      const existing = (list.items || []).find(item => item.id === JAVDB_SESSION_VAULT_ITEM_ID);
+      const revision = existing && Number.isSafeInteger(existing.revision) && existing.revision > 0 ? existing.revision + 1 : 1;
+      const latestTimestamp = existing && Number.isSafeInteger(existing.updatedAt) ? existing.updatedAt : 0;
+      const updatedAt = Math.max(Date.now(), previousTimestamp + 1, latestTimestamp + 1);
+      previousTimestamp = updatedAt;
+      const item: VaultItem = {
+        id: JAVDB_SESSION_VAULT_ITEM_ID, kind: JAVDB_SESSION_VAULT_KIND,
+        label: snapshot.host ?? undefined, ciphertext, revision, updatedAt, updatedByDeviceId: settings.deviceId,
+      };
+      try {
+        const saved = await api.putVault(JAVDB_SESSION_VAULT_ITEM_ID, { protocolVersion: PROTOCOL_VERSION, item }, requestOptions);
+        await assertCurrent();
+        if (!acceptedSessionWrite(saved, item)) return { ok: false, reason: 'session-conflict' };
+        console.info(`[cloudSync] javdb 会话 vault 推送成功 reason=${reason} host=${snapshot.host || '-'} cookies=${cookieCount} rev=${revision}`);
+        return { ok: true, host: snapshot.host ?? '', cookieCount };
+      } catch (error) {
+        await assertCurrent();
+        const failure = sessionPushFailure(error);
+        if (failure !== 'session-locked' || attempt > 0) return { ok: false, reason: failure };
+        const recovery = await recoverCloudAuthSession('vault-locked', { vaultIdentity: identity });
+        await assertCurrent();
+        if (recovery.outcome !== 'recovered') return { ok: false, reason: 'session-locked' };
+      }
+    }
+    return { ok: false, reason: 'session-locked' };
+  } catch (error) {
+    const failure = sessionPushFailure(error);
+    console.warn('[cloudSync] javdb 会话推送未完成 reason:', failure);
+    return { ok: false, reason: failure };
   }
-  console.info(`[cloudSync] javdb 会话 vault 推送成功 reason=${reason} host=${snapshot.host || '-'} cookies=${cookieCount} rev=${revision}`);
-  return { ok: true, host: snapshot.host ?? '', cookieCount };
 }
 
 /** 门控包装：未开启云扫描零动作；任何失败仅 warn 不外抛（fire-and-forget 安全） */
@@ -274,7 +306,7 @@ export async function pushJavdbSessionVaultIfEnabled(reason: string): Promise<vo
       console.warn('[cloudSync] javdb 会话 vault 推送未成功 reason 码:', result.reason);
     }
   } catch (err) {
-    console.warn('[cloudSync] javdb 会话 vault 推送异常:', (err as Error)?.message || 'unknown');
+    console.warn('[cloudSync] javdb 会话 vault 推送异常:', sessionPushFailure(err));
   }
 }
 
@@ -290,7 +322,7 @@ export async function pushJavdbSessionVaultManual(
     }
     return await pushJavdbSessionVault('manual', options);
   } catch (err) {
-    console.warn('[cloudSync] javdb 会话 vault 手动推送异常:', (err as Error)?.message || 'unknown');
+    console.warn('[cloudSync] javdb 会话 vault 手动推送异常:', sessionPushFailure(err));
     return { ok: false, reason: 'push-failed' };
   }
 }

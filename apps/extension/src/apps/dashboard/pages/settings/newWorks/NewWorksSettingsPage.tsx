@@ -194,6 +194,16 @@ export function NewWorksSettingsPage() {
         await toast('未检测到云服务凭据，请先配置云服务', 'warning');
       } else if (res.reason === 'no-cookies') {
         await toast('未检测到 JavDB 登录 Cookie，请先在浏览器登录 JavDB 后再试', 'warning');
+      } else if (res.reason === 'session-locked') {
+        await toast('Cloud 登录验证未完成，请在「Cloud 同步」设置中重新登录后再试', 'error');
+      } else if (res.reason === 'session-invalid') {
+        await toast('登录态未更新，请检查云账号密码，并重新获取当前 JavDB 会话后再试', 'error');
+      } else if (res.reason === 'session-unavailable') {
+        await toast('云服务暂时无法保存登录态，原登录态已保留，请稍后重试', 'error');
+      } else if (res.reason === 'session-conflict') {
+        await toast('云端登录态已被其他请求更新，本次未覆盖，请重新获取后再试', 'error');
+      } else if (res.reason === 'identity-changed') {
+        await toast('云账号或连接已变化，本次上传已停止，请确认当前云账号后重试', 'error');
       } else {
         await toast('登录态推送失败，请检查云服务连接后重试', 'error');
       }

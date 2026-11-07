@@ -23,9 +23,11 @@ function close(server: Server): Promise<void> {
 test('OpenList content button sends a verified task through the extension background', async ({}, testInfo) => {
   const requests: Array<{ authorization: string; body: unknown }> = [];
   let rejectPush = false;
+  let availableTools = ['SimpleHttp'];
   const openlist = createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     if (req.url === '/api/public/settings') return res.end(JSON.stringify({ code: 1500, data: { version: '1.9.9' } }));
+    if (req.url?.startsWith('/api/public/offline_download_tools')) return res.end(JSON.stringify({ code: 200, data: availableTools }));
     if (req.url === '/api/me') {
       if (req.headers.authorization !== 'raw-token') {
         res.statusCode = 401;
@@ -85,6 +87,21 @@ test('OpenList content button sends a verified task through the extension backgr
       chrome.runtime.sendMessage({ type: 'openlist.test_connection', payload: { baseUrl, token: 'bad-token' } }, resolve);
     }), `http://127.0.0.1:${openlistPort}`);
     expect(denied).toMatchObject({ ok: false, message: 'invalid token' });
+
+    await settingsPage.goto(extensionPageUrl(extensionId, 'dashboard/dashboard.html#tab-settings/drive-settings/openlist'));
+    await expect(settingsPage.locator('#openlistToolStatus')).toContainText('当前目录可用：SimpleHttp');
+    await expect(settingsPage.getByText('目前只有 HTTP 下载器，磁链暂不可用。')).toBeVisible();
+    await expect(settingsPage.locator('#openlistToolHelp')).toContainText('OpenList 管理后台');
+    await expect(settingsPage.locator('#openlistOpenServer')).toHaveAttribute('href', `http://127.0.0.1:${openlistPort}`);
+    await settingsPage.screenshot({ path: testInfo.outputPath('openlist-downloader-guidance.png'), fullPage: true });
+    availableTools = ['aria2', 'Aria2', 'SimpleHttp', 'simplehttp'];
+    await settingsPage.locator('#openlistRefreshTools').click();
+    await expect(settingsPage.locator('#openlistToolStatus')).toContainText('当前目录可用：Aria2、SimpleHttp');
+    await expect(settingsPage.locator('#openlistTool option')).toHaveCount(2);
+    await expect(settingsPage.locator('#openlistTool')).toHaveValue('aria2');
+    await settingsPage.locator('#openlistSave').click();
+    await expect(settingsPage.getByText('设置已保存', { exact: true })).toBeVisible();
+
 
     await page.reload({ waitUntil: 'domcontentloaded' });
     const button = page.locator('.openlist-push-btn');

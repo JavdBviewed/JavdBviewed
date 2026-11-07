@@ -43,7 +43,10 @@ type CookieStub = { name: string; value?: string; domain?: string; hostOnly?: bo
 function makeChromeStub(opts: { cookies?: CookieStub[]; config?: unknown; cloudSettings?: Record<string, unknown> } = {}) {
   const store: Record<string, unknown> = {};
   if (opts.config !== undefined) store.new_works_config = opts.config;
-  if (opts.cloudSettings) store.cloud_sync_settings_v1 = opts.cloudSettings;
+  if (opts.cloudSettings) {
+    store.cloud_sync_settings_v1 = opts.cloudSettings;
+    store.cloud_sync_session_v1 = { accessToken: 'test-access', refreshToken: 'test-refresh', userId: 'test-user', deviceId: opts.cloudSettings.deviceId, savedAt: 1 };
+  }
   const cookieStore: CookieStub[] = (opts.cookies ?? []).map((c) => ({ ...c }));
   const listeners: Array<(change: unknown) => void> = [];
   vi.stubGlobal('chrome', {
@@ -94,7 +97,7 @@ function makeChromeStub(opts: { cookies?: CookieStub[]; config?: unknown; cloudS
 function makeVaultApi(overrides: Record<string, unknown> = {}) {
   return {
     listVault: vi.fn(async () => ({ protocolVersion: PROTOCOL_VERSION, items: [] as VaultItem[] })),
-    putVault: vi.fn(async () => ({})),
+    putVault: vi.fn(async (_id: string, body: { item: VaultItem }) => ({ ...body.item })),
     deleteVault: vi.fn(async () => undefined),
     ...overrides,
   };
@@ -301,7 +304,7 @@ describe('javdbSessionVault push revision read-then-bump（云侧 PutVault 静�
     expect(putRevision(api)).toBe(6);
   });
 
-  it('listVault 读失败 → fallback rev=1 仍推送（不抛不跳过）', async () => {
+  it('listVault 读失败 → 明确失败且不猜测 revision 上传', async () => {
     makeChromeStub({ cloudSettings: CLOUD_SETTINGS, cookies: COOKIES });
     const api = makeVaultApi({
       listVault: vi.fn(async () => {
@@ -309,8 +312,8 @@ describe('javdbSessionVault push revision read-then-bump（云侧 PutVault 静�
       }),
     });
     const r = await pushJavdbSessionVault('manual-sync', { vaultApi: api });
-    expect(r.ok).toBe(true);
-    expect(putRevision(api)).toBe(1);
+    expect(r).toEqual({ ok: false, reason: 'push-failed' });
+    expect(api.putVault).not.toHaveBeenCalled();
   });
 
   it('既有项脏形状 rev=0 → fallback 1', async () => {

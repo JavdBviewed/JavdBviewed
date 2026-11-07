@@ -9,6 +9,36 @@ import { activatePreviewVideoPreload, releasePreviewVideoMedia } from './preview
 
 let currentVolume = 0.2;
 let previewVideoWatcherTimer: number | null = null;
+let previewClickUntil = 0;
+let videosPlayingBeforePreviewClick = new WeakSet<HTMLVideoElement>();
+let mediaBeforePreviewClick = new WeakMap<HTMLVideoElement, string>();
+let videosBeforePreviewClick = new WeakSet<HTMLVideoElement>();
+const trackedPreviewMedia = new WeakMap<HTMLVideoElement, string>();
+
+function previewMedia(video: HTMLVideoElement): string {
+    return video.currentSrc || video.getAttribute('src') || video.querySelector('source[src]')?.getAttribute('src') || '';
+}
+
+function hasPreviewMedia(video: HTMLVideoElement): boolean {
+    return !!previewMedia(video);
+}
+
+function isTrackedPreview(video: HTMLVideoElement): boolean {
+    if (!video.isConnected || video.ended || !previewMedia(video) || trackedPreviewMedia.get(video) !== previewMedia(video)) return false;
+    for (let element: Element | null = video; element; element = element.parentElement) {
+        const style = getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+    }
+    return true;
+}
+
+function isRecentPreviewPlayback(video: HTMLVideoElement): boolean {
+    if (Date.now() >= previewClickUntil || !hasPreviewMedia(video) ||
+        (video.classList.contains('fancybox-video') && !video.closest('.fancybox-is-open'))) return false;
+    const media = previewMedia(video);
+    return !videosBeforePreviewClick.has(video) ||
+        (!video.paused && (!videosPlayingBeforePreviewClick.has(video) || mediaBeforePreviewClick.get(video) !== media));
+}
 
 export async function installPreviewVolumeControl(): Promise<void> {
     try {
@@ -19,13 +49,15 @@ export async function installPreviewVolumeControl(): Promise<void> {
         const livePreviews = new WeakSet<HTMLVideoElement>();
         const restoreLiveVolume = (event: Event): void => {
             const video = event.target;
-            if (!(video instanceof HTMLVideoElement) || !livePreviews.has(video)) return;
+            if (!(video instanceof HTMLVideoElement)) return;
+            if (event.type === 'playing' && isActivePreviewVideo(video)) livePreviews.add(video);
+            if (!livePreviews.has(video)) return;
             if (!isActivePreviewVideo(video)) {
                 livePreviews.delete(video);
                 return;
             }
             if (event.type === 'volumechange' && video.dataset.jdbNativePreviewAttached === '1' && video.paused) return;
-            if (video.muted || video.volume !== currentVolume) applyVolume(video, false);
+            if (video.volume !== currentVolume || (event.type === 'playing' && video.muted && currentVolume > 0)) applyVolume(video, false);
         };
         document.addEventListener('playing', restoreLiveVolume, true);
         document.addEventListener('volumechange', restoreLiveVolume, true);
@@ -35,7 +67,7 @@ export async function installPreviewVolumeControl(): Promise<void> {
                 currentVolume = message.volume;
                 log(`🎚️ Volume updated: ${Math.round(currentVolume * 100)}%`);
                 document.querySelectorAll<HTMLVideoElement>('video').forEach(video => {
-                    if (!isActivePreviewVideo(video)) return;
+                    if (!isActivePreviewVideo(video) && !(livePreviews.has(video) && isTrackedPreview(video))) return;
                     livePreviews.add(video);
                     applyVolume(video, false);
                 });
@@ -47,17 +79,26 @@ export async function installPreviewVolumeControl(): Promise<void> {
 
         document.addEventListener('click', (e) => {
             const target = e.target as Element;
-            const link = target.closest('a[data-fancybox], a[href*="preview-video"]');
+            const link = target.closest('a[data-fancybox*="video"], a[href*="preview-video"], a.preview-video-container');
 
             if (link) {
                 log('🎬 Preview clicked!');
+                videosPlayingBeforePreviewClick = new WeakSet<HTMLVideoElement>();
+                mediaBeforePreviewClick = new WeakMap<HTMLVideoElement, string>();
+                videosBeforePreviewClick = new WeakSet<HTMLVideoElement>();
+                document.querySelectorAll('video').forEach(video => {
+                    videosBeforePreviewClick.add(video);
+                    if (!video.paused) videosPlayingBeforePreviewClick.add(video);
+                    mediaBeforePreviewClick.set(video, previewMedia(video));
+                });
+                previewClickUntil = Date.now() + 10000;
 
                 setTimeout(() => handleVideos(), 500);
                 setTimeout(() => handleVideos(), 1000);
                 setTimeout(() => handleVideos(), 2000);
                 startPreviewVideoWatcher();
             }
-        });
+        }, true);
 
         log('✅ Volume control ready');
     } catch (error) {
@@ -106,7 +147,7 @@ function handleVideos(): void {
 
         log(`Video ${index + 1}: id=${v.id}, display=${style.display}, muted=${v.muted}, volume=${v.volume}`);
 
-        if (isPreviewVideo(v) && style.display !== 'none') {
+        if (isActivePreviewVideo(v)) {
             applyVolume(v);
         }
     });
@@ -139,13 +180,18 @@ function isPreviewVideo(video: HTMLVideoElement): boolean {
     return video.id === 'preview-video' ||
            video.classList.contains('fancybox-video') ||
            video.classList.contains('x-preview-video') ||
-           video.closest('.preview-video-container') !== null;
+           video.closest('.preview-video-container') !== null ||
+           (video.closest('.fancybox-is-open') !== null && hasPreviewMedia(video)) ||
+           isTrackedPreview(video) ||
+           isRecentPreviewPlayback(video);
 }
 
 function isActivePreviewVideo(video: HTMLVideoElement): boolean {
     return isPreviewVideo(video) && getComputedStyle(video).display !== 'none' &&
            (video.closest('.fancybox-is-open, .preview-video-container, .x-holding') !== null ||
             video.dataset.jdbNativePreviewAttached === '1' ||
+            isTrackedPreview(video) ||
+            isRecentPreviewPlayback(video) ||
             (video.id === 'preview-video' && !video.paused));
 }
 
@@ -156,8 +202,9 @@ function applyVolume(video: HTMLVideoElement, activateMedia = true): void {
         if (activateMedia) activatePreviewVideoPreload(video);
         log(`  Before: muted=${video.muted}, volume=${video.volume}`);
 
-        video.muted = false;
+        video.muted = currentVolume === 0;
         video.volume = currentVolume;
+        if (hasPreviewMedia(video)) trackedPreviewMedia.set(video, previewMedia(video));
 
         log(`  After: muted=${video.muted}, volume=${video.volume}`);
 

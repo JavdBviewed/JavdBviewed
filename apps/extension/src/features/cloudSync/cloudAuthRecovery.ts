@@ -18,10 +18,13 @@ import type { AuthLoginResponse } from '@javdb/sync-protocol';
 import { getValue, setValue } from '../../utils/storage';
 import { createChromeTokenStore, loadCloudSession } from './chromeTokenStore';
 import { loadCloudSettings, normalizeCloudBaseUrl } from './cloudSettingsStorage';
+import { isCurrentCloudVaultIdentity, type CloudVaultIdentity } from './cloudSessionIdentity';
 
 export type CloudAuthRecoveryOutcome =
   /** 会话仍在，无需恢复 */
   | 'already-authenticated'
+  /** 上传期间账号、连接或设备改变，不能继续旧请求。 */
+  | 'identity-changed'
   /** 未保存账号密码，无法自动恢复 */
   | 'no-credentials'
   /** 退避期内，不请求服务端 */
@@ -196,7 +199,7 @@ async function notifyRecovery(kind: 'recovered' | 'credentials-invalid'): Promis
  */
 export async function recoverCloudAuthSession(
   reason?: string,
-  options: { fetchImpl?: typeof fetch } = {},
+  options: { fetchImpl?: typeof fetch; vaultIdentity?: CloudVaultIdentity } = {},
 ): Promise<CloudAuthRecoveryResult> {
   // fetch 需要以全局对象为 this 调用：把分离出的全局 fetch 引用再以方法形态
   // （obj.fetchImpl(url)）调用会在 MV3 service worker 触发
@@ -206,7 +209,10 @@ export async function recoverCloudAuthSession(
   const result = await runExclusive(async (): Promise<CloudAuthRecoveryResult> => {
     // 锁内复查：另一上下文可能已完成恢复
     const existing = await loadCloudSession();
-    if (existing?.accessToken) {
+    if (options.vaultIdentity && !await isCurrentCloudVaultIdentity(options.vaultIdentity)) {
+      return { outcome: 'identity-changed' };
+    }
+    if (existing?.accessToken && !options.vaultIdentity) {
       return { outcome: 'already-authenticated' };
     }
 
@@ -237,12 +243,19 @@ export async function recoverCloudAuthSession(
         deviceLabel: settings.deviceLabel,
         fetchImpl,
       });
+      if (options.vaultIdentity && (
+        !await isCurrentCloudVaultIdentity(options.vaultIdentity) ||
+        pair.userId !== options.vaultIdentity.userId || pair.deviceId !== options.vaultIdentity.deviceId
+      )) return { outcome: 'identity-changed' };
       const tokens = createChromeTokenStore({ getDeviceId: () => settings.deviceId });
       await tokens.setTokens(pair);
       await removeStorageKey(BACKOFF_STORAGE_KEY);
-      await notifyRecovery('recovered');
+      if (!options.vaultIdentity) await notifyRecovery('recovered');
       return { outcome: 'recovered' };
     } catch (e) {
+      if (options.vaultIdentity && !await isCurrentCloudVaultIdentity(options.vaultIdentity)) {
+        return { outcome: 'identity-changed' };
+      }
       const status = httpStatusOf(e);
       if (status === 401 || status === 403) {
         await setValue(BACKOFF_STORAGE_KEY, {

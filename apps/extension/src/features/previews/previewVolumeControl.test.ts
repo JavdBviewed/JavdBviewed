@@ -12,6 +12,95 @@ import { attachNativeJavdbPreview } from './nativeJavdbPreview';
 describe('popup 音量变更实时更新影片页预览', () => {
   afterEach(() => { document.body.innerHTML = ''; vi.unstubAllGlobals(); });
 
+  it('updates a visible id-less video in a Fancybox preview and the replacement video', async () => {
+    let listener: ((message: { type: string; volume: number }, sender: unknown, respond: (response: unknown) => void) => void) | undefined;
+    vi.stubGlobal('chrome', { runtime: { onMessage: { addListener: vi.fn((fn) => { listener = fn; }) } } });
+    document.body.innerHTML = '<div class="fancybox-is-open"><video src="/clip.mp4" muted></video></div><video id="unrelated" muted></video>';
+    await installPreviewVolumeControl();
+    const wrapper = document.querySelector('.fancybox-is-open');
+    const preview = wrapper?.querySelector('video');
+    if (preview) preview.muted = true;
+    const unrelated = document.querySelector<HTMLVideoElement>('#unrelated');
+    if (unrelated) unrelated.muted = true;
+    listener?.({ type: 'volume-changed', volume: 0.3 }, {}, vi.fn());
+    expect(preview?.muted).toBe(false);
+    expect(preview?.volume).toBe(0.3);
+    const replacement = document.createElement('video');
+    replacement.src = '/clip-next.mp4';
+    replacement.muted = true;
+    wrapper?.replaceChildren(replacement);
+    replacement.dispatchEvent(new Event('playing', { bubbles: true }));
+    expect(replacement.muted).toBe(false);
+    expect(replacement.volume).toBe(0.3);
+    expect(document.querySelector<HTMLVideoElement>('#unrelated')?.muted).toBe(true);
+  });
+
+  it('recognizes a playing id-less video loaded after the preview click without touching other players', async () => {
+    let listener: ((message: { type: string; volume: number }, sender: unknown, respond: (response: unknown) => void) => void) | undefined;
+    vi.stubGlobal('chrome', { runtime: { onMessage: { addListener: vi.fn((fn) => { listener = fn; }) } } });
+    document.body.innerHTML = '<a href="/preview-video">预览</a><video id="other" src="/other.mp4"></video><div id="player"></div>';
+    const other = document.querySelector<HTMLVideoElement>('#other');
+    if (other) { other.muted = true; Object.defineProperty(other, 'paused', { value: false }); }
+    await installPreviewVolumeControl();
+    document.querySelector('a')?.addEventListener('click', event => event.preventDefault());
+    document.querySelector('a')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const preview = document.createElement('video');
+    preview.src = '/clip.mp4';
+    preview.muted = true;
+    Object.defineProperty(preview, 'paused', { value: false });
+    document.querySelector('#player')?.appendChild(preview);
+    listener?.({ type: 'volume-changed', volume: 0.3 }, {}, vi.fn());
+    expect(preview.volume).toBe(0.3);
+    expect(preview.muted).toBe(false);
+    expect(other?.muted).toBe(true);
+  });
+
+  it('keeps an id-less preview controllable after the click window and restores sound after mute', async () => {
+    let listener: ((message: { type: string; volume: number }, sender: unknown, respond: (response: unknown) => void) => void) | undefined;
+    vi.stubGlobal('chrome', { runtime: { onMessage: { addListener: vi.fn((fn) => { listener = fn; }) } } });
+    document.body.innerHTML = '<a href="/preview-video">预览</a><div id="player"></div><video id="other" src="/other.mp4" muted></video>';
+    await installPreviewVolumeControl();
+    const other = document.querySelector<HTMLVideoElement>('#other');
+    if (other) other.muted = true;
+    document.querySelector('a')?.addEventListener('click', event => event.preventDefault());
+    document.querySelector('a')?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const preview = document.createElement('video');
+    preview.src = '/clip.mp4';
+    let paused = false;
+    Object.defineProperty(preview, 'paused', { get: () => paused });
+    document.querySelector('#player')?.appendChild(preview);
+    listener?.({ type: 'volume-changed', volume: 0.43 }, {}, vi.fn());
+    expect(preview.volume).toBe(0.43);
+
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11_000);
+    paused = true;
+    listener?.({ type: 'volume-changed', volume: 0 }, {}, vi.fn());
+    expect(preview.volume).toBe(0);
+    expect(preview.muted).toBe(true);
+    listener?.({ type: 'volume-changed', volume: 0.36 }, {}, vi.fn());
+    expect(preview.volume).toBe(0.36);
+    expect(preview.muted).toBe(false);
+    expect(other?.muted).toBe(true);
+    now.mockRestore();
+  });
+
+  it('respects a manual player mute until the popup changes volume again', async () => {
+    let listener: ((message: { type: string; volume: number }, sender: unknown, respond: (response: unknown) => void) => void) | undefined;
+    vi.stubGlobal('chrome', { runtime: { onMessage: { addListener: vi.fn((fn) => { listener = fn; }) } } });
+    document.body.innerHTML = '<div class="fancybox-is-open"><video src="/clip.mp4"></video></div>';
+    const preview = document.querySelector<HTMLVideoElement>('video');
+    await installPreviewVolumeControl();
+    listener?.({ type: 'volume-changed', volume: 0.55 }, {}, vi.fn());
+    if (preview) {
+      preview.muted = true;
+      preview.dispatchEvent(new Event('volumechange'));
+    }
+    expect(preview?.muted).toBe(true);
+    listener?.({ type: 'volume-changed', volume: 0.19 }, {}, vi.fn());
+    expect(preview?.muted).toBe(false);
+    expect(preview?.volume).toBe(0.19);
+  });
+
   it('收到消息时修改正在播放的预览视频音量，并保持普通视频不变', async () => {
     let listener: ((message: { type: string; volume: number }, sender: unknown, respond: (response: unknown) => void) => void) | undefined;
     vi.stubGlobal('chrome', { runtime: { onMessage: { addListener: vi.fn((fn) => { listener = fn; }) } } });

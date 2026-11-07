@@ -284,13 +284,14 @@ export function createApiClient(config: SyncClientConfig): ApiClient {
       );
     },
 
-    listVault() {
+    listVault(options: IndexReportRequestOptions = {}) {
       return withAuthRetry((token) =>
         transport.request<VaultListResponse>({ method: 'GET', path: '/v1/vault/items', token }),
+        options,
       );
     },
 
-    putVault(id: string, body: VaultPutRequest) {
+    putVault(id: string, body: VaultPutRequest, options: IndexReportRequestOptions = {}) {
       return withAuthRetry((token) =>
         transport.request<VaultItem>({
           method: 'PUT',
@@ -298,6 +299,7 @@ export function createApiClient(config: SyncClientConfig): ApiClient {
           body,
           token,
         }),
+        options,
       );
     },
 

@@ -312,3 +312,46 @@ describe('Cloud auth recovery', () => {
     expect(backoff.kind).toBe('network-error');
   });
 });
+
+
+describe('Cloud vault unlock identity', () => {
+  const identity = { ...SETTINGS, userId: 'u1' };
+  const session = { accessToken: 'at', refreshToken: 'rt', userId: 'u1', deviceId: 'device-1', savedAt: 1 };
+  const pair = { accessToken: 'new-at', refreshToken: 'new-rt', userId: 'u1', deviceId: 'device-1', protocolVersion: 1 };
+
+  it('unlocks using the same account even when the access token is still present', async () => {
+    const { recoverCloudAuthSession } = await import(RECOVERY_MODULE);
+    setChromeStorage({ [CLOUD_SETTINGS_STORAGE_KEY]: SETTINGS, [CLOUD_SESSION_STORAGE_KEY]: session });
+    const fetchImpl = mockHttp(200, pair);
+    expect((await recoverCloudAuthSession('vault-locked', { fetchImpl, vaultIdentity: identity })).outcome).toBe('recovered');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(getChromeStorageSnapshot()[CLOUD_SESSION_STORAGE_KEY]).toMatchObject({ accessToken: 'new-at', userId: 'u1' });
+  });
+
+  it('does not login when the caller identity has already changed', async () => {
+    const { recoverCloudAuthSession } = await import(RECOVERY_MODULE);
+    setChromeStorage({ [CLOUD_SETTINGS_STORAGE_KEY]: { ...SETTINGS, baseUrl: 'https://other.test' }, [CLOUD_SESSION_STORAGE_KEY]: session });
+    const fetchImpl = mockHttp(200, pair);
+    expect((await recoverCloudAuthSession('vault-locked', { fetchImpl, vaultIdentity: identity })).outcome).toBe('identity-changed');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it.each(['baseUrl', 'accountIdentifier', 'accountPassword', 'deviceId'])('does not install a delayed login after %s changes', async (field) => {
+    const { recoverCloudAuthSession } = await import(RECOVERY_MODULE);
+    setChromeStorage({ [CLOUD_SETTINGS_STORAGE_KEY]: SETTINGS, [CLOUD_SESSION_STORAGE_KEY]: session });
+    const fetchImpl = vi.fn(async () => {
+      setChromeStorage({ [CLOUD_SETTINGS_STORAGE_KEY]: { ...SETTINGS, [field]: field === 'baseUrl' ? 'https://other.test' : 'changed' } });
+      return { ok: true, status: 200, json: async () => pair } as Response;
+    });
+    expect((await recoverCloudAuthSession('vault-locked', { fetchImpl, vaultIdentity: identity })).outcome).toBe('identity-changed');
+    expect(getChromeStorageSnapshot()[CLOUD_SESSION_STORAGE_KEY]).toMatchObject({ accessToken: 'at' });
+  });
+
+  it.each(['userId', 'deviceId'])('rejects a login response for a different %s', async (field) => {
+    const { recoverCloudAuthSession } = await import(RECOVERY_MODULE);
+    setChromeStorage({ [CLOUD_SETTINGS_STORAGE_KEY]: SETTINGS, [CLOUD_SESSION_STORAGE_KEY]: session });
+    const fetchImpl = mockHttp(200, { ...pair, [field]: 'other' });
+    expect((await recoverCloudAuthSession('vault-locked', { fetchImpl, vaultIdentity: identity })).outcome).toBe('identity-changed');
+    expect(getChromeStorageSnapshot()[CLOUD_SESSION_STORAGE_KEY]).toMatchObject({ accessToken: 'at' });
+  });
+});

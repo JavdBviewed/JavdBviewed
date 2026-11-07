@@ -175,6 +175,21 @@ describe('NewWorksSettingsPage 设置登录态按钮反馈（运行时，10-28�
     expect(mocks.toast).toHaveBeenCalledWith('登录态推送失败，请检查云服务连接后重试', 'error');
   });
 
+  it.each([
+    ['session-locked', 'Cloud 登录验证未完成，请在「Cloud 同步」设置中重新登录后再试'],
+    ['session-invalid', '登录态未更新，请检查云账号密码，并重新获取当前 JavDB 会话后再试'],
+    ['session-unavailable', '云服务暂时无法保存登录态，原登录态已保留，请稍后重试'],
+    ['session-conflict', '云端登录态已被其他请求更新，本次未覆盖，请重新获取后再试'],
+    ['identity-changed', '云账号或连接已变化，本次上传已停止，请确认当前云账号后重试'],
+  ])('explains %s instead of claiming the session was saved', async (reason, message) => {
+    setCloudCredentials(true);
+    mocks.pushJavdbSessionVaultManual.mockResolvedValue({ ok: false, reason });
+    mount();
+    await settle();
+    await clickAndSettle(setBtn());
+    expect(mocks.toast).toHaveBeenCalledWith(message, 'error');
+  });
+
   it('busy 态：推送中 disabled + 文案「设置中…」，结束后恢复', async () => {
     setCloudCredentials(true);
     let resolvePush: (v: unknown) => void = () => undefined;

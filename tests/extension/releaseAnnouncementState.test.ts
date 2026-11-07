@@ -125,6 +125,7 @@ describe('release announcement state', () => {
 
   it('ships user-facing release notes for recent versions', () => {
     expect(RELEASE_NOTES.map(note => note.version)).toEqual([
+      '2.1.4',
       '2.1.3',
       '2.1.2',
       '2.1.1',
@@ -141,6 +142,14 @@ describe('release announcement state', () => {
       '1.20.0',
     ]);
     const highlightsFor = (version: string) => RELEASE_NOTES.find(note => note.version === version)?.highlights;
+
+    expect(highlightsFor('2.1.4')).toHaveLength(7);
+    expect(highlightsFor('2.1.4')).toEqual(expect.arrayContaining([
+      '跨线路登录支持提示与手动同步，无需退出后重新登录。',
+      '网盘设置接入 OpenList，下载任务可按网盘分类查看。',
+      '已入库判断支持云端同步的本地影片索引。',
+    ]));
+    expect(highlightsFor('2.1.4')?.every(item => item.length >= 12 && item.length <= 42)).toBe(true);
 
     // 2.1.3 发版（2026-10-26，用户过目定稿）：7 条，数据锁随数据先例
     expect(highlightsFor('2.1.3')?.length).toBe(7);

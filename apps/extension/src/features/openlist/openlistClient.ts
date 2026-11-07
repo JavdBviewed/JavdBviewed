@@ -33,6 +33,14 @@ export type TestConnectionResult = {
   version?: string;
   username?: string;
   message?: string;
+  diagnostics?: OpenListDiagnostics;
+};
+
+export type OpenListDiagnostics = {
+  stage: 'public/settings' | 'me';
+  httpStatus?: number;
+  apiCode?: number;
+  contentType?: string;
 };
 
 export type ListToolsResult = {
@@ -44,6 +52,25 @@ export type ListToolsResult = {
 
 type ApiPrefix = '/api' | '/api/v3';
 type ApiResponse = { code?: number; message?: string; data?: unknown };
+
+class OpenListApiError extends Error {
+  constructor(message: string, readonly diagnostics: OpenListDiagnostics) {
+    super(message);
+  }
+}
+
+function apiSucceeded(response: Response, raw: ApiResponse): boolean {
+  return response.ok && (raw.code === 200 || raw.code === 1500);
+}
+
+function diagnosticsOf(stage: OpenListDiagnostics['stage'], response: Response, raw: ApiResponse): OpenListDiagnostics {
+  return {
+    stage,
+    httpStatus: response.status,
+    ...(typeof raw.code === 'number' ? { apiCode: raw.code } : {}),
+    contentType: response.headers.get('content-type')?.split(';')[0]?.trim() || 'unknown',
+  };
+}
 
 function baseUrlOf(baseUrl: string): string {
   const value = baseUrl.trim().replace(/\/+$/, '');
@@ -71,34 +98,40 @@ async function readApiResponse(response: Response): Promise<ApiResponse> {
 }
 
 function messageOf(raw: ApiResponse, response: Response): string {
-  return typeof raw.message === 'string' && raw.message.trim()
+  if (!raw.code && response.ok && response.headers.get('content-type')?.includes('text/html')) {
+    return `OpenList 接口返回 HTTP ${response.status} HTML 页面，请检查服务器地址或反向代理的 API 转发`;
+  }
+  return typeof raw.message === 'string' && raw.message.trim() && raw.message.toLowerCase() !== 'success'
     ? raw.message
-    : `OpenList 请求失败 (${response.status})`;
+    : `OpenList 请求失败 (HTTP ${response.status}${typeof raw.code === 'number' ? `，业务码 ${raw.code}` : '，未收到有效 JSON'})`;
 }
 
-/** 依次探测新旧 API 前缀；仅 HTTP 成功且 code=1500 才接受。 */
+/** 依次探测新旧 API 前缀；OpenList 使用 200，旧部署也可能返回 1500。 */
 export async function detectApiPrefix(
   baseUrl: string,
   fetchImpl: typeof fetch = nativeFetch,
 ): Promise<{ prefix: ApiPrefix; version?: string }> {
   const base = baseUrlOf(baseUrl);
   let lastError = '该地址不是可用的 OpenList 服务';
+  let lastDiagnostics: OpenListDiagnostics = { stage: 'public/settings' };
   for (const prefix of ['/api', '/api/v3'] as const) {
     try {
       const response = await fetchImpl(`${base}${prefix}/public/settings`, { method: 'GET' });
       const raw = await readApiResponse(response);
-      if (response.ok && raw.code === 1500) {
+      if (apiSucceeded(response, raw)) {
         const data = raw.data;
         const version = data !== null && typeof data === 'object' && 'version' in data && typeof data.version === 'string'
           ? data.version : undefined;
         return { prefix, ...(version ? { version } : {}) };
       }
       lastError = messageOf(raw, response);
+      lastDiagnostics = diagnosticsOf('public/settings', response, raw);
     } catch (error) {
       lastError = friendlyRequestError(error);
+      lastDiagnostics = { stage: 'public/settings' };
     }
   }
-  throw new Error(lastError);
+  throw new OpenListApiError(lastError, lastDiagnostics);
 }
 
 async function tryBackground<T>(type: string, payload: unknown, isResult: (value: unknown) => value is T): Promise<T | undefined> {
@@ -138,23 +171,26 @@ export async function testConnection(
       headers: { Authorization: params.token.trim(), Accept: 'application/json' },
     });
     const raw = await readApiResponse(response);
-    if (!response.ok || raw.code !== 1500) return { ok: false, message: messageOf(raw, response) };
+    if (!apiSucceeded(response, raw)) return { ok: false, message: messageOf(raw, response), diagnostics: diagnosticsOf('me', response, raw) };
     const data = raw.data;
     const username = data !== null && typeof data === 'object' && 'username' in data && typeof data.username === 'string'
       ? data.username : undefined;
     return { ok: true, version, username };
   } catch (error) {
-    return { ok: false, message: friendlyRequestError(error) };
+    return { ok: false, message: friendlyRequestError(error), ...(error instanceof OpenListApiError ? { diagnostics: error.diagnostics } : {}) };
   }
 }
 
-/** 发起离线下载；HTTP 200 但 code 不为 1500 仍视为业务失败。 */
+/** 发起离线下载；HTTP 200 但业务码不成功仍视为失败。 */
 export async function addOfflineDownload(
   params: AddOfflineDownloadParams,
   fetchImpl?: typeof fetch,
 ): Promise<AddOfflineDownloadResult> {
   if (!params.token.trim() || !Array.isArray(params.urls) || !params.urls.length || params.urls.some((url) => typeof url !== 'string' || !url.trim())) {
     return { success: false, message: '缺少 OpenList token 或下载链接' };
+  }
+  if (params.tool.trim().toLowerCase() === 'simplehttp' && params.urls.some(url => /^magnet:/i.test(url.trim()))) {
+    return { success: false, message: 'SimpleHttp 不支持磁链，请在 OpenList 配置 aria2 等磁链下载器后再推送' };
   }
   if (!fetchImpl) {
     const result = await tryBackground('openlist.add_offline_download', params, isAddResult);
@@ -169,7 +205,7 @@ export async function addOfflineDownload(
       body: JSON.stringify({ urls: params.urls, path: params.path, tool: params.tool }),
     });
     const raw = await readApiResponse(response);
-    if (!response.ok || raw.code !== 1500) return { success: false, message: messageOf(raw, response), raw };
+    if (!apiSucceeded(response, raw)) return { success: false, message: messageOf(raw, response), raw };
     const data = raw.data;
     const tasks = data !== null && typeof data === 'object' && 'tasks' in data && Array.isArray(data.tasks)
       ? data.tasks as OpenListTask[] : [];
@@ -179,7 +215,7 @@ export async function addOfflineDownload(
   }
 }
 
-/** 列出服务器该路径可用的下载器；当前 UI 不消费此接口。 */
+/** 列出服务器该路径可用的下载器。 */
 export async function listTools(
   params: { baseUrl: string; path?: string },
   fetchImpl: typeof fetch = nativeFetch,
@@ -189,7 +225,7 @@ export async function listTools(
     const query = params.path === undefined ? '' : `?${new URLSearchParams({ path: params.path })}`;
     const response = await fetchImpl(`${baseUrlOf(params.baseUrl)}${prefix}/public/offline_download_tools${query}`, { method: 'GET' });
     const raw = await readApiResponse(response);
-    if (!response.ok || raw.code !== 1500) return { success: false, message: messageOf(raw, response), raw };
+    if (!apiSucceeded(response, raw)) return { success: false, message: messageOf(raw, response), raw };
     return { success: true, tools: Array.isArray(raw.data) ? raw.data.filter((tool): tool is string => typeof tool === 'string') : [], raw };
   } catch (error) {
     return { success: false, message: friendlyRequestError(error) };

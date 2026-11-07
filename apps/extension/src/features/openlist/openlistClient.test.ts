@@ -40,6 +40,41 @@ describe('OpenList client', () => {
     ]);
   });
 
+  it('accepts the OpenList code 200 API on the public settings and authenticated endpoints', async () => {
+    const fetchMock = vi.fn(async (url: string) => url.endsWith('/public/settings')
+      ? json({ code: 200, message: 'success', data: { version: '4.1' } })
+      : json({ code: 200, message: 'success', data: { username: 'viewer' } }));
+    expect(await testConnection(params, fetchMock)).toMatchObject({ ok: true, version: '4.1', username: 'viewer' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('posts a magnet and reads available tools on a code 200 server', async () => {
+    const fetchMock = vi.fn(async (url: string) => url.endsWith('/public/settings')
+      ? json({ code: 200, data: {} })
+      : url.includes('/offline_download_tools')
+        ? json({ code: 200, data: ['SimpleHttp'] })
+        : json({ code: 200, data: { tasks: [{ id: 'new-task' }] } }));
+    expect(await addOfflineDownload(params, fetchMock)).toMatchObject({ success: true, tasks: [{ id: 'new-task' }] });
+    expect(await listTools({ baseUrl: params.baseUrl, path: '/115' }, fetchMock)).toMatchObject({ success: true, tools: ['SimpleHttp'] });
+  });
+
+  it.each(['SimpleHttp', 'simplehttp', ' SimpleHttp '])('rejects a magnet before submitting it to the HTTP-only downloader %s', async (tool) => {
+    const request = vi.fn();
+    const result = await addOfflineDownload({ ...params, tool, urls: ['magnet:?xt=urn:btih:abc'] }, request as unknown as typeof fetch);
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('aria2');
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('reports the failed API probe stage and status without including credentials', async () => {
+    const fetchMock = vi.fn(async () => new Response('<html>Sign in</html>', { status: 200, headers: { 'Content-Type': 'text/html' } }));
+    const result = await testConnection({ baseUrl: params.baseUrl, token: 'secret-no-log' }, fetchMock);
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/HTTP 200.*(HTML|接口)/);
+    expect(result.diagnostics).toMatchObject({ stage: 'public/settings', httpStatus: 200 });
+    expect(JSON.stringify(result)).not.toContain('secret-no-log');
+  });
+
   it('reports an unreachable server after both prefix attempts', async () => {
     const fetchMock = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
     await expect(detectApiPrefix('https://list.example', fetchMock)).rejects.toThrow('网络异常');

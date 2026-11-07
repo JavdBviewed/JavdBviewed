@@ -37,6 +37,7 @@ export {
   type CursorStore,
 } from './syncEngine';
 export type {
+  AuthenticatedRequestOptions,
   TokenStore,
   HttpTransport,
   RefreshCoordinator,
