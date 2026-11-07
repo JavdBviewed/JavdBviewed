@@ -38,7 +38,7 @@ import {
   type CloudConnectionSettings,
 } from './cloudSettingsStorage';
 import { markCloudStorageWrite } from './storageChangeGate';
-import { shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
+import { filterOutgoingSyncEntities, shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
 import type { TypeCountMap } from './syncStats';
 import { mergeMediaCleanupStorageValue } from '../mediaCleanup';
 import { mergeEmbyMediaServersForPull, stripEmbySessionFieldsFromValue } from '../../shared/embyMediaServerSync';
@@ -48,6 +48,7 @@ import {
 } from '../embyLibrary/libraryIndexReconcile';
 import { mergeDrive115SessionForPull } from '../../shared/drive115SessionSync';
 import { mergeJavdbRoutesForPull } from '../../shared/javdbRouteSync';
+import { hydrateLocalIndexImages } from '../embyLibrary/domain/localIndexImages';
 
 export const EXTENSION_SYNC_ENTITY_TYPES: readonly SyncEntityType[] = [
   'video',
@@ -360,7 +361,7 @@ export async function collectLocalSyncEntities(): Promise<SyncEntity[]> {
     // 忽略：Chrome Storage 读取失败不阻断全量同步
   }
 
-  return out;
+  return filterOutgoingSyncEntities(out);
 }
 
 /**
@@ -467,6 +468,17 @@ async function reconcileLibraryIndexAfterCloudApply(prevValue: unknown, nextValu
   } catch {
     /* fail-open */
   }
+}
+
+/** Refresh locally authenticated images after settings arrive or credentials rotate. */
+export async function rehydrateLocalEmbyIndexImages(): Promise<void> {
+  const settings = await getSettings();
+  const value = await getValue<unknown>(STORAGE_KEYS.EMBY_LIBRARY_STATE, undefined);
+  if (!value || typeof value !== 'object') return;
+  const hydrated = hydrateLocalIndexImages(value, settings);
+  if (JSON.stringify(hydrated) === JSON.stringify(value)) return;
+  markCloudStorageWrite(STORAGE_KEYS.EMBY_LIBRARY_STATE, hydrated);
+  await setValue(STORAGE_KEYS.EMBY_LIBRARY_STATE, hydrated);
 }
 
 async function applyOne(entity: SyncEntity): Promise<void> {
@@ -603,6 +615,13 @@ async function applyOne(entity: SyncEntity): Promise<void> {
         await setValue(key, merged);
         return;
       }
+      if (key === STORAGE_KEYS.EMBY_LIBRARY_STATE) {
+        const hydrated = hydrateLocalIndexImages(value, await getSettings());
+        // The echo guard must match the authenticated value actually written locally.
+        markCloudStorageWrite(key, hydrated);
+        await setValue(key, hydrated);
+        return;
+      }
       const localValue = await getValue<unknown>(key, undefined);
       // settings 键（X2）：按源 id 并集合并 + 丢弃远端会话 + 墓碑前移到 pull 应用层（替换整 blob LWW）
       // settings 键（10-13）：115 会话逐键方向性保护——local 非空 + 远端空 → 保 local（防另一台设备无关设置写抹会话）
@@ -613,6 +632,7 @@ async function applyOne(entity: SyncEntity): Promise<void> {
       markCloudStorageWrite(key, mergedValue);
       await setValue(key, mergedValue);
       if (key === STORAGE_KEYS.SETTINGS) {
+        await rehydrateLocalEmbyIndexImages();
         // emby 入库设置已落到本地（云 pull-apply）→ 索引孤儿条目即时对账（fail-open）
         void reconcileLibraryIndexAfterCloudApply(localValue, mergedValue);
       }
@@ -698,7 +718,7 @@ export function createExtensionEntityStore(): LocalEntityStore {
       }
     },
     async listPending() {
-      return listCloudPending();
+      return filterOutgoingSyncEntities(await listCloudPending());
     },
     async clearPending(keys) {
       await clearCloudPending(keys);
@@ -711,9 +731,9 @@ export async function preparePushQueueStats(snapshot?: SyncEntity[]): Promise<{
   pendingCount: number;
   localEntityCount: number;
 }> {
-  const localSnapshot = snapshot ?? await collectLocalSyncEntities();
+  const localSnapshot = await filterOutgoingSyncEntities(snapshot ?? await collectLocalSyncEntities());
   const enqueuedNow = await ensureInitialPending(localSnapshot);
-  const pending = await listCloudPending();
+  const pending = await filterOutgoingSyncEntities(await listCloudPending());
   return {
     enqueuedNow,
     pendingCount: pending.length,

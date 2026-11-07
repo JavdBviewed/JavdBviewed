@@ -18,6 +18,8 @@ import { loadCloudSession } from './chromeTokenStore';
 import { CREDENTIALS_INVALID_MESSAGE, recoverCloudAuthSession } from './cloudAuthRecovery';
 import { loadCloudSettings } from './cloudSettingsStorage';
 import { countByType, type TypeCountMap } from './syncStats';
+import { flushIndexReportOutbox, INDEX_REPORT_FAILURE_MESSAGE, INDEX_REPORT_TERMINATED_MESSAGE } from './indexReportOutbox';
+import { filterOutgoingSyncEntities } from './storageItemPolicy';
 import { getValue, setValue } from '../../utils/storage';
 
 const CLOUD_LOG_CLEANUP_MARKER = 'cloud_sync_log_cleanup_v2';
@@ -119,10 +121,14 @@ export async function runCloudSyncNow(
     throw new Error('缺少设备 ID，请重新登录');
   }
 
+  const { api } = await createExtensionCloudClient();
+  const reportFlush = await flushIndexReportOutbox(api, { signal: options.signal });
+  if (options.signal?.aborted) throw new DOMException('同步已取消', 'AbortError');
+
   // 10-24 风险 A：pending 空且游标在位（非首登）时全量本地快照无增量意义
   // （ensureInitialPending 有游标即 no-op，引擎推送走 pending 队列），
   // 改轻量计数保持 UI 统计保真；同步语义零改动。
-  const pendingBefore = await listCloudPending();
+  const pendingBefore = await filterOutgoingSyncEntities(await listCloudPending());
   const skipFullSnapshot = pendingBefore.length === 0 && (await hasSyncCursors());
   let snapshotForQueue: SyncEntity[];
   let localEntityCount: number;
@@ -141,7 +147,7 @@ export async function runCloudSyncNow(
   if (options.signal?.aborted) throw new DOMException('同步已取消', 'AbortError');
   // 非跳过路径复用已采快照传入，消除二次全量采集（零语义变化）
   const prep = await preparePushQueueStats(snapshotForQueue);
-  const pending = await listCloudPending();
+  const pending = await filterOutgoingSyncEntities(await listCloudPending());
   const pendingByType = countByType(pending as SyncEntity[]);
   reportProgress(options, {
     stage: 'preparing',
@@ -149,7 +155,6 @@ export async function runCloudSyncNow(
     pendingCount: pending.length,
   });
 
-  const { api } = await createExtensionCloudClient();
   await cleanupDeprecatedCloudLogs(api, settings, session.userId);
   const engine = createSyncEngine({
     api,
@@ -175,7 +180,7 @@ export async function runCloudSyncNow(
     pendingByType,
     stats: response.stats,
     code: response.code,
-    message: response.message,
+    message: reportFlush.failed ? `${response.message}；${reportFlush.terminated ? INDEX_REPORT_TERMINATED_MESSAGE : INDEX_REPORT_FAILURE_MESSAGE}` : response.message,
     totalDurationMs,
     requestBytes,
     uncompressedRequestBytes,

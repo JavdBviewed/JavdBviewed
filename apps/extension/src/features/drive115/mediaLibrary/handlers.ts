@@ -10,6 +10,7 @@ import { getDrive115V2Service, type Drive115V2FileListResponse } from '../v2';
 import { is115TokenInvalidCode } from '../v2/errorCodes';
 import type { ExtensionSettings } from '../../../types';
 import { indexDrive115Roots } from './indexer';
+import { queueDrive115SourceReports, reconcileDrive115IndexSources } from './cloudIndexReports';
 import { NFO_SUMMARY_SCHEMA_VERSION, parseNfoSummary } from './parseEntryMeta';
 import {
   clearDrive115IndexCheckpoint,
@@ -272,6 +273,11 @@ export async function runDrive115MediaLibraryIndex(
     try {
       const settings = await getSettings();
       const roots = readRootsFromSettings(settings);
+      try {
+        await reconcileDrive115IndexSources(settings, roots);
+      } catch {
+        log115('warn', '媒体索引来源变更尚未保存，将在下次同步重试');
+      }
       const scanDepth = readScanDepthFromSettings(settings);
       const allEnabled = roots.filter((r) => r.enabled !== false);
       const requestedRootCids = normalizeRequestedRootCids(options.rootCids);
@@ -580,6 +586,11 @@ export async function runDrive115MediaLibraryIndex(
       }
       if (result.manifest) {
         await saveDrive115IndexDirManifest(result.manifest);
+      }
+      try {
+        await queueDrive115SourceReports(settings, result.sourceReports || []);
+      } catch {
+        log115('warn', '媒体索引报告尚未保存，将在下次扫描重试');
       }
       // 落盘本轮结果明细报告，供设置页详情窗口下钻。
       if (result.report) {

@@ -144,7 +144,15 @@ export type Drive115IndexReport = {
   error?: string;
 };
 
+export type Drive115SourceReport = {
+  rootCid: string;
+  entries: Drive115LibraryEntry[];
+  complete: boolean;
+};
+
 export type Drive115IndexResult = {
+  /** 只包含本轮实际访问所得，不能从与云索引合并后的 state 反推。 */
+  sourceReports?: Drive115SourceReport[];
   success: boolean;
   /** 是否完全沿用旧索引（失败且本轮 0 条新入库时） */
   keptPrevious: boolean;

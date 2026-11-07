@@ -140,3 +140,52 @@ describe('runCloudSyncNow progress', () => {
     expect(mocks.prepareQueue).toHaveBeenCalledWith([{ id: 'snapshot-1', type: 'video' }]);
   });
 });
+
+
+describe('index reports before ordinary sync', () => {
+  it('flushes before collecting a full snapshot and makes failures visible without exposing server bodies', async () => {
+    const outbox = await import('./indexReportOutbox');
+    const events: string[] = [];
+    vi.spyOn(outbox, 'flushIndexReportOutbox').mockImplementation(async () => {
+      events.push('reports');
+      return { supported: true, failed: 1 };
+    });
+    mocks.loadSession.mockResolvedValue({ accessToken: 'access', deviceId: 'device-1' });
+    mocks.loadSettings.mockResolvedValue({ deviceId: 'device-1' });
+    mocks.createClient.mockResolvedValue({ api: {} });
+    mocks.collectEntities.mockImplementation(async () => { events.push('snapshot'); return []; });
+    mocks.hasCursors.mockResolvedValue(false);
+    mocks.listPending.mockResolvedValue([]);
+    mocks.prepareQueue.mockResolvedValue({ localEntityCount: 0, pendingCount: 0, enqueuedNow: 0 });
+    mocks.createSyncEngine.mockReturnValue({
+      syncSession: async () => {
+        events.push('session');
+        return {
+          response: { stats: { uploaded: 0, downloaded: 0 }, code: 'SYNC_OK', message: '同步完成' },
+          metrics: { requestBytes: 0, uncompressedRequestBytes: 0, sessionDurationMs: 1 },
+        };
+      },
+    });
+    const result = await runCloudSyncNow();
+    expect(events).toEqual(['reports', 'snapshot', 'session']);
+    expect(result.message).toContain('媒体索引报告尚未上传，将在下次同步重试');
+  });
+});
+
+it('forwards cancellation to report flushing and stops before snapshot and ordinary sync', async () => {
+  vi.clearAllMocks();
+  const controller = new AbortController();
+  const outbox = await import('./indexReportOutbox');
+  const flush = vi.spyOn(outbox, 'flushIndexReportOutbox').mockImplementation(async () => {
+    controller.abort();
+    throw new DOMException('cancelled', 'AbortError');
+  });
+  mocks.loadSession.mockResolvedValue({ accessToken: 'access', deviceId: 'device-1' });
+  mocks.loadSettings.mockResolvedValue({ deviceId: 'device-1' });
+  mocks.createClient.mockResolvedValue({ api: {} });
+  await expect(runCloudSyncNow({ signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+  expect(flush).toHaveBeenCalledWith({}, { signal: controller.signal });
+  expect(mocks.collectEntities).not.toHaveBeenCalled();
+  expect(mocks.createSyncEngine).not.toHaveBeenCalled();
+  flush.mockRestore();
+});

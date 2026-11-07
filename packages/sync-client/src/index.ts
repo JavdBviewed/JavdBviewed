@@ -43,6 +43,15 @@ export type {
   SyncClientConfig,
   CloudApi,
   CloudScanConfigReadback,
+  IndexReportApi,
+  IndexReportCapabilities,
+  IndexReportEntry,
+  IndexReportKind,
+  IndexReportPage,
+  IndexReportResult,
+  IndexReportRequestOptions,
+  IndexReportSource,
+  LocalIndexReport,
 } from './types';
 
 /** @deprecated Prefer createApiClient + createSyncEngine. */
@@ -57,3 +66,5 @@ export function createSyncClientStub(opts?: { protocolVersion?: ProtocolVersion 
 }
 
 export type SyncClientStub = ReturnType<typeof createSyncClientStub>;
+
+export { createIndexReportPages, discoverIndexReports, hasIndexReportApi } from './indexReports';

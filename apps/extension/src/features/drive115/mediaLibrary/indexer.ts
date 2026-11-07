@@ -21,6 +21,7 @@ import {
   type Drive115IndexProgress,
   type Drive115IndexReport,
   type Drive115IndexResult,
+  type Drive115SourceReport,
   type Drive115IndexCheckpoint,
   type Drive115IndexDirManifest,
   type Drive115IndexDirManifestItem,
@@ -313,6 +314,9 @@ export async function indexDrive115Roots(
     ? { ...checkpoint.stats, roots: enabledRoots.length }
     : { ...DEFAULT_DRIVE115_LIBRARY_STATS, roots: enabledRoots.length };
   const entries: Drive115LibraryEntry[] = [];
+  const exhaustedRoots = new Set<string>();
+  const truncatedRoots = new Set<string>();
+  let activeRootCid = "";
   let hardError: string | undefined;
   let cancelled = false;
   let resumable = false;
@@ -375,6 +379,7 @@ export async function indexDrive115Roots(
     failureMessage?: string,
     failureCode?: number,
   ): void => {
+    if (reason === 'list_failed' || reason === 'no_pickcode' || reason === 'max_folders' || reason === 'container_cap') truncatedRoots.add(activeRootCid);
     report.skippedTotal += 1;
     bumpReason(reason);
     if (report.skipped.length < REPORT_LIST_CAP) {
@@ -401,6 +406,13 @@ export async function indexDrive115Roots(
     };
   };
   const finalizeReport = (): Drive115IndexReport => snapshotReport(true);
+  const sourceReports = (): Drive115SourceReport[] => enabledRoots.map((root) => ({
+    rootCid: String(root.cid).trim(),
+    entries: entries.filter((entry) => entry.rootCid === String(root.cid).trim()),
+    // 缓存和续跑保留本轮新增观察，但不能借用混合快照作删除对账。
+    complete: checkpoint === null && reuseManifest === null
+      && exhaustedRoots.has(String(root.cid).trim()) && !truncatedRoots.has(String(root.cid).trim()),
+  }));
   const buildCheckpoint = (): Drive115IndexCheckpoint => {
     // 连续受限递增冷却：计数随检查点携带，恢复成功后检查点清除、计数归零。
     const consecutiveBackoffs = (checkpoint?.consecutiveBackoffs ?? 0) + 1;
@@ -621,6 +633,7 @@ export async function indexDrive115Roots(
       keptPrevious: false,
       state: emptyState,
       report: finalizeReport(),
+      sourceReports: sourceReports(),
       message: '未配置启用的片库根目录',
     };
   }
@@ -629,6 +642,7 @@ export async function indexDrive115Roots(
     const root = enabledRoots[rootIndex];
     if (!root) continue;
     const rootCid = String(root.cid).trim();
+    activeRootCid = rootCid;
     try {
       const resumesCurrentRoot = checkpoint && rootIndex === checkpointRootIndex;
       const queue: FolderQueueItem[] = resumesCurrentRoot ? [...checkpointQueue] : [];
@@ -715,6 +729,8 @@ export async function indexDrive115Roots(
         if (hardError) break outer;
         if (!listed) continue;
         markManifestProcessed(item.cid);
+        // 旧索引器对子目录只读一页；满页不能证明已耗尽，不参与删除对账。
+        if (listed.data.length >= DRIVE115_INDEX_LIMITS.pageLimit) truncatedRoots.add(rootCid);
 
         const built = buildEntry({
           rootCid: item.rootCid,
@@ -723,7 +739,9 @@ export async function indexDrive115Roots(
           files: listed.data,
           now: now(),
         });
+        if (built.skipReason === 'no_pickcode') truncatedRoots.add(rootCid);
         if (built.entry) {
+          if (splitFolders(listed.data).length > 0) truncatedRoots.add(rootCid);
           stats.foldersSeen += 1;
           pushIndexedEntry(built.entry);
           checkpointQueue = queue.slice(index + 1);
@@ -732,6 +750,7 @@ export async function indexDrive115Roots(
 
         const childFolders = splitFolders(listed.data);
         const childFiles = splitFiles(listed.data);
+        if (item.depth >= scanDepth && childFolders.length > 0) truncatedRoots.add(rootCid);
         if (item.depth < scanDepth && childFolders.length > 0) {
           containerFoldersSeen += 1;
           const nestedItems: FolderQueueItem[] = [];
@@ -771,6 +790,7 @@ export async function indexDrive115Roots(
         emitProgress();
       }
 
+      exhaustedRoots.add(rootCid);
       rootsDone += 1;
       checkpointRootIndex = rootIndex + 1;
       checkpointQueue = [];
@@ -833,6 +853,7 @@ export async function indexDrive115Roots(
       cancelled,
       state,
       report: finalizeReport(),
+      sourceReports: sourceReports(),
       checkpoint: resumable && !cancelled && (checkpointQueue.length > 0 || !checkpointRootListingComplete)
         ? buildCheckpoint()
         : undefined,
@@ -870,6 +891,7 @@ export async function indexDrive115Roots(
       keptPrevious: true,
       state,
       report: finalizeReport(),
+      sourceReports: sourceReports(),
       manifest: manifestItems.size > 0 ? buildManifest() : undefined,
       manifestReused: reuseManifest ? true : undefined,
       message: keptMessage,
@@ -902,6 +924,7 @@ export async function indexDrive115Roots(
     keptPrevious: false,
     state,
     report: finalizeReport(),
+      sourceReports: sourceReports(),
     manifest: manifestItems.size > 0 ? buildManifest() : undefined,
     manifestReused: reuseManifest ? true : undefined,
     message: `索引完成：${stats.indexed} 条`,

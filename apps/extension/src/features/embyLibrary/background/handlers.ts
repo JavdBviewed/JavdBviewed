@@ -3,6 +3,8 @@
  * @description handlers
  * @module features/embyLibrary
  */
+import { queueLocalIndexReport, reconcileLocalIndexSources } from '../../cloudSync/indexReportOutbox';
+import { localEmbyReportEntries } from './indexReportEntries';
 import { STORAGE_KEYS } from '../../../utils/config';
 import { getSettings, getValue, saveSettings, setValue } from '../../../utils/storage';
 import { authenticateEmbyUser, buildEmbyAuthHeaders, hasEmbyUserSession } from '../domain/embyUserAuth';
@@ -46,6 +48,8 @@ export interface EmbyLibraryHandlerDeps {
   saveSettings: (settings: any) => Promise<void>;
   getState: () => Promise<EmbyLibraryState>;
   saveState: (state: EmbyLibraryState) => Promise<void>;
+  queueIndexReport?: typeof queueLocalIndexReport;
+  reconcileIndexSources?: typeof reconcileLocalIndexSources;
   fetchImpl: typeof fetch;
   now: () => number;
   processCleanupSync?: (input: {
@@ -107,6 +111,8 @@ function defaultDeps(): EmbyLibraryHandlerDeps {
     fetchImpl: fetch,
     now: () => Date.now(),
     processCleanupSync: processPersistedEmbySyncCleanup,
+    queueIndexReport: queueLocalIndexReport,
+    reconcileIndexSources: reconcileLocalIndexSources,
   };
 }
 
@@ -210,7 +216,7 @@ const EMBY_ITEMS_MAX_PAGES = 400;
 
 interface EmbyItemsPage {
   Items: EmbyMediaItem[];
-  TotalRecordCount: number;
+  TotalRecordCount?: number;
 }
 
 async function fetchAllMediaItems(
@@ -219,6 +225,7 @@ async function fetchAllMediaItems(
   searchTerm?: string,
   parentId?: string,
   signal?: AbortSignal,
+  onIncomplete?: () => void,
 ): Promise<EmbyMediaItem[]> {
   // 搜索场景：结果量天然有界，保持单请求（行为与原来一致）
   if (searchTerm) {
@@ -229,17 +236,18 @@ async function fetchAllMediaItems(
   // 也降低 SW 内单包 JSON 的峰值内存；任一页失败抛错，保持整体 all-or-nothing
   const first = await fetchMediaItemsPage(server, fetchImpl, { parentId, startIndex: 0 }, signal);
   const items: EmbyMediaItem[] = [...first.Items];
-  // 以首页 TotalRecordCount 为总量（越界页在部分服务器上会回 0，不能重新读取）
-  const total = first.TotalRecordCount > 0 ? first.TotalRecordCount : first.Items.length;
+  const total = first.TotalRecordCount;
   let pages = 1;
-  while (items.length < total && pages < EMBY_ITEMS_MAX_PAGES) {
-    // 取消在页边界生效：已挂起页被中断抛错，未开始的页不再发起
+  let lastPageSize = first.Items.length;
+  while (total === undefined ? lastPageSize >= EMBY_ITEMS_PAGE_SIZE : items.length < total) {
+    if (pages >= EMBY_ITEMS_MAX_PAGES || lastPageSize === 0) { onIncomplete?.(); break; }
     if (signal?.aborted) throw new EmbyLibrarySyncCanceledError();
     const next = await fetchMediaItemsPage(server, fetchImpl, { parentId, startIndex: items.length }, signal);
-    if (next.Items.length === 0) break;
+    lastPageSize = next.Items.length;
     items.push(...next.Items);
     pages += 1;
   }
+  if (total !== undefined && deduplicateMediaItemsById(items).length < total) onIncomplete?.();
   // 跨页期间库若有增删可能出现错位/重复，按 Id 去重保持与单包一致的语义
   return deduplicateMediaItemsById(items);
 }
@@ -334,10 +342,14 @@ async function fetchMediaItemsPage(
     throw new Error('数据解析失败');
   }
 
-  return {
-    Items: Array.isArray(data?.Items) ? data.Items : [],
-    TotalRecordCount: Number(data?.TotalRecordCount) || 0,
-  };
+  if (!Array.isArray(data?.Items) || data.Items.some((item: EmbyMediaItem) => !item || !item.Id)) {
+    throw new Error('媒体索引响应不完整');
+  }
+  const total = data.TotalRecordCount === undefined ? undefined : Number(data.TotalRecordCount);
+  if (total !== undefined && (!Number.isSafeInteger(total) || total < 0 || (total === 0 && data.Items.length > 0))) {
+    throw new Error('媒体索引总数无效');
+  }
+  return { Items: data.Items, TotalRecordCount: total };
 }
 
 async function resolveConfiguredWatchUserId(
@@ -505,18 +517,19 @@ async function fetchMoviesForServer(
   deps: Pick<EmbyLibraryHandlerDeps, 'fetchImpl' | 'getSettings' | 'saveSettings'>,
   searchTerm?: string,
   signal?: AbortSignal,
+  onIncomplete?: () => void,
 ): Promise<EmbyMediaItem[]> {
   const scopedServer = await resolveServerUserScope(server, deps);
   if (signal?.aborted) throw new EmbyLibrarySyncCanceledError();
   const libraryIds = (server.libraryIds || []).map((id) => String(id).trim()).filter(Boolean);
   if (libraryIds.length === 0) {
-    return fetchAllMediaItems(scopedServer, deps.fetchImpl, searchTerm, undefined, signal);
+    return fetchAllMediaItems(scopedServer, deps.fetchImpl, searchTerm, undefined, signal, onIncomplete);
   }
 
   const buckets: EmbyMediaItem[] = [];
   for (const parentId of libraryIds) {
     if (signal?.aborted) throw new EmbyLibrarySyncCanceledError();
-    const items = await fetchAllMediaItems(scopedServer, deps.fetchImpl, searchTerm, parentId, signal);
+    const items = await fetchAllMediaItems(scopedServer, deps.fetchImpl, searchTerm, parentId, signal, onIncomplete);
     buckets.push(...items);
   }
   return deduplicateMediaItemsById(buckets);
@@ -559,6 +572,15 @@ export async function handleEmbyLibrarySync(
       deps.getState(),
     ]);
 
+    // 来源只依赖用户配置；暂时离线不能撤销其最后一次成功索引。
+    try {
+      if (Array.isArray(settings?.emby?.mediaServers)) {
+        const configured = settings.emby.mediaServers as Array<{ enabled?: boolean; url?: string }>;
+        await deps.reconcileIndexSources?.('emby', configured.filter((server) => server && server.enabled !== false && server.url).map((server) => normalizeServerUrl(String(server.url))));
+      }
+    } catch {
+      mediaLog.warn('媒体索引来源变更尚未保存，将在下次同步重试');
+    }
     const servers = filterServersForSync(getEnabledServers(settings), message);
     if (servers.length === 0) {
       sendResponse({ success: true, synced: 0, failed: 0, serverResults: [] });
@@ -583,6 +605,7 @@ export async function handleEmbyLibrarySync(
     }
 
     const indexes = [];
+    const localReports: Array<Parameters<typeof queueLocalIndexReport>[0]> = [];
     const serverResults: EmbyLibraryServerResult[] = [];
     const successfulServerIds = new Set<string>();
 
@@ -602,9 +625,11 @@ export async function handleEmbyLibrarySync(
         continue;
       }
       try {
-        const items = await fetchMoviesForServer(server, deps, undefined, manualSignal);
+        let complete = true;
+        const items = await fetchMoviesForServer(server, deps, undefined, manualSignal, () => { complete = false; });
         const index = buildLibraryIndex(server, items, now);
         indexes.push(index);
+        localReports.push({ kind: 'emby', sourceId: normalizeServerUrl(server.url), entries: localEmbyReportEntries(index), complete });
         successfulServerIds.add(server.id);
         const indexedCount = Object.values(index.entries).reduce((sum, entries) => sum + entries.length, 0);
         serverResults.push({
@@ -682,6 +707,15 @@ export async function handleEmbyLibrarySync(
     const persistState = !(settings?.emby?.libraryEnabled === false && !wipeEntries);
     if (persistState) {
       await deps.saveState(nextState);
+      if (!wipeEntries) {
+        for (const report of localReports) {
+          try {
+            await deps.queueIndexReport?.(report);
+          } catch {
+            mediaLog.warn('媒体索引报告尚未保存，将在下次扫描重试');
+          }
+        }
+      }
     }
 
     let cleanupSummary: { enqueuedCount: number; baselineCount: number } | undefined;

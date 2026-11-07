@@ -81,7 +81,64 @@ export interface CloudScanConfigReadback {
   source: 'admin' | 'extension' | 'default';
 }
 
-export interface CloudApi {
+export type IndexReportKind = 'emby' | 'drive115';
+
+export interface IndexReportSource {
+  kind: IndexReportKind;
+  sourceId: string;
+}
+
+export interface IndexReportEntry {
+  code: string;
+  data: unknown;
+}
+
+export interface LocalIndexReport extends IndexReportSource {
+  entries: IndexReportEntry[];
+  complete: boolean;
+  requestId?: string;
+}
+
+export interface IndexReportCapabilities {
+  version: 1;
+  kinds: IndexReportKind[];
+  maxPageEntries: number;
+  maxPageBytes: number;
+}
+
+export interface IndexReportPage extends IndexReportSource {
+  page: number;
+  final: boolean;
+  complete?: boolean;
+  entries: IndexReportEntry[];
+}
+
+export interface IndexReportResult {
+  runId: string;
+  generation: number;
+  published: boolean;
+  superseded?: boolean;
+  revision: number;
+}
+
+/** Bound to the caller's connection/account/user/device for the entire request, including refresh. */
+export interface IndexReportRequestOptions {
+  signal?: AbortSignal;
+  auth?: {
+    baseUrl: string;
+    assertCurrent(): Promise<void>;
+  };
+}
+
+/** Additive API: old servers and transports need not implement these methods. */
+export interface IndexReportApi {
+  getIndexReportCapabilities?(options?: IndexReportRequestOptions): Promise<IndexReportCapabilities>;
+  startIndexReport?(body: IndexReportSource & { requestId: string }, options?: IndexReportRequestOptions): Promise<IndexReportResult>;
+  putIndexReport?(runId: string, body: IndexReportPage, options?: IndexReportRequestOptions): Promise<IndexReportResult>;
+  retireIndexSource?(body: IndexReportSource, options?: IndexReportRequestOptions): Promise<{ retired: boolean }>;
+}
+
+export interface CloudApi extends IndexReportApi {
   register(body: AuthRegisterRequest): Promise<AuthLoginResponse | AuthTokenPair>;
   login(body: AuthLoginRequest): Promise<AuthLoginResponse>;
   refresh(body: AuthRefreshRequest): Promise<AuthTokenPair>;

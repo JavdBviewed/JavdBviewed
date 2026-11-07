@@ -28,6 +28,11 @@ import type {
   CloudApi,
   CloudScanConfigReadback,
   HttpTransport,
+  IndexReportCapabilities,
+  IndexReportPage,
+  IndexReportResult,
+  IndexReportRequestOptions,
+  IndexReportSource,
   RequestBodyMetrics,
   RefreshCoordinator,
   SyncClientConfig,
@@ -71,55 +76,86 @@ export function createApiClient(config: SyncClientConfig): ApiClient {
     path: string,
     body?: unknown,
     useAuth = false,
+    signal?: AbortSignal,
   ): Promise<T> {
     const token = useAuth ? await tokens.getAccessToken() : null;
-    return transport.request<T>({ method, path, body, token });
+    return transport.request<T>({ method, path, body, token, ...(signal ? { signal } : {}) });
   }
 
-  async function withAuthRetry<T>(fn: (token: string | null) => Promise<T>): Promise<T> {
-    const failedAccessToken = await tokens.getAccessToken();
+  async function withAuthRetry<T>(
+    fn: (token: string | null) => Promise<T>,
+    options: IndexReportRequestOptions = {},
+  ): Promise<T> {
+    const checkCancelled = () => {
+      if (options.signal?.aborted) throw new DOMException('同步已取消', 'AbortError');
+    };
+    const check = async () => {
+      checkCancelled();
+      if (!options.auth) return;
+      const normalize = (raw: string) => {
+        const url = new URL(raw);
+        return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+      };
+      if (normalize(config.baseUrl) !== normalize(options.auth.baseUrl)) throw new Error('Cloud 连接已变更');
+      await options.auth.assertCurrent();
+      checkCancelled();
+    };
+    const readAccess = async () => {
+      await check();
+      const token = await tokens.getAccessToken();
+      await check();
+      return token;
+    };
+    const readRefresh = async () => {
+      await check();
+      const token = await tokens.getRefreshToken();
+      await check();
+      return token;
+    };
+    const send = async (token: string | null) => {
+      await check();
+      const result = await fn(token);
+      await check();
+      return result;
+    };
+    const failedAccessToken = await readAccess();
     try {
-      return await fn(failedAccessToken);
+      return await send(failedAccessToken);
     } catch (err) {
+      await check();
       if (!(err instanceof SyncHttpError) || err.status !== 401) throw err;
-      const refreshToken = await tokens.getRefreshToken();
+      const refreshToken = await readRefresh();
       if (!refreshToken) {
         config.onAuthFailure?.(err);
         throw err;
       }
+      const currentAccessToken = await readAccess();
+      if (currentAccessToken && currentAccessToken !== failedAccessToken) return send(currentAccessToken);
 
-      const currentAccessToken = await tokens.getAccessToken();
-      if (currentAccessToken && currentAccessToken !== failedAccessToken) {
-        return fn(currentAccessToken);
-      }
-
-      try {
-        await refreshCoordinator.run(async () => {
-          const latestAccessToken = await tokens.getAccessToken();
-          const latestRefreshToken = await tokens.getRefreshToken();
-          if (
-            (latestAccessToken && latestAccessToken !== failedAccessToken) ||
-            latestRefreshToken !== refreshToken
-          ) {
-            return;
+      await refreshCoordinator.run(async () => {
+        const latestAccessToken = await readAccess();
+        const latestRefreshToken = await readRefresh();
+        if ((latestAccessToken && latestAccessToken !== failedAccessToken) || latestRefreshToken !== refreshToken) return;
+        try {
+          await check();
+          const pair = await raw<AuthTokenPair>('POST', '/v1/auth/refresh', {
+            refreshToken,
+          } satisfies AuthRefreshRequest, false, options.signal);
+          // A response from the previous account must never overwrite a newly logged-in session.
+          await check();
+          await tokens.setTokens(pair);
+          await check();
+        } catch (refreshErr) {
+          await check();
+          if ((await readRefresh()) === refreshToken) {
+            await check();
+            await tokens.clear();
+            config.onAuthFailure?.(refreshErr);
           }
-          try {
-            const pair = await raw<AuthTokenPair>('POST', '/v1/auth/refresh', {
-              refreshToken,
-            } satisfies AuthRefreshRequest);
-            await tokens.setTokens(pair);
-          } catch (refreshErr) {
-            if ((await tokens.getRefreshToken()) === refreshToken) {
-              await tokens.clear();
-              config.onAuthFailure?.(refreshErr);
-            }
-            throw refreshErr;
-          }
-        });
-      } catch (refreshErr) {
-        throw refreshErr;
-      }
-      return fn(await tokens.getAccessToken());
+          throw refreshErr;
+        }
+      });
+      return send(await readAccess());
     }
   }
 
@@ -172,6 +208,37 @@ export function createApiClient(config: SyncClientConfig): ApiClient {
     getScanConfig() {
       return withAuthRetry((token) =>
         transport.request<CloudScanConfigReadback>({ method: 'GET', path: '/v1/scan/config', token }),
+      );
+    },
+
+    getIndexReportCapabilities(options?: IndexReportRequestOptions) {
+      return withAuthRetry((token) =>
+        transport.request<IndexReportCapabilities>({ method: 'GET', path: '/v1/index-reports/capabilities', token, ...(options?.signal ? { signal: options.signal } : {}) }),
+        options,
+      );
+    },
+
+    startIndexReport(body: IndexReportSource & { requestId: string }, options?: IndexReportRequestOptions) {
+      return withAuthRetry((token) =>
+        transport.request<IndexReportResult>({ method: 'POST', path: '/v1/index-reports', body, token, ...(options?.signal ? { signal: options.signal } : {}) }),
+        options,
+      );
+    },
+
+    putIndexReport(runId: string, body: IndexReportPage, options?: IndexReportRequestOptions) {
+      return withAuthRetry((token) =>
+        transport.request<IndexReportResult>({
+          method: 'PUT', path: `/v1/index-reports/${encodeURIComponent(runId)}`, body, token,
+          ...(options?.signal ? { signal: options.signal } : {}),
+        }),
+        options,
+      );
+    },
+
+    retireIndexSource(body: IndexReportSource, options?: IndexReportRequestOptions) {
+      return withAuthRetry((token) =>
+        transport.request<{ retired: boolean }>({ method: 'DELETE', path: '/v1/index-sources', body, token, ...(options?.signal ? { signal: options.signal } : {}) }),
+        options,
       );
     },
 

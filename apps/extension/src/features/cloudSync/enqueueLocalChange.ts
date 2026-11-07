@@ -7,6 +7,7 @@ import type { SyncEntity } from '@javdb/sync-protocol';
 import type { ActorRecord, ListRecord, NewWorkRecord, VideoRecord } from '../../types';
 import type { ReportMonthly, ViewsDaily } from '../../types/insights';
 import type { MagnetCacheRecord, NewWorksDailyStat } from '../../platform/storage/indexedDb';
+import { filterOutgoingSyncEntities } from './storageItemPolicy';
 import { upsertCloudPending } from './chromePendingStore';
 import {
   actorToSyncEntity,
@@ -26,7 +27,7 @@ import { STORAGE_KEYS } from '../../utils/config';
 import { stripEmbySessionFieldsFromValue } from '../../shared/embyMediaServerSync';
 
 export async function enqueueSyncEntities(entities: SyncEntity[]): Promise<void> {
-  const list = entities.filter(Boolean);
+  const list = await filterOutgoingSyncEntities(entities.filter(Boolean));
   if (!list.length) return;
   await upsertCloudPending(list);
 }
@@ -142,16 +143,21 @@ export async function enqueueMagnetPushLogChanges(entries: Array<Record<string, 
 }
 
 export async function enqueueStorageItemChange(key: string, value: unknown): Promise<void> {
+  if (key === STORAGE_KEYS.SETTINGS) {
+    // Read current settings: a delayed storage event may contain an older credential.
+    const { rehydrateLocalEmbyIndexImages } = await import('./extensionEntityStore');
+    await rehydrateLocalEmbyIndexImages();
+  }
   // X2：settings 增量入队前剥离 emby 会话字段（与全量快照同口径；本地 storage 不动）
   const sanitized = key === STORAGE_KEYS.SETTINGS ? stripEmbySessionFieldsFromValue(value) : value;
   const e = storageItemToSyncEntity(key, sanitized, Date.now());
-  if (e) await upsertCloudPending([e]);
+  if (e) await enqueueSyncEntities([e]);
 }
 
 export async function enqueueStorageItemDeletion(key: string): Promise<void> {
   if (!key) return;
   const deletedAt = Date.now();
-  await upsertCloudPending([
+  await enqueueSyncEntities([
     {
       ...toSyncEntity('storage_item', key, { key }, deletedAt),
       deletedAt,
