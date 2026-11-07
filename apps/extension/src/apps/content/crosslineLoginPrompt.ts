@@ -93,7 +93,7 @@ export function installCrosslineLoginPrompt(options: { origin?: string } = {}): 
           text.textContent = '已登录，正在刷新页面…';
           if (!refreshed) { refreshed = true; location.reload(); }
         } else if (reply.outcome === 'not-accepted') text.textContent = '该网站未接受此登录态，请在此网站登录。';
-        else if (reply.outcome === 'stale') text.textContent = '登录状态已变化，请关闭提示后重新检查。';
+        else if (reply.outcome === 'stale') text.textContent = '本次未同步：登录信息已变化或确认已过期。请刷新当前页面后重新同步。';
         else text.textContent = '暂时无法确认登录结果，请打开个人页检查或重试。';
       } catch { if (alive(epoch)) text.textContent = '登录操作未完成，请稍后重试。'; }
       finally { busy = false; select.disabled = false; updateSelection(); }
