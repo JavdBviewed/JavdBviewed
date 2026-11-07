@@ -49,7 +49,7 @@ describe('Dashboard 9C navigation model', () => {
 
     const sync = DASHBOARD_NAV_GROUPS.find(group => group.id === 'sync');
     expect(sync?.defaultItemId).toBe('sync');
-    expect(sync?.items.map(item => item.label)).toEqual(['数据同步', '115任务', '备份与恢复']);
+    expect(sync?.items.map(item => item.label)).toEqual(['数据同步', '下载任务', '备份与恢复']);
   });
 
   it('resolves old direct tab hashes to the correct group and item', () => {
@@ -114,4 +114,10 @@ describe('Dashboard 9C navigation model', () => {
     expect(resolveDashboardNavState('')).toEqual(getDefaultNavState());
     expect(resolveDashboardNavState('#unknown-tab')).toEqual(getDefaultNavState());
   });
+});
+
+it('preserves download service deep links while retaining the old bare task route', () => {
+  for (const hash of ['#tab-drive115-tasks', '#tab-drive115-tasks/115', '#tab-drive115-tasks/openlist']) {
+    expect(buildDashboardNavHash(resolveDashboardNavState(hash))).toBe(hash);
+  }
 });

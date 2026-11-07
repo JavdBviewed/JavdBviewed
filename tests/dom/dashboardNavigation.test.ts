@@ -176,7 +176,7 @@ describe('Dashboard 9C navigation runtime', () => {
 
     expect(window.location.hash).toBe('#tab-sync');
     expect(document.querySelector('.dashboard-main-tab.active')?.textContent).toBe('任务与备份');
-    expect(readButtonLabels('.dashboard-sub-tab')).toEqual(['数据同步', '115任务', '备份与恢复']);
+    expect(readButtonLabels('.dashboard-sub-tab')).toEqual(['数据同步', '下载任务', '备份与恢复']);
     expect(document.querySelector('.dashboard-sub-tab.active')?.textContent).toBe('数据同步');
     expect(document.getElementById('dashboard-section-nav')?.parentElement).toBe(document.getElementById('tab-sync'));
     expect(document.getElementById('tab-sync')?.classList.contains('active')).toBe(true);

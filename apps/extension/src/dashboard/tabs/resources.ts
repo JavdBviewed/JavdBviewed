@@ -33,6 +33,7 @@ export const TAB_PARTIALS: Partial<Record<string, TabPartialResource>> = {
   'tab-lists': {
     name: 'tabs/lists.html',
     styles: [
+      './styles/04-components/categoryTabs.css',
       './styles/05-pages/lists.css',
     ],
   },
@@ -68,6 +69,7 @@ export const TAB_PARTIALS: Partial<Record<string, TabPartialResource>> = {
   'tab-drive115-tasks': {
     name: 'tabs/drive115-tasks.html',
     styles: [
+      './styles/04-components/categoryTabs.css',
       './styles/05-pages/drive115Tasks.css',
     ],
   },

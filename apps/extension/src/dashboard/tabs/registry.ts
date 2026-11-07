@@ -44,13 +44,8 @@ export async function initializeTabById(tabId: string | null | undefined): Promi
         break;
       }
       case 'tab-drive115-tasks': {
-        let mgr = (window as any).drive115TasksManager;
-        if (!mgr) {
-          const { Drive115TasksManager } = await import('./drive115Tasks');
-          mgr = new Drive115TasksManager();
-          (window as any).drive115TasksManager = mgr;
-        }
-        await mgr.initialize();
+        const { initializeDownloadTasks } = await import('./downloadTasks');
+        await initializeDownloadTasks();
         break;
       }
       case 'tab-recycle-bin': {
@@ -108,7 +103,7 @@ export async function prefetchModuleById(tabId: string | null | undefined): Prom
         await import('./logs');
         break;
       case 'tab-drive115-tasks':
-        await import('./drive115Tasks');
+        await import('./downloadTasks');
         break;
       case 'tab-recycle-bin':
         await import('./recycleBin');

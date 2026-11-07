@@ -67,7 +67,7 @@ export const DASHBOARD_NAV_GROUPS: readonly DashboardNavGroup[] = [
     defaultItemId: 'sync',
     items: [
       { id: 'sync', label: '数据同步', tabId: 'tab-sync' },
-      { id: 'drive115-tasks', label: '115任务', tabId: 'tab-drive115-tasks' },
+      { id: 'drive115-tasks', label: '下载任务', tabId: 'tab-drive115-tasks' },
       { id: 'backup', label: '备份与恢复', tabId: 'tab-backup' },
     ],
   },
@@ -186,7 +186,7 @@ export function resolveDashboardNavState(hash: string | null | undefined): Dashb
     return findMediaState(subPath);
   }
 
-  if (tabId === 'tab-settings') {
+  if (tabId === 'tab-settings' || tabId === 'tab-drive115-tasks') {
     return findStateByTabId(tabId, subPath) ?? getDefaultNavState();
   }
 

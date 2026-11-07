@@ -1,4 +1,4 @@
-﻿import { getDrive115V2Service, Drive115V2Task } from '../../features/drive115/v2';
+import { getDrive115V2Service, Drive115V2Task } from '../../features/drive115/v2';
 import { getSettings, saveSettings } from '../../utils/storage';
 import { openDrive115FolderPicker } from '../components/drive115FolderPicker';
 import { dashboardTabLifecycle } from './tabLifecycle';
@@ -28,11 +28,11 @@ export class Drive115TasksManager {
   private displayPageSize: number = 10;
   private searchKeyword: string = '';
 
-  constructor() {
+  constructor({ manageLifecycle = true }: { manageLifecycle?: boolean } = {}) {
     this.initializeElements();
     this.displayPageSize = this.loadDisplayPageSize();
     this.bindEvents();
-    this.ensureLifecycle();
+    if (manageLifecycle) this.ensureLifecycle();
   }
 
   /** 读取/保存“每页显示”配置 */
@@ -55,13 +55,25 @@ export class Drive115TasksManager {
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
+    this.initialized = true;
     this.active = true;
+    const generation = this.worksetGeneration;
     await this.loadDefaultDownloadDir();
+    if (!this.active || generation !== this.worksetGeneration) return;
     this.showStats();
     this.bindStatsEvents();
     await this.loadTasks();
-    this.initialized = true;
   }
+
+  /** 由统一下载任务页在分类切换时调度。 */
+  async activate(): Promise<void> {
+    if (!this.initialized) { await this.initialize(); return; }
+    this.active = true;
+    this.showStats(); this.bindStatsEvents();
+    await this.loadTasks(this.currentPage);
+  }
+
+  deactivate(): void { this.clearRenderedWorkset(); }
 
   private ensureLifecycle(): void {
     if (this.lifecycleUnregister) return;
@@ -85,6 +97,7 @@ export class Drive115TasksManager {
   private clearRenderedWorkset(): void {
     this.active = false;
     this.worksetGeneration += 1;
+    this.isLoading = false;
     this.tasks = [];
     this.totalCount = 0;
     this.pageCount = 0;
@@ -111,6 +124,11 @@ export class Drive115TasksManager {
    *  - 'toast'：以轻量提示，不打断页面布局（适合添加/删除/清空等操作）
    */
   private async resolveAccessTokenOrExplain(mode: 'pageError' | 'toast' = 'pageError'): Promise<string | null> {
+    const generation = this.worksetGeneration;
+    const explain = (message: string) => {
+      if (mode === 'toast') this.showMessage(message, 'error');
+      else if (this.active && generation === this.worksetGeneration) this.showError(message);
+    };
     try {
       const svc = getDrive115V2Service();
       const ret = await svc.getValidAccessToken();
@@ -129,11 +147,11 @@ export class Drive115TasksManager {
       } catch {}
 
       const msg = (ret as any)?.message || '请先在设置中配置115网盘授权信息';
-      if (mode === 'toast') this.showMessage(msg, 'error'); else this.showError(msg);
+      explain(msg);
       return null;
     } catch (e: any) {
       const msg = e?.message || '获取授权信息失败';
-      if (mode === 'toast') this.showMessage(msg, 'error'); else this.showError(msg);
+      explain(msg);
       return null;
     }
   }
@@ -390,11 +408,12 @@ export class Drive115TasksManager {
 
       // 先校验并获取有效 access_token，避免无效凭据下盲目请求
       const accessToken = await this.resolveAccessTokenOrExplain('pageError');
-      if (!accessToken) return;
+      if (!accessToken || !this.active || generation !== this.worksetGeneration) return;
 
       const drive115Service = getDrive115V2Service();
       const result = await drive115Service.getTaskList({ accessToken, page });
 
+      if (!this.active || generation !== this.worksetGeneration) return;
       if (!result.success) {
         this.showError(result.message || '获取任务列表失败');
         return;
@@ -413,10 +432,12 @@ export class Drive115TasksManager {
 
     } catch (error: any) {
       console.error('加载任务列表失败:', error);
-      this.showError(error.message || '加载任务列表失败');
+      if (this.active && generation === this.worksetGeneration) this.showError(error.message || '加载任务列表失败');
     } finally {
-      this.isLoading = false;
-      this.showLoading(false);
+      if (generation === this.worksetGeneration) {
+        this.isLoading = false;
+        this.showLoading(false);
+      }
     }
   }
 
@@ -751,10 +772,13 @@ export class Drive115TasksManager {
         <div class="error-state">
           <i class="fas fa-exclamation-triangle"></i>
           <h3>加载失败</h3>
-          <p>${message}</p>
-          <button class="button-like" onclick="window.drive115TasksManager?.refreshTasks()">重试</button>
+          <p></p>
+          <button class="button-like" type="button">重试</button>
         </div>
       `;
+      const description = this.container.querySelector('p');
+      if (description) description.textContent = message;
+      this.container.querySelector('button')?.addEventListener('click', () => { void this.refreshTasks(); });
     }
   }
 
@@ -817,34 +841,3 @@ export class Drive115TasksManager {
 }
 
 // 全局实例
-declare global {
-  interface Window {
-    drive115TasksManager?: Drive115TasksManager;
-  }
-}
-
-// 自动初始化：当页面初次加载且 hash 指向 115 任务页，或 hash 变更到该页时，确保实例存在
-(function() {
-  try {
-    const ensureInit = async () => {
-      try {
-        const hash = (window.location.hash || '').replace(/^#/, '');
-        const main = (hash.split('/')[0] || '').trim();
-        if (main === 'tab-drive115-tasks' && !window.drive115TasksManager) {
-          window.drive115TasksManager = new Drive115TasksManager();
-          await window.drive115TasksManager.initialize();
-        }
-      } catch (e) {
-        console.error('ensureInit 115 tasks failed:', e);
-      }
-    };
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => { void ensureInit(); });
-    } else {
-      void ensureInit();
-    }
-
-    window.addEventListener('hashchange', () => { void ensureInit(); });
-  } catch {}
-})();

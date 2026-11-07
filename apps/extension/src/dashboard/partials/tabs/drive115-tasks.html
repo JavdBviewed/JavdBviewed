@@ -1,15 +1,21 @@
-<div class="card drive115-tasks-page">
+<div id="downloadTasksPage" class="card drive115-tasks-page">
   <div class="drive115-tasks-hero">
     <div>
-      <span class="drive115-eyebrow">Drive 115</span>
-      <h3>离线任务中心</h3>
-      <p>集中管理 115 网盘离线下载任务，支持链接添加、搜索过滤、刷新和清理。</p>
+      <span class="drive115-eyebrow">Downloads</span>
+      <h3>下载任务</h3>
+      <p>查看和管理 115 网盘与 OpenList 的下载任务。</p>
     </div>
     <div class="drive115-hero-mark">
       <i class="fas fa-cloud-download-alt"></i>
     </div>
   </div>
 
+  <div class="category-tabs" role="tablist" aria-label="下载服务">
+    <button id="downloadTasks115Tab" type="button" class="category-tab active" role="tab" aria-selected="true" aria-controls="downloadTasks115Panel" data-download-provider="115"><i class="fas fa-cloud" aria-hidden="true"></i>115 网盘</button>
+    <button id="downloadTasksOpenListTab" type="button" class="category-tab" role="tab" aria-selected="false" aria-controls="downloadTasksOpenListPanel" tabindex="-1" data-download-provider="openlist"><i class="fas fa-download" aria-hidden="true"></i>OpenList</button>
+  </div>
+  <div id="downloadTasksOpenListPanel" role="tabpanel" aria-labelledby="downloadTasksOpenListTab" hidden></div>
+  <div id="downloadTasks115Panel" role="tabpanel" aria-labelledby="downloadTasks115Tab">
   <div class="stats-section">
     <h4>115网盘下载任务</h4>
     <div id="drive115TasksStatsContainer" class="stats-grid">
@@ -75,4 +81,5 @@
       <!-- 分页控件将由 JS 动态填充 -->
     </div>
   </div>
+</div>
 </div>

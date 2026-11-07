@@ -1,0 +1,50 @@
+/* 收藏中心与下载任务共用的分类切换外观。 */
+.category-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 5px;
+    background: var(--lists-soft, var(--surface-secondary));
+    border: 1px solid var(--lists-border, var(--border-primary));
+    border-radius: 12px;
+    margin-top: 14px;
+}
+
+.category-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 7px;
+    padding: 10px 14px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--lists-muted, var(--text-secondary));
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .18s ease;
+}
+
+.category-tab:hover {
+    color: var(--lists-primary, #2563eb);
+    background: color-mix(in srgb, var(--lists-primary, #2563eb) 8%, transparent);
+}
+
+.category-tab.active {
+    background: linear-gradient(135deg, var(--lists-primary, #2563eb), color-mix(in srgb, var(--lists-info, #0891b2) 70%, var(--lists-primary, #2563eb)));
+    border-color: transparent;
+    color: #fff;
+    box-shadow: 0 3px 10px color-mix(in srgb, var(--lists-primary, #2563eb) 30%, transparent);
+}
+
+.category-tab i {
+    font-size: 13px;
+}
+
+.category-tab:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--lists-primary, #2563eb) 55%, transparent);
+    outline-offset: 2px;
+}
+
