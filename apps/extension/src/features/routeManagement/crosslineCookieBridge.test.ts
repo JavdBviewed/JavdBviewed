@@ -13,11 +13,15 @@ function session(domain: string, value = 'private-session', extra: Partial<Cooki
 function setup(initial: Cookie[] = []) {
   const jar = [...initial];
   let listener: ((change: chrome.cookies.CookieChangeInfo) => void) | undefined;
+  let settingsListener: ((changes: { [key: string]: chrome.storage.StorageChange }, area: string) => void) | undefined;
   const addListener = vi.fn((callback) => { listener = callback; });
   const set = vi.fn((details: chrome.cookies.SetDetails, callback: (cookie: Cookie | null) => void) => {
     const cookie = session(details.domain || new URL(details.url).hostname, details.value, {
       name: details.name, storeId: details.storeId || '0',
     });
+    const index = jar.findIndex(existing => existing.name === cookie.name &&
+      existing.storeId === cookie.storeId && existing.domain === cookie.domain && existing.path === cookie.path);
+    if (index !== -1) jar.splice(index, 1);
     jar.push(cookie);
     callback(cookie);
   });
@@ -35,6 +39,10 @@ function setup(initial: Cookie[] = []) {
   });
   vi.stubGlobal('chrome', { cookies: {
     getAll: vi.fn((filter: chrome.cookies.GetAllDetails, callback: (cookies: Cookie[]) => void) => {
+      if (!filter.url) {
+        callback(jar.filter(cookie => !filter.name || cookie.name === filter.name));
+        return;
+      }
       const host = new URL(filter.url || '').hostname;
       callback(jar.filter(cookie => cookie.storeId === (filter.storeId || '0') &&
         (host === cookie.domain.replace(/^\./, '') || (cookie.domain.startsWith('.') && host.endsWith(cookie.domain)))));
@@ -42,8 +50,13 @@ function setup(initial: Cookie[] = []) {
     set,
     remove,
     onChanged: { addListener, removeListener: vi.fn() },
-  }, runtime: { lastError: undefined } });
-  return { jar, set, remove, addListener, emit: (cookie: Cookie, removed = false, cause: chrome.cookies.OnChangedCause = 'explicit') => listener?.({ cookie, removed, cause }) };
+  }, storage: { local: { get: vi.fn((_key, callback) => callback({})) },
+    onChanged: { addListener: vi.fn(callback => { settingsListener = callback; }), removeListener: vi.fn() } },
+    runtime: { lastError: undefined } });
+  return { jar, set, remove, addListener,
+    emit: (cookie: Cookie, removed = false, cause: chrome.cookies.OnChangedCause = 'explicit') => listener?.({ cookie, removed, cause }),
+    settingsChanged: () => settingsListener?.({ settings: { oldValue: {}, newValue: {} } }, 'local'),
+  };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -70,9 +83,42 @@ describe('JavDB crossline session bridge', () => {
     expect(stub.set.mock.calls.every(([details]) => details.value !== 'expired' && details.value !== 'partitioned')).toBe(true);
   });
 
+  it('rotates only mirror sessions still matching an overwritten anonymous source session', async () => {
+    const anonymous = session('javdb.com', 'anonymous-session');
+    const signedIn = session('javdb.com', 'signed-in-session');
+    const stub = setup([anonymous]);
+    initJavdbCrosslineCookieBridge();
+    stub.emit(anonymous);
+    await vi.waitFor(() => expect(stub.set).toHaveBeenCalledTimes(2));
+
+    stub.jar.splice(stub.jar.indexOf(anonymous), 1, signedIn);
+    stub.emit(anonymous, true, 'overwrite');
+    stub.emit(signedIn);
+
+    await vi.waitFor(() => expect(stub.jar.filter(cookie => cookie.name === '_jdb_session' &&
+      cookie.domain.startsWith('.')).map(cookie => cookie.value)).toEqual([
+      'signed-in-session', 'signed-in-session',
+    ]));
+    expect(stub.jar.filter(cookie => cookie.name === '_jdb_session')).toHaveLength(3);
+  });
+
+  it('does not replace an independently signed-in mirror after the source rotates', async () => {
+    const anonymous = session('javdb.com', 'anonymous-session');
+    const signedIn = session('javdb.com', 'signed-in-session');
+    const independent = session('javdb575.com', 'other-account');
+    const stub = setup([anonymous, independent]);
+    initJavdbCrosslineCookieBridge();
+    stub.jar.splice(0, 1, signedIn);
+    stub.emit(anonymous, true, 'overwrite');
+    stub.emit(signedIn);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(stub.set).not.toHaveBeenCalled();
+    expect(stub.jar).toContain(independent);
+  });
+
   it('onChanged bridges only new session cookies from allowlisted hosts', async () => {
     const source = session('javdb.com');
-    const stub = setup([source]);
+    const stub = setup();
     initJavdbCrosslineCookieBridge();
     expect(stub.addListener).toHaveBeenCalledTimes(1);
     stub.emit(session('evil.com'));
@@ -80,6 +126,7 @@ describe('JavDB crossline session bridge', () => {
     stub.emit(session('javdb.com', 'removed'), true);
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(stub.set).not.toHaveBeenCalled();
+    stub.jar.push(source);
     stub.emit(source);
     await vi.waitFor(() => expect(stub.set).toHaveBeenCalledTimes(2));
   });
@@ -114,12 +161,47 @@ describe('JavDB crossline session bridge', () => {
     expect(stub.set).not.toHaveBeenCalled();
   });
 
-  it('does not refill a mirror session removed by logout during service worker startup', async () => {
+  it('reconciles a stored main session to enabled mirrors on startup without another login', async () => {
     const stub = setup([session('javdb.com')]);
+    initJavdbCrosslineCookieBridge();
+    await vi.waitFor(() => expect(stub.set.mock.calls.map(([details]) => new URL(details.url).hostname))
+      .toEqual(['javdb570.com', 'javdb575.com']));
+  });
+
+  it('fills a newly enabled mirror after settings change without another login', async () => {
+    const stub = setup([session('javdb.com')]);
+    let enabled = false;
+    vi.mocked(chrome.storage.local.get).mockImplementation((_key, callback) => {
+      (callback as (result: unknown) => void)({ settings: { routes: { javdb: {
+        primary: 'https://javdb.com', alternatives: [{ url: 'https://javdb575.com', enabled }],
+      } } } });
+    });
     initJavdbCrosslineCookieBridge();
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(stub.set).not.toHaveBeenCalled();
-    stub.emit(session('javdb575.com', 'logged-out'), true);
+    enabled = true;
+    stub.settingsChanged();
+    await vi.waitFor(() => expect(stub.set).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not fill disabled routes from an existing session', async () => {
+    const stub = setup([session('javdb.com')]);
+    vi.mocked(chrome.storage.local.get).mockImplementation((_key, callback) => {
+      (callback as (result: unknown) => void)({ settings: { routes: { javdb: {
+        primary: 'https://javdb.com', alternatives: [
+          { url: 'https://javdb570.com', enabled: false },
+          { url: 'https://javdb575.com', enabled: true },
+        ],
+      } } } });
+    });
+    initJavdbCrosslineCookieBridge();
+    await vi.waitFor(() => expect(stub.set).toHaveBeenCalledTimes(1));
+    expect(new URL(stub.set.mock.calls[0][0].url).hostname).toBe('javdb575.com');
+  });
+
+  it('does not replace an independently signed-in mirror on startup', async () => {
+    const stub = setup([session('javdb.com'), session('javdb575.com', 'another-account')]);
+    initJavdbCrosslineCookieBridge();
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(stub.set).not.toHaveBeenCalled();
   });
