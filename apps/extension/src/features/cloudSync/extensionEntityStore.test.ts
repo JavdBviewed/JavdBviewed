@@ -3,6 +3,7 @@
  * @description applyRemote 远端回写必须跳过 cloud pending 入队（防拉取回声重推）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SyncEntity, SyncSessionResponse } from '@javdb/sync-protocol';
 
 const spies = vi.hoisted(() => ({
   viewedBulkPut: vi.fn(async () => undefined),
@@ -212,5 +213,171 @@ describe('countLocalSyncEntities（10-24 风险 A 轻量计数）', () => {
     // 零记录体传输：IDB 只调 count，从不 getAll
     expect(countFn).toHaveBeenCalledTimes(8);
     expect(storageGetKeys).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('storage_item 未知键兼容', () => {
+  // 与未来产品键名无关，保证后续支持新索引时仍覆盖旧客户端的未知键行为。
+  const UNKNOWN_KEY = 'compat_fixture_unknown_storage_key';
+  const unknownEntity = (deletedAt?: number): SyncEntity => ({
+    type: 'storage_item',
+    id: UNKNOWN_KEY,
+    revision: 9,
+    updatedAt: 9,
+    ...(deletedAt === undefined ? {} : { deletedAt }),
+    payload: { key: UNKNOWN_KEY, value: { entries: [{ code: 'ABC-001' }] } },
+  });
+  let storageValues: Record<string, unknown>;
+  let storageSet: ReturnType<typeof vi.fn>;
+  let storageRemove: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    storageValues = {
+      unrelated_local_value: { preserved: true },
+      cloud_sync_pending_v1: [],
+      cloud_sync_pending_delta_v1: {},
+    };
+    storageSet = vi.fn((values: Record<string, unknown>, callback?: () => void) => {
+      Object.assign(storageValues, structuredClone(values));
+      queueMicrotask(() => callback?.());
+    });
+    storageRemove = vi.fn((keys: string | string[], callback?: () => void) => {
+      for (const key of Array.isArray(keys) ? keys : [keys]) delete storageValues[key];
+      queueMicrotask(() => callback?.());
+    });
+    vi.stubGlobal('chrome', {
+      storage: {
+        local: {
+          get: vi.fn((keys: string | string[], callback: (values: Record<string, unknown>) => void) => {
+            const result: Record<string, unknown> = {};
+            for (const key of Array.isArray(keys) ? keys : [keys]) {
+              if (Object.prototype.hasOwnProperty.call(storageValues, key)) {
+                result[key] = structuredClone(storageValues[key]);
+              }
+            }
+            queueMicrotask(() => callback(result));
+          }),
+          set: storageSet,
+          remove: storageRemove,
+        },
+      },
+      runtime: { lastError: undefined },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('忽略未知 storage_item 普通值，不写入本机存储或 pending', async () => {
+    const { createExtensionEntityStore } = await import('./extensionEntityStore');
+    const before = structuredClone(storageValues);
+
+    await createExtensionEntityStore().applyRemote([unknownEntity()]);
+
+    expect(storageValues).toEqual(before);
+    expect(storageSet).not.toHaveBeenCalled();
+    expect(storageRemove).not.toHaveBeenCalled();
+    expect(spies.initDB).not.toHaveBeenCalled();
+  });
+
+  it('忽略未知 storage_item 墓碑，保留同名本机键且不写 pending', async () => {
+    storageValues[UNKNOWN_KEY] = { entries: [{ code: 'ABC-002' }] };
+    const before = structuredClone(storageValues);
+    const { createExtensionEntityStore } = await import('./extensionEntityStore');
+    // 墓碑可以只带实体 id，没有 payload.key，仍须经过未知键过滤。
+    const tombstone = { ...unknownEntity(10), payload: {} };
+
+    await createExtensionEntityStore().applyRemote([tombstone]);
+
+    expect(storageValues).toEqual(before);
+    expect(storageSet).not.toHaveBeenCalled();
+    expect(storageRemove).not.toHaveBeenCalled();
+    expect(spies.initDB).not.toHaveBeenCalled();
+  });
+
+  it('未知键与已知 storage_item、video 混批时不阻断已知实体', async () => {
+    const { createExtensionEntityStore } = await import('./extensionEntityStore');
+    const { shouldSuppressCloudStorageChange } = await import('./storageChangeGate');
+    const index = { entries: [], updatedAt: 8 };
+    const before = structuredClone(storageValues);
+
+    await createExtensionEntityStore().applyRemote([
+      unknownEntity(),
+      {
+        type: 'storage_item', id: 'emby_library_state', revision: 8, updatedAt: 8,
+        payload: { key: 'emby_library_state', value: index },
+      },
+      { type: 'video', id: 'ABC-003', revision: 8, updatedAt: 8, payload: { code: 'ABC-003', status: 'viewed' } },
+      { ...unknownEntity(10), payload: {} },
+    ]);
+
+    expect(spies.viewedBulkPut).toHaveBeenCalledTimes(1);
+    expect(spies.viewedBulkPut).toHaveBeenCalledWith(
+      [{ code: 'ABC-003', status: 'viewed', id: 'ABC-003' }],
+      { skipCloudEnqueue: true },
+    );
+    expect(storageValues).toEqual({ ...before, emby_library_state: index });
+    expect(storageSet).toHaveBeenCalledTimes(1);
+    expect(storageSet).toHaveBeenCalledWith({ emby_library_state: index }, expect.any(Function));
+    expect(storageRemove).not.toHaveBeenCalled();
+    expect(shouldSuppressCloudStorageChange('emby_library_state', { newValue: index })).toBe(true);
+  });
+
+  it('真实 adapter 和同步引擎忽略未知键后持久化游标，下一次请求携带新游标', async () => {
+    const { createExtensionEntityStore } = await import('./extensionEntityStore');
+    const { createChromeCursorStore, CLOUD_CURSORS_STORAGE_KEY } = await import('./chromeCursorStore');
+    const { createApiClient, createMemoryTokenStore, createSyncEngine, PROTOCOL_VERSION } = await import('@javdb/sync-client');
+    const initialCursors = { storage_item: 3, video: 5 };
+    const serverCursors = { storage_item: 41, video: 5 };
+    storageValues[CLOUD_CURSORS_STORAGE_KEY] = initialCursors;
+    const before = structuredClone(storageValues);
+    const response: SyncSessionResponse = {
+      protocolVersion: PROTOCOL_VERSION,
+      apply: [unknownEntity()],
+      results: [],
+      stats: { uploaded: 0, downloaded: 1, merged: 0, rejected: 0, byType: { storage_item: 1 } },
+      code: 'SYNC_OK',
+      message: 'ok',
+      cursors: serverCursors,
+      hasMore: false,
+    };
+    const fetchMock = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(response), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ...response, apply: [], code: 'SYNC_EMPTY',
+        stats: { ...response.stats, downloaded: 0, byType: {} },
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = createApiClient({
+      baseUrl: 'https://cloud.example.test',
+      tokens: createMemoryTokenStore({ accessToken: 'fixture-access-token' }),
+    });
+    const engine = createSyncEngine({ api, local: createExtensionEntityStore(), cursors: createChromeCursorStore() });
+
+    const first = await engine.syncSession('fixture-device');
+
+    expect(first.pulled).toBe(1);
+    expect(first.cursors).toEqual(serverCursors);
+    expect(storageValues).toEqual({ ...before, [CLOUD_CURSORS_STORAGE_KEY]: serverCursors });
+    expect(storageSet).toHaveBeenCalledTimes(1);
+    expect(storageSet).toHaveBeenCalledWith({ [CLOUD_CURSORS_STORAGE_KEY]: serverCursors }, expect.any(Function));
+    expect(await createChromeCursorStore().get()).toEqual(serverCursors);
+
+    // 重建引擎和游标 store，验证持久化结果被下一轮读取，并非留在旧实例内存。
+    const next = createSyncEngine({ api, local: createExtensionEntityStore(), cursors: createChromeCursorStore() });
+    const second = await next.syncSession('fixture-device');
+
+    expect(second.pulled).toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url, init]) => ({ url, body: JSON.parse(String(init?.body)) }))).toEqual([
+      { url: 'https://cloud.example.test/v1/sync/session', body: { protocolVersion: PROTOCOL_VERSION, deviceId: 'fixture-device', cursors: initialCursors, changes: [] } },
+      { url: 'https://cloud.example.test/v1/sync/session', body: { protocolVersion: PROTOCOL_VERSION, deviceId: 'fixture-device', cursors: serverCursors, changes: [] } },
+    ]);
+    expect(storageValues).toEqual({ ...before, [CLOUD_CURSORS_STORAGE_KEY]: serverCursors });
+    expect(storageRemove).not.toHaveBeenCalled();
+    expect(spies.initDB).not.toHaveBeenCalled();
   });
 });
