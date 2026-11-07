@@ -264,11 +264,11 @@ test.describe('JavdBviewed extension browser smoke', () => {
                     status: 'pending',
                     updatedAt: now,
                   },
-                  'emby:http://emby.invalid:item-e2e-cleanup': {
-                    copyId: 'emby:http://emby.invalid:item-e2e-cleanup',
+                  'emby:http://emby.e2e.local:8096:item-e2e-cleanup': {
+                    copyId: 'emby:http://emby.e2e.local:8096:item-e2e-cleanup',
                     source: 'emby',
                     serverName: 'E2E Emby',
-                    serverUrl: 'http://emby.invalid',
+                    serverUrl: 'http://emby.e2e.local:8096',
                     itemId: 'item-e2e-cleanup',
                     coverImageUrl: 'https://example.invalid/e2e-emby-cover.jpg',
                     fileName: 'E2E-CLEANUP.mkv',
