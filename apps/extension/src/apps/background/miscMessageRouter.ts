@@ -100,6 +100,7 @@ export function registerMiscRouter(): void {
       switch (message.type) {
         case 'JAVDB_CROSSLINE:STATUS':
         case 'JAVDB_CROSSLINE:REFRESH':
+        case 'JAVDB_CROSSLINE:COPY':
         case 'JAVDB_CROSSLINE:SET_ENABLED': {
           void handleCrosslineSessionMessage(message, sender).then(sendResponse);
           return true;

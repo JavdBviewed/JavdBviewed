@@ -35,7 +35,7 @@ describe('crossline session settings', () => {
     await act(async () => root.render(<CrosslineSessionSettings />));
     expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'JAVDB_CROSSLINE:STATUS' });
     expect(host.textContent).toContain('javdb575.com');
-    expect(host.textContent).toContain('不同会话');
+    expect(host.textContent).toContain('保存的信息不同');
     expect(host.textContent).toContain('检测到会话不代表账号已登录');
     expect(host.querySelector<HTMLAnchorElement>('a[href="#tab-settings/network-test-settings"]')).not.toBeNull();
     await act(async () => host.querySelector<HTMLButtonElement>('#crosslineRefresh')?.click());
@@ -90,4 +90,35 @@ describe('crossline session settings', () => {
     await act(async () => complete?.({ success: true, status }));
     expect(host.querySelector<HTMLButtonElement>('#crosslineRefresh')?.disabled).toBe(false);
   });
+});
+
+
+it('uses the shared collapsed enhancement card and provides explicit source/target actions', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  sendRuntimeMessage.mockResolvedValue({ success: true, status });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<CrosslineSessionSettings />));
+    expect(host.querySelector('[data-enhancement-feature="跨线路登录态"]')?.getAttribute('data-expanded')).toBe('0');
+    expect(host.querySelector('a[href="https://javdb.com/"]')?.textContent).toContain('查看账号');
+    const source = host.querySelector<HTMLSelectElement>('#crosslineSource');
+    const target = host.querySelector<HTMLSelectElement>('#crosslineTarget');
+    expect(source).not.toBeNull();
+    expect(target).not.toBeNull();
+    await act(async () => {
+      if (source) { source.value = 'javdb.com'; source.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+    await act(async () => {
+      if (target) { target.value = 'javdb575.com'; target.dispatchEvent(new Event('change', { bubbles: true })); }
+    });
+    await act(async () => host.querySelector<HTMLButtonElement>('#crosslineCopy')?.click());
+    expect(sendRuntimeMessage).toHaveBeenCalledTimes(1);
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain('javdb.com');
+    expect(dialog?.textContent).toContain('javdb575.com');
+    await act(async () => document.querySelector<HTMLButtonElement>('#crosslineConfirmCopy')?.click());
+    expect(sendRuntimeMessage).toHaveBeenCalledWith({ type: 'JAVDB_CROSSLINE:COPY', sourceHost: 'javdb.com', targetHost: 'javdb575.com' });
+  } finally { await act(async () => root.unmount()); host.remove(); vi.clearAllMocks(); }
 });

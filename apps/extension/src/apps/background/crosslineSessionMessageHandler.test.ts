@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ get: vi.fn(), refresh: vi.fn(), set: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), refresh: vi.fn(), set: vi.fn(), copy: vi.fn() }));
 vi.mock('../../features/routeManagement/crosslineCookieBridge', () => ({
   getJavdbCrosslineStatus: mocks.get,
+  copyJavdbCrosslineSession: mocks.copy,
   refreshJavdbCrosslineSessions: mocks.refresh,
   setJavdbCrosslineEnabled: mocks.set,
   describeCrosslineError: () => ({ stage: 'settings-write', message: '保存自动同步开关失败，请重试。' }),
@@ -13,6 +14,7 @@ const status = { enabled: true, checkedAt: 1, reason: 'no-session', routes: [] }
 beforeEach(() => {
   vi.stubGlobal('chrome', { runtime: { id: 'test-extension', getURL: () => root } });
   mocks.get.mockResolvedValue(status);
+  mocks.copy.mockResolvedValue(status);
   mocks.refresh.mockResolvedValue(status);
   mocks.set.mockResolvedValue(undefined);
 });
@@ -52,4 +54,14 @@ describe('crossline settings messages', () => {
     expect(response).toMatchObject({ success: false, stage: 'settings-write' });
     expect(JSON.stringify(response)).not.toContain('secret-browser-error');
   });
+});
+
+it('only accepts explicit source/target choices from an extension page', async () => {
+  const message = { type: 'JAVDB_CROSSLINE:COPY', sourceHost: 'javdb.com', targetHost: 'javdb575.com' };
+  expect((await handleCrosslineSessionMessage(message, { ...sender, url: 'https://javdb.com/' })).success).toBe(false);
+  expect(mocks.copy).not.toHaveBeenCalled();
+  expect((await handleCrosslineSessionMessage({ type: message.type, sourceHost: 1 }, sender)).success).toBe(false);
+  expect(mocks.copy).not.toHaveBeenCalled();
+  expect((await handleCrosslineSessionMessage(message, sender)).success).toBe(true);
+  expect(mocks.copy).toHaveBeenCalledWith('javdb.com', 'javdb575.com');
 });

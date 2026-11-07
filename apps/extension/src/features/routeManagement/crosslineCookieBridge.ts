@@ -10,6 +10,7 @@ const ERROR_MESSAGES: Record<CrosslineErrorStage, string> = {
   'settings-write': '保存自动同步开关失败，请重试。',
   'cookie-read': '读取浏览器会话失败，请检查扩展的网站访问权限后重试。',
   'cookie-write': '写入目标线路会话失败，部分线路可能已同步；请检查权限后重试。',
+  selection: '无法确定唯一的来源会话，请打开来源网站确认账号，再刷新列表并重新选择已启用的支持线路。',
   unknown: '登录态操作未完成，请重试。',
 };
 class CrosslineOperationError extends Error {
@@ -20,6 +21,11 @@ class CrosslineOperationError extends Error {
 export function describeCrosslineError(error: unknown): CrosslineDiagnosticError {
   const stage = error instanceof CrosslineOperationError ? error.stage : 'unknown';
   return { stage, message: ERROR_MESSAGES[stage] };
+}
+// 手动替换目标的清理不代表用户登出，不能触发其它线路的联动清理。
+const manualRemovals = new Map<string, number>();
+function removalKey(cookie: chrome.cookies.Cookie): string {
+  return JSON.stringify([cookie.storeId, cookie.domain, cookie.path, cookie.name, cookie.value]);
 }
 const previousSessions = new Map<string, { value: string; time: number }>();
 
@@ -251,6 +257,50 @@ export async function refreshJavdbCrosslineSessions(): Promise<CrosslineSessionS
   return task;
 }
 
+/** 用户明确选择来源及单个目标后才允许替换；关闭自动同步不影响本次手动操作。 */
+export function copyJavdbCrosslineSession(sourceHost: string, targetHost: string): Promise<CrosslineSessionStatus> {
+  const task = pending.then(async () => {
+    const hosts = await readEnabledHosts();
+    if (sourceHost === targetHost || !hosts.some(host => host === sourceHost) || !hosts.some(host => host === targetHost)) {
+      throw new CrosslineOperationError('selection');
+    }
+    const all = (await readAllSessions()).filter(cookie => isUsableSession(cookie) && hosts.some(host => host === mirrorHost(cookie.domain)));
+    const sources = all.filter(cookie => mirrorHost(cookie.domain) === sourceHost);
+    const source = sources[0];
+    if (!source || new Set(all.map(cookie => cookie.storeId)).size !== 1 || new Set(sources.map(cookie => cookie.value)).size !== 1) {
+      throw new CrosslineOperationError('selection');
+    }
+    const sourceCookies = await readCookies(`https://${source.domain.replace(/^\./, '')}/`, source.storeId);
+    if (!sourceCookies.some(cookie => isUsableSession(cookie) && cookie.value === source.value)) {
+      throw new CrosslineOperationError('selection');
+    }
+    const ageGate = sourceCookies.find(cookie => cookie.name === 'over18' && cookie.value && !cookie.partitionKey && cookie.path === '/' &&
+      (!cookie.expirationDate || cookie.expirationDate > Date.now() / 1000));
+    const targets = [...await readCookies(`https://${targetHost}/`, source.storeId),
+      ...await readCookies(`https://www.${targetHost}/`, source.storeId)];
+    const unique = new Map(targets.filter(cookie => !cookie.partitionKey && cookie.path === '/' &&
+      (cookie.name === '_jdb_session' || (ageGate && cookie.name === 'over18'))).map(cookie => [removalKey(cookie), cookie]));
+    let failure: unknown;
+    try {
+      for (const [key, expiry] of manualRemovals) if (expiry < Date.now()) manualRemovals.delete(key);
+      for (const cookie of unique.values()) {
+        manualRemovals.set(removalKey(cookie), Date.now() + 10_000);
+        await removeCookie(cookie);
+      }
+      await writeCookie(`https://${targetHost}/`, targetHost, source);
+      if (ageGate) await writeCookie(`https://${targetHost}/`, targetHost, ageGate);
+      const verified = [...await readCookies(`https://${targetHost}/`, source.storeId),
+        ...await readCookies(`https://www.${targetHost}/`, source.storeId)].filter(isUsableSession);
+      if (!verified.length || verified.some(cookie => cookie.value !== source.value)) throw new CrosslineOperationError('cookie-write', targetHost);
+    } catch { failure = new CrosslineOperationError('cookie-write', targetHost); }
+    const after = await inspectSessions();
+    return { ...after, ...(failure ? { error: describeCrosslineError(failure) } : {}),
+      routes: after.routes.map(route => route.host === targetHost ? { ...route, status: failure ? 'error' as const : 'synced' as const } : route) };
+  });
+  pending = task.then(() => undefined, reportBridgeError);
+  return task;
+}
+
 async function clearMatchingMirrorSessions(session: chrome.cookies.Cookie): Promise<void> {
   if (!await readEnabled()) return;
   if (!isUsableSession(session)) return;
@@ -292,6 +342,11 @@ export function initJavdbCrosslineCookieBridge(): void {
   if (settingsListener) chrome.storage.onChanged.removeListener(settingsListener);
   listener = change => {
     const cookie = change.cookie;
+    const suppressedUntil = manualRemovals.get(removalKey(cookie));
+    if (change.removed && suppressedUntil) {
+      manualRemovals.delete(removalKey(cookie));
+      if (suppressedUntil >= Date.now()) return;
+    }
     if (change.removed) {
       if (change.cause === 'overwrite' && isUsableSession(cookie)) {
         previousSessions.set(sourceKey(cookie), { value: cookie.value, time: Date.now() });

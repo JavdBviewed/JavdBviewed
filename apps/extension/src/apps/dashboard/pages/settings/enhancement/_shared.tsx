@@ -84,6 +84,7 @@ const ENHANCEMENT_FEATURE_META: Record<string, EnhancementFeatureMeta> = {
   '启用滚动翻页': { icon: '📜', status: '可用', tone: 'available', effect: '滚动到页面底部时自动加载下一页列表。', riskNotice: '连续加载会增加站点请求次数，遇到限速时请暂停或关闭。' },
   '超级排行榜': { icon: '🏆', status: '可用', tone: 'available', effect: '将 JavDB 排行榜入口替换为增强排行榜。' },
   '显示加载指示器': { icon: '⌛', status: '可用', tone: 'available', effect: '在增强任务执行期间显示加载和处理中状态。' },
+  '跨线路登录态': { icon: '🔑', status: '可用', tone: 'available', usage: '移入卡片查看各线路状态，也可手动选择来源同步。' },
   '密码显示助手': { icon: '🔐', status: '可用', tone: 'available', effect: '按设置的手势或悬停方式显示密码明文。' },
 };
 

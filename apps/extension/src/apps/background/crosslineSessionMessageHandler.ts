@@ -1,9 +1,9 @@
-import { describeCrosslineError, getJavdbCrosslineStatus, refreshJavdbCrosslineSessions, setJavdbCrosslineEnabled } from '../../features/routeManagement/crosslineCookieBridge';
+import { copyJavdbCrosslineSession, describeCrosslineError, getJavdbCrosslineStatus, refreshJavdbCrosslineSessions, setJavdbCrosslineEnabled } from '../../features/routeManagement/crosslineCookieBridge';
 import type { CrosslineSessionResponse } from '../../shared/protocols/crosslineSession';
 
 /** Dashboard 也可能带 sender.tab，以扩展来源核验，不能据此拒绝。 */
 export async function handleCrosslineSessionMessage(
-  message: { type: string; enabled?: unknown },
+  message: { type: string; enabled?: unknown; sourceHost?: unknown; targetHost?: unknown },
   sender: chrome.runtime.MessageSender,
 ): Promise<CrosslineSessionResponse> {
   const root = chrome.runtime.getURL('');
@@ -15,6 +15,12 @@ export async function handleCrosslineSessionMessage(
     if (message.type === 'JAVDB_CROSSLINE:SET_ENABLED') {
       if (typeof message.enabled !== 'boolean') return { success: false, error: '开关参数无效' };
       await setJavdbCrosslineEnabled(message.enabled);
+    }
+    if (message.type === 'JAVDB_CROSSLINE:COPY') {
+      if (typeof message.sourceHost !== 'string' || typeof message.targetHost !== 'string') {
+        return { success: false, error: '请选择来源和目标线路' };
+      }
+      return { success: true, status: await copyJavdbCrosslineSession(message.sourceHost, message.targetHost) };
     }
     const status = message.type === 'JAVDB_CROSSLINE:REFRESH'
       ? await refreshJavdbCrosslineSessions()

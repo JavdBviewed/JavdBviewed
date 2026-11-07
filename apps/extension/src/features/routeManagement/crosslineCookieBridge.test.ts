@@ -355,3 +355,49 @@ describe('JavDB crossline session bridge', () => {
     expect(stub.remove).not.toHaveBeenCalled();
   });
 });
+
+
+describe('explicit crossline session selection', () => {
+  it('replaces only the chosen target while automatic sync is off, without exposing secrets', async () => {
+    const { copyJavdbCrosslineSession } = await import('./crosslineCookieBridge');
+    const stub = setup([session('javdb.com', 'source-secret'), session('.javdb575.com', 'anonymous'),
+      session('www.javdb575.com', 'old-www'), session('javdb570.com', 'leave-alone')]);
+    await setJavdbCrosslineEnabled(false);
+    const result = await copyJavdbCrosslineSession('javdb.com', 'javdb575.com');
+    const target = stub.jar.filter(cookie => cookie.domain.includes('575'));
+    expect(target).toHaveLength(1);
+    expect(target[0].value).toBe('source-secret');
+    expect(stub.jar.find(cookie => cookie.domain === 'javdb570.com')?.value).toBe('leave-alone');
+    expect(result.routes.find(route => route.host === 'javdb575.com')?.status).toBe('synced');
+    expect(result.enabled).toBe(false);
+    expect(JSON.stringify(result)).not.toContain('source-secret');
+  });
+
+  it.each(['javdb580.com', 'evil.example', 'www.javdb575.com'])('rejects unsupported or noncanonical target %s', async target => {
+    const { copyJavdbCrosslineSession } = await import('./crosslineCookieBridge');
+    const stub = setup([session('javdb.com')]);
+    await expect(copyJavdbCrosslineSession('javdb.com', target)).rejects.toThrow();
+    expect(stub.set).not.toHaveBeenCalled();
+    expect(stub.remove).not.toHaveBeenCalled();
+  });
+
+  it('rejects an ambiguous source or multiple stores before changing any cookie', async () => {
+    const { copyJavdbCrosslineSession } = await import('./crosslineCookieBridge');
+    const stub = setup([session('javdb.com', 'one'), session('www.javdb.com', 'two')]);
+    await expect(copyJavdbCrosslineSession('javdb.com', 'javdb575.com')).rejects.toThrow();
+    expect(stub.set).not.toHaveBeenCalled();
+    expect(stub.remove).not.toHaveBeenCalled();
+  });
+
+  it('does not treat removing the selected target as logout from unselected sites', async () => {
+    const { copyJavdbCrosslineSession } = await import('./crosslineCookieBridge');
+    const oldTarget = session('javdb575.com', 'same-old');
+    const stub = setup([session('javdb.com', 'source'), oldTarget, session('javdb570.com', 'same-old')]);
+    initJavdbCrosslineCookieBridge();
+    await getJavdbCrosslineStatus();
+    await copyJavdbCrosslineSession('javdb.com', 'javdb575.com');
+    stub.emit(oldTarget, true, 'explicit');
+    await getJavdbCrosslineStatus();
+    expect(stub.jar.find(cookie => cookie.domain === 'javdb570.com')?.value).toBe('same-old');
+  });
+});
