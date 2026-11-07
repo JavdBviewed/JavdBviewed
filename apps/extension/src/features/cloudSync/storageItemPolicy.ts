@@ -3,6 +3,7 @@
  * @description Cloud 同步 Chrome Storage 兜底项过滤规则
  * @module features/cloudSync
  */
+import { STORAGE_KEYS } from '../../utils/config';
 import type { SyncEntity } from '@javdb/sync-protocol';
 import type { IndexReportKind } from '@javdb/sync-client';
 import { getIndexReportKinds } from './indexReportOutbox';
@@ -11,8 +12,21 @@ import { getCloudStorageAssetPolicy } from '../../shared/dataAssets/assetRegistr
 export const STORAGE_ITEM_TYPE = 'storage_item';
 
 export function shouldSyncStorageItemKey(key: string): boolean {
-  if (!key) return false;
+  if (!key || key.trim() === STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE) return false;
   return getCloudStorageAssetPolicy(key)?.cloud.full === true;
+}
+
+/** 入站允许只读聚合；出站仍使用shouldSyncStorageItemKey。 */
+export function shouldReceiveStorageItemKey(key: string): boolean {
+  return key === STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE || shouldSyncStorageItemKey(key);
+}
+
+function isLocalMediaAggregate(entity: SyncEntity): boolean {
+  if (entity.type !== STORAGE_ITEM_TYPE) return false;
+  const payload = entity.payload;
+  const key = payload && typeof payload === 'object' && 'key' in payload ? payload.key : undefined;
+  return [entity.id, key].some((value) => typeof value === 'string'
+    && value.trim() === STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE);
 }
 
 const INDEX_AGGREGATES: Readonly<Record<string, IndexReportKind>> = {
@@ -22,9 +36,10 @@ const INDEX_AGGREGATES: Readonly<Record<string, IndexReportKind>> = {
 
 /** Also filters pre-existing base/delta entries, including aggregate tombstones. */
 export async function filterOutgoingSyncEntities(entities: SyncEntity[]): Promise<SyncEntity[]> {
-  if (!entities.some((e) => e.type === STORAGE_ITEM_TYPE && Object.prototype.hasOwnProperty.call(INDEX_AGGREGATES, e.id))) return entities;
+  const outgoing = entities.filter((entity) => !isLocalMediaAggregate(entity));
+  if (!outgoing.some((e) => e.type === STORAGE_ITEM_TYPE && Object.prototype.hasOwnProperty.call(INDEX_AGGREGATES, e.id))) return outgoing;
   const kinds = await getIndexReportKinds();
-  return entities.filter((entity) => entity.type !== STORAGE_ITEM_TYPE
+  return outgoing.filter((entity) => entity.type !== STORAGE_ITEM_TYPE
     || !Object.prototype.hasOwnProperty.call(INDEX_AGGREGATES, entity.id)
     || !kinds.includes(INDEX_AGGREGATES[entity.id]));
 }

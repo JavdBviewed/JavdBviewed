@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@javdb/sync-client', () => ({ createSyncEngine: mocks.createSyncEngine }));
+vi.mock('./localMediaIndexSync', () => ({ prepareLocalMediaIndexReplay: async () => undefined }));
 vi.mock('./chromeTokenStore', () => ({ loadCloudSession: mocks.loadSession }));
 vi.mock('./cloudSettingsStorage', () => ({ loadCloudSettings: mocks.loadSettings }));
 vi.mock('./chromePendingStore', () => ({

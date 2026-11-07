@@ -67,6 +67,9 @@ export const STORAGE_KEYS = {
 
     // 115 片库浅层索引（与 settings.drive115 分离）
     DRIVE115_LIBRARY_STATE: 'drive115_library_state',
+    // Cloud 本地文件聚合与首次补拉标记（只读索引 / 本机标记）
+    LOCAL_MEDIA_LIBRARY_STATE: 'local_media_library_state',
+    CLOUD_LOCAL_MEDIA_INDEX_MIGRATION: 'cloud_local_media_index_migration_v1',
     // 115 片库索引进行中进度快照（dashboard 实时展示）
     DRIVE115_LIBRARY_INDEX_PROGRESS: 'drive115_library_index_progress',
     // 115 片库扫描恢复点（不含授权信息）

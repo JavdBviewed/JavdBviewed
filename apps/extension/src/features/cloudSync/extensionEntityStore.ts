@@ -37,8 +37,9 @@ import {
   CLOUD_SETTINGS_STORAGE_KEY,
   type CloudConnectionSettings,
 } from './cloudSettingsStorage';
+import { applyLocalMediaIndex, removeLocalMediaIndex } from './localMediaIndexSync';
 import { markCloudStorageWrite } from './storageChangeGate';
-import { filterOutgoingSyncEntities, shouldSyncStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
+import { filterOutgoingSyncEntities, shouldSyncStorageItemKey, shouldReceiveStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
 import type { TypeCountMap } from './syncStats';
 import { mergeMediaCleanupStorageValue } from '../mediaCleanup';
 import { mergeEmbyMediaServersForPull, stripEmbySessionFieldsFromValue } from '../../shared/embyMediaServerSync';
@@ -600,7 +601,12 @@ async function applyOne(entity: SyncEntity): Promise<void> {
     case STORAGE_ITEM_TYPE: {
       const body = asRecord(payload);
       const key = stringField(body, 'key') || entity.id;
-      if (!shouldSyncStorageItemKey(key)) return;
+      if (!shouldReceiveStorageItemKey(key)) return;
+      if (key === STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE) {
+        if (entity.deletedAt) await removeLocalMediaIndex();
+        else await applyLocalMediaIndex(ownValue(body, 'value'));
+        return;
+      }
       if (entity.deletedAt) {
         // Cloud 连接配置删除不抹掉本机 deviceId 身份
         if (key === CLOUD_SETTINGS_STORAGE_KEY) return;

@@ -19,6 +19,7 @@ import { CREDENTIALS_INVALID_MESSAGE, recoverCloudAuthSession } from './cloudAut
 import { loadCloudSettings } from './cloudSettingsStorage';
 import { countByType, type TypeCountMap } from './syncStats';
 import { flushIndexReportOutbox, INDEX_REPORT_FAILURE_MESSAGE, INDEX_REPORT_TERMINATED_MESSAGE } from './indexReportOutbox';
+import { prepareLocalMediaIndexReplay } from './localMediaIndexSync';
 import { filterOutgoingSyncEntities } from './storageItemPolicy';
 import { getValue, setValue } from '../../utils/storage';
 
@@ -156,6 +157,8 @@ export async function runCloudSyncNow(
   });
 
   await cleanupDeprecatedCloudLogs(api, settings, session.userId);
+  // 本地种子队列已准备完毕；补拉只改变storage_item游标，不触碰pending。
+  await prepareLocalMediaIndexReplay();
   const engine = createSyncEngine({
     api,
     local: createExtensionEntityStore(),

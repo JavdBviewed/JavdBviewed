@@ -331,6 +331,22 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
     '115 片库浅层索引是跨端可恢复资产，与 settings.drive115 凭据分离。',
   ),
   chromeStorage(
+    'storage.localMediaLibraryState',
+    STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE,
+    'rebuildable',
+    { backup: false, restore: false, restoreMode: 'skip' },
+    { full: false, incremental: false },
+    'Cloud 本地文件聚合仅入站消费；不作为设备贡献或备份回推。',
+  ),
+  chromeStorage(
+    'storage.localMediaIndexMigration',
+    STORAGE_KEYS.CLOUD_LOCAL_MEDIA_INDEX_MIGRATION,
+    'local-only',
+    { backup: false, restore: false, restoreMode: 'skip' },
+    { full: false, incremental: false },
+    '本机本地媒体索引首次补拉完成标记，不参与跨端同步。',
+  ),
+  chromeStorage(
     'storage.drive115LibraryIndexProgress',
     STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS,
     'runtime',
