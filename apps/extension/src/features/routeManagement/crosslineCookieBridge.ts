@@ -1,5 +1,7 @@
 /** JavDB 镜像站点的本机登录态补写；不处理 Cloudflare 挑战 cookie。 */
 import { createDefaultRouteSettings } from './defaultRoutes';
+import { isCrosslineProbeActive, isCrosslineLogoutSuppressed, withCrosslineProbeGuard } from './crosslineSessionGuards';
+import type { CrosslineCopyOutcome, CrosslineLoginState } from '../../shared/protocols/crosslineSession';
 import type { CrosslineDiagnosticError, CrosslineErrorStage, CrosslineSessionStatus } from '../../shared/protocols/crosslineSession';
 
 const MIRROR_HOSTS = ['javdb.com', 'javdb570.com', 'javdb575.com'] as const;
@@ -29,7 +31,7 @@ function removalKey(cookie: chrome.cookies.Cookie): string {
 }
 const previousSessions = new Map<string, { value: string; time: number }>();
 
-function readEnabled(): Promise<boolean> {
+export function readEnabled(): Promise<boolean> {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get(ENABLED_KEY, result => {
       if (chrome.runtime.lastError) reject(new CrosslineOperationError('settings-read'));
@@ -54,18 +56,18 @@ function sourceKey(cookie: chrome.cookies.Cookie): string {
   return `${cookie.storeId}:${mirrorHost(cookie.domain)}`;
 }
 
-function mirrorHost(domain: string): (typeof MIRROR_HOSTS)[number] | null {
+export function mirrorHost(domain: string): (typeof MIRROR_HOSTS)[number] | null {
   const host = domain.toLowerCase().replace(/^\./, '');
   return MIRROR_HOSTS.find(mirror => host === mirror || host === `www.${mirror}`) ?? null;
 }
 
-function isUsableSession(cookie: chrome.cookies.Cookie): boolean {
+export function isUsableSession(cookie: chrome.cookies.Cookie): boolean {
   return cookie.name === '_jdb_session' && !!cookie.value && cookie.path === '/' &&
     !cookie.partitionKey && (!cookie.expirationDate || cookie.expirationDate > Date.now() / 1000) &&
     mirrorHost(cookie.domain) !== null;
 }
 
-function readCookies(url: string, storeId?: string): Promise<chrome.cookies.Cookie[]> {
+export function readCookies(url: string, storeId?: string): Promise<chrome.cookies.Cookie[]> {
   return new Promise((resolve, reject) => {
     chrome.cookies.getAll({ url, ...(storeId ? { storeId } : {}) }, cookies => {
       if (chrome.runtime.lastError) reject(new CrosslineOperationError('cookie-read'));
@@ -102,7 +104,7 @@ function readConfiguredRoutes(): Promise<{ host: string; enabled: boolean; suppo
   });
 }
 
-async function readEnabledHosts(): Promise<MirrorHost[]> {
+export async function readEnabledHosts(): Promise<MirrorHost[]> {
   const routes = await readConfiguredRoutes();
   return MIRROR_HOSTS.filter(host => routes.some(route => route.host === host && route.enabled && route.supported));
 }
@@ -148,7 +150,7 @@ export async function bridgeJavdbSessionCookie(session: chrome.cookies.Cookie, p
   if (!await readEnabled()) return;
   if (!isUsableSession(session)) return;
   const source = mirrorHost(session.domain);
-  if (!source) return;
+  if (!source || isCrosslineProbeActive(source, session.storeId)) return;
   const enabledHosts = await readEnabledHosts();
   if (!enabledHosts.includes(source)) return;
   const sourceCookies = await readCookies(`https://${session.domain.replace(/^\./, '')}/`, session.storeId);
@@ -172,6 +174,7 @@ export async function bridgeJavdbSessionCookie(session: chrome.cookies.Cookie, p
 
   for (const { target, existing } of targets) {
     if (!await readEnabled()) return;
+    if (isCrosslineProbeActive(target, session.storeId) || await isCrosslineLogoutSuppressed(target, session.storeId)) continue;
     const targetSession = existing.find(cookie => cookie.name === '_jdb_session');
     if (targetSession && targetSession.value !== session.value && targetSession.value !== previousValue) continue;
     const url = `https://${target}/`;
@@ -258,13 +261,12 @@ export async function refreshJavdbCrosslineSessions(): Promise<CrosslineSessionS
 }
 
 /** 用户明确选择来源及单个目标后才允许替换；关闭自动同步不影响本次手动操作。 */
-export function copyJavdbCrosslineSession(sourceHost: string, targetHost: string): Promise<CrosslineSessionStatus> {
-  const task = pending.then(async () => {
+async function copySessionInQueue(sourceHost: string, targetHost: string, storeId?: string): Promise<CrosslineSessionStatus> {
     const hosts = await readEnabledHosts();
     if (sourceHost === targetHost || !hosts.some(host => host === sourceHost) || !hosts.some(host => host === targetHost)) {
       throw new CrosslineOperationError('selection');
     }
-    const all = (await readAllSessions()).filter(cookie => isUsableSession(cookie) && hosts.some(host => host === mirrorHost(cookie.domain)));
+    const all = (storeId ? [...await readCookies(`https://${sourceHost}/`, storeId), ...await readCookies(`https://www.${sourceHost}/`, storeId)] : await readAllSessions()).filter(cookie => isUsableSession(cookie) && hosts.some(host => host === mirrorHost(cookie.domain)));
     const sources = all.filter(cookie => mirrorHost(cookie.domain) === sourceHost);
     const source = sources[0];
     if (!source || new Set(all.map(cookie => cookie.storeId)).size !== 1 || new Set(sources.map(cookie => cookie.value)).size !== 1) {
@@ -296,7 +298,54 @@ export function copyJavdbCrosslineSession(sourceHost: string, targetHost: string
     const after = await inspectSessions();
     return { ...after, ...(failure ? { error: describeCrosslineError(failure) } : {}),
       routes: after.routes.map(route => route.host === targetHost ? { ...route, status: failure ? 'error' as const : 'synced' as const } : route) };
-  });
+}
+
+export function copyJavdbCrosslineSession(sourceHost: string, targetHost: string): Promise<CrosslineSessionStatus> {
+  const task = pending.then(() => copySessionInQueue(sourceHost, targetHost));
+  pending = task.then(() => undefined, reportBridgeError);
+  return task;
+}
+
+/** This operation owns the same queue as the automatic bridge. Checks must not await that queue. */
+export function copyVerifiedCrosslineSession(
+  sourceHost: string, targetHost: string, storeId: string,
+  before: () => Promise<CrosslineCopyOutcome | undefined>,
+  verifyTarget: () => Promise<CrosslineLoginState>,
+): Promise<CrosslineCopyOutcome> {
+  const task = pending.then(() => withCrosslineProbeGuard([sourceHost, targetHost], storeId, async (): Promise<CrosslineCopyOutcome> => {
+    const early = await before();
+    if (early) return early;
+    if (!await readEnabled()) return 'stale';
+    const snapshot = [...await readCookies(`https://${targetHost}/`, storeId), ...await readCookies(`https://www.${targetHost}/`, storeId)];
+    const old = [...new Map(snapshot.filter(c => c.path === '/' && !c.partitionKey &&
+      (c.name === '_jdb_session' || c.name === 'over18')).map(c => [removalKey(c), c])).values()];
+    const source = (await readCookies(`https://${sourceHost}/`, storeId)).find(isUsableSession) ||
+      (await readCookies(`https://www.${sourceHost}/`, storeId)).find(isUsableSession);
+    if (!source) return 'stale';
+    const copied = await copySessionInQueue(sourceHost, targetHost, storeId);
+    if (copied.error) return 'unconfirmed';
+    const state = await verifyTarget().catch(() => 'unknown' as const);
+    if (state === 'authenticated') return 'authenticated';
+    if (state === 'unknown') return 'unconfirmed';
+    const current = [...await readCookies(`https://${targetHost}/`, storeId), ...await readCookies(`https://www.${targetHost}/`, storeId)];
+    const sessions = current.filter(isUsableSession);
+    // Never restore over a new session written by the site or another tab.
+    if (sessions.length && sessions.every(c => c.value === source.value)) {
+      for (const c of [...new Map(current.filter(c => c.path === '/' && !c.partitionKey &&
+        (c.name === '_jdb_session' || c.name === 'over18')).map(c => [removalKey(c), c])).values()]) {
+        manualRemovals.set(removalKey(c), Date.now() + 10_000);
+        await removeCookie(c);
+      }
+      for (const c of old) {
+        await new Promise<void>((resolve, reject) => chrome.cookies.set({
+          url: `https://${c.domain.replace(/^\./, '')}${c.path}`, name: c.name, value: c.value, path: c.path,
+          ...(c.hostOnly ? {} : { domain: c.domain }), storeId: c.storeId, secure: c.secure,
+          httpOnly: c.httpOnly, sameSite: c.sameSite, ...(c.session ? {} : { expirationDate: c.expirationDate }),
+        }, result => { if (chrome.runtime.lastError || !result) reject(new Error('恢复原会话失败')); else resolve(); }));
+      }
+    }
+    return 'not-accepted';
+  }));
   pending = task.then(() => undefined, reportBridgeError);
   return task;
 }
@@ -342,6 +391,8 @@ export function initJavdbCrosslineCookieBridge(): void {
   if (settingsListener) chrome.storage.onChanged.removeListener(settingsListener);
   listener = change => {
     const cookie = change.cookie;
+    const host = mirrorHost(cookie.domain);
+    if (host && isCrosslineProbeActive(host, cookie.storeId)) return;
     const suppressedUntil = manualRemovals.get(removalKey(cookie));
     if (change.removed && suppressedUntil) {
       manualRemovals.delete(removalKey(cookie));

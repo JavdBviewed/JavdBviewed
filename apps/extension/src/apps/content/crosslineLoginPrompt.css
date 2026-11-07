@@ -1,0 +1,14 @@
+.javdb-ext-crossline { position: relative; display: inline-flex; align-items: center; font-size: 13px; }
+.javdb-ext-crossline button, .javdb-ext-crossline select { font: inherit; cursor: pointer; border: 1px solid #d1d5db; border-radius: 6px; padding: 5px 9px; color: #374151; background: #fff; }
+.javdb-ext-crossline button:focus-visible, .javdb-ext-crossline select:focus-visible, .javdb-ext-crossline a:focus-visible { outline: 2px solid #3273dc; outline-offset: 2px; }
+.javdb-ext-crossline button:disabled { cursor: default; opacity: .6; }
+.javdb-ext-crossline .javdb-ext-crossline-trigger { color: #3273dc; border-color: #a9c9f4; background: #f5f9ff; }
+.javdb-ext-crossline-panel { position: absolute; top: 100%; right: 0; z-index: 50; width: 310px; max-width: calc(100vw - 24px); padding: 16px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #374151; box-shadow: 0 4px 16px #0002; white-space: normal; box-sizing: border-box; }
+.javdb-ext-crossline [hidden] { display: none !important; }
+.javdb-ext-crossline-panel p { margin: 4px 20px 12px 0; line-height: 1.6; }
+.javdb-ext-crossline-panel select { width: 100%; margin-bottom: 8px; }
+.javdb-ext-crossline-panel a { color: #3273dc; font-size: 12px; display: block; }
+.javdb-ext-crossline .javdb-ext-crossline-close { position: absolute; top: 5px; right: 5px; border: 0; padding: 0 6px; font-size: 20px; background: transparent; color: inherit; }
+.javdb-ext-crossline-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.javdb-ext-crossline-actions > button:first-child { color: #fff; background: #3273dc; border-color: #3273dc; }
+html[data-theme="dark"] .javdb-ext-crossline-panel, html[data-theme="dark"] .javdb-ext-crossline button, html[data-theme="dark"] .javdb-ext-crossline select { color: #e5e7eb; background: #242831; border-color: #4b5563; }

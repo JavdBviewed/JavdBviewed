@@ -401,3 +401,38 @@ describe('explicit crossline session selection', () => {
     expect(stub.jar.find(cookie => cookie.domain === 'javdb570.com')?.value).toBe('same-old');
   });
 });
+
+it('does not refill a target after an explicit user logout cooldown', async () => {
+  const stub = setup([session('javdb.com')]);
+  await new Promise<void>(resolve => chrome.storage.local.set({ javdbCrosslinePromptSuppression: {
+    '0:javdb575.com': { until: Date.now() + 86400000, reason: 'logout' },
+  } }, resolve));
+  await bridgeJavdbSessionCookie(stub.jar[0]);
+  expect(stub.jar.some(cookie => cookie.domain.includes('javdb575'))).toBe(false);
+  expect(stub.jar.some(cookie => cookie.domain.includes('javdb570'))).toBe(true);
+});
+
+it('verifies the target website and restores a rejected copy without touching another store', async () => {
+  const { copyVerifiedCrosslineSession } = await import('./crosslineCookieBridge');
+  const stub = setup([session('javdb.com', 'login'), session('javdb575.com', 'guest'), session('javdb575.com', 'other-profile', { storeId: '1' })]);
+  const result = await copyVerifiedCrosslineSession('javdb.com', 'javdb575.com', '0', async () => undefined, async () => 'anonymous');
+  expect(result).toBe('not-accepted');
+  expect(stub.jar.filter(cookie => cookie.domain.includes('javdb575')).map(cookie => cookie.value).sort()).toEqual(['guest', 'other-profile']);
+});
+
+it('does not restore an anonymous snapshot over a concurrent target session change', async () => {
+  const { copyVerifiedCrosslineSession } = await import('./crosslineCookieBridge');
+  const stub = setup([session('javdb.com', 'login'), session('javdb575.com', 'guest')]);
+  const result = await copyVerifiedCrosslineSession('javdb.com', 'javdb575.com', '0', async () => undefined, async () => {
+    for (const cookie of stub.jar) if (cookie.domain.includes('javdb575')) cookie.value = 'new-target-session';
+    return 'anonymous';
+  });
+  expect(result).toBe('not-accepted');
+  expect(stub.jar.find(cookie => cookie.domain.includes('javdb575'))?.value).toBe('new-target-session');
+});
+
+it('treats a challenge after writing as unconfirmed, not a successful login', async () => {
+  const { copyVerifiedCrosslineSession } = await import('./crosslineCookieBridge');
+  setup([session('javdb.com', 'login'), session('javdb575.com', 'guest')]);
+  expect(await copyVerifiedCrosslineSession('javdb.com', 'javdb575.com', '0', async () => undefined, async () => 'unknown')).toBe('unconfirmed');
+});

@@ -63,6 +63,7 @@ import { installContentMessageRouter } from './contentMessageRouter';
 import { installContentTelemetryErrorReporter } from './errorReporter';
 import { installOrchestratorStateBridge } from './orchestratorStateBridge';
 import { injectNavbarBadge } from './pageChrome';
+import { installCrosslineLoginPrompt } from './crosslineLoginPrompt';
 import { getEffectiveEmbyMatchUrls, matchesEmbyUrlPattern } from '../../features/embyEnhancement/domain/matchUrls';
 import { shouldInstallStandaloneListObserver } from './listObserverPolicy';
 import { loadCurrentPageRecordState } from '../../features/contentState/recordCache';
@@ -781,6 +782,7 @@ export function onExecute() {
     }
     // 立即注入顶栏标识，不等待编排器
     injectNavbarBadge();
+    installCrosslineLoginPrompt();
     const endInitializeSpan = startContentPerformanceSpan(CONTENT_PERFORMANCE_DIAGNOSTIC_LABELS.bootstrapInitialize);
     initialize()
         .catch(err => console.error('[JavDB Ext] Initialization failed:', err))

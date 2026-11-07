@@ -72,6 +72,7 @@ import { getBackgroundAlarmDiagnosticsSnapshot } from './alarmRouter';
 import { reportWatchProgress } from '../../features/media/mediaWatchEvidence';
 import { syncVideoRecordSourceForCode } from '../../features/media/videoRecordSource';
 import { handleCrosslineSessionMessage } from './crosslineSessionMessageHandler';
+import { handleCrosslinePromptMessage } from './crosslinePromptMessageHandler';
 
 export { registerEmbyDynamicScripts };
 
@@ -97,6 +98,10 @@ export function registerMiscRouter(): void {
   try {
     chrome.runtime.onMessage.addListener((message: any, sender, sendResponse): boolean | void => {
       if (!message || typeof message !== 'object') return false;
+      if (typeof message.type === 'string' && message.type.startsWith('JAVDB_CROSSLINE_PAGE:')) {
+        void handleCrosslinePromptMessage(message, sender).then(sendResponse);
+        return true;
+      }
       switch (message.type) {
         case 'JAVDB_CROSSLINE:STATUS':
         case 'JAVDB_CROSSLINE:REFRESH':
