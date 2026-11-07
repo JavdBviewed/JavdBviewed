@@ -71,6 +71,7 @@ import { handleClearAllRecords } from './clearRecordsHandler';
 import { getBackgroundAlarmDiagnosticsSnapshot } from './alarmRouter';
 import { reportWatchProgress } from '../../features/media/mediaWatchEvidence';
 import { syncVideoRecordSourceForCode } from '../../features/media/videoRecordSource';
+import { handleCrosslineSessionMessage } from './crosslineSessionMessageHandler';
 
 export { registerEmbyDynamicScripts };
 
@@ -97,6 +98,12 @@ export function registerMiscRouter(): void {
     chrome.runtime.onMessage.addListener((message: any, sender, sendResponse): boolean | void => {
       if (!message || typeof message !== 'object') return false;
       switch (message.type) {
+        case 'JAVDB_CROSSLINE:STATUS':
+        case 'JAVDB_CROSSLINE:REFRESH':
+        case 'JAVDB_CROSSLINE:SET_ENABLED': {
+          void handleCrosslineSessionMessage(message, sender).then(sendResponse);
+          return true;
+        }
         case 'ping':
         case 'ping-background':
           sendResponse({ success: true, message: 'pong' });

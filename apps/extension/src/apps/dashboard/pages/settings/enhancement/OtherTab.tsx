@@ -8,6 +8,7 @@ import { Input } from '../../../../../ui/primitives/Input/Input';
 import { SettingField } from '../../../../../ui/patterns/SettingField/SettingField';
 import { SettingSelect } from '../../../../../ui/patterns/SettingSelect/SettingSelect';
 import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
+import { CrosslineSessionSettings } from './CrosslineSessionSettings';
 import type { EnhancementSettingsFormState } from './enhancementSettingsModel';
 import {
   SettingSection,
@@ -22,6 +23,7 @@ import {
 export function OtherTab({ form, setToggle, patchForm }: TabProps) {
   return (
     <div className="flex flex-col gap-4">
+      <CrosslineSessionSettings />
       <SettingSection title="本地媒体库匹配">
         <SettingToggleRow
           id="enableLibraryMatchStatus"

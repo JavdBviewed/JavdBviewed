@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bridgeJavdbSessionCookie, initJavdbCrosslineCookieBridge } from './crosslineCookieBridge';
+import { bridgeJavdbSessionCookie, getJavdbCrosslineStatus, initJavdbCrosslineCookieBridge, refreshJavdbCrosslineSessions, setJavdbCrosslineEnabled } from './crosslineCookieBridge';
 
 type Cookie = chrome.cookies.Cookie;
 
@@ -37,6 +37,7 @@ function setup(initial: Cookie[] = []) {
       callback({ name: details.name, url: details.url, storeId: details.storeId || '0' });
     }
   });
+  const values: Record<string, unknown> = {};
   vi.stubGlobal('chrome', { cookies: {
     getAll: vi.fn((filter: chrome.cookies.GetAllDetails, callback: (cookies: Cookie[]) => void) => {
       if (!filter.url) {
@@ -50,7 +51,10 @@ function setup(initial: Cookie[] = []) {
     set,
     remove,
     onChanged: { addListener, removeListener: vi.fn() },
-  }, storage: { local: { get: vi.fn((_key, callback) => callback({})) },
+  }, storage: { local: {
+    get: vi.fn((_key, callback) => callback(values)),
+    set: vi.fn((change, callback) => { Object.assign(values, change); callback?.(); }),
+  },
     onChanged: { addListener: vi.fn(callback => { settingsListener = callback; }), removeListener: vi.fn() } },
     runtime: { lastError: undefined } });
   return { jar, set, remove, addListener,
@@ -62,6 +66,116 @@ function setup(initial: Cookie[] = []) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('JavDB crossline session bridge', () => {
+  it('reports and fills an existing source session on demand without returning cookie values', async () => {
+    const stub = setup([session('javdb.com', 'secret-session')]);
+    const before = await getJavdbCrosslineStatus();
+    expect(before.routes.find(route => route.host === 'javdb575.com')?.status).toBe('missing');
+    const after = await refreshJavdbCrosslineSessions();
+    expect(after.routes.find(route => route.host === 'javdb575.com')?.status).toBe('synced');
+    expect(stub.set).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(after)).not.toContain('secret-session');
+  });
+
+  it('keeps auto and manual writes disabled while still showing read-only diagnostics', async () => {
+    const stub = setup([session('javdb.com')]);
+    await setJavdbCrosslineEnabled(false);
+    initJavdbCrosslineCookieBridge();
+    const result = await refreshJavdbCrosslineSessions();
+    expect(result.enabled).toBe(false);
+    expect(result.routes.find(route => route.host === 'javdb575.com')?.status).toBe('missing');
+    expect(stub.set).not.toHaveBeenCalled();
+  });
+
+  it('exposes a conflicting mirror without overwriting it or any other route', async () => {
+    const stub = setup([session('javdb.com', 'secret-session'), session('javdb575.com', 'other-session')]);
+    const result = await refreshJavdbCrosslineSessions();
+    expect(result.routes.find(route => route.host === 'javdb575.com')?.status).toBe('conflict');
+    expect(stub.set).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain('other-session');
+  });
+
+  it('marks disabled routes and does not fill them', async () => {
+    const stub = setup([session('javdb.com')]);
+    vi.mocked(chrome.storage.local.get).mockImplementation((_key, callback) => {
+      (callback as (result: unknown) => void)({ settings: { routes: { javdb: {
+        primary: 'https://javdb.com', alternatives: [{ url: 'https://javdb575.com', enabled: false }],
+      } } } });
+    });
+    const result = await refreshJavdbCrosslineSessions();
+    expect(result.routes.find(route => route.host === 'javdb575.com')?.status).toBe('disabled');
+    expect(stub.set).not.toHaveBeenCalled();
+  });
+
+  it('lists configured unsupported routes without treating them as sync targets', async () => {
+    const stub = setup([session('javdb.com')]);
+    vi.mocked(chrome.storage.local.get).mockImplementation((_key, callback) => {
+      (callback as (result: unknown) => void)({ settings: { routes: { javdb: {
+        primary: 'https://javdb.com', alternatives: [
+          { url: 'https://javdb36.com', enabled: true },
+          { url: 'https://www.javdb575.com', enabled: true },
+        ],
+      } } } });
+    });
+    const result = await refreshJavdbCrosslineSessions();
+    expect(result.routes).toContainEqual({ host: 'javdb36.com', status: 'unsupported' });
+    expect(result.routes.some(route => route.host === 'javdb570.com')).toBe(false);
+    expect(stub.set).toHaveBeenCalledTimes(1);
+    expect(result.checkedAt).toBeGreaterThan(0);
+  });
+
+  it('does not combine an enabled HTTP entry with a disabled HTTPS entry', async () => {
+    const stub = setup([session('javdb.com')]);
+    vi.mocked(chrome.storage.local.get).mockImplementation((_key, callback) => {
+      (callback as (result: unknown) => void)({ settings: { routes: { javdb: {
+        primary: 'https://javdb.com', alternatives: [
+          { url: 'https://javdb575.com', enabled: false },
+          { url: 'http://javdb575.com', enabled: true },
+        ],
+      } } } });
+    });
+    const result = await refreshJavdbCrosslineSessions();
+    expect(result.routes.find(route => route.host === 'javdb575.com')?.status).toBe('unsupported');
+    expect(stub.set).not.toHaveBeenCalled();
+  });
+
+  it('shows partial writes and the failing route without exposing raw API errors', async () => {
+    const stub = setup([session('javdb.com')]);
+    const write = stub.set.getMockImplementation();
+    stub.set.mockImplementation((details, callback) => {
+      if (details.url.includes('575')) {
+        chrome.runtime.lastError = { message: 'sensitive browser error' };
+        callback(null);
+        chrome.runtime.lastError = undefined;
+      } else write?.(details, callback);
+    });
+    const result = await refreshJavdbCrosslineSessions();
+    expect(result.routes.find(route => route.host === 'javdb570.com')?.status).toBe('synced');
+    expect(result.routes.find(route => route.host === 'javdb575.com')?.status).toBe('error');
+    expect(result.error?.stage).toBe('cookie-write');
+    expect(JSON.stringify(result)).not.toContain('sensitive browser error');
+  });
+
+  it('reports cookie-read failures and permits a later retry', async () => {
+    setup();
+    vi.mocked(chrome.cookies.getAll).mockImplementationOnce((_filter, callback) => {
+      chrome.runtime.lastError = { message: 'secret browser error' };
+      callback([]);
+      chrome.runtime.lastError = undefined;
+    });
+    await expect(refreshJavdbCrosslineSessions()).rejects.toMatchObject({ stage: 'cookie-read' });
+    await expect(refreshJavdbCrosslineSessions()).resolves.toMatchObject({ reason: 'no-session' });
+  });
+
+  it('does not clear matching mirror sessions while the switch is off', async () => {
+    const source = session('javdb.com');
+    const stub = setup([source, session('javdb575.com')]);
+    await setJavdbCrosslineEnabled(false);
+    initJavdbCrosslineCookieBridge();
+    stub.jar.splice(stub.jar.indexOf(source), 1);
+    stub.emit(source, true);
+    await getJavdbCrosslineStatus();
+    expect(stub.remove).not.toHaveBeenCalled();
+  });
   it('copies a new session to missing JavDB mirror domains without leaking to JavBus or copying CF clearance', async () => {
     const source = session('.javdb.com');
     const stub = setup([source, { ...source, name: 'over18', value: '1' }, { ...source, name: 'cf_clearance', value: 'cf-secret' }]);

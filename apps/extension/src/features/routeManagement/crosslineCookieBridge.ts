@@ -1,8 +1,48 @@
 /** JavDB 镜像站点的本机登录态补写；不处理 Cloudflare 挑战 cookie。 */
 import { createDefaultRouteSettings } from './defaultRoutes';
+import type { CrosslineDiagnosticError, CrosslineErrorStage, CrosslineSessionStatus } from '../../shared/protocols/crosslineSession';
 
 const MIRROR_HOSTS = ['javdb.com', 'javdb570.com', 'javdb575.com'] as const;
+const ENABLED_KEY = 'javdbCrosslineSessionEnabled';
+type MirrorHost = (typeof MIRROR_HOSTS)[number];
+const ERROR_MESSAGES: Record<CrosslineErrorStage, string> = {
+  'settings-read': '读取线路或同步设置失败，请重试。',
+  'settings-write': '保存自动同步开关失败，请重试。',
+  'cookie-read': '读取浏览器会话失败，请检查扩展的网站访问权限后重试。',
+  'cookie-write': '写入目标线路会话失败，部分线路可能已同步；请检查权限后重试。',
+  unknown: '登录态操作未完成，请重试。',
+};
+class CrosslineOperationError extends Error {
+  constructor(readonly stage: CrosslineErrorStage, readonly host?: string) {
+    super(ERROR_MESSAGES[stage]);
+  }
+}
+export function describeCrosslineError(error: unknown): CrosslineDiagnosticError {
+  const stage = error instanceof CrosslineOperationError ? error.stage : 'unknown';
+  return { stage, message: ERROR_MESSAGES[stage] };
+}
 const previousSessions = new Map<string, { value: string; time: number }>();
+
+function readEnabled(): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get(ENABLED_KEY, result => {
+      if (chrome.runtime.lastError) reject(new CrosslineOperationError('settings-read'));
+      else resolve(result?.[ENABLED_KEY] !== false);
+    });
+  });
+}
+
+export function setJavdbCrosslineEnabled(enabled: boolean): Promise<void> {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set({ [ENABLED_KEY]: enabled }, () => {
+      if (chrome.runtime.lastError) reject(new CrosslineOperationError('settings-write'));
+      else {
+        if (!enabled) previousSessions.clear();
+        resolve();
+      }
+    });
+  });
+}
 
 function sourceKey(cookie: chrome.cookies.Cookie): string {
   return `${cookie.storeId}:${mirrorHost(cookie.domain)}`;
@@ -22,40 +62,49 @@ function isUsableSession(cookie: chrome.cookies.Cookie): boolean {
 function readCookies(url: string, storeId?: string): Promise<chrome.cookies.Cookie[]> {
   return new Promise((resolve, reject) => {
     chrome.cookies.getAll({ url, ...(storeId ? { storeId } : {}) }, cookies => {
-      if (chrome.runtime.lastError) reject(new Error('读取 JavDB cookie 失败'));
+      if (chrome.runtime.lastError) reject(new CrosslineOperationError('cookie-read'));
       else resolve(cookies ?? []);
     });
   });
 }
 
-function readEnabledHosts(): Promise<(typeof MIRROR_HOSTS)[number][]> {
+function readConfiguredRoutes(): Promise<{ host: string; enabled: boolean; supported: boolean }[]> {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get('settings', result => {
       if (chrome.runtime.lastError) {
-        reject(new Error('读取 JavDB 线路设置失败'));
+        reject(new CrosslineOperationError('settings-read'));
         return;
       }
       const defaults = createDefaultRouteSettings().javdb;
       const routes = (result?.settings as { routes?: { javdb?: typeof defaults } } | undefined)?.routes?.javdb ?? defaults;
-      const urls = [routes.primary, ...(routes.alternatives ?? [])
-        .filter((alt: { enabled: boolean }) => alt.enabled)
-        .map((alt: { url: string }) => alt.url)];
-      const enabled = new Set(urls.flatMap(url => {
+      const configured = new Map<string, { host: string; enabled: boolean; supported: boolean }>();
+      for (const route of [{ url: routes.primary, enabled: true }, ...(routes.alternatives ?? [])]) {
         try {
-          const parsed = new URL(url);
-          const host = mirrorHost(parsed.hostname);
-          return parsed.protocol === 'https:' && host ? [host] : [];
-        } catch { return []; }
-      }));
-      resolve(MIRROR_HOSTS.filter(host => enabled.has(host)));
+          const parsed = new URL(route.url);
+          const mirror = mirrorHost(parsed.hostname);
+          const host = mirror ?? parsed.hostname;
+          const supported = parsed.protocol === 'https:' && !!mirror;
+          const prior = configured.get(host);
+          // 启用状态与 HTTPS 支持必须属于同一条配置，不能跨条目拼出同步资格。
+          if (!prior || (route.enabled === true && (!prior.enabled || supported))) {
+            configured.set(host, { host, enabled: route.enabled === true, supported });
+          }
+        } catch { /* 无效 URL 不作为会话来源或目标，也不回传原始配置串。 */ }
+      }
+      resolve([...configured.values()]);
     });
   });
+}
+
+async function readEnabledHosts(): Promise<MirrorHost[]> {
+  const routes = await readConfiguredRoutes();
+  return MIRROR_HOSTS.filter(host => routes.some(route => route.host === host && route.enabled && route.supported));
 }
 
 function readAllSessions(): Promise<chrome.cookies.Cookie[]> {
   return new Promise((resolve, reject) => {
     chrome.cookies.getAll({ name: '_jdb_session' }, cookies => {
-      if (chrome.runtime.lastError) reject(new Error('读取 JavDB 会话失败'));
+      if (chrome.runtime.lastError) reject(new CrosslineOperationError('cookie-read'));
       else resolve(cookies ?? []);
     });
   });
@@ -69,7 +118,7 @@ function writeCookie(url: string, domain: string, cookie: chrome.cookies.Cookie)
       ...(cookie.session ? {} : { expirationDate: cookie.expirationDate }),
       ...(cookie.storeId ? { storeId: cookie.storeId } : {}),
     }, result => {
-      if (chrome.runtime.lastError || !result) reject(new Error('写入 JavDB cookie 失败'));
+      if (chrome.runtime.lastError || !result) reject(new CrosslineOperationError('cookie-write', domain));
       else resolve();
     });
   });
@@ -90,6 +139,7 @@ function removeCookie(cookie: chrome.cookies.Cookie): Promise<void> {
 
 /** 只补齐缺失会话或本次明确轮换的旧副本；不覆盖独立会话。 */
 export async function bridgeJavdbSessionCookie(session: chrome.cookies.Cookie, previousValue?: string): Promise<void> {
+  if (!await readEnabled()) return;
   if (!isUsableSession(session)) return;
   const source = mirrorHost(session.domain);
   if (!source) return;
@@ -115,6 +165,7 @@ export async function bridgeJavdbSessionCookie(session: chrome.cookies.Cookie, p
   }
 
   for (const { target, existing } of targets) {
+    if (!await readEnabled()) return;
     const targetSession = existing.find(cookie => cookie.name === '_jdb_session');
     if (targetSession && targetSession.value !== session.value && targetSession.value !== previousValue) continue;
     const url = `https://${target}/`;
@@ -129,6 +180,7 @@ export async function bridgeJavdbSessionCookie(session: chrome.cookies.Cookie, p
 }
 
 async function reconcileStoredSessions(): Promise<void> {
+  if (!await readEnabled()) return;
   const enabled = await readEnabledHosts();
   if (enabled.length < 2) return;
   const sessions = (await readAllSessions()).filter(cookie =>
@@ -148,7 +200,59 @@ async function reconcileStoredSessions(): Promise<void> {
   }
 }
 
+async function inspectSessions(): Promise<CrosslineSessionStatus> {
+  const [enabled, routes, all] = await Promise.all([readEnabled(), readConfiguredRoutes(), readAllSessions()]);
+  const enabledHosts = routes.filter(route => route.enabled && route.supported).map(route => route.host);
+  const sessions = all.filter(cookie => isUsableSession(cookie) && enabledHosts.includes(mirrorHost(cookie.domain) as MirrorHost));
+  const stores = new Set(sessions.map(cookie => cookie.storeId));
+  const values = new Set(sessions.map(cookie => cookie.value));
+  const reason = sessions.length === 0 ? 'no-session' : stores.size > 1 ? 'multiple-stores' :
+    values.size > 1 ? 'different-sessions' : 'ready';
+  return {
+    enabled,
+    checkedAt: Date.now(),
+    reason,
+    routes: routes.map(({ host, enabled: routeEnabled, supported }) => ({
+      host,
+      status: !routeEnabled ? 'disabled' : !supported ? 'unsupported' :
+        !sessions.some(cookie => mirrorHost(cookie.domain) === host) ? 'missing' :
+          reason === 'different-sessions' || reason === 'multiple-stores' ? 'conflict' : 'present',
+    })),
+  };
+}
+
+/** 仅返回每条线路的状态；cookie 值不会越过后台消息边界。 */
+export async function getJavdbCrosslineStatus(): Promise<CrosslineSessionStatus> {
+  await pending;
+  return inspectSessions();
+}
+
+/** 与启动补齐共享同一队列，避免手动刷新与 cookie 事件交叉写入。 */
+export async function refreshJavdbCrosslineSessions(): Promise<CrosslineSessionStatus> {
+  const task = pending.then(async () => {
+    const before = await inspectSessions();
+    let failure: unknown;
+    if (before.enabled && before.reason === 'ready') {
+      try { await reconcileStoredSessions(); } catch (error) { failure = error; }
+    }
+    const after = await inspectSessions();
+    return {
+      ...after,
+      ...(failure ? { error: describeCrosslineError(failure) } : {}),
+      routes: after.routes.map(route => ({
+        ...route,
+        status: failure instanceof CrosslineOperationError && failure.host === route.host ? 'error' as const :
+          before.routes.find(item => item.host === route.host)?.status === 'missing' && route.status === 'present'
+          ? 'synced' as const : route.status,
+      })),
+    };
+  });
+  pending = task.then(() => undefined, reportBridgeError);
+  return task;
+}
+
 async function clearMatchingMirrorSessions(session: chrome.cookies.Cookie): Promise<void> {
+  if (!await readEnabled()) return;
   if (!isUsableSession(session)) return;
   const source = mirrorHost(session.domain);
   if (!source) return;
@@ -166,6 +270,7 @@ async function clearMatchingMirrorSessions(session: chrome.cookies.Cookie): Prom
     const key = `${cookie.storeId}:${cookie.domain}:${cookie.path}:${cookie.name}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    if (!await readEnabled()) return;
     await removeCookie(cookie);
   }
 }
@@ -176,7 +281,7 @@ let pending: Promise<void> = Promise.resolve();
 
 function reportBridgeError(error: unknown): void {
   console.warn('[JavDB crossline] cookie 操作失败', {
-    reason: error instanceof Error ? error.message : 'unknown',
+    stage: describeCrosslineError(error).stage,
   });
 }
 
@@ -212,7 +317,7 @@ export function initJavdbCrosslineCookieBridge(): void {
   };
   chrome.cookies.onChanged.addListener(listener);
   settingsListener = (changes, area) => {
-    if (area === 'local' && changes.settings) {
+    if (area === 'local' && (changes.settings || changes[ENABLED_KEY]?.newValue === true)) {
       pending = pending.then(reconcileStoredSessions).catch(reportBridgeError);
     }
   };
