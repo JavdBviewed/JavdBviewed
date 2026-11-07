@@ -4,9 +4,7 @@ import { isCrosslineProbeActive, isCrosslineLogoutSuppressed, withCrosslineProbe
 import type { CrosslineCopyOutcome, CrosslineLoginState } from '../../shared/protocols/crosslineSession';
 import type { CrosslineDiagnosticError, CrosslineErrorStage, CrosslineSessionStatus } from '../../shared/protocols/crosslineSession';
 
-const MIRROR_HOSTS = ['javdb.com', 'javdb570.com', 'javdb575.com'] as const;
 const ENABLED_KEY = 'javdbCrosslineSessionEnabled';
-type MirrorHost = (typeof MIRROR_HOSTS)[number];
 const ERROR_MESSAGES: Record<CrosslineErrorStage, string> = {
   'settings-read': '读取线路或同步设置失败，请重试。',
   'settings-write': '保存自动同步开关失败，请重试。',
@@ -56,9 +54,10 @@ function sourceKey(cookie: chrome.cookies.Cookie): string {
   return `${cookie.storeId}:${mirrorHost(cookie.domain)}`;
 }
 
-export function mirrorHost(domain: string): (typeof MIRROR_HOSTS)[number] | null {
-  const host = domain.toLowerCase().replace(/^\./, '');
-  return MIRROR_HOSTS.find(mirror => host === mirror || host === `www.${mirror}`) ?? null;
+/** Host shape only; every operation must also check the enabled route configuration. */
+export function mirrorHost(domain: string): string | null {
+  const host = domain.toLowerCase().replace(/^\./, '').replace(/^www\./, '');
+  return /^javdb(?:\d+)?\.com$/.test(host) ? host : null;
 }
 
 export function isUsableSession(cookie: chrome.cookies.Cookie): boolean {
@@ -91,7 +90,8 @@ function readConfiguredRoutes(): Promise<{ host: string; enabled: boolean; suppo
           const parsed = new URL(route.url);
           const mirror = mirrorHost(parsed.hostname);
           const host = mirror ?? parsed.hostname;
-          const supported = parsed.protocol === 'https:' && !!mirror;
+          const supported = parsed.protocol === 'https:' && !parsed.port &&
+            !parsed.username && !parsed.password && !!mirror;
           const prior = configured.get(host);
           // 启用状态与 HTTPS 支持必须属于同一条配置，不能跨条目拼出同步资格。
           if (!prior || (route.enabled === true && (!prior.enabled || supported))) {
@@ -104,9 +104,9 @@ function readConfiguredRoutes(): Promise<{ host: string; enabled: boolean; suppo
   });
 }
 
-export async function readEnabledHosts(): Promise<MirrorHost[]> {
+export async function readEnabledHosts(): Promise<string[]> {
   const routes = await readConfiguredRoutes();
-  return MIRROR_HOSTS.filter(host => routes.some(route => route.host === host && route.enabled && route.supported));
+  return routes.filter(route => route.enabled && route.supported).map(route => route.host);
 }
 
 function readAllSessions(): Promise<chrome.cookies.Cookie[]> {
@@ -193,7 +193,7 @@ async function reconcileStoredSessions(): Promise<void> {
   const enabled = await readEnabledHosts();
   if (enabled.length < 2) return;
   const sessions = (await readAllSessions()).filter(cookie =>
-    isUsableSession(cookie) && enabled.includes(mirrorHost(cookie.domain) as (typeof MIRROR_HOSTS)[number]));
+    isUsableSession(cookie) && enabled.includes(mirrorHost(cookie.domain) ?? ''));
   const byStore = new Map<string, chrome.cookies.Cookie[]>();
   for (const cookie of sessions) {
     const group = byStore.get(cookie.storeId) ?? [];
@@ -212,7 +212,7 @@ async function reconcileStoredSessions(): Promise<void> {
 async function inspectSessions(): Promise<CrosslineSessionStatus> {
   const [enabled, routes, all] = await Promise.all([readEnabled(), readConfiguredRoutes(), readAllSessions()]);
   const enabledHosts = routes.filter(route => route.enabled && route.supported).map(route => route.host);
-  const sessions = all.filter(cookie => isUsableSession(cookie) && enabledHosts.includes(mirrorHost(cookie.domain) as MirrorHost));
+  const sessions = all.filter(cookie => isUsableSession(cookie) && enabledHosts.includes(mirrorHost(cookie.domain) ?? ''));
   const stores = new Set(sessions.map(cookie => cookie.storeId));
   const values = new Set(sessions.map(cookie => cookie.value));
   const reason = sessions.length === 0 ? 'no-session' : stores.size > 1 ? 'multiple-stores' :

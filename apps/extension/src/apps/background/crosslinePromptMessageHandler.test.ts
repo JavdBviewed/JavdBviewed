@@ -30,3 +30,18 @@ describe('page session boundary', () => {
     expect((await handleCrosslinePromptMessage({ type: 'JAVDB_CROSSLINE_PAGE:COPY', sourceHost: 7, offerId: 'x' }, sender)).success).toBe(false);
   });
 });
+
+it('accepts an enabled 580 document and rejects the same host when unconfigured or disabled', async () => {
+  setup();
+  const page = { ...sender, origin: 'https://javdb580.com', url: 'https://javdb580.com/' };
+  vi.mocked(chrome.tabs.get).mockResolvedValue({ id: 8, url: page.url, incognito: false } as chrome.tabs.Tab);
+  expect(await resolveCrosslinePageContext(page)).toBeNull();
+  for (const enabled of [true, false]) {
+    chrome.storage.local.get = vi.fn((_key, cb) => cb({ settings: { routes: { javdb: {
+      primary: 'https://javdb575.com', alternatives: [{ url: page.origin, enabled }],
+    } } } })) as typeof chrome.storage.local.get;
+    const context = await resolveCrosslinePageContext(page);
+    if (enabled) expect(context).toMatchObject({ targetHost: 'javdb580.com', storeId: '0', documentId: 'doc' });
+    else expect(context).toBeNull();
+  }
+});

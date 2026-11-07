@@ -7,7 +7,7 @@ test('crossline settings read stored sessions, persist the switch and preserve c
   const options = resolveExtensionHarnessOptions({ ...process.env,
     JAVDB_EXTENSION_USE_CHROME_DATA: '0', JAVDB_EXTENSION_PROFILE: testInfo.outputPath('profile'),
   }, process.cwd());
-  const context = await launchExtensionContext(options, { headless: false, channel: 'chromium', extraArgs: ['--no-proxy-server'] });
+  const context = await launchExtensionContext(options, { headless: true, channel: 'chromium', extraArgs: ['--no-proxy-server'] });
   try {
     await context.route(/^https?:\/\//, route => route.abort());
     const id = await readExtensionId(context);
@@ -21,7 +21,7 @@ test('crossline settings read stored sessions, persist the switch and preserve c
         primary: 'https://javdb.com', alternatives: [
           { url: 'https://javdb570.com', enabled: true },
           { url: 'https://javdb575.com', enabled: true },
-          { url: 'https://javdb36.com', enabled: true },
+          { url: 'https://unrelated.example', enabled: true },
         ],
       } } } });
     });
@@ -38,7 +38,7 @@ test('crossline settings read stored sessions, persist the switch and preserve c
     await expect(toggle).not.toBeChecked();
     await expect(region).toContainText('自动同步已关闭');
     await expect(region.locator('li').filter({ hasText: 'javdb.com' })).toContainText('已找到会话');
-    await expect(region.locator('li').filter({ hasText: 'javdb36.com' })).toContainText('暂不支持同步');
+    await expect(region.locator('li').filter({ hasText: 'unrelated.example' })).toContainText('仅支持 HTTPS');
     const refresh = region.getByRole('button', { name: '获取或刷新当前登录态' });
     await refresh.click();
     await expect(refresh).toBeEnabled();

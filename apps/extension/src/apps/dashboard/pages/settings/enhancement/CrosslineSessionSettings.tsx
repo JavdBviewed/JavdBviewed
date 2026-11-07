@@ -9,7 +9,7 @@ import { CrosslineSessionCopy } from './CrosslineSessionCopy';
 
 const LABELS: Record<CrosslineRouteStatus, string> = {
   disabled: '线路未启用',
-  unsupported: '此线路尚未验证，暂不支持同步',
+  unsupported: '仅支持 HTTPS 的 JavDB 主站和数字线路',
   error: '写入失败',
   missing: '未找到会话',
   present: '已找到会话',
@@ -69,7 +69,7 @@ export function CrosslineSessionSettings() {
   return (
     <SettingSection
       title="跨线路登录态"
-      description="读取本浏览器已有的会话，无需退出再登录。自动同步仅覆盖已启用的主站、570 和 575 线路。"
+      description="读取本浏览器已有的会话，无需退出再登录。仅同步线路管理中已启用的 HTTPS JavDB 线路，包括 580 等数字线路。"
     >
       <SettingToggleRow
         id="crosslineEnabled"

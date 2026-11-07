@@ -10,8 +10,10 @@ const html = (body: string) => `<!doctype html><html><head><meta charset="utf-8"
 const session = (domain: string, value: string) => ({ name: '_jdb_session', value, domain, path: '/', secure: true, httpOnly: true, sameSite: 'Lax' as const });
 type ProfileMode = 'http-login-wall' | 'login-wall' | 'normal' | 'challenge' | 'reject-copy' | 'challenge-copy';
 type Fixture = { context: BrowserContext; worker: Worker; modes: Record<string, ProfileMode>; probes: Record<string, number> };
-const test = base.extend<{ fixture: Fixture }>({
-  fixture: async ({}, use, testInfo) => {
+const test = base.extend<{ fixture: Fixture; sourceHost: string; targetHost: string }>({
+  sourceHost: ['javdb.com', { option: true }],
+  targetHost: ['javdb575.com', { option: true }],
+  fixture: async ({ sourceHost, targetHost }, use, testInfo) => {
     const options = resolveExtensionHarnessOptions({ ...process.env, JAVDB_EXTENSION_USE_CHROME_DATA: '0', JAVDB_EXTENSION_PROFILE: testInfo.outputPath('profile') }, process.cwd());
     mkdirSync(testInfo.outputPath('tls'), { recursive: true });
     const key = testInfo.outputPath('tls/key.pem'), cert = testInfo.outputPath('tls/cert.pem');
@@ -21,7 +23,7 @@ const test = base.extend<{ fixture: Fixture }>({
     // Actual HTTPS requests are necessary: Playwright route interception happens before Chromium attaches cookies to worker fetches.
     const server = createServer({ key: readFileSync(key), cert: readFileSync(cert) }, (req, res) => {
       const host = req.headers.host || '';
-      if (!['javdb.com', 'javdb575.com'].includes(host)) { res.writeHead(404); res.end(); return; }
+      if (!['javdb.com', 'javdb575.com', 'javdb580.com', 'javdb585.com'].includes(host)) { res.writeHead(404); res.end(); return; }
       const signedIn = /_jdb_session=fixture-auth/.test(req.headers.cookie || '');
       if (req.url === '/logout') {
         res.writeHead(302, { Location: '/', 'Set-Cookie': '_jdb_session=fixture-logged-out; Path=/; Secure; HttpOnly; SameSite=Lax' }); res.end(); return;
@@ -45,19 +47,21 @@ const test = base.extend<{ fixture: Fixture }>({
       if (!address || typeof address === 'string') throw new Error('No fixture HTTPS port');
       context = await launchExtensionContext(options, { headless: true, channel: 'chromium', extraArgs: [
         '--no-proxy-server', '--ignore-certificate-errors',
-        `--host-resolver-rules=MAP javdb.com 127.0.0.1:${address.port}, MAP javdb575.com 127.0.0.1:${address.port}, MAP * ~NOTFOUND`,
+        `--host-resolver-rules=MAP javdb.com 127.0.0.1:${address.port}, MAP javdb575.com 127.0.0.1:${address.port}, MAP javdb580.com 127.0.0.1:${address.port}, MAP javdb585.com 127.0.0.1:${address.port}, MAP * ~NOTFOUND`,
       ] });
       const id = await readExtensionId(context); await suppressReleaseAnnouncementForTest(context);
       const worker = context.serviceWorkers().find(w => w.url().includes(id));
       if (!worker) throw new Error('No extension service worker');
-      await worker.evaluate(async () => {
+      await worker.evaluate(async ({ sourceHost, targetHost }) => {
         await chrome.storage.local.set({ javdbCrosslineSessionEnabled: false });
         const { settings = {} } = await chrome.storage.local.get('settings');
         await chrome.storage.local.set({ settings: { ...settings, routes: { ...settings.routes, javdb: {
-          primary: 'https://javdb.com', alternatives: [{ url: 'https://javdb575.com', enabled: true }],
+          primary: `https://${sourceHost}`, alternatives: [{ url: `https://${targetHost}`, enabled: true }],
         } } } });
-      });
-      await context.addCookies([session('javdb.com', 'fixture-auth'), session('javdb575.com', 'fixture-guest')]);
+      }, { sourceHost, targetHost });
+      // Seed the target first: the automatic bridge must never observe a missing target during setup.
+      await context.addCookies([session(targetHost, 'fixture-guest')]);
+      await context.addCookies([session(sourceHost, 'fixture-auth')]);
       await worker.evaluate(() => chrome.storage.local.set({ javdbCrosslineSessionEnabled: true }));
       await use({ context, worker, modes, probes });
     } finally {
@@ -185,3 +189,28 @@ test('clamps the open panel to the viewport even if the site menu extends beyond
   await page.setViewportSize({ width: 1024, height: 720 });
   await expect.poll(async () => { const box = await panel.boundingBox(); return !!box && box.x >= 0 && box.x + box.width <= 1024; }).toBe(true);
 });
+
+for (const targetHost of ['javdb580.com', 'javdb585.com']) {
+  test.describe(targetHost, () => {
+    test.use({ sourceHost: 'javdb575.com', targetHost });
+    test(`offers an existing 575 login on configured ${targetHost} and verifies the copied session`, async ({ fixture }) => {
+      const { context, probes } = fixture;
+      const page = await context.newPage();
+      await page.goto(`https://${targetHost}/`);
+      const panel = page.locator('.javdb-ext-crossline-panel');
+      await expect(panel).toBeVisible({ timeout: 25_000 });
+      await expect(panel).toContainText('javdb575.com');
+      expect(probes['javdb575.com']).toBeGreaterThan(0);
+      expect(probes[targetHost]).toBeGreaterThan(0);
+      // A different page on the same configured host keeps a manual entry without expanding again.
+      await page.goto(`https://${targetHost}/v/fixture`);
+      await expect(page.locator('.javdb-ext-crossline-trigger')).toBeVisible();
+      await expect(panel).toBeHidden();
+      await page.locator('.javdb-ext-crossline-trigger').click();
+      await panel.getByRole('button', { name: '同步登录', exact: true }).click();
+      await expect(page.locator('a[href="/logout"]')).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator('.javdb-ext-crossline')).toHaveCount(0);
+      expect((await context.cookies(`https://${targetHost}`)).some(c => c.name === '_jdb_session' && c.value === 'fixture-auth')).toBe(true);
+    });
+  });
+}
