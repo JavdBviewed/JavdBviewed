@@ -3,6 +3,7 @@
  * @description OpenList 离线下载与连接探测；内容脚本优先经后台代理请求
  * @module features/openlist
  */
+import { isOpenListDeletePolicy, type OpenListDeletePolicy } from './deletePolicy';
 import { sendRuntimeMessage } from '../../platform/browser/runtimeMessages';
 
 export type OpenListTask = {
@@ -19,6 +20,7 @@ export type AddOfflineDownloadParams = {
   path: string;
   urls: string[];
   tool: string;
+  deletePolicy?: OpenListDeletePolicy;
 };
 
 export type AddOfflineDownloadResult = {
@@ -186,6 +188,7 @@ export async function addOfflineDownload(
   params: AddOfflineDownloadParams,
   fetchImpl?: typeof fetch,
 ): Promise<AddOfflineDownloadResult> {
+  if (!isOpenListDeletePolicy(params.deletePolicy)) return { success: false, message: '不支持的 OpenList 源文件删除策略' };
   if (!params.token.trim() || !Array.isArray(params.urls) || !params.urls.length || params.urls.some((url) => typeof url !== 'string' || !url.trim())) {
     return { success: false, message: '缺少 OpenList token 或下载链接' };
   }
@@ -202,7 +205,9 @@ export async function addOfflineDownload(
     const response = await request(`${baseUrlOf(params.baseUrl)}${prefix}/fs/add_offline_download`, {
       method: 'POST',
       headers: { Authorization: params.token.trim(), Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ urls: params.urls, path: params.path, tool: params.tool }),
+      body: JSON.stringify({ urls: params.urls, path: params.path, tool: params.tool,
+        ...(params.deletePolicy === 'delete_on_upload_succeed' ? { delete_policy: params.deletePolicy } : {}),
+      }),
     });
     const raw = await readApiResponse(response);
     if (!apiSucceeded(response, raw)) return { success: false, message: messageOf(raw, response), raw };

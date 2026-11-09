@@ -46,6 +46,17 @@ describe('OpenList magnet push button', () => {
     await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith('permission denied', 'error'));
   });
 
+  it('uses current settings for each new push so disabling cleanup takes effect on open tabs', async () => {
+    document.body.innerHTML = '<div id="magnets-content"><div class="item"><a href="magnet:?xt=abc">file</a></div></div>';
+    getSettings.mockResolvedValue({ openlist: { baseUrl: 'http://nas.local', token: 'key', path: '/movies', tool: '115 Open', deletePolicy: 'delete_on_upload_succeed' } });
+    addOfflineDownload.mockResolvedValue({ success: true, tasks: [] });
+    await initOpenListPush();
+    getSettings.mockResolvedValue({ openlist: { baseUrl: 'http://nas.local', token: 'key', path: '/movies', tool: '115 Open' } });
+    document.querySelector<HTMLButtonElement>('.openlist-push-btn')!.click();
+    await vi.waitFor(() => expect(addOfflineDownload).toHaveBeenCalled());
+    expect(addOfflineDownload.mock.lastCall?.[0].deletePolicy).toBeUndefined();
+  });
+
   it('adds OpenList beside 115 on dynamic search results after the detail page was initialized', async () => {
     getSettings.mockResolvedValue({ openlist: { baseUrl: 'http://nas.local', token: 'key' } });
     addOfflineDownload.mockResolvedValue({ success: true, tasks: [] });

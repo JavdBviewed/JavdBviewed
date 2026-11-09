@@ -40,6 +40,22 @@ describe('OpenList settings section', () => {
     vi.clearAllMocks();
   });
 
+  it('requires explicit opt-in for source cleanup and can turn it off again', async () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => root.render(<OpenListSettingsSection />));
+    const toggle = host.querySelector<HTMLInputElement>('#openlistDeleteSource');
+    expect(toggle).not.toBeNull();
+    expect(toggle!.checked).toBe(false);
+    await act(async () => toggle!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('#openlistSave')!.click());
+    expect(saveOpenListSettings).toHaveBeenLastCalledWith(expect.objectContaining({ deletePolicy: 'delete_on_upload_succeed' }));
+    await act(async () => toggle!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('#openlistSave')!.click());
+    expect(saveOpenListSettings.mock.lastCall?.[0].deletePolicy).not.toBe('delete_on_upload_succeed');
+  });
+
   it('loads, saves and tests the configured server without exposing its token', async () => {
     host = document.createElement('div');
     document.body.appendChild(host);

@@ -22,6 +22,19 @@ const params = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('OpenList client', () => {
+  it('passes the opted-in success policy to OpenList', async () => {
+    const fetchMock = vi.fn(async () => json({ code: 200, data: {} }));
+    expect(await addOfflineDownload({ ...params, deletePolicy: 'delete_on_upload_succeed' }, fetchMock)).toMatchObject({ success: true });
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({ delete_policy: 'delete_on_upload_succeed' });
+  });
+
+  it.each(['delete_always', 'delete_on_upload_failed', null, true])('rejects unsafe deletion policy %s before sending', async (deletePolicy) => {
+    const fetchMock = vi.fn(async () => json({ code: 200, data: {} }));
+    const result = await addOfflineDownload({ ...params, deletePolicy } as unknown as Parameters<typeof addOfflineDownload>[0], fetchMock);
+    expect(result.success).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('detects /api first and preserves its version', async () => {
     const fetchMock = vi.fn(async () => json({ code: 1500, data: { version: '1.9.9' } }));
     expect(await detectApiPrefix('https://list.example///', fetchMock)).toEqual({ prefix: '/api', version: '1.9.9' });

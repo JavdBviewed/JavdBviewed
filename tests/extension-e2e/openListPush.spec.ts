@@ -113,9 +113,25 @@ test('OpenList content button sends a verified task through the extension backgr
       body: { urls: ['magnet:?xt=urn:btih:abc'], path: '/movies', tool: 'aria2' },
     });
     await expect(page.locator('.javdb-ext-toast-message')).toContainText('t-1');
+    await expect(settingsPage.locator('#openlistDeleteSource')).not.toBeChecked();
+    await settingsPage.locator('label[for="openlistDeleteSource"]').click();
+    await settingsPage.locator('#openlistSave').click();
+    await expect(settingsPage.getByText('设置已保存', { exact: true })).toBeVisible();
+    await settingsPage.reload({ waitUntil: 'domcontentloaded' });
+    await expect(settingsPage.locator('#openlistDeleteSource')).toBeChecked();
+    await settingsPage.screenshot({ path: testInfo.outputPath('openlist-delete-policy.png'), fullPage: true });
+    await expect(button).toBeVisible();
+    await button.click();
+    await expect.poll(() => requests.length).toBe(2);
+    expect(requests[1].body).toEqual({ urls: ['magnet:?xt=urn:btih:abc'], path: '/movies', tool: 'aria2', delete_policy: 'delete_on_upload_succeed' });
+    await settingsPage.locator('label[for="openlistDeleteSource"]').click();
+    await settingsPage.locator('#openlistSave').click();
+    await expect(settingsPage.getByText('设置已保存', { exact: true })).toBeVisible();
+    await expect(button).toBeVisible();
     rejectPush = true;
     await button.click();
-    await expect.poll(() => requests.length, { timeout: 10_000 }).toBe(2);
+    await expect.poll(() => requests.length, { timeout: 10_000 }).toBe(3);
+    expect(requests[2].body).not.toHaveProperty('delete_policy');
     await expect(page.locator('.javdb-ext-toast-message', { hasText: 'permission denied' })).toBeVisible();
     expect(errors).toEqual([]);
     expect(blocked.filter((url) => url.includes('javcloud.prlrr.com') || url.includes(':18091'))).toEqual([]);

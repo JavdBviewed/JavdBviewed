@@ -1,3 +1,4 @@
+import { isOpenListDeletePolicy } from './deletePolicy';
 /**
  * @file backgroundProxy.ts
  * @description OpenList 请求的 Service Worker 代理，避免内容脚本跨源请求受 CORS 限制
@@ -18,7 +19,8 @@ function isConnectionPayload(value: unknown): value is { baseUrl: string; token:
 function isAddPayload(value: unknown): value is AddOfflineDownloadParams {
   if (!isConnectionPayload(value) || !value.token.trim()) return false;
   const payload: Record<string, unknown> = value;
-  return typeof payload.path === 'string'
+  return isOpenListDeletePolicy(payload.deletePolicy)
+    && typeof payload.path === 'string'
     && typeof payload.tool === 'string'
     && !!payload.tool.trim()
     && Array.isArray(payload.urls)

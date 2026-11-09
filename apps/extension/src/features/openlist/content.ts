@@ -31,7 +31,11 @@ export async function initOpenListPush(documentRef: Document = document): Promis
       button.addEventListener('click', () => {
         if (button.disabled) return;
         button.disabled = true;
-        void addOfflineDownload({ ...settings, urls: [magnet.href] }).then((result) => {
+        void getSettings().then(current => {
+          const latest = normalizeOpenListSettings(current.openlist);
+          if (!latest.baseUrl || !latest.token) throw new Error('请先配置 OpenList 服务器地址和令牌');
+          return addOfflineDownload({ ...latest, urls: [magnet.href] });
+        }).then((result) => {
           if (!result.success) {
             showToast(result.message || 'OpenList 推送失败', 'error');
             return;

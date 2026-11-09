@@ -1,3 +1,4 @@
+import type { OpenListDeletePolicy } from './deletePolicy';
 import { STORAGE_KEYS } from '../../utils/config';
 import { getSettings, getValue, saveSettings } from '../../utils/storage';
 import { saveSettingsSectionDelta, type SettingsDeltaWriter } from '../../utils/settingsDelta';
@@ -7,6 +8,7 @@ export interface OpenListSettings {
   token: string;
   path: string;
   tool: string;
+  deletePolicy?: OpenListDeletePolicy;
 }
 
 export const DEFAULT_OPENLIST_SETTINGS: OpenListSettings = { baseUrl: '', token: '', path: '', tool: 'aria2' };
@@ -22,6 +24,7 @@ export function normalizeOpenListSettings(raw: unknown): OpenListSettings {
     }
   } catch { /* Invalid endpoint stays unconfigured. */ }
   return {
+    ...(input.deletePolicy === 'delete_on_upload_succeed' ? { deletePolicy: input.deletePolicy } : {}),
     baseUrl,
     token: typeof input.token === 'string' ? input.token.trim() : '',
     path: typeof input.path === 'string' ? input.path.trim() : '',
@@ -37,5 +40,9 @@ export async function saveOpenListSettings(
     saveSettings,
   },
 ): Promise<void> {
-  await saveSettingsSectionDelta(writer, {}, 'openlist', () => normalizeOpenListSettings(input));
+  await saveSettingsSectionDelta(writer, {}, 'openlist', () => {
+    const normalized = normalizeOpenListSettings(input);
+    // Omission in a section delta would preserve an earlier opt-in. Persist explicit retention.
+    return { ...normalized, deletePolicy: normalized.deletePolicy ?? 'delete_never' };
+  });
 }

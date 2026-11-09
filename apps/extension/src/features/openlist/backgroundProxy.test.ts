@@ -35,6 +35,16 @@ afterEach(() => {
 });
 
 describe('OpenList background proxy', () => {
+  it('forwards success-only cleanup and rejects unsafe policies at the message boundary', async () => {
+    const { send, fetchMock } = setup();
+    const payload = { baseUrl: 'http://nas.local', token: 'synthetic', path: '/nas', urls: ['magnet:?x'], tool: '115 Open', deletePolicy: 'delete_on_upload_succeed' };
+    expect((await send({ type: 'openlist.add_offline_download', payload })).reply).toMatchObject({ success: true });
+    expect(JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body))).toMatchObject({ delete_policy: 'delete_on_upload_succeed' });
+    fetchMock.mockClear();
+    expect((await send({ type: 'openlist.add_offline_download', payload: { ...payload, deletePolicy: 'delete_always' } })).reply).toMatchObject({ success: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('keeps the channel alive and forwards add request with raw token and JSON body', async () => {
     const { send, fetchMock } = setup();
     const { keepAlive, reply } = await send({

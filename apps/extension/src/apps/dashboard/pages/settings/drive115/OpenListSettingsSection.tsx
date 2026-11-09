@@ -1,3 +1,4 @@
+import { SettingToggleRow } from '../../../../../ui/patterns/SettingToggleRow/SettingToggleRow';
 import { useEffect, useState } from 'react';
 import { listTools, testConnection } from '../../../../../features/openlist/openlistClient';
 import {
@@ -172,6 +173,17 @@ export function OpenListSettingsSection() {
           {configured.baseUrl && <a id="openlistOpenServer" href={configured.baseUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-[var(--color-primary)] underline">打开 OpenList 配置</a>}
         </div>
       </div>
+      <SettingToggleRow
+        id="openlistDeleteSource"
+        label="转存成功后删除下载源文件"
+        checked={form.deletePolicy === 'delete_on_upload_succeed'}
+        disabled={busy}
+        onChange={(checked) => {
+          setForm(current => ({ ...current, deletePolicy: checked ? 'delete_on_upload_succeed' : undefined }));
+          setFeedback('');
+        }}
+        description="仅对保存后新推送的任务生效。由 OpenList 在每个文件转存成功后清理下载源文件，转存失败的文件保留。使用 115 下载到 NAS 时可开启；直接下载到 115 目标目录、不经过转存时不适用。"
+      />
       <div className="flex flex-wrap items-center gap-2">
         <Button id="openlistSave" type="button" size="sm" disabled={busy} onClick={() => void run(false)}>保存设置</Button>
         <Button id="openlistTest" type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void run(true)}>测试连接</Button>
