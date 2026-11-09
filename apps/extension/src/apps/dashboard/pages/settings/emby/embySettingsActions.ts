@@ -28,6 +28,10 @@ export type LibrarySyncServerResult = {
   success?: boolean;
   itemCount?: number;
   indexedCount?: number;
+  uniqueCodeCount?: number;
+  unrecognizedCount?: number;
+  ambiguousCount?: number;
+  complete?: boolean;
   error?: string;
 };
 
@@ -61,7 +65,7 @@ export type LibrarySyncUiState =
       hint: string;
     }
   | {
-      kind: 'success' | 'error';
+      kind: 'success' | 'warning' | 'error';
       summary: string;
       serverResults: LibrarySyncServerResult[];
     }
@@ -294,6 +298,10 @@ export function getLibrarySyncDiagnosis(error: string): LibrarySyncDiagnosis {
 /**
  * 规范化同步响应中的服务器结果
  */
+function optionalCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
 export function normalizeLibrarySyncServerResults(value: unknown): LibrarySyncServerResult[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -308,6 +316,10 @@ export function normalizeLibrarySyncServerResults(value: unknown): LibrarySyncSe
         typeof item.indexedCount === 'number'
           ? item.indexedCount
           : Number(item.indexedCount || 0),
+      uniqueCodeCount: optionalCount(item.uniqueCodeCount),
+      unrecognizedCount: optionalCount(item.unrecognizedCount),
+      ambiguousCount: optionalCount(item.ambiguousCount),
+      complete: typeof item.complete === 'boolean' ? item.complete : undefined,
       error: typeof item.error === 'string' ? item.error : undefined,
     }));
 }
@@ -363,6 +375,12 @@ export async function runManualLibrarySync(
     }
 
     if (response?.success) {
+      const partial = serverResults.filter(result => result.success && result.complete === false).length;
+      if (partial > 0 || failed > 0) {
+        const summary = `同步不完整：完整 ${synced - partial} 个服务器，部分 ${partial} 个，失败 ${failed} 个。未读取的旧索引已保留。`;
+        await toast('媒体库同步不完整，请查看页面详情', 'warning');
+        return { ui: { kind: 'warning', summary, serverResults }, toast: { message: '媒体库同步不完整，请查看页面详情', type: 'warning' } };
+      }
       await toast('媒体库同步完成', 'success');
       return {
         ui: {

@@ -177,3 +177,19 @@ describe('EmbySettingsPage 同步按钮取消与禁用解释（U5）', () => {
     expect(button.disabled).toBe(false);
   });
 });
+
+it('shows separate media/code counts, rejected reasons and partial retention', async () => {
+  actionsMock.runManualLibrarySync.mockResolvedValue({ ui: {
+    kind: 'warning', summary: '同步不完整', serverResults: [{ serverId: 'srv-1', success: true, complete: false,
+      itemCount: 5, indexedCount: 3, uniqueCodeCount: 2, unrecognizedCount: 1, ambiguousCount: 1 }],
+  } });
+  await mountPage();
+  await act(async () => syncButton().click());
+  const panel = document.getElementById('emby-library-sync-status')!;
+  expect(panel.textContent).toContain('读取 5 个媒体条目');
+  expect(panel.textContent).toContain('已索引 3 个媒体条目');
+  expect(panel.textContent).toContain('2 个不同番号');
+  expect(panel.textContent).toContain('未识别 1');
+  expect(panel.textContent).toContain('候选冲突 1');
+  expect(panel.textContent).toContain('保留');
+});

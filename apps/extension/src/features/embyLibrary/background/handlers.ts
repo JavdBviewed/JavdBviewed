@@ -10,6 +10,7 @@ import { getSettings, getValue, saveSettings, setValue } from '../../../utils/st
 import { authenticateEmbyUser, buildEmbyAuthHeaders, hasEmbyUserSession } from '../domain/embyUserAuth';
 import {
   buildLibraryIndex,
+  buildLibraryIndexWithDiagnostics,
   extractCodeFromMediaItem,
   generateVideoCodeSearchTerms,
   mergeLibraryIndexes,
@@ -146,28 +147,29 @@ function sanitizeError(error: unknown): string {
 // （设置保存对账 / 清理面板孤儿判定共用），此处 re-export 保持既有导入面。
 export { getEntryServerIndexKey, getServerIndexKey };
 
-/**
- * 将「本次同步成功的服务器」的旧 entry 替换为新索引的 entry。
- * 与旧 removeEntriesForSuccessfulServers 等价：成功服务器的旧条目（改名 / 改地址 /
- * 重新索引产生的旧 itemId）全部移除，由后续 mergeLibraryIndexes 用新索引回填，
- * 避免同 code 出现新旧两条重复。
- */
-function removeEntriesForSyncedServers(
+/** Complete sources replace their snapshot; partial sources only replace recognized item identities. */
+function removeReplacedEntries(
   state: EmbyLibraryState,
   servers: EmbyMediaServer[],
   indices: EmbyLibraryIndex[],
-  successfulServerIds: ReadonlySet<string>,
+  completeServerIds: ReadonlySet<string>,
 ): EmbyLibraryState['entries'] {
-  if (successfulServerIds.size === 0) return { ...(state.entries || {}) };
-  const successfulServers = new Set(
-    servers
-      .filter((server) => successfulServerIds.has(server.id))
-      .map((server) => getServerIndexKey(server)),
-  );
-  const next: Record<string, EmbyLibraryIndexEntry[]> = {};
+  const completeKeys = new Set(servers.filter(server => completeServerIds.has(server.id)).map(getServerIndexKey));
+  const replacedItems = new Map<string, Set<string>>();
+  for (const index of indices) {
+    for (const entry of Object.values(index.entries).flat()) {
+      const key = getEntryServerIndexKey(entry);
+      if (!replacedItems.has(key)) replacedItems.set(key, new Set());
+      replacedItems.get(key)!.add(entry.itemId);
+    }
+  }
+  const next: EmbyLibraryState['entries'] = {};
   for (const [code, entries] of Object.entries(state.entries || {})) {
-    const kept = entries.filter((entry) => !successfulServers.has(getEntryServerIndexKey(entry)));
-    if (kept.length > 0) next[code] = kept;
+    const kept = entries.filter(entry => {
+      const key = getEntryServerIndexKey(entry);
+      return !completeKeys.has(key) && !replacedItems.get(key)?.has(entry.itemId);
+    });
+    if (kept.length) next[code] = kept;
   }
   return next;
 }
@@ -608,6 +610,7 @@ export async function handleEmbyLibrarySync(
     const localReports: Array<Parameters<typeof queueLocalIndexReport>[0]> = [];
     const serverResults: EmbyLibraryServerResult[] = [];
     const successfulServerIds = new Set<string>();
+    const completeServerIds = new Set<string>();
 
     for (const server of servers) {
       // 取消在服务器边界生效：未开始的服务器直接标记「已取消」，不再发起请求
@@ -627,11 +630,12 @@ export async function handleEmbyLibrarySync(
       try {
         let complete = true;
         const items = await fetchMoviesForServer(server, deps, undefined, manualSignal, () => { complete = false; });
-        const index = buildLibraryIndex(server, items, now);
+        const { index, diagnostics } = buildLibraryIndexWithDiagnostics(server, items, now);
         indexes.push(index);
         localReports.push({ kind: 'emby', sourceId: normalizeServerUrl(server.url), entries: localEmbyReportEntries(index), complete });
         successfulServerIds.add(server.id);
-        const indexedCount = Object.values(index.entries).reduce((sum, entries) => sum + entries.length, 0);
+        if (complete) completeServerIds.add(server.id);
+        const indexedCount = diagnostics.indexedItemCount;
         serverResults.push({
           serverId: server.id,
           serverType: server.type,
@@ -639,6 +643,10 @@ export async function handleEmbyLibrarySync(
           success: true,
           itemCount: items.length,
           indexedCount,
+          uniqueCodeCount: diagnostics.uniqueCodeCount,
+          unrecognizedCount: diagnostics.unrecognizedItemCount,
+          ambiguousCount: diagnostics.ambiguousItemCount,
+          complete,
           checkedAt: now,
         });
       } catch (error) {
@@ -671,8 +679,8 @@ export async function handleEmbyLibrarySync(
       && !libraryFeatureEnabled
       && !manualSignal?.aborted;
 
-    // ① 替换：把本次同步成功的服务器的旧 entry 换掉，交由新索引回填，避免新旧重复。
-    const nextEntries = removeEntriesForSyncedServers(previousState, servers, indexes, successfulServerIds);
+    // 完整来源替换快照；不完整来源只替换本次识别出的itemId，保留尚未读取的旧条目。
+    const nextEntries = removeReplacedEntries(previousState, servers, indexes, completeServerIds);
     const nextUpdatedAt = successfulServerIds.size > 0 ? now : Number(previousState.updatedAt || 0);
     const merged = mergeLibraryIndexes([{ entries: nextEntries, updatedAt: previousState.updatedAt || 0 }, ...indexes], nextUpdatedAt);
     // ② 对账：以「当前配置里的已启用服务器」为白名单，移除孤儿 entry（服务器被删除 /
@@ -721,10 +729,10 @@ export async function handleEmbyLibrarySync(
     let cleanupSummary: { enqueuedCount: number; baselineCount: number } | undefined;
     const successfulServerKeys = new Set(
       servers
-        .filter((server) => successfulServerIds.has(server.id))
+        .filter((server) => completeServerIds.has(server.id))
         .map((server) => getServerIndexKey(server)),
     );
-    if (persistState && successfulServerIds.size > 0 && deps.processCleanupSync) {
+    if (persistState && completeServerIds.size > 0 && deps.processCleanupSync) {
       try {
         // removedServerKeys：被移出配置 / 改地址的服务器（不在当前启用集合），不算「外部删除」。
         cleanupSummary = await deps.processCleanupSync({

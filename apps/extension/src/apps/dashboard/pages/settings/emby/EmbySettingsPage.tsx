@@ -1638,7 +1638,9 @@ function LibrarySyncStatusPanel({ status }: { status: LibrarySyncUiState }) {
   const toneClass =
     status.kind === 'success'
       ? 'text-[var(--color-success,#27ae60)]'
-      : 'text-[var(--color-danger,#c0392b)]';
+      : status.kind === 'warning'
+        ? 'text-[var(--color-warning,#d68910)]'
+        : 'text-[var(--color-danger,#c0392b)]';
 
   return (
     <div
@@ -1672,9 +1674,20 @@ function LibrarySyncServerResultsList({ results }: { results: LibrarySyncServerR
                 <span className="text-[var(--color-fg-muted)]">{serverType}</span>
               </div>
               <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
-                读取 {Number(result.itemCount || 0)} 个媒体条目，索引{' '}
-                {Number(result.indexedCount || 0)} 个番号。
+                本次读取 {Number(result.itemCount || 0)} 个媒体条目，已索引 {Number(result.indexedCount || 0)} 个媒体条目
+                {result.uniqueCodeCount !== undefined ? `，对应 ${result.uniqueCodeCount} 个不同番号。` : '。'}
               </div>
+              {result.unrecognizedCount !== undefined && result.ambiguousCount !== undefined && (
+                <div className="mt-1 text-[12px] text-[var(--color-fg-muted)]">
+                  未识别 {result.unrecognizedCount} 个，候选冲突 {result.ambiguousCount} 个。
+                  {(result.unrecognizedCount > 0 || result.ambiguousCount > 0) && '未能确定番号的媒体不会用于过滤，请检查影片名称和文件名是否包含明确番号。'}
+                </div>
+              )}
+              {result.complete === false && (
+                <div className="mt-1 text-[12px] text-[var(--color-warning,#d68910)]">
+                  分页返回不完整，未读取的旧索引已保留，请稍后重新同步。
+                </div>
+              )}
             </div>
           );
         }

@@ -62,6 +62,16 @@ describe('runManualLibrarySync canceled 响应（U4）', () => {
     });
   });
 
+  it('surfaces partial pagination as a warning and preserves diagnostic counts', async () => {
+    runtimeMock.sendRuntimeMessage.mockResolvedValueOnce({ success: true, synced: 1, failed: 0, serverResults: [
+      { serverId: 'srv-1', success: true, complete: false, itemCount: 5, indexedCount: 3, uniqueCodeCount: 2, unrecognizedCount: 1, ambiguousCount: 1 },
+    ] });
+    const result = await runManualLibrarySync(mapSettingsToEmbyForm(currentSettings()));
+    expect(result.ui.kind).toBe('warning');
+    expect(result.toast?.type).toBe('warning');
+    expect(result.ui).toMatchObject({ serverResults: [{ complete: false, uniqueCodeCount: 2, unrecognizedCount: 1, ambiguousCount: 1 }] });
+  });
+
   it('canceled 响应 → ui kind canceled + 部分结果汇总逐字 + warning toast', async () => {
     runtimeMock.sendRuntimeMessage.mockResolvedValueOnce({
       success: true,

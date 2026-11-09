@@ -11,6 +11,7 @@ import type {
 } from '../types';
 import { normalizeVideoCodeCandidate } from '../../../shared/utils/videoCodeExtractor';
 import { parseEmbyUserData } from './watchState';
+import { resolveMediaItemCode } from './mediaItemCode';
 
 const GENERIC_FIRST_WORDS = new Set(['THE', 'THIS', 'WHAT', 'WITH', 'MOVIE', 'VIDEO', 'SAMPLE']);
 
@@ -46,7 +47,8 @@ export function normalizeVideoCode(value: string): string | null {
 }
 
 export function extractCodeFromMediaItem(item: EmbyMediaItem): string | null {
-  return normalizeVideoCode(item.Name || '') || normalizeVideoCode(item.Path || '');
+  const result = resolveMediaItemCode(item);
+  return result.kind === 'matched' ? result.code : null;
 }
 
 function addSearchTerm(terms: string[], canonicalCode: string, term: string): void {
@@ -202,15 +204,26 @@ export function buildLibraryIndex(
   items: EmbyMediaItem[],
   now = Date.now(),
 ): EmbyLibraryIndex {
+  return buildLibraryIndexWithDiagnostics(server, items, now).index;
+}
+
+export function buildLibraryIndexWithDiagnostics(server: EmbyMediaServer, items: EmbyMediaItem[], now = Date.now()) {
   const entries: Record<string, EmbyLibraryIndexEntry[]> = {};
   const serverUrl = normalizeServerUrl(server.url);
+  const diagnostics = { indexedItemCount: 0, uniqueCodeCount: 0, unrecognizedItemCount: 0, ambiguousItemCount: 0 };
 
   for (const item of items) {
     const itemId = String(item.Id || '').trim();
     if (!itemId) continue;
 
-    const code = extractCodeFromMediaItem(item);
-    if (!code) continue;
+    const resolution = resolveMediaItemCode(item);
+    if (resolution.kind !== 'matched') {
+      if (resolution.kind === 'ambiguous') diagnostics.ambiguousItemCount += 1;
+      else diagnostics.unrecognizedItemCount += 1;
+      continue;
+    }
+    const code = resolution.code;
+    diagnostics.indexedItemCount += 1;
 
     const imageUrls = buildMediaItemImageUrlMap(server, item);
     // 默认 cover：优先 Primary，其次 Thumb（略缩图），再 Backdrop
@@ -234,7 +247,8 @@ export function buildLibraryIndex(
     entries[code].push(entry);
   }
 
-  return { entries, updatedAt: now };
+  diagnostics.uniqueCodeCount = Object.keys(entries).length;
+  return { index: { entries, updatedAt: now }, diagnostics };
 }
 
 export function mergeLibraryIndexes(indexes: EmbyLibraryIndex[], now = Date.now()): EmbyLibraryIndex {

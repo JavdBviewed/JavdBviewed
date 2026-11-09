@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildLibraryIndex,
+  buildLibraryIndexWithDiagnostics,
   buildMediaItemCoverImageUrl,
   buildMediaItemImageUrl,
   buildMediaItemImageUrlMap,
@@ -92,6 +93,72 @@ describe('emby library index', () => {
       itemId: '1',
       itemName: 'ABC-001 Sample Title',
     });
+  });
+
+  it('extracts a code from the filename before a misleading parent directory and MediaSources fallback', () => {
+    const index = buildLibraryIndex(embyServer, [
+      { Id: 'path-1', Name: '中文片名', Path: '/library/BOX-999/ABC-123-C.mp4' },
+      { Id: 'source-1', Name: '中文片名', MediaSources: [{ Path: 'D:\\movies\\DEF-456.mkv' }] },
+    ]);
+
+    expect(index.entries['ABC-123']).toHaveLength(1);
+    expect(index.entries['ABC-123'][0].itemId).toBe('path-1');
+    expect(index.entries['BOX-999']).toBeUndefined();
+    expect(index.entries['DEF-456']).toHaveLength(1);
+  });
+
+  it('does not treat a title-only media item as indexed when no code is present', () => {
+    const result = buildLibraryIndexWithDiagnostics(embyServer, [
+      { Id: 'plain', Name: 'No code title', Path: '/library/No code title.mkv' },
+      { Id: 'known', Name: 'ABC-123 Sample', Path: '/library/ABC-123.mp4' },
+    ]);
+
+    expect(result.diagnostics).toMatchObject({
+      indexedItemCount: 1,
+      uniqueCodeCount: 1,
+      unrecognizedItemCount: 1,
+      ambiguousItemCount: 0,
+    });
+  });
+
+  it('does not choose between conflicting filename candidates', () => {
+    const result = buildLibraryIndexWithDiagnostics(embyServer, [
+      {
+        Id: 'conflict',
+        Name: 'ABC-123 title',
+        Path: '/library/ABC-123.mp4',
+        MediaSources: [{ Path: '/library/DEF-456.mp4' }],
+      },
+    ]);
+
+    expect(result.index.entries).toEqual({});
+    expect(result.diagnostics).toMatchObject({ indexedItemCount: 0, unrecognizedItemCount: 0, ambiguousItemCount: 1 });
+  });
+
+  it.each([
+    ['ABC-123 Title', undefined, 'ABC-123'],
+    ['MOV-1 Title', undefined, 'MOV-1'],
+    ['中文片名', '/films/ABC-123-UC-CD1.mkv', 'ABC-123'],
+    ['中文片名', '/films/ABC-123A.mp4', 'ABC-123A'],
+    ['中文片名', '/films/123456_01.mp4', '123456_01'],
+    ['中文片名', '/films/1pondo-123456_01.mp4', '1PONDO-123456_01'],
+    ['中文片名', 'https://media.example/ABC-123-C.mp4?name=WRONG-999', 'ABC-123'],
+    ['中文片名', '/films/ABC-123/part1.mp4', 'ABC-123'],
+    ['中文片名', '/ABC-123/generic/part1.mp4', null],
+    ['Movie 20261109', '/films/20261109.mp4', null],
+    ['ABC-123 DEF-456', '/films/random.mp4', null],
+    ['中文片名', '/films/ABC-123-OTHER.mp4', null],
+  ])('keeps boundaries for %s / %s', (Name, Path, expected) => {
+    const result = buildLibraryIndex(embyServer, [{ Id: 'sample', Name, Path }]);
+    expect(Object.keys(result.entries)).toEqual(expected ? [expected] : []);
+  });
+
+  it('counts recognized media independently of unique codes', () => {
+    const result = buildLibraryIndexWithDiagnostics(embyServer, [
+      { Id: 'a', Name: 'ABC-123' }, { Id: 'b', Name: 'ABC-123' },
+      { Id: 'unknown', Name: '中文片名' }, { Id: 'conflict', Name: 'DEF-456 GHI-789' },
+    ]);
+    expect(result.diagnostics).toEqual({ indexedItemCount: 2, uniqueCodeCount: 1, unrecognizedItemCount: 1, ambiguousItemCount: 1 });
   });
 
   it('stores UserData watch summary when present on media items', () => {

@@ -247,8 +247,12 @@ export interface EmbyLibraryServerResult {
   serverType: EmbyServerType;
   serverName: string;
   success: boolean;
-  itemCount: number;                                  // 服务器总媒体数
-  indexedCount: number;                               // 已索引的匹配数
+  itemCount: number;                                  // 本次实际读取且按Id去重的媒体数
+  indexedCount: number;                               // 本次已索引的媒体条目数（非不同番号数）
+  uniqueCodeCount?: number;
+  unrecognizedCount?: number;
+  ambiguousCount?: number;
+  complete?: boolean;
   error?: string;
   checkedAt: number;
 }
