@@ -38,7 +38,8 @@ import { actorExtraInfoService } from '../actorRemarks';
 import { videoDetailEnhancer } from './enhancer';
 import { videoFavoriteRatingEnhancer } from './favoriteRating';
 import { localListInSourceModalEnhancer } from './localListInSourceModal';
-import { isRelevantStatusMutation, resolveLibraryStatusFromPageStatus } from './statusSyncPolicy';
+import { resolveLibraryStatusFromPageStatus } from './statusSyncPolicy';
+import { detectPageUserStatus, observeSourcePageStatus } from './sourcePageStatus';
 import {
     getAutomaticHeavyTaskVisibilityPolicy,
     normalizeVideoEnhancementSchedulingMode,
@@ -61,273 +62,56 @@ function getActorRemarksPerActorTimeoutMs(taskTimeoutMs: number, actorCount: num
     return Math.max(2500, Math.min(4500, budgetByCount));
 }
 
-// 全局变量：状态监听器
-let statusObserver: MutationObserver | null = null;
-let lastDetectedStatus: typeof VIDEO_STATUS[keyof typeof VIDEO_STATUS] | null = null;
-let statusCheckTimer: number | null = null;
-let statusCheckAllowsExplicitClear = false;
-let statusClickContainer: Element | null = null;
-let statusClickListener: ((event: Event) => void) | null = null;
-const WANT_SYNC_BOUND_ATTR = 'data-jdb-want-sync-bound';
-const WANT_SYNC_CONFIRM_DELAYS_MS = [800, 1600, 3000] as const;
+let disposeStatusObserver: (() => void) | undefined;
 
 function isWantSyncEnabled(): boolean {
     return STATE.settings?.videoEnhancement?.enableWantSync !== false;
 }
 
-function isPageConfirmedWantStatus(): boolean {
-    return detectPageUserStatus() === VIDEO_STATUS.WANT;
-}
-
-function scheduleStatusCheck(videoId: string, delayMs = 500, allowExplicitClear = false): void {
-    if (statusCheckTimer !== null) {
-        window.clearTimeout(statusCheckTimer);
-    }
-
-    statusCheckAllowsExplicitClear = statusCheckAllowsExplicitClear || allowExplicitClear;
-
-    statusCheckTimer = window.setTimeout(() => {
-        statusCheckTimer = null;
-        const canClear = statusCheckAllowsExplicitClear;
-        statusCheckAllowsExplicitClear = false;
-        void checkAndUpdateStatusIfChanged(videoId, canClear);
-    }, delayMs);
-}
-
-// 识别当前详情页中用户对该影片的账号状态（我看過/我想看）
-// 返回 VIDEO_STATUS.VIEWED / VIDEO_STATUS.WANT / null
-function detectPageUserStatus(): typeof VIDEO_STATUS[keyof typeof VIDEO_STATUS] | null {
-    try {
-        // 方案1：通过用户区块的链接快速判断
-        const watchedAnchor = document.querySelector<HTMLAnchorElement>(
-            '.review-title a[href="/users/watched_videos"], .review-title a[href*="/users/watched_videos"]'
-        );
-        if (watchedAnchor) {
-            // 文本或内部tag文本包含“我看過這部影片”
-            const text = watchedAnchor.textContent?.trim() || '';
-            const tagText = watchedAnchor.querySelector('span.tag')?.textContent?.trim() || '';
-            if (text.includes('我看過這部影片') || tagText.includes('我看過這部影片')) {
-                return VIDEO_STATUS.VIEWED;
-            }
-
-        }
-
-        const wantAnchor = document.querySelector<HTMLAnchorElement>(
-            '.review-title a[href="/users/want_watch_videos"], .review-title a[href*="/users/want_watch_videos"]'
-        );
-        if (wantAnchor) {
-            const text = wantAnchor.textContent?.trim() || '';
-            const tagText = wantAnchor.querySelector('span.tag')?.textContent?.trim() || '';
-            if (text.includes('我想看這部影片') || tagText.includes('我想看這部影片')) {
-                return VIDEO_STATUS.WANT;
-            }
-        }
-
-        // 方案2：全局搜寻 tag 文本（结构变动时兜底）
-        const tagSpans = Array.from(document.querySelectorAll<HTMLSpanElement>('span.tag'));
-        if (tagSpans.some(s => (s.textContent || '').includes('我看過這部影片'))) {
-            return VIDEO_STATUS.VIEWED;
-        }
-        if (tagSpans.some(s => (s.textContent || '').includes('我想看這部影片'))) {
-            return VIDEO_STATUS.WANT;
-        }
-    } catch {
-        // 忽略识别错误，返回 null
-    }
-    return null;
-}
-
-/**
- * 设置状态变化监听器
- * 监听页面上"看过"/"想看"按钮的变化，自动更新插件状态
- */
 function setupStatusChangeObserver(videoId: string): void {
-    try {
-        cleanupStatusObserver();
-
-        // 初始化最后检测的状态
-        lastDetectedStatus = detectPageUserStatus();
-        log(`[StatusObserver] Initial status: ${lastDetectedStatus || 'null'}`);
-
-        // Only observe the small source-page status control. Observing the
-        // whole detail panel made unrelated enhancement DOM work look like a
-        // status update and repeatedly scanned the page while it was loading.
-        const statusControls = document.querySelector('.review-buttons, .review-title, #edit_review');
-        if (!statusControls) {
-            log('[StatusObserver] Review container not found, skipping observer setup');
-            return;
-        }
-
-        statusClickContainer = statusControls;
-        statusClickListener = (event: Event) => {
-            const target = event.target as Element | null;
-            if (!target) {
-                return;
-            }
-
-            const actionElement = target.closest(
-                'a[data-method="delete"], form[action*="/reviews/want_to_watch"] button, #review-watched, .modal-button'
-            );
-
-            if (!actionElement) {
-                return;
-            }
-
-            const isExplicitClear = actionElement.matches('a[data-method="delete"]');
-            scheduleStatusCheck(videoId, 1600, isExplicitClear);
-        };
-        statusControls.addEventListener('click', statusClickListener, true);
-
-        // Restrict mutation handling to the status control itself. Actor
-        // badges, search links and detail panels must not trigger status work.
-        statusObserver = new MutationObserver((mutations) => {
-            if (mutations.some((mutation) => isRelevantStatusMutation(mutation.target, statusControls))) {
-                scheduleStatusCheck(videoId, 500);
-            }
-        });
-
-        statusObserver.observe(statusControls, {
-            childList: true,
-            subtree: true,
-            characterData: true,
-            attributes: false,
-        });
-
-        log('[StatusObserver] Status change observer setup complete');
-    } catch (error) {
-        log('[StatusObserver] Failed to setup observer:', error);
-    }
-}
-
-/**
- * 检查状态是否变化，如果变化则更新
- */
-async function checkAndUpdateStatusIfChanged(videoId: string, allowExplicitClear = false): Promise<void> {
-    try {
-        const currentStatus = detectPageUserStatus();
-
-        // 如果状态没有变化，不做任何操作
-        if (currentStatus === lastDetectedStatus) {
-            return;
-        }
-
-        log(`[StatusObserver] Status changed from ${lastDetectedStatus || 'null'} to ${currentStatus || 'null'}`);
-        lastDetectedStatus = currentStatus;
-
+    cleanupStatusObserver();
+    disposeStatusObserver = observeSourcePageStatus(async (pageStatus, explicitClear, isActive) => {
         const existing = STATE.records[videoId];
-        if (!existing) {
-            if (currentStatus === VIDEO_STATUS.WANT && isWantSyncEnabled()) {
-                await upsertWantStatus(videoId);
-            }
-            return;
+        if (!existing && pageStatus === VIDEO_STATUS.WANT && !isWantSyncEnabled()) return true;
+        const next = resolveLibraryStatusFromPageStatus(existing?.status, pageStatus, explicitClear);
+        if (!next || existing?.status === next) return true;
+        const opId = await concurrencyManager.startProcessingVideo(`${videoId}-status-update`);
+        if (!opId) return false;
+        try {
+            if (!isActive()) return false;
+            const now = Date.now();
+            const candidate = existing ? null : await createVideoRecord(videoId, now, window.location.href);
+            let saved = false;
+            await runManagedTask(createManagedTaskDescriptor({
+                label: 'videoStatus:update', phase: 'high', priority: 9, cost: 'light',
+                visibilityPolicy: 'foreground_first', timeoutMs: 5000, retryLimit: 0, resumePolicy: 'restart',
+            }), async () => {
+                if (!isActive()) return;
+                // Read the primary record inside the storage queue so personal fields survive.
+                const result = await storageManager.updateRecordDirect(videoId, current => {
+                    if (!isActive() || detectPageUserStatus() !== pageStatus) throw new Error('Source status changed');
+                    const base: VideoRecord = current ?? candidate ?? {
+                        id: videoId, title: document.title.replace(/ \| JavDB.*/, '').trim(),
+                        status: next, tags: [], createdAt: now, updatedAt: now, javdbUrl: window.location.href,
+                    };
+                    return { ...base, status: next === VIDEO_STATUS.BROWSED ? next : safeUpdateStatus(base.status, next), updatedAt: now };
+                }, opId);
+                saved = result.success;
+                if (saved && isActive()) {
+                    updateFaviconForStatus(result.record?.status ?? next);
+                    showToast('已同步源站观看状态', 'success');
+                }
+            });
+            return saved;
+        } finally {
+            concurrencyManager.finishProcessingVideo(`${videoId}-status-update`, opId);
         }
-
-        const nextLibraryStatus = resolveLibraryStatusFromPageStatus(
-            existing.status,
-            currentStatus,
-            allowExplicitClear,
-        );
-        if (nextLibraryStatus) {
-            if (existing.status === nextLibraryStatus) {
-                return;
-            }
-            await updateVideoStatus(videoId, nextLibraryStatus);
-        }
-    } catch (error) {
-        log('[StatusObserver] Error checking status change:', error);
-    }
+    }, () => showToast('源站状态已保存，但扩展同步失败，请刷新页面重试。', 'error'));
 }
 
-/**
- * 更新视频状态到数据库
- */
-async function updateVideoStatus(
-    videoId: string,
-    newStatus: typeof VIDEO_STATUS[keyof typeof VIDEO_STATUS]
-): Promise<void> {
-    const opId = await concurrencyManager.startProcessingVideo(`${videoId}-status-update`);
-    if (!opId) {
-        log('[StatusObserver] Another operation in progress, skipping status update');
-        return;
-    }
-
-    try {
-        const descriptor = createManagedTaskDescriptor({
-            label: 'videoStatus:update',
-            phase: 'high',
-            priority: 9,
-            cost: 'light',
-            visibilityPolicy: 'foreground_first',
-            timeoutMs: 5000,
-            retryLimit: 2,
-            resumePolicy: 'restart',
-        });
-        await runManagedTask(descriptor, async () => {
-        const now = Date.now();
-        const existing = STATE.records[videoId];
-
-        if (existing) {
-            // 更新现有记录
-            const result = await storageManager.updateRecord(
-                videoId,
-                (current) => {
-                    const cur = current[videoId];
-                    if (!cur) {
-                        throw new Error(`Record ${videoId} not found`);
-                    }
-                    const updated = { ...cur } as VideoRecord;
-                    // 保留主升级策略；仅当显式要求回落到已浏览时执行回落
-                    updated.status = newStatus === VIDEO_STATUS.BROWSED
-                        ? VIDEO_STATUS.BROWSED as any
-                        : safeUpdateStatus(cur.status, newStatus);
-                    updated.updatedAt = now;
-                    return updated;
-                },
-                opId
-            );
-
-            if (result.success) {
-                log(`[StatusObserver] Status updated to ${newStatus} for ${videoId}`);
-                updateFaviconForStatus(newStatus);
-
-                // 显示状态名称
-                const statusName = newStatus === VIDEO_STATUS.VIEWED ? '已观看' :
-                                 newStatus === VIDEO_STATUS.WANT ? '我想看' : '已浏览';
-                showToast(`状态已自动更新为「${statusName}」`, 'success');
-            } else {
-                log(`[StatusObserver] Failed to update status: ${result.error}`);
-            }
-        } else {
-            log('[StatusObserver] No existing record found, status update skipped');
-        }
-        });
-    } catch (error) {
-        log('[StatusObserver] Error updating status:', error);
-    } finally {
-        concurrencyManager.finishProcessingVideo(`${videoId}-status-update`, opId);
-    }
-}
-
-/**
- * 清理状态监听器
- */
 function cleanupStatusObserver(): void {
-    if (statusCheckTimer !== null) {
-        window.clearTimeout(statusCheckTimer);
-        statusCheckTimer = null;
-    }
-
-    if (statusObserver) {
-        statusObserver.disconnect();
-        statusObserver = null;
-    }
-    if (statusClickContainer && statusClickListener) {
-        statusClickContainer.removeEventListener('click', statusClickListener, true);
-    }
-    statusClickContainer = null;
-    statusClickListener = null;
-    statusCheckAllowsExplicitClear = false;
-    log('[StatusObserver] Observer cleaned up');
+    disposeStatusObserver?.();
+    disposeStatusObserver = undefined;
 }
 
 /**
@@ -881,10 +665,6 @@ export async function handleVideoDetailPage(): Promise<void> {
         }
 
         try {
-            bindWantSyncOnClick(videoId);
-        } catch (e) { log('bindWantSyncOnClick error:', e as any); }
-
-        try {
             setupStatusChangeObserver(videoId);
             try {
                 chrome.runtime.sendMessage({
@@ -1259,133 +1039,6 @@ export async function runActorRemarksQuick(timeoutMs?: number): Promise<void> {
         log('actorRemarks: done', { mode, rendered: renderedCount, panelPresent: Boolean(document.getElementById('enhanced-actor-remarks')), inlinePresent: Boolean(document.querySelector('.jdb-actor-remarks-inline')) });
     } catch (e) {
         log('actorRemarks: failed', e);
-    }
-}
-
-// 绑定“想看”按钮点击事件：将本地番号库状态升级为 WANT（若无记录则创建）
-function bindWantSyncOnClick(videoId: string): void {
-    try {
-        if (!isWantSyncEnabled()) return;
-
-        // 兼容多种DOM：优先 form[data-remote][action*="/reviews/want_to_watch"]，回退到包含文本“想看”的按钮
-        const wantForm = document.querySelector<HTMLFormElement>(
-            'form.button_to[action*="/reviews/want_to_watch"], form[action*="/reviews/want_to_watch"]'
-        );
-        const wantButton = wantForm?.querySelector<HTMLElement>('button, input[type="submit"]')
-            || Array.from(document.querySelectorAll<HTMLElement>('button')).find(btn => (btn.textContent || '').includes('想看'))
-            || null;
-        const target: Element | null = wantForm || wantButton || null;
-        if (!target) return;
-
-        if (target.getAttribute(WANT_SYNC_BOUND_ATTR) === 'true') return;
-        target.setAttribute(WANT_SYNC_BOUND_ATTR, 'true');
-
-        let lastInteractionAt = 0;
-        const handler = (_e: Event) => {
-            const now = Date.now();
-            if (now - lastInteractionAt < 100) {
-                return;
-            }
-            lastInteractionAt = now;
-            scheduleWantSyncAfterInteraction(videoId);
-        };
-
-        if (wantForm) {
-            wantForm.addEventListener('submit', handler, { capture: true });
-            if (wantButton) {
-                wantButton.addEventListener('click', handler, { capture: true });
-            }
-        } else if (wantButton) {
-            wantButton.addEventListener('click', handler, { capture: true });
-        }
-    } catch (e) {
-        log('bindWantSyncOnClick failed:', e as any);
-    }
-}
-
-function scheduleWantSyncAfterInteraction(videoId: string): void {
-    let completed = false;
-    WANT_SYNC_CONFIRM_DELAYS_MS.forEach((delayMs) => {
-        window.setTimeout(() => {
-            if (completed) {
-                return;
-            }
-            if (STATE.records[videoId]?.status === VIDEO_STATUS.WANT) {
-                completed = true;
-                return;
-            }
-            if (!isPageConfirmedWantStatus()) {
-                return;
-            }
-            completed = true;
-            upsertWantStatus(videoId).catch(err => log('upsertWantStatus error:', err));
-        }, delayMs);
-    });
-}
-
-// 将本地番号库状态升级为 WANT（若无记录则创建）
-async function upsertWantStatus(videoId: string): Promise<void> {
-    const opId = await concurrencyManager.startProcessingVideo(videoId).catch(() => null);
-    if (!opId) {
-        // 已有并发在处理，避免冲突直接返回
-        return;
-    }
-    try {
-        const now = Date.now();
-        const currentUrl = window.location.href;
-        const existing = STATE.records[videoId];
-
-        if (existing) {
-            // 升级现有记录状态
-            const result = await storageManager.updateRecord(
-                videoId,
-                (current) => {
-                    const cur = current[videoId];
-                    const updated = { ...cur } as VideoRecord;
-                    updated.status = safeUpdateStatus(cur.status, VIDEO_STATUS.WANT as any);
-                    updated.updatedAt = now;
-                    updated.javdbUrl = currentUrl;
-                    return updated;
-                },
-                opId
-            );
-            if (result.success) {
-                updateFaviconForStatus(VIDEO_STATUS.WANT);
-                showToast('已同步为「我想看」', 'success');
-            } else {
-                showToast(`同步失败: ${result.error || '未知错误'}`, 'error');
-            }
-        } else {
-            // 新建记录并设为 WANT
-            let newRecord = await createVideoRecord(videoId, now, currentUrl);
-            if (!newRecord) {
-                // 兜底：最小记录
-                newRecord = {
-                    id: videoId,
-                    title: document.title.replace(/ \| JavDB.*/, '').trim(),
-                    status: VIDEO_STATUS.WANT as any,
-                    tags: [],
-                    createdAt: now,
-                    updatedAt: now,
-                    javdbUrl: currentUrl,
-                } as VideoRecord;
-            } else {
-                newRecord.status = VIDEO_STATUS.WANT as any;
-                newRecord.updatedAt = now;
-            }
-            const result = await storageManager.addRecord(videoId, newRecord, opId);
-            if (result.success) {
-                updateFaviconForStatus(VIDEO_STATUS.WANT);
-                showToast('已添加到番号库并标记为「我想看」', 'success');
-            } else {
-                showToast(`保存失败: ${result.error || '未知错误'}`, 'error');
-            }
-        }
-    } catch (e) {
-        log('upsertWantStatus exception:', e as any);
-        showToast('同步失败：出现异常', 'error');
-    } finally {
-        concurrencyManager.finishProcessingVideo(videoId, opId || undefined);
     }
 }
 

@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { initOrchestrator } from '../../apps/extension/src/apps/content/orchestrator';
 import { STATE, setCurrentFaviconState, setCurrentTitleStatus, setSuspendEarlyFaviconSync } from '../../apps/extension/src/features/contentState';
-import { handleVideoDetailPage, runActorRemarksQuick } from '../../apps/extension/src/features/videoDetail/pageHandler';
+import { handleVideoDetailPage, runActorRemarksQuick, cleanupVideoDetailObservers } from '../../apps/extension/src/features/videoDetail/pageHandler';
 import { concurrencyManager, storageManager } from '../../apps/extension/src/features/records/content';
 import type { VideoRecord } from '../../apps/extension/src/types';
 import { DEFAULT_SETTINGS, VIDEO_STATUS } from '../../apps/extension/src/utils/config';
@@ -207,6 +207,7 @@ describe('video detail want sync', () => {
   });
 
   afterEach(() => {
+    cleanupVideoDetailObservers();
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
     STATE.settings = null;
@@ -262,6 +263,75 @@ describe('video detail want sync', () => {
     expect(STATE.records['SSIS-795']).toBeUndefined();
     expect(favicon?.href).not.toContain('assets/switch-want.png');
   });
+  const viewedMarker = (text = '我看過這部影片') => `<div class="review-title"><a href="/users/watched_videos"><span class="tag">${text}</span></a></div>`;
+
+  function seedBrowsed() {
+    STATE.records['SSIS-795'] = {
+      id: 'SSIS-795', title: '原记录', status: 'browsed', tags: ['保留'],
+      createdAt: 1, updatedAt: 1, isFavorite: true, notes: '保留备注',
+    };
+  }
+
+  it('保存时替换整个状态容器仍同步已看并保留个人字段', async () => {
+    seedBrowsed();
+    await handleVideoDetailPage();
+    await vi.advanceTimersByTimeAsync(4000);
+    document.querySelector('.review-buttons')!.outerHTML = `<div class="review-buttons">${viewedMarker()}</div>`;
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(STATE.records['SSIS-795']).toMatchObject({ status: 'viewed', tags: ['保留'], isFavorite: true, notes: '保留备注' });
+  });
+
+  it('简体账号状态可以同步已看', async () => {
+    seedBrowsed();
+    await handleVideoDetailPage();
+    document.querySelector('.review-buttons')!.innerHTML = viewedMarker('我看过这部影片');
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(STATE.records['SSIS-795'].status).toBe('viewed');
+  });
+
+  it('源站确认已看时本地无记录也会创建', async () => {
+    await handleVideoDetailPage();
+    delete STATE.records['SSIS-795'];
+    document.querySelector('.review-buttons')!.innerHTML = viewedMarker();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(STATE.records['SSIS-795']).toMatchObject({ id: 'SSIS-795', status: 'viewed' });
+  });
+
+  it('本地保存失败后会重试同一个已确认状态', async () => {
+    seedBrowsed();
+    await handleVideoDetailPage();
+    vi.mocked(storageManager.updateRecordDirect).mockResolvedValueOnce({ success: false, error: 'temporary' });
+    document.querySelector('.review-buttons')!.innerHTML = viewedMarker();
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(STATE.records['SSIS-795'].status).toBe('viewed');
+  });
+
+  it('评论区仿冒账号标签不会升级本地状态', async () => {
+    seedBrowsed();
+    document.body.insertAdjacentHTML('beforeend', `<section id="reviews">${viewedMarker()}</section>`);
+    await handleVideoDetailPage();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(STATE.records['SSIS-795'].status).toBe('browsed');
+  });
+
+  it('打开弹窗与取消保存不提前标记已看', async () => {
+    seedBrowsed();
+    document.querySelector('.review-buttons')!.insertAdjacentHTML('beforeend', '<button id="review-watched" class="modal-button">看过</button>');
+    await handleVideoDetailPage();
+    (document.querySelector('#review-watched') as HTMLElement).click();
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(STATE.records['SSIS-795'].status).toBe('browsed');
+  });
+
+  it('清理监听后不会处理后续页面状态', async () => {
+    seedBrowsed();
+    await handleVideoDetailPage();
+    cleanupVideoDetailObservers();
+    document.querySelector('.review-buttons')!.innerHTML = viewedMarker();
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(STATE.records['SSIS-795'].status).toBe('browsed');
+  });
+
   it('moves actor remarks panel mode into the detail enhancement panel without moving inline remarks', async () => {
     window.history.pushState({}, '', '/v/ssis-795');
     document.body.innerHTML = `
