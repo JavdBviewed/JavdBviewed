@@ -3,7 +3,7 @@
  * @description Emby/Jellyfin 设置动作：手动同步媒体库、测试入库检测、持久化
  * @module apps/dashboard/pages/settings/emby
  */
-import type { EmbyLibraryIndexEntry } from '../../../../../features/embyLibrary/types';
+import type { EmbyLibraryFolderOption, EmbyMediaServer, EmbyLibraryIndexEntry } from '../../../../../features/embyLibrary/types';
 import { buildMediaItemUrl } from '../../../../../features/embyLibrary/domain/libraryIndex';
 import { sendRuntimeMessage } from '../../../../../platform/browser/runtimeMessages';
 import {
@@ -179,6 +179,29 @@ export async function loginEmbyUser(params: {
       ok: false,
       error: err instanceof Error ? err.message : '登录请求失败',
     };
+  }
+}
+
+/** 读取当前草稿可访问的媒体库，失败与合法空列表分别返回。 */
+export async function listEmbyLibraries(server: EmbyMediaServer): Promise<
+  { ok: true; libraries: EmbyLibraryFolderOption[] } | { ok: false; error: string }
+> {
+  try {
+    const response = await sendRuntimeMessage<{
+      success?: boolean; libraries?: EmbyLibraryFolderOption[]; error?: string;
+    }>({
+      type: 'EMBY_LIBRARY_LIST_FOLDERS',
+      serverDraft: {
+        type: server.type, url: server.url, apiKey: server.apiKey,
+        accessToken: server.accessToken, userId: server.userId,
+      },
+    });
+    if (!response?.success || !Array.isArray(response.libraries)) {
+      return { ok: false, error: response?.error || '读取媒体库失败，请重试' };
+    }
+    return { ok: true, libraries: response.libraries };
+  } catch {
+    return { ok: false, error: '读取媒体库失败，请检查扩展连接后重试' };
   }
 }
 

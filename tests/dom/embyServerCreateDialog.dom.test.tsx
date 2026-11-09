@@ -20,7 +20,7 @@ let onCancel: ReturnType<typeof vi.fn>;
 
 function TestHarness({ initial, onConfirm, onCancel }: {
   initial: EmbyMediaServer;
-  onConfirm: () => void;
+  onConfirm: (draft: EmbyMediaServer) => Promise<{ ok: boolean }>;
   onCancel: () => void;
 }) {
   const [draft, setDraft] = useState(initial);
@@ -63,7 +63,7 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
-  onConfirm = vi.fn();
+  onConfirm = vi.fn(async () => ({ ok: true }));
   onCancel = vi.fn();
 });
 
@@ -106,7 +106,7 @@ describe('Emby 添加媒体服务器弹窗（MediaServerCreateRow）', () => {
     setInput('emby-create-server-username', 'alice');
     setInput('emby-create-server-password', 'secret');
     expect(hintLines()[0]).toContain('仅账号+密码');
-    expect(hintLines()[0]).toContain('登录并保存令牌');
+    expect(hintLines()[0]).toContain('登录验证');
   });
 
   it('双配时提示立即可用 + 登录后优先', () => {

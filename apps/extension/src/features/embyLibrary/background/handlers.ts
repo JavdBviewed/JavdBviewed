@@ -21,6 +21,7 @@ import {
   getEntryServerIndexKey,
   getServerIndexKey,
   isLibraryFeatureEnabled,
+  libraryScopeFingerprint,
   reconcileLibraryEntries,
   resolveEnabledMediaServers,
 } from '../domain/indexReconcile';
@@ -452,63 +453,64 @@ async function resolveServerUserScope(
  * Emby: /Library/MediaFolders  Jellyfin: 同路径或 /Library/VirtualFolders
  */
 export async function fetchServerLibraryFolders(
-  server: Pick<EmbyMediaServer, 'url' | 'apiKey' | 'accessToken' | 'type'>,
+  server: Pick<EmbyMediaServer, 'url' | 'apiKey' | 'accessToken' | 'type' | 'userId'>,
   fetchImpl: typeof fetch = fetch,
 ): Promise<EmbyLibraryFolderOption[]> {
   const base = normalizeServerUrl(server.url);
-  const apiKey = String(server.apiKey || '');
-  const useToken = server.type === 'jellyfin' && Boolean(server.accessToken);
-  if (!base || (!apiKey && !useToken)) return [];
+  const apiKey = String(server.apiKey || '').trim();
+  const useToken = Boolean(server.accessToken);
+  if (!/^https?:\/\//i.test(base) || (!apiKey && !useToken)) {
+    throw new Error('请填写服务器地址，并配置 API Key 或先登录用户');
+  }
   const query = useToken ? '' : `?api_key=${encodeURIComponent(apiKey)}`;
-  const endpoints = useToken
-    ? [`${base}/Library/VirtualFolders`, `${base}/Library/MediaFolders`]
-    : [`${base}/Library/MediaFolders${query}`, `${base}/Library/VirtualFolders${query}`];
-
+  const endpoints = useToken && server.userId
+    ? [`${base}/Users/${encodeURIComponent(server.userId)}/Views`]
+    : useToken && server.type === 'jellyfin'
+      ? [`${base}/Library/VirtualFolders`, `${base}/Library/MediaFolders`]
+      : [`${base}/Library/MediaFolders${query}`, `${base}/Library/VirtualFolders${query}`];
+  let failure = '无法连接媒体服务器，请检查地址和网络后重试';
   for (const url of endpoints) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DEFAULT_LIBRARY_REQUEST_TIMEOUT_MS);
     try {
-      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      const timeoutId = controller
-        ? setTimeout(() => controller.abort(), DEFAULT_LIBRARY_REQUEST_TIMEOUT_MS)
-        : null;
-      let response: Response;
-      try {
-        response = await fetchImpl(url, {
-          method: 'GET',
-          ...(useToken ? { headers: buildEmbyAuthHeaders(server) } : {}),
-          ...(controller ? { signal: controller.signal } : {}),
-        });
-      } finally {
-        if (timeoutId) clearTimeout(timeoutId);
+      const response = await fetchImpl(url, {
+        method: 'GET',
+        ...(useToken ? { headers: buildEmbyAuthHeaders(server) } : {}),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        failure = `读取媒体库失败（HTTP ${response.status}），请检查凭据和媒体库访问权限`;
+        continue;
       }
-      if (!response.ok) continue;
       const data = await response.json();
-      // MediaFolders: { Items: [...] }  VirtualFolders: 数组或 { Items }
-      const rawItems: any[] = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.Items)
-          ? data.Items
-          : [];
-      const options: EmbyLibraryFolderOption[] = [];
+      const rawItems = Array.isArray(data) ? data : data?.Items;
+      if (!Array.isArray(rawItems)) {
+        failure = '服务器返回的媒体库列表格式不正确，请检查地址后重试';
+        continue;
+      }
+      const options = new Map<string, EmbyLibraryFolderOption>();
       for (const item of rawItems) {
         const id = String(item?.ItemId || item?.Guid || item?.Id || '').trim();
         const name = String(item?.Name || item?.LibraryOptions?.Name || id).trim();
         if (!id || !name) continue;
-        options.push({
-          id,
-          name,
-          collectionType: item?.CollectionType
-            ? String(item.CollectionType)
-            : item?.LibraryOptions?.CollectionType
-              ? String(item.LibraryOptions.CollectionType)
-              : undefined,
+        options.set(id, {
+          id, name,
+          collectionType: item?.CollectionType || item?.LibraryOptions?.CollectionType
+            ? String(item.CollectionType || item.LibraryOptions.CollectionType) : undefined,
         });
       }
-      if (options.length > 0) return options;
+      if (rawItems.length > 0 && options.size === 0) {
+        failure = '服务器返回的媒体库缺少有效标识，请重试';
+        continue;
+      }
+      return [...options.values()];
     } catch {
-      // 尝试下一端点
+      // 不传播可能携带地址或凭据的 fetch 原始异常。
+    } finally {
+      clearTimeout(timer);
     }
   }
-  return [];
+  throw new Error(failure);
 }
 
 /**
@@ -689,7 +691,21 @@ export async function handleEmbyLibrarySync(
     const reconciledEntries = reconcileLibraryEntries(merged.entries, allEnabledServers);
     // ③ 关闭入库开关时的全量手动同步：清掉整个索引。
     const finalEntries = wipeEntries ? {} : reconciledEntries;
+    const libraryScopes = Object.fromEntries(allEnabledServers.flatMap(server => {
+      const key = getServerIndexKey(server);
+      const previousScope = previousState.libraryScopes?.[key];
+      return previousScope === undefined ? [] : [[key, previousScope]];
+    }));
+    for (const server of servers) {
+      if (!successfulServerIds.has(server.id)) continue;
+      const key = getServerIndexKey(server);
+      const scope = libraryScopeFingerprint(server.libraryIds);
+      const previousScope = previousState.libraryScopes?.[key] === undefined ? '[]' : previousState.libraryScopes[key];
+      // 部分扫描可能混有旧范围条目，不能给整份混合快照盖上新范围的完整基线。
+      libraryScopes[key] = completeServerIds.has(server.id) || previousScope === scope ? scope : null;
+    }
     const nextState: EmbyLibraryState = {
+      libraryScopes,
       ...merged,
       entries: finalEntries,
       updatedAt: nextUpdatedAt,
@@ -698,7 +714,7 @@ export async function handleEmbyLibrarySync(
 
     // removedServerKeys = 集合差（10-22 修正）：之前快照全部条目的服务器 key
     // − 当前配置启用服务器 key 集合。
-    // 仅「服务器被移出配置 / 改地址」入集（其 entry 被对账清掉，不属于现存服务器上的
+    // 「服务器被移出配置 / 改地址」入集（其 entry 被对账清掉，不属于现存服务器上的
     // 外部删除，不应写入删除历史）；仍启用且同步成功的服务器上条目消失 = 真实外部删除，
     // 正常写历史；仍启用但本次失败的服务器在配置内不入集（其 entry 不被对账清掉，
     // 由 successfulServerKeys 过滤兜底）。
@@ -709,6 +725,14 @@ export async function handleEmbyLibrarySync(
         .map((entry) => getEntryServerIndexKey(entry))
         .filter((key) => !enabledServerKeys.has(key)),
     );
+
+    // 范围变化时条目消失只说明不再被扫描，不证明服务端文件被删除。
+    // 旧无元数据快照按历史默认整库处理；新指定库首次完整扫描仅建立基线。
+    for (const server of servers) {
+      const key = getServerIndexKey(server);
+      const previousScope = previousState.libraryScopes?.[key] === undefined ? '[]' : previousState.libraryScopes[key];
+      if (previousScope !== libraryScopeFingerprint(server.libraryIds)) removedServerKeys.add(key);
+    }
 
     // 入库开关被明确关闭（libraryEnabled === false）且本次不是「关闭即清空」的全量手动同步：
     // 既不写回持久化状态（保留最后快照），也不更新清理账本。
@@ -734,7 +758,7 @@ export async function handleEmbyLibrarySync(
     );
     if (persistState && completeServerIds.size > 0 && deps.processCleanupSync) {
       try {
-        // removedServerKeys：被移出配置 / 改地址的服务器（不在当前启用集合），不算「外部删除」。
+        // 移出配置/改地址/切换库范围造成的消失，不算「外部删除」。
         cleanupSummary = await deps.processCleanupSync({
           previous: previousState,
           next: nextState,
@@ -1081,36 +1105,35 @@ export async function handleEmbyLibraryListFolders(
   deps: EmbyLibraryHandlerDeps = defaultDeps(),
 ): Promise<void> {
   try {
-    const settings = await deps.getSettings();
-    const servers = getEnabledServers(settings);
-    const serverUrl = normalizeServerUrl(String(message?.serverUrl || ''));
-    const apiKeyOverride = String(message?.apiKey || '').trim();
-
-    let server = servers.find((s) => normalizeServerUrl(s.url) === serverUrl)
-      || servers.find((s) => s.id === String(message?.serverId || ''));
-
-    // 设置页新建未保存时允许直接传 url+apiKey
-    if (!server && serverUrl && apiKeyOverride) {
-      server = {
-        id: `tmp:${serverUrl}`,
-        type: 'emby',
-        name: 'tmp',
-        url: serverUrl,
-        apiKey: apiKeyOverride,
-        enabled: true,
-        libraryIds: [],
+    // 显式草稿必须独立解析，不能从旧 id/url 找回已经更换的凭据。
+    let target: Pick<EmbyMediaServer, 'url' | 'apiKey' | 'accessToken' | 'type' | 'userId'>;
+    if (message?.serverDraft !== undefined) {
+      const draft = message.serverDraft;
+      if (!draft || (draft.type !== 'emby' && draft.type !== 'jellyfin')) {
+        sendResponse({ success: false, error: '无效的媒体服务器配置', libraries: [] });
+        return;
+      }
+      target = {
+        type: draft.type,
+        url: String(draft.url || '').trim(),
+        apiKey: String(draft.apiKey || '').trim(),
+        accessToken: String(draft.accessToken || '').trim() || undefined,
+        userId: String(draft.userId || '').trim() || undefined,
       };
-    }
-
-    const target = server
-      ? { url: server.url, apiKey: apiKeyOverride || server.apiKey, accessToken: apiKeyOverride ? undefined : server.accessToken, type: server.type }
-      : serverUrl && apiKeyOverride
-        ? { url: serverUrl, apiKey: apiKeyOverride, type: 'emby' as const }
-        : null;
-
-    if (!target) {
-      sendResponse({ success: false, error: '缺少服务器地址或 API Key', libraries: [] });
-      return;
+    } else {
+      const settings = await deps.getSettings();
+      const servers = getEnabledServers(settings);
+      const serverUrl = normalizeServerUrl(String(message?.serverUrl || ''));
+      const apiKeyOverride = String(message?.apiKey || '').trim();
+      const server = servers.find(s => normalizeServerUrl(s.url) === serverUrl)
+        || servers.find(s => s.id === String(message?.serverId || ''));
+      target = {
+        url: server?.url || serverUrl,
+        type: server?.type || 'emby',
+        apiKey: apiKeyOverride || server?.apiKey || '',
+        accessToken: apiKeyOverride ? undefined : server?.accessToken,
+        userId: server?.userId,
+      };
     }
 
     const libraries = await fetchServerLibraryFolders(target, deps.fetchImpl);

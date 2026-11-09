@@ -259,5 +259,7 @@ export interface EmbyLibraryServerResult {
 
 /** 媒体库状态（索引 + 服务器检查结果） */
 export interface EmbyLibraryState extends EmbyLibraryIndex {
+  /** 本地快照的库范围指纹；null 表示不同范围的 partial 混合，完整扫描后才重建基线。 */
+  libraryScopes?: Record<string, string | null>;
   serverResults?: EmbyLibraryServerResult[];
 }

@@ -117,6 +117,13 @@ export function reconcileLibraryEntries(
   return next;
 }
 
+/** 选库按集合比较；空/缺省仍为整库。仅用于本地扫描范围对账。 */
+export function libraryScopeFingerprint(libraryIds: unknown): string {
+  return JSON.stringify(Array.isArray(libraryIds)
+    ? [...new Set(libraryIds.map(id => String(id || '').trim()).filter(Boolean))].sort()
+    : []);
+}
+
 /** 单来源功能指纹：id / 类型 / 归一化地址 / 启用态 / 凭证（apiKey / accessToken / userId）。 */
 function serverFingerprint(server: Record<string, unknown>): string {
   return JSON.stringify({
@@ -127,6 +134,7 @@ function serverFingerprint(server: Record<string, unknown>): string {
     apiKey: String(server.apiKey || '').trim(),
     accessToken: String(server.accessToken || '').trim(),
     userId: String(server.userId || '').trim(),
+    libraryScope: libraryScopeFingerprint(server.libraryIds),
   });
 }
 
@@ -141,7 +149,7 @@ function enabledFingerprints(settings: unknown): string[] {
 /**
  * 触发同步的变化判定：与保存前配置 diff，
  * id / 地址(归一化) / 类型 / 启用态 / 凭证(apiKey / accessToken / userId)
- * 任一变化即算；名称 / 库目录选择等非功能字段变化不触发。
+ * 或库目录选择变化即触发；名称 / 缓存目录名称变化不触发。
  */
 export function isEmbyServerConfigChanged(
   prevSettings: unknown,

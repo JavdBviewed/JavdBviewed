@@ -34,7 +34,9 @@ test('Jellyfin indexing distinguishes extraction failures and preserves partial 
     const id = await readExtensionId(context);
     await suppressReleaseAnnouncementForTest(context);
     const page = await context.newPage();
-    await page.goto(extensionPageUrl(id, 'dashboard/dashboard.html'));
+    await page.goto(extensionPageUrl(id, 'dashboard/dashboard.html#tab-settings/media-library-settings'));
+    // 等首轮设置初始化完成，避免默认值保存晚到覆盖合成配置。
+    await expect(page.locator('#sync-emby-library')).toBeVisible();
     await page.evaluate(async url => {
       await chrome.storage.local.set({ settings: {
         cloudSync: { enabled: false }, newWorks: { enabled: false },

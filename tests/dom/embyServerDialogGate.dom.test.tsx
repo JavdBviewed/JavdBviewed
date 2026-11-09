@@ -1,254 +1,162 @@
-/**
- * @file embyServerDialogGate.dom.test.tsx
- * @description 媒体服务器新增/编辑弹窗：480px 单列、footer 固定按钮条、编辑关闭门禁（完成/×/Esc）
- * @module tests/dom
- */
-import { act, createElement, type ReactElement } from 'react';
+/** @description 媒体服务器弹窗保存校验、取消、键盘和密码可见行为 */
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { flushSync } from 'react-dom';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import {
   MediaServerCreateDialog,
   MediaServerEditDialog,
 } from '../../apps/extension/src/apps/dashboard/pages/settings/emby/EmbySettingsPage';
-import { createEmptyMediaServerDraft } from '../../apps/extension/src/apps/dashboard/pages/settings/emby/embySettingsModel';
 import type { EmbyMediaServer } from '../../apps/extension/src/features/embyLibrary/types';
-
-let host: HTMLDivElement;
-let root: Root | undefined;
-
-function renderInto(element: ReactElement): void {
-  if (root) flushSync(() => root.unmount());
-  host = document.createElement('div');
-  document.body.appendChild(host);
-  root = createRoot(host);
-  act(() => {
-    root.render(element);
-  });
-}
-
-function dialog(className: string): HTMLElement {
-  const el = document.querySelector<HTMLElement>(`.${className}`);
-  expect(el, className).not.toBeNull();
-  return el as HTMLElement;
-}
-
-function click(el: Element | null, label: string): void {
-  expect(el, label).not.toBeNull();
-  act(() => {
-    (el as HTMLElement).click();
-  });
-}
-
-function setInputValue(el: Element | null, value: string, label: string): void {
-  expect(el, label).not.toBeNull();
-  const input = el as HTMLInputElement;
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
-  act(() => {
-    setter.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  });
-}
-
-function pressKey(el: Element | null, key: string, label: string): void {
-  expect(el, label).not.toBeNull();
-  act(() => {
-    el!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
-  });
-}
-
-function pressDocumentKey(key: string): void {
-  act(() => {
-    document.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
-  });
-}
-
-function server(patch: Partial<EmbyMediaServer> = {}): EmbyMediaServer {
-  return {
-    ...createEmptyMediaServerDraft(),
-    id: 'srv-1',
-    name: '家庭库',
-    url: 'http://192.168.1.5:8096',
-    apiKey: 'key-1',
-    enabled: true,
-    ...patch,
-  };
-}
-
-function mountCreate(draft: EmbyMediaServer, spies: {
-  onChange?: (draft: EmbyMediaServer) => void;
-  onConfirm?: () => void;
-  onCancel?: () => void;
-} = {}) {
-  renderInto(
-    createElement(MediaServerCreateDialog, {
-      draft,
-      onChange: spies.onChange ?? vi.fn(),
-      onConfirm: spies.onConfirm ?? vi.fn(),
-      onCancel: spies.onCancel ?? vi.fn(),
-    }),
+const server: EmbyMediaServer = {
+  id: 'srv-1',
+  type: 'emby',
+  name: '家庭库',
+  url: 'http://media.test',
+  apiKey: 'synthetic-key',
+  enabled: true,
+};
+let root: Root;
+let close: ReturnType<typeof vi.fn>;
+let save: ReturnType<typeof vi.fn>;
+async function mount(patch: Partial<EmbyMediaServer> = {}, create = false) {
+  await act(async () =>
+    root.render(
+      create ? (
+        <MediaServerCreateDialog
+          draft={{ ...server, ...patch }}
+          onChange={() => {}}
+          onConfirm={save}
+          onCancel={close}
+        />
+      ) : (
+        <MediaServerEditDialog
+          server={{ ...server, ...patch }}
+          index={0}
+          onSave={save}
+          onClose={close}
+          onRemove={() => {}}
+        />
+      ),
+    ),
   );
 }
-
-function mountEdit(srv: EmbyMediaServer, spies: {
-  onClose?: () => void;
-  onChange?: (index: number, patch: Partial<EmbyMediaServer>) => void;
-} = {}) {
-  renderInto(
-    createElement(MediaServerEditDialog, {
-      server: srv,
-      index: 0,
-      onClose: spies.onClose ?? vi.fn(),
-      onChange: spies.onChange ?? vi.fn(),
-      onRemove: vi.fn(),
-      onLoginSuccess: async () => ({ ok: true }),
-      onLogout: vi.fn(),
-    }),
+async function click(selector: string) {
+  await act(async () => document.querySelector<HTMLElement>(selector)!.click());
+}
+async function key(key: string, shiftKey = false) {
+  await act(async () =>
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key,
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
   );
 }
-
 beforeEach(() => {
-  host = document.createElement('div');
-  document.body.appendChild(host);
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  document.body.innerHTML =
+    '<button id="opener">编辑</button><div id="root"></div>';
+  document.getElementById('opener')!.focus();
+  root = createRoot(document.getElementById('root')!);
+  close = vi.fn();
+  save = vi.fn(async () => ({ ok: true }));
 });
-
-afterEach(() => {
-  if (root) flushSync(() => root.unmount());
-  root = undefined;
+afterEach(async () => {
+  await act(async () => root.unmount());
   document.body.innerHTML = '';
 });
-
-describe('Emby 媒体服务器弹窗几何与按钮条', () => {
-  it('新增弹窗=480px 单列 + footer 固定按钮条（取消在前、确认在后，均不在滚动 body 内）', () => {
-    mountCreate(server());
-    const box = dialog('emby-server-create-modal');
-    expect(box.className).toContain('max-w-[30rem]');
-    expect(box.className).not.toContain('96rem');
-
-    const body = box.querySelector('.ui-modal__body');
-    const footer = box.querySelector('.ui-modal__footer');
-    expect(footer).not.toBeNull();
-    expect(body).not.toBeNull();
-    expect(body!.querySelector('.emby-server-form-body')?.className).toContain('grid-cols-1');
-    expect(Array.from(footer!.querySelectorAll('button')).map((b) =>
-      b.classList.contains('create-emby-media-server-cancel') ? 'cancel' :
-      b.classList.contains('create-emby-media-server-confirm') ? 'confirm' : 'other',
-    )).toEqual(['cancel', 'confirm']);
-    expect(body!.querySelector('.create-emby-media-server-confirm')).toBeNull();
-    expect(body!.querySelector('.create-emby-media-server-cancel')).toBeNull();
-
-    const onCancel = vi.fn();
-    mountCreate(server(), { onCancel });
-    click(dialog('emby-server-create-modal').querySelector('.create-emby-media-server-cancel'), '取消');
-    expect(onCancel).toHaveBeenCalledTimes(1);
-  });
-
-  it('编辑弹窗=480px 单列 + footer 左删除右完成', () => {
-    mountEdit(server());
-    const box = dialog('emby-server-edit-modal');
-    expect(box.className).toContain('max-w-[30rem]');
-    expect(box.className).not.toContain('96rem');
-    const body = box.querySelector('.ui-modal__body');
-    const footer = box.querySelector('.ui-modal__footer');
-    expect(body!.querySelector('.emby-server-form-body')?.className).toContain('grid-cols-1');
-    expect(Array.from(footer!.querySelectorAll('button')).map((b) =>
-      b.classList.contains('remove-emby-media-server') ? 'remove' :
-      b.classList.contains('emby-server-edit-done') ? 'done' : 'other',
-    )).toEqual(['remove', 'done']);
-    expect(footer!.querySelector('.remove-emby-media-server')?.className).toContain('mr-auto');
-    expect(body!.querySelector('.remove-emby-media-server')).toBeNull();
-  });
-});
-
-describe('Emby 编辑弹窗关闭门禁', () => {
-  it('启用且无凭据时点完成不关闭，并在凭据位置给红字与出路提示', () => {
-    const onClose = vi.fn();
-    mountEdit(server({ apiKey: '', username: '', password: '' }), { onClose });
-    const box = dialog('emby-server-edit-modal');
-    click(box.querySelector('.emby-server-edit-done'), '完成');
-    expect(onClose).not.toHaveBeenCalled();
-
-    const error = box.querySelector<HTMLElement>('.emby-server-gate-error[data-field="credentials"]');
-    expect(error).not.toBeNull();
-    expect(error!.textContent).toContain('媒体服务器 1「家庭库」（http://192.168.1.5:8096）需要至少一种凭据');
-    expect(error!.textContent).toContain('可先关闭「启用」或删除该服务器');
-    expect(error!.style.fontSize).toBe('12px');
-    expect(error!.closest('.emby-server-user-auth')).not.toBeNull();
-  });
-
-  it('地址非法时红字落在服务器地址字段下', () => {
-    const onClose = vi.fn();
-    mountEdit(server({ url: 'ftp://bad' }), { onClose });
-    const box = dialog('emby-server-edit-modal');
-    click(box.querySelector('.emby-server-edit-done'), '完成');
-    expect(onClose).not.toHaveBeenCalled();
-    const error = box.querySelector<HTMLElement>('.emby-server-gate-error[data-field="url"]');
-    expect(error).not.toBeNull();
-    expect(error!.textContent).toContain('地址需要使用 http 或 https');
-    expect(error!.textContent).toContain('可先关闭「启用」或删除该服务器');
-    const urlField = error!.closest('[data-ui-pattern="setting-field"]');
-    expect(urlField?.querySelector('label')?.textContent).toBe('服务器地址');
-    // 红字与地址输入框同属一个字段容器（不是弹窗底部的通用提示条）
-    expect(urlField?.contains(error!)).toBe(true);
-    expect(urlField?.querySelector('.emby-server-url')).not.toBeNull();
-  });
-
-  it('补全凭据后点完成正常关闭并清掉红字', () => {
-    let current = server({ apiKey: '' });
-    const onClose = vi.fn();
-    const onChange = (_index: number, patch: Partial<EmbyMediaServer>) => {
-      current = { ...current, ...patch };
-      mountEdit(current, { onClose, onChange });
-    };
-    mountEdit(current, { onClose, onChange });
-    const box = dialog('emby-server-edit-modal');
-    click(box.querySelector('.emby-server-edit-done'), '完成');
-    expect(onClose).not.toHaveBeenCalled();
-    expect(box.querySelector('.emby-server-gate-error')).not.toBeNull();
-
-    setInputValue(
-      dialog('emby-server-edit-modal').querySelector('#emby-server-srv-1-api-key'),
-      'key-2',
-      'API Key',
+it.each([true, false])(
+  '保存和取消固定在footer，表单独立滚动（create=%s）',
+  async (create) => {
+    await mount({}, create);
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.className).toContain('max-w-[40rem]');
+    expect(
+      dialog
+        .querySelector('.ui-modal__body')!
+        .querySelector('.emby-server-form-body'),
+    ).not.toBeNull();
+    const labels = [...dialog.querySelectorAll('.ui-modal__footer button')].map(
+      (el) => el.textContent?.trim(),
     );
-    click(dialog('emby-server-edit-modal').querySelector('.emby-server-edit-done'), '完成');
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('停用且无凭据的服务器可直接关闭', () => {
-    const onClose = vi.fn();
-    mountEdit(server({ enabled: false, apiKey: '', username: '', password: '' }), { onClose });
-    const box = dialog('emby-server-edit-modal');
-    click(box.querySelector('.emby-server-edit-done'), '完成');
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(box.querySelector('.emby-server-gate-error')).toBeNull();
-  });
-
-  it('头部关闭钮与 Esc 同样走门禁', () => {
-    const onClose = vi.fn();
-    mountEdit(server({ apiKey: '' }), { onClose });
-    click(dialog('emby-server-edit-modal').querySelector('.ui-modal__close'), '头部关闭钮');
-    pressDocumentKey('Escape');
-    expect(onClose).not.toHaveBeenCalled();
-    expect(dialog('emby-server-edit-modal').querySelector('.emby-server-gate-error')).not.toBeNull();
-  });
-
-  it('Esc 在校验通过时关闭弹窗', () => {
-    const onClose = vi.fn();
-    mountEdit(server(), { onClose });
-    pressDocumentKey('Escape');
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('地址输入框回车在编辑态等同点完成（走门禁）', () => {
-    const onClose = vi.fn();
-    mountEdit(server({ apiKey: '' }), { onClose });
-    pressKey(dialog('emby-server-edit-modal').querySelector('.emby-server-url'), 'Enter', '地址回车');
-    expect(onClose).not.toHaveBeenCalled();
-    expect(dialog('emby-server-edit-modal').querySelector('.emby-server-gate-error')).not.toBeNull();
-
-    mountEdit(server(), { onClose });
-    pressKey(dialog('emby-server-edit-modal').querySelector('.emby-server-url'), 'Enter', '地址回车');
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
+    expect(labels).toEqual(
+      create ? ['取消', '添加服务器'] : ['删除服务器', '取消', '保存修改'],
+    );
+  },
+);
+it('无凭据时保存定位错误，但取消可退出', async () => {
+  await mount({ apiKey: '' });
+  await click('.emby-server-edit-done');
+  expect(save).not.toHaveBeenCalled();
+  expect(
+    document.querySelector('[data-field="credentials"]')?.textContent,
+  ).toContain('需要至少一种凭据');
+  expect(document.activeElement?.id).toBe('emby-server-srv-1-api-key');
+  await click('.emby-server-edit-cancel');
+  expect(close).toHaveBeenCalledOnce();
+});
+it('地址无效时保存定位地址字段', async () => {
+  await mount({ url: 'ftp://bad' });
+  await click('.emby-server-edit-done');
+  expect(save).not.toHaveBeenCalled();
+  expect(document.querySelector('[data-field="url"]')?.textContent).toContain(
+    'http 或 https',
+  );
+  expect(document.activeElement?.id).toBe('emby-server-srv-1-url');
+});
+it('停用的未配服务器可保存', async () => {
+  await mount({ enabled: false, url: '', apiKey: '' });
+  await click('.emby-server-edit-done');
+  expect(save).toHaveBeenCalledOnce();
+  expect(close).toHaveBeenCalledOnce();
+});
+it.each(['Escape', 'header'])(
+  '关闭是取消草稿，不受保存校验卡住（%s）',
+  async (method) => {
+    await mount({ apiKey: '', url: '' });
+    if (method === 'Escape') await key('Escape');
+    else await click('.ui-modal__close');
+    expect(close).toHaveBeenCalledOnce();
+    expect(save).not.toHaveBeenCalled();
+  },
+);
+it('类型先聚焦，Tab循环限制在弹窗内', async () => {
+  await mount();
+  expect(document.activeElement?.id).toBe('emby-server-srv-1-type');
+  document.querySelector<HTMLElement>('.emby-server-edit-done')!.focus();
+  await key('Tab');
+  expect(document.activeElement?.className).toContain('ui-modal__close');
+  await key('Tab', true);
+  expect(document.activeElement?.className).toContain('emby-server-edit-done');
+});
+it('密码小眼睛切换可见状态并保持原密码', async () => {
+  await mount({ password: 'synthetic-password' });
+  const input = document.querySelector<HTMLInputElement>(
+    '#emby-server-srv-1-password',
+  )!;
+  expect(input.type).toBe('password');
+  await click('[aria-label="显示密码"]');
+  expect(input.type).toBe('text');
+  expect(input.value).toBe('synthetic-password');
+  await click('[aria-label="隐藏密码"]');
+  expect(input.type).toBe('password');
+});
+it('保存期间禁止关闭和重复提交', async () => {
+  let resolve!: (result: { ok: boolean }) => void;
+  save.mockReturnValue(
+    new Promise((r) => {
+      resolve = r;
+    }),
+  );
+  await mount();
+  await click('.emby-server-edit-done');
+  await key('Escape');
+  await click('.ui-modal__close');
+  expect(close).not.toHaveBeenCalled();
+  expect(save).toHaveBeenCalledOnce();
+  await act(async () => resolve({ ok: true }));
+  expect(close).toHaveBeenCalledOnce();
 });

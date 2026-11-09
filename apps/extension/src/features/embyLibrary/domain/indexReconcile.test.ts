@@ -138,9 +138,15 @@ describe('isEmbyServerConfigChanged', () => {
     expect(isEmbyServerConfigChanged(settingsOf([baseServer]), settingsOf([{ ...baseServer, url: 'HTTP://192.168.1.66:18096' }]))).toBe(false);
   });
 
-  it('名称 / 库目录选择变化 → false', () => {
+  it('名称变化不触发，库目录选择变化触发同步', () => {
     expect(isEmbyServerConfigChanged(settingsOf([baseServer]), settingsOf([{ ...baseServer, name: '改名' }]))).toBe(false);
-    expect(isEmbyServerConfigChanged(settingsOf([baseServer]), settingsOf([{ ...baseServer, libraryIds: ['lib-1'] }]))).toBe(false);
+    expect(isEmbyServerConfigChanged(settingsOf([baseServer]), settingsOf([{ ...baseServer, libraryIds: ['lib-1'] }]))).toBe(true);
+  });
+
+
+  it('选库只比较集合，空数组与缺省等价', () => {
+    expect(isEmbyServerConfigChanged(settingsOf([baseServer]), settingsOf([{ ...baseServer, libraryIds: [] }]))).toBe(false);
+    expect(isEmbyServerConfigChanged(settingsOf([{ ...baseServer, libraryIds: ['a', 'b'] }]), settingsOf([{ ...baseServer, libraryIds: ['b', 'a', 'a'] }]))).toBe(false);
   });
 
   it('凭证变化（apiKey / accessToken / userId）→ true', () => {

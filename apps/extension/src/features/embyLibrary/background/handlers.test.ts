@@ -89,7 +89,7 @@ describe('emby library background handlers', () => {
     const deps = { ...createDeps(fetchImpl), getSettings: vi.fn(async () => ({ emby: { mediaServers: [jfServer] } })) };
     await handleEmbyLibraryListFolders({ serverId: 'main' }, sendResponse, deps);
     expect(fetchImpl).toHaveBeenCalled();
-    expect(new URL(String(fetchImpl.mock.calls[0][0])).pathname).toBe('/Library/VirtualFolders');
+    expect(new URL(String(fetchImpl.mock.calls[0][0])).pathname).toBe('/Users/user-1/Views');
     expect(new URL(String(fetchImpl.mock.calls[0][0])).searchParams.has('api_key')).toBe(false);
     expect(fetchImpl.mock.calls[0][1]?.headers).toMatchObject({ Authorization: expect.stringContaining('Token="user-token"') });
   });
@@ -1682,5 +1682,32 @@ describe('emby library background handlers', () => {
       expect(getServerIndexKey({ type: 'emby', url: 'http://media.local:8096/' }))
         .toBe('emby:http://media.local:8096');
     });
+  });
+});
+
+describe('settings draft library discovery', () => {
+  it.each(['emby', 'jellyfin'] as const)('uses unsaved %s user session without saved-server fallback', async (type) => {
+    const fetchImpl = createFetchMock(async (input, init) => {
+      expect(String(input)).toBe('http://draft.test/Users/draft-user/Views');
+      expect(JSON.stringify(init?.headers)).toContain('draft-token');
+      expect(JSON.stringify(init?.headers)).not.toContain('api-secret');
+      return new Response(JSON.stringify({ Items: [{ Id: 'lib1', Name: '电影' }] }), { status: 200 });
+    });
+    const response = vi.fn();
+    await handleEmbyLibraryListFolders({ serverDraft: { ...server, type, url: 'http://draft.test', apiKey: '', accessToken: 'draft-token', userId: 'draft-user' } }, response, createDeps(fetchImpl));
+    expect(response).toHaveBeenCalledWith({ success: true, libraries: [{ id: 'lib1', name: '电影', collectionType: undefined }] });
+  });
+  it('returns error for denied library requests rather than a successful empty list', async () => {
+    const fetchImpl = createFetchMock(async () => new Response('', { status: 403 }));
+    const response = vi.fn();
+    await handleEmbyLibraryListFolders({ serverDraft: server }, response, createDeps(fetchImpl));
+    expect(response).toHaveBeenCalledWith(expect.objectContaining({ success: false, error: expect.stringContaining('403') }));
+  });
+  it('accepts an explicit valid empty response and rejects malformed successful responses', async () => {
+    for (const [body, success] of [[{ Items: [] }, true], [{ message: 'bad shape' }, false]] as const) {
+      const response = vi.fn();
+      await handleEmbyLibraryListFolders({ serverDraft: server }, response, createDeps(createFetchMock(async () => new Response(JSON.stringify(body), { status: 200 }))));
+      expect(response).toHaveBeenCalledWith(expect.objectContaining({ success, libraries: [] }));
+    }
   });
 });

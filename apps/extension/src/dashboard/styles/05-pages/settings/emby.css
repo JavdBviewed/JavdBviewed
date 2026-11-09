@@ -1048,3 +1048,53 @@ div.url-item input.url-input:disabled {
   transform: none;
   box-shadow: none;
 }
+
+/* 草稿弹窗：信息分组、清晰同步范围与固定操作区；仅作用于媒体设置弹窗。 */
+.emby-server-dialog .ui-modal__header { padding: 18px 22px; align-items: center; }
+.emby-server-dialog .ui-modal__header h2 { margin: 0; font-size: 17px; }
+.emby-server-dialog .ui-modal__body { padding: 18px 22px; }
+.emby-server-dialog .ui-modal__footer { padding: 14px 22px; align-items: center; flex-wrap: wrap; }
+.emby-server-dialog .emby-server-form-body { gap: 16px; }
+.emby-server-dialog .emby-dialog-intro { margin: 0; font-size: 13px; line-height: 1.7; color: var(--color-fg-muted); }
+.emby-server-dialog .emby-dialog-section {
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-2);
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.emby-server-dialog .emby-dialog-section h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0; font-size: 14px; color: var(--color-fg); }
+.emby-server-dialog .emby-section-number { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--color-surface); color: var(--color-primary); font-size: 12px; border: 1px solid var(--color-border); }
+.emby-server-dialog .emby-dialog-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-width: 0; }
+.emby-server-dialog .emby-dialog-columns > * { min-width: 0; }
+.emby-server-dialog .emby-dialog-help, .emby-server-dialog small { margin: 0; font-size: 12px; line-height: 1.7; color: var(--color-fg-muted); }
+.emby-server-dialog .emby-dialog-help p { margin: 0; }
+.emby-server-dialog .emby-dialog-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.emby-server-dialog .emby-dialog-error { margin: 0; color: var(--danger); font-size: 12px; line-height: 1.7; }
+.emby-server-dialog .emby-dialog-success { color: var(--success); font-size: 12px; }
+.emby-server-dialog .emby-connection-state { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--color-fg-muted); overflow-wrap: anywhere; }
+.emby-server-dialog .emby-connection-state.is-connected { color: var(--success); }
+.emby-server-dialog .emby-library-scope { display: grid; gap: 10px; min-width: 0; }
+.emby-server-dialog .emby-scope-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.emby-server-dialog .emby-scope-modes > div { border: 1px solid var(--color-border); border-radius: var(--radius-2); padding: 10px 12px; background: var(--color-surface); }
+.emby-server-dialog .emby-scope-modes > div.is-selected { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); }
+.emby-server-dialog .emby-scope-modes label { display: flex; gap: 8px; align-items: center; cursor: pointer; color: var(--color-fg); font-weight: 600; font-size: 13px; }
+.emby-server-dialog .emby-scope-modes small { display: block; margin-left: 22px; margin-top: 3px; }
+.emby-server-dialog input[type="radio"], .emby-server-dialog input[type="checkbox"] { width: 16px; height: 16px; flex-shrink: 0; margin: 0; accent-color: var(--color-primary); }
+.emby-server-dialog .emby-library-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.emby-server-dialog .emby-library-options { border: 1px solid var(--color-border); border-radius: var(--radius-2); background: var(--color-surface); max-height: 240px; overflow-y: auto; }
+.emby-server-dialog .emby-library-option { display: flex; gap: 10px; align-items: center; padding: 12px; cursor: pointer; min-width: 0; }
+.emby-server-dialog .emby-library-option + .emby-library-option { border-top: 1px solid var(--color-border); }
+.emby-server-dialog .emby-library-option:hover { background: var(--color-surface-2); }
+.emby-server-dialog .emby-library-option > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.emby-server-dialog .emby-library-option strong { color: var(--color-fg); font-size: 13px; font-weight: 500; }
+.emby-server-dialog .emby-library-option small { display: block; }
+.emby-server-dialog .emby-library-kind { flex-shrink: 0; }
+@media (max-width: 520px) {
+  .emby-server-dialog .ui-modal__header, .emby-server-dialog .ui-modal__body, .emby-server-dialog .ui-modal__footer { padding: 12px; }
+  .emby-server-dialog .emby-dialog-section { padding: 12px; }
+  .emby-server-dialog .emby-dialog-columns, .emby-server-dialog .emby-scope-modes { grid-template-columns: 1fr; }
+  .emby-server-dialog .ui-modal__footer button { padding-left: 10px; padding-right: 10px; }
+}

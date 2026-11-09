@@ -8,8 +8,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  MediaServerCreateRow,
-  MediaServerRow,
+  MediaServerCreateDialog,
+  MediaServerEditDialog,
 } from '../../apps/extension/src/apps/dashboard/pages/settings/emby/EmbySettingsPage';
 import { createEmptyMediaServerDraft } from '../../apps/extension/src/apps/dashboard/pages/settings/emby/embySettingsModel';
 import type { EmbyMediaServer } from '../../apps/extension/src/features/embyLibrary/types';
@@ -41,7 +41,7 @@ let root: Root | undefined;
 
 function fieldsInDomOrder(): FieldEntry[] {
   return Array.from(
-    host.querySelectorAll<HTMLElement>(
+    document.querySelectorAll<HTMLElement>(
       '[data-ui-pattern="setting-field"], [data-ui-pattern="setting-toggle-row"]',
     ),
   ).map((el) => {
@@ -62,27 +62,10 @@ function renderInto(element: ReactElement): void {
 }
 
 function mountCreate(draft: EmbyMediaServer): void {
-  renderInto(
-    createElement(MediaServerCreateRow, {
-      draft,
-      onChange: vi.fn(),
-      onConfirm: vi.fn(),
-      onCancel: vi.fn(),
-    }),
-  );
+  renderInto(createElement(MediaServerCreateDialog, { draft, onChange: vi.fn(), onConfirm: async () => ({ ok: true }), onCancel: vi.fn() }));
 }
-
 function mountEdit(server: EmbyMediaServer): void {
-  renderInto(
-    createElement(MediaServerRow, {
-      server,
-      index: 0,
-      onChange: vi.fn(),
-      onRemove: vi.fn(),
-      onLoginSuccess: async () => ({ ok: true }),
-      onLogout: vi.fn(),
-    }),
-  );
+  renderInto(createElement(MediaServerEditDialog, { server, index: 0, onClose: vi.fn(), onSave: async () => ({ ok: true }), onRemove: vi.fn() }));
 }
 
 function byLabel(entries: FieldEntry[]): Record<string, string> {
@@ -128,17 +111,17 @@ describe('Emby 媒体服务器两表单一致性', () => {
 
   it('两表单都含用户登录盒，且能力提示盒各只保留一份并在盒内', () => {
     mountCreate(createEmptyMediaServerDraft());
-    const createBox = host.querySelector('.emby-server-user-auth');
+    const createBox = document.querySelector('.emby-server-user-auth');
     expect(createBox).not.toBeNull();
-    expect(host.querySelectorAll('.emby-server-user-auth').length).toBe(1);
+    expect(document.querySelectorAll('.emby-server-user-auth').length).toBe(1);
     expect(createBox?.querySelector('.emby-create-server-credential-hint')).not.toBeNull();
-    expect(host.querySelectorAll('.emby-create-server-credential-hint').length).toBe(1);
+    expect(document.querySelectorAll('.emby-create-server-credential-hint').length).toBe(1);
 
     mountEdit(createEmptyMediaServerDraft());
-    const editBox = host.querySelector('.emby-server-user-auth');
+    const editBox = document.querySelector('.emby-server-user-auth');
     expect(editBox).not.toBeNull();
-    expect(host.querySelectorAll('.emby-server-user-auth').length).toBe(1);
+    expect(document.querySelectorAll('.emby-server-user-auth').length).toBe(1);
     expect(editBox?.querySelector('.emby-server-credential-hint')).not.toBeNull();
-    expect(host.querySelectorAll('.emby-server-credential-hint').length).toBe(1);
+    expect(document.querySelectorAll('.emby-server-credential-hint').length).toBe(1);
   });
 });

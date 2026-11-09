@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const pageSource = readFileSync(join(here, 'EmbySettingsPage.tsx'), 'utf8');
+const pageSource = readFileSync(join(here, 'EmbySettingsPage.tsx'), 'utf8') + readFileSync(join(here, 'MediaServerDialogs.tsx'), 'utf8');
 const reactFullSource = readFileSync(join(here, '..', 'shared', 'reactFullPageIds.ts'), 'utf8');
 const mountSource = readFileSync(join(here, '..', '..', '..', '..', '..', 'dashboard', 'tabs', 'mount.ts'), 'utf8');
 const legacySettingsSource = readFileSync(join(here, '..', '..', '..', '..', '..', 'dashboard', 'tabs', 'settings', 'index.ts'), 'utf8');
@@ -67,35 +67,7 @@ describe('EmbySettingsPage media server layout', () => {
     expect(pageSource).toContain('emby-server-edit-modal');
   });
 
-  it('uses a 480px server dialog and icon-only secret visibility controls', () => {
-    // 新增/编辑弹窗统一 480px（!max-w-[30rem]），不再用 96rem 宽壳
-    expect(pageSource).toContain('!max-w-[30rem]');
-    expect(pageSource).not.toContain('max-w-[96rem]');
-    expect(pageSource).toContain("visible ? 'fas fa-eye-slash' : 'fas fa-eye'");
-    expect(pageSource).toContain('aria-pressed={visible}');
-    // 小眼睛垂直居中不依赖 transform（全局 button.css 的 hover/active transform 会整体覆盖）
-    expect(pageSource).toContain('absolute right-1 top-0 bottom-0 my-auto');
-    expect(pageSource).toContain('emby-secret-eye');
-    expect(pageSource).not.toContain('absolute right-1 top-1/2');
-    expect(pageSource).not.toContain("{visible ? '隐藏' : '显示'}");
-  });
-
-  it('edits and persists the saved source password instead of treating it as session-only input', () => {
-    expect(pageSource).toContain('password: server.password');
-    expect(pageSource).toContain('value={server.password || \'\'}');
-    expect(pageSource).toContain('onChange={(value) => onChange({ password: value })}');
-    expect(pageSource).toContain('用户名和密码会随来源配置保存');
-    expect(pageSource).not.toContain('仅用于本次登录，不会写入设置');
-    expect(pageSource).not.toContain("const [loginPassword, setLoginPassword] = useState('')");
-    expect(pageSource).not.toContain("setLoginPassword('')");
-  });
-
-  it('waits for source credential persistence before reporting login success', () => {
-    expect(pageSource).toContain('const saved = await onLoginSuccess({');
-    expect(pageSource).toContain("password: server.password || ''");
-    expect(pageSource).toContain("if (!saved.ok)");
-    expect(pageSource).toContain('来源凭据与访问令牌已保存');
-  });
+  // 弹窗尺寸、草稿凭据与保存反馈由 DOM/浏览器交互用例覆盖。
 
   it('keeps the saved password in the legacy fallback editor', () => {
     expect(legacyEmbySource).toContain("value=\"${this.escapeHtml(server.password || '')}\"");

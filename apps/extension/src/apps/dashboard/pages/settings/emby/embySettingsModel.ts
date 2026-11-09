@@ -568,7 +568,7 @@ export function serverCredentialCapabilityLines(
       ];
     case 'account':
       return [
-        '仅账号+密码：保存后请先在编辑弹窗中「登录并保存令牌」；登录前资料库同步、详情拉取、播放解析不可用',
+        '仅账号+密码：可在当前弹窗点击「登录验证」；登录前资料库同步、详情拉取、播放解析不可用',
       ];
     default:
       return [

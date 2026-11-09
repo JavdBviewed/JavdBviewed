@@ -1,3 +1,5 @@
+import { EMPTY_MEDIA_CLEANUP_STATE, EMPTY_MEDIA_DELETION_HISTORY } from '../../mediaCleanup/mediaCleanupModel';
+import { processEmbySyncCleanupState } from '../../mediaCleanup/mediaCleanupSync';
 import { describe, expect, it, vi } from 'vitest';
 import { handleEmbyLibrarySync, type EmbyLibraryHandlerDeps } from './handlers';
 import type { EmbyLibraryState, EmbyMediaServer } from '../types';
@@ -144,4 +146,46 @@ describe('local Emby source reports', () => {
     expect(deps.reconcileIndexSources).toHaveBeenCalledWith('emby', [server.url]);
   });
 
+});
+
+
+describe('library selection cleanup baseline', () => {
+  const key = 'emby:https://media.example';
+  const watched = { serverType: 'emby' as const, serverUrl: server.url, serverName: 'Media', itemId: 'watched', itemName: 'OLD-001', updatedAt: 100,
+    userData: { played: true, percent: 100, lastPlayedAt: 100 } };
+  it.each([undefined, '[]', '["old"]', null])('scope change establishes a new baseline without false deletion (old=%s)', async oldScope => {
+    const previous: EmbyLibraryState = { entries: { 'OLD-001': [watched] }, updatedAt: 100,
+      ...(oldScope === undefined ? {} : { libraryScopes: { [key]: oldScope } }) };
+    const deps = setup([{ ...server, libraryIds: ['new'] }], previous);
+    let history = EMPTY_MEDIA_DELETION_HISTORY;
+    deps.processCleanupSync = async input => {
+      const result = processEmbySyncCleanupState({ ...input, cleanup: EMPTY_MEDIA_CLEANUP_STATE, history });
+      history = result.history;
+      return result;
+    };
+    await handleEmbyLibrarySync({ manual: true }, vi.fn(), deps);
+    expect(history.records).toEqual({});
+    const saved = vi.mocked(deps.saveState).mock.calls[0][0];
+    expect(saved.libraryScopes?.[key]).toBe('["new"]');
+    expect(saved.entries['OLD-001']).toBeUndefined();
+  });
+  it('same completed scope continues to record real external deletions', async () => {
+    const deps = setup([{ ...server, libraryIds: ['new'] }], { entries: { 'OLD-001': [watched] }, updatedAt: 100, libraryScopes: { [key]: '["new"]' } });
+    let history = EMPTY_MEDIA_DELETION_HISTORY;
+    deps.processCleanupSync = async input => {
+      const result = processEmbySyncCleanupState({ ...input, cleanup: EMPTY_MEDIA_CLEANUP_STATE, history });
+      history = result.history; return result;
+    };
+    await handleEmbyLibrarySync({ manual: true }, vi.fn(), deps);
+    expect(Object.values(history.records)).toEqual([expect.objectContaining({ code: 'OLD-001', reason: 'external_missing' })]);
+  });
+  it('partial from a different scope leaves a mixed baseline until the next complete scan', async () => {
+    const deps = setup([{ ...server, libraryIds: ['new'] }], { entries: { 'OLD-001': [watched] }, updatedAt: 100, libraryScopes: { [key]: '["old"]' } });
+    let page = 0;
+    deps.fetchImpl = vi.fn(async () => new Response(JSON.stringify({ Items: page++ === 0 ? [{ Id: 'fresh', Name: 'ABC-123' }] : [], TotalRecordCount: 2 })));
+    await handleEmbyLibrarySync({ manual: true }, vi.fn(), deps);
+    const saved = vi.mocked(deps.saveState).mock.calls[0][0];
+    expect(saved.libraryScopes?.[key]).toBeNull();
+    expect(saved.entries['OLD-001']).toHaveLength(1);
+  });
 });

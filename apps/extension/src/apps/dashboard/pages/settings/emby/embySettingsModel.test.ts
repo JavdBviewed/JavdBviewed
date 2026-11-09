@@ -468,7 +468,7 @@ describe('embySettingsModel', () => {
     expect(serverCredentialCapabilityLines({ apiKey: 'k', username: '', password: '' })[0])
       .toContain('进度写回与标记已看需再配置用户名');
     expect(serverCredentialCapabilityLines({ apiKey: '', username: 'u', password: 'p' })[0])
-      .toContain('登录并保存令牌');
+      .toContain('登录验证');
     expect(serverCredentialCapabilityLines({ apiKey: 'k', username: 'u', password: 'p' })[0])
       .toContain('立即可用');
     const loggedIn = serverCredentialCapabilityLines({
@@ -489,7 +489,7 @@ describe('embySettingsModel', () => {
     expect(lines[1]).toContain('需补用户名+密码');
     // 双向锁：其余分支逐字不变
     expect(serverCredentialCapabilityLines({ apiKey: '', username: 'u', password: 'p' })).toEqual([
-      '仅账号+密码：保存后请先在编辑弹窗中「登录并保存令牌」；登录前资料库同步、详情拉取、播放解析不可用',
+      '仅账号+密码：可在当前弹窗点击「登录验证」；登录前资料库同步、详情拉取、播放解析不可用',
     ]);
     expect(serverCredentialCapabilityLines({ apiKey: 'k', username: 'u', password: 'p' })).toHaveLength(1);
     expect(serverCredentialCapabilityLines({ apiKey: '', username: '', password: '' })).toHaveLength(1);
