@@ -71,17 +71,13 @@ export class SessionManager implements ISessionManager {
      */
     async endSession(): Promise<void> {
         try {
-            // 防止重复调用
-            if (!this.sessionInfo) {
-                return;
-            }
-
+            // 即使内存尚无会话，也要撤销磁盘上的残留会话。
             // 清除定时器
             this.clearTimeouts();
 
             // 清除会话信息
             this.sessionInfo = null;
-            await this.storage.saveSessionInfo(null as any);
+            await this.storage.saveSessionInfo(null);
 
             console.log('[Privacy] Session ended');
         } catch (error) {
@@ -187,7 +183,7 @@ export class SessionManager implements ISessionManager {
 
             // 检查会话是否仍然有效
             if (!SessionValidator.isSessionValid(storedSession, this.defaultTimeout)) {
-                await this.storage.saveSessionInfo(null as any);
+                await this.storage.saveSessionInfo(null);
                 return false;
             }
 
@@ -257,7 +253,7 @@ export class SessionManager implements ISessionManager {
         
         // 清除存储
         try {
-            await this.storage.saveSessionInfo(null as any);
+            await this.storage.saveSessionInfo(null);
         } catch (error) {
             console.error('[Privacy] Failed to clear session info:', error);
         }

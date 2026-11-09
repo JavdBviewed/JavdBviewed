@@ -71,11 +71,10 @@ export class PrivacyManager implements IPrivacyManager {
             this.setupEventListeners();
 
             // 恢复会话（如果有效）
-            const sessionRestored = await this.sessionManager.restoreSession();
-            if (sessionRestored) {
-                this.currentState.isAuthenticated = true;
-                this.currentState.sessionStartTime = this.sessionManager.getSessionInfo().startTime;
-            }
+            // 显式锁定优先于可能因存储删除失败而残留的会话。
+            const sessionRestored = !this.currentState.isLocked && await this.sessionManager.restoreSession();
+            this.currentState.isAuthenticated = sessionRestored;
+            this.currentState.sessionStartTime = sessionRestored ? this.sessionManager.getSessionInfo().startTime : 0;
 
             // 根据配置应用初始状态
             await this.applyInitialState();
@@ -432,17 +431,12 @@ export class PrivacyManager implements IPrivacyManager {
         }
 
         try {
-            console.log('[PrivacyManager] Ending session...');
-            // 结束会话
-            await this.sessionManager.endSession();
-
-            console.log('[PrivacyManager] Showing lock screen...');
-            // 显示锁定屏幕
+            // 先遮挡页面。会话存储失败不能阻止本次锁屏。
             this.lockScreen.show();
-
             this.currentState.isLocked = true;
             this.currentState.isAuthenticated = false;
             this.currentState.sessionStartTime = 0;
+            await this.sessionManager.endSession();
 
             await this.savePrivacyState();
 

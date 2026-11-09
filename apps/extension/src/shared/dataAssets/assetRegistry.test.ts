@@ -69,9 +69,9 @@ describe('data asset registry guard', () => {
     expect(getCloudStorageAssetPolicy(STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS)).toBeUndefined();
     expect(getCloudStorageAssetPolicy('cloud_sync_session_v1')).toBeUndefined();
 
+    expect(getWebDAVRestorableStorageKeys()).not.toContain(STORAGE_KEYS.PRIVACY_STATE);
     expect(getWebDAVRestorableStorageKeys()).toEqual(
       expect.arrayContaining([
-        STORAGE_KEYS.PRIVACY_STATE,
         STORAGE_KEYS.EMBY_LIBRARY_STATE,
         STORAGE_KEYS.DRIVE115_LIBRARY_STATE,
         STORAGE_KEYS.MEDIA_WATCH_EVIDENCE,

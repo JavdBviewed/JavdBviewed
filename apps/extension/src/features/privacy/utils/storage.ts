@@ -14,9 +14,10 @@ export class PrivacyStorage {
     private encryptionKey: string = '';
     private ready: Promise<void> | null = null;
 
-    private constructor() {
-        this.ready = this.initializeEncryptionKey();
-    }
+    // 读取或清理失败后，本次页面生命周期不能借残留会话恢复认证。
+    private sessionRecoveryBlocked = false;
+
+    private constructor() {}
 
     public static getInstance(): PrivacyStorage {
         if (!PrivacyStorage.instance) {
@@ -29,30 +30,51 @@ export class PrivacyStorage {
      * 初始化加密密钥
      */
     private async initializeEncryptionKey(): Promise<void> {
-        try {
-            const stored = await this.getFromStorage('privacy_encryption_key');
-            if (stored) {
+        const initialize = async () => {
+            const stored: unknown = await this.getFromStorage('privacy_encryption_key');
+            if (stored !== undefined && stored !== null) {
+                if (typeof stored !== 'string' || !stored.length) throw new Error('Invalid local privacy key');
                 this.encryptionKey = stored;
-            } else {
-                this.encryptionKey = generateSecureId();
-                await this.setToStorage('privacy_encryption_key', this.encryptionKey);
+                return;
             }
-        } catch (error) {
-            console.warn('Failed to initialize encryption key:', error);
-            this.encryptionKey = 'default-key-' + Date.now();
+            const key = generateSecureId();
+            await this.setToStorage('privacy_encryption_key', key);
+            // 只有持久化成功的密钥才可用于后续写入。
+            this.encryptionKey = key;
+        };
+        if (typeof navigator !== 'undefined' && navigator.locks) {
+            await navigator.locks.request('javdb-privacy-key', initialize);
+        } else {
+            await initialize();
         }
     }
 
-    /**
-     * 确保密钥已就绪
-     */
     private async ensureReady(): Promise<void> {
-        if (!this.encryptionKey) {
-            try {
-                await (this.ready || Promise.resolve());
-            } catch {
-                // 忽略错误，后续方法有容错
-            }
+        if (this.encryptionKey) return;
+        if (!this.ready) {
+            this.ready = this.initializeEncryptionKey().finally(() => { this.ready = null; });
+        }
+        await this.ready;
+    }
+
+    private decodeRuntime<T>(value: unknown, validate: (value: unknown) => value is T): T | null {
+        if (typeof value !== 'string') return null;
+        try {
+            const parsed: unknown = JSON.parse(decryptData(value, this.encryptionKey));
+            return validate(parsed) ? parsed : null;
+        } catch {
+            return null;
+        }
+    }
+
+    private async discardInvalidRuntime(includeState: boolean): Promise<void> {
+        this.sessionRecoveryBlocked = true;
+        // 先撤销会话。若删除失败，保留坏state，下一次启动仍能识别异常。
+        try {
+            await this.removeFromStorage(STORAGE_KEYS.PRIVACY_SESSION);
+            if (includeState) await this.removeFromStorage(STORAGE_KEYS.PRIVACY_STATE);
+        } catch {
+            console.warn('[Privacy] Unreadable runtime data could not be removed; session recovery disabled.');
         }
     }
 
@@ -65,7 +87,7 @@ export class PrivacyStorage {
             const encrypted = encryptData(JSON.stringify(state), this.encryptionKey);
             await this.setToStorage(STORAGE_KEYS.PRIVACY_STATE, encrypted);
         } catch (error) {
-            console.error('Failed to save privacy state:', error);
+            console.warn('[Privacy] Local privacy state could not be saved.');
             throw new Error('保存隐私状态失败');
         }
     }
@@ -74,60 +96,58 @@ export class PrivacyStorage {
      * 加载隐私状态
      */
     async loadPrivacyState(): Promise<PrivacyState | null> {
+        let encrypted: unknown;
         try {
             await this.ensureReady();
-            const encrypted = await this.getFromStorage(STORAGE_KEYS.PRIVACY_STATE);
-            if (!encrypted) {
-                return null;
-            }
-
-            const decrypted = decryptData(encrypted, this.encryptionKey);
-            if (!decrypted) {
-                return null;
-            }
-
-            return JSON.parse(decrypted) as PrivacyState;
-        } catch (error) {
-            console.error('Failed to load privacy state:', error);
+            encrypted = await this.getFromStorage(STORAGE_KEYS.PRIVACY_STATE);
+        } catch {
+            this.sessionRecoveryBlocked = true;
+            console.warn('[Privacy] Local privacy storage is unavailable; session recovery disabled.');
             return null;
         }
+        if (encrypted === undefined || encrypted === null) return null;
+        const state = this.decodeRuntime(encrypted, isPrivacyState);
+        if (state) return state;
+        console.warn('[Privacy] Unreadable local privacy state discarded; unlock again if private mode is enabled.');
+        await this.discardInvalidRuntime(true);
+        return null;
     }
 
-    /**
-     * 存储会话信息
-     */
-    async saveSessionInfo(session: SessionInfo): Promise<void> {
+    /** 存储本机解锁会话；退出时删除，不保存加密的null。 */
+    async saveSessionInfo(session: SessionInfo | null): Promise<void> {
         try {
+            if (session === null) {
+                this.sessionRecoveryBlocked = true;
+                await this.removeFromStorage(STORAGE_KEYS.PRIVACY_SESSION);
+                return;
+            }
             await this.ensureReady();
+            if (!isSessionInfo(session)) throw new Error('Invalid session shape');
             const encrypted = encryptData(JSON.stringify(session), this.encryptionKey);
             await this.setToStorage(STORAGE_KEYS.PRIVACY_SESSION, encrypted);
-        } catch (error) {
-            console.error('Failed to save session info:', error);
-            throw new Error('保存会话信息失败');
+            this.sessionRecoveryBlocked = false;
+        } catch {
+            throw new Error('保存隐私会话失败');
         }
     }
 
-    /**
-     * 加载会话信息
-     */
     async loadSessionInfo(): Promise<SessionInfo | null> {
+        if (this.sessionRecoveryBlocked) return null;
+        let encrypted: unknown;
         try {
             await this.ensureReady();
-            const encrypted = await this.getFromStorage(STORAGE_KEYS.PRIVACY_SESSION);
-            if (!encrypted) {
-                return null;
-            }
-
-            const decrypted = decryptData(encrypted, this.encryptionKey);
-            if (!decrypted) {
-                return null;
-            }
-
-            return JSON.parse(decrypted) as SessionInfo;
-        } catch (error) {
-            console.error('Failed to load session info:', error);
+            encrypted = await this.getFromStorage(STORAGE_KEYS.PRIVACY_SESSION);
+        } catch {
+            this.sessionRecoveryBlocked = true;
+            console.warn('[Privacy] Local session storage is unavailable; session recovery disabled.');
             return null;
         }
+        if (encrypted === undefined || encrypted === null) return null;
+        const session = this.decodeRuntime(encrypted, isSessionInfo);
+        if (session) return session;
+        console.warn('[Privacy] Unreadable local privacy session discarded.');
+        await this.discardInvalidRuntime(false);
+        return null;
     }
 
     /**
@@ -338,4 +358,20 @@ export class PrivacyStorage {
  */
 export function getPrivacyStorage(): PrivacyStorage {
     return PrivacyStorage.getInstance();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+function isNonnegativeFinite(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+function isPrivacyState(value: unknown): value is PrivacyState {
+    return isRecord(value)
+        && ['isBlurred', 'isLocked', 'isAuthenticated', 'temporaryViewActive'].every(key => typeof value[key] === 'boolean')
+        && ['sessionStartTime', 'lastActivity', 'temporaryViewEndTime'].every(key => isNonnegativeFinite(value[key]));
+}
+function isSessionInfo(value: unknown): value is SessionInfo {
+    return isRecord(value) && typeof value.isValid === 'boolean'
+        && ['startTime', 'lastActivity', 'timeoutDuration', 'remainingTime'].every(key => isNonnegativeFinite(value[key]));
 }

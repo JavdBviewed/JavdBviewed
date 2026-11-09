@@ -329,6 +329,9 @@ describe('WebDAV backup and restore baseline', () => {
     });
 
     setChromeStorage({
+      [STORAGE_KEYS.PRIVACY_STATE]: 'foreign-device-state',
+      [STORAGE_KEYS.PRIVACY_SESSION]: 'foreign-device-session',
+      privacy_encryption_key: 'foreign-device-key',
       [STORAGE_KEYS.SETTINGS]: {
         theme: 'dark',
         futureSettingsSection: { nestedValue: 'keep-with-full-settings' },
@@ -348,7 +351,6 @@ describe('WebDAV backup and restore baseline', () => {
         },
       },
       [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
-      [STORAGE_KEYS.PRIVACY_STATE]: { screenshotMode: { enabled: true } },
       [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
       [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
       [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: { version: 1, items: {}, observedWatchedCopyIds: [], updatedAt: 10 },
@@ -382,7 +384,6 @@ describe('WebDAV backup and restore baseline', () => {
         },
       },
       [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
-      [STORAGE_KEYS.PRIVACY_STATE]: { screenshotMode: { enabled: true } },
       [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
       [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
       [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: { version: 1, items: {}, observedWatchedCopyIds: [], updatedAt: 10 },
@@ -390,6 +391,9 @@ describe('WebDAV backup and restore baseline', () => {
       [STORAGE_KEYS.DASHBOARD_LAST_PAGE]: '#/records',
       cloud_sync_settings_v1: { baseUrl: 'https://cloud.example.com', deviceId: 'local-device' },
     });
+    expect(snapshot.storageAll[STORAGE_KEYS.PRIVACY_STATE]).toBeUndefined();
+    expect(snapshot.storageAll[STORAGE_KEYS.PRIVACY_SESSION]).toBeUndefined();
+    expect(snapshot.storageAll.privacy_encryption_key).toBeUndefined();
     expect(snapshot.storageAll['taskCenter:snapshot']).toBeUndefined();
     expect(snapshot.storageAll.cache_actor_ABC).toBeUndefined();
     expect(snapshot.storageAll[TELEMETRY_CLIENT_STATE_KEY]).toBeUndefined();
@@ -1271,7 +1275,9 @@ describe('WebDAV backup and restore baseline', () => {
     const result = await applyImportDataDirect(
       {
         storageAll: {
-          [STORAGE_KEYS.PRIVACY_STATE]: { screenshotMode: { enabled: true } },
+          [STORAGE_KEYS.PRIVACY_STATE]: 'foreign-device-state',
+          [STORAGE_KEYS.PRIVACY_SESSION]: 'foreign-device-session',
+          privacy_encryption_key: 'foreign-device-key',
           [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
           [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
           [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
@@ -1320,7 +1326,6 @@ describe('WebDAV backup and restore baseline', () => {
 
     expect(result.success).toBe(true);
     expect(getChromeStorageSnapshot()).toMatchObject({
-      [STORAGE_KEYS.PRIVACY_STATE]: { screenshotMode: { enabled: true } },
       [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
       [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
       [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
@@ -1342,12 +1347,14 @@ describe('WebDAV backup and restore baseline', () => {
       },
       cloud_auto_sync_settings_v1: { enabled: true },
     });
+    expect(getChromeStorageSnapshot()[STORAGE_KEYS.PRIVACY_STATE]).toBeUndefined();
+    expect(getChromeStorageSnapshot()[STORAGE_KEYS.PRIVACY_SESSION]).toBeUndefined();
+    expect(getChromeStorageSnapshot().privacy_encryption_key).toBeUndefined();
     expect(getChromeStorageSnapshot()['taskCenter:snapshot']).toBeUndefined();
     expect(getChromeStorageSnapshot().cache_actor_ABC).toBeUndefined();
     expect(getChromeStorageSnapshot()[TELEMETRY_CLIENT_STATE_KEY]).toBeUndefined();
     expect(result.summary?.categories?.storageAll).toMatchObject({
       restored: expect.arrayContaining([
-        STORAGE_KEYS.PRIVACY_STATE,
         STORAGE_KEYS.EMBY_LIBRARY_STATE,
         STORAGE_KEYS.MEDIA_WATCH_EVIDENCE,
         STORAGE_KEYS.MEDIA_115_CLEANUP_LIST,

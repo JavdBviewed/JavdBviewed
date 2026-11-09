@@ -39,7 +39,7 @@ import {
 } from './cloudSettingsStorage';
 import { applyLocalMediaIndex, removeLocalMediaIndex } from './localMediaIndexSync';
 import { markCloudStorageWrite } from './storageChangeGate';
-import { filterOutgoingSyncEntities, shouldSyncStorageItemKey, shouldReceiveStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
+import { isDevicePrivacyEntity, filterOutgoingSyncEntities, shouldSyncStorageItemKey, shouldReceiveStorageItemKey, STORAGE_ITEM_TYPE } from './storageItemPolicy';
 import type { TypeCountMap } from './syncStats';
 import { mergeMediaCleanupStorageValue } from '../mediaCleanup';
 import { mergeEmbyMediaServersForPull, stripEmbySessionFieldsFromValue } from '../../shared/embyMediaServerSync';
@@ -599,6 +599,7 @@ async function applyOne(entity: SyncEntity): Promise<void> {
       return;
     }
     case STORAGE_ITEM_TYPE: {
+      if (isDevicePrivacyEntity(entity)) return;
       const body = asRecord(payload);
       const key = stringField(body, 'key') || entity.id;
       if (!shouldReceiveStorageItemKey(key)) return;

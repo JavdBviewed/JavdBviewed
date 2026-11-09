@@ -191,6 +191,7 @@ describe('Cloud 全量资产同步', () => {
     expect(keys.has(`storage_item/${STORAGE_KEYS.IDB_MIGRATED}`)).toBe(false);
     expect(keys.has('storage_item/idb_magnet_push_logs_migrated')).toBe(false);
     expect(keys.has('storage_item/telemetry_client_state')).toBe(false);
+    expect(keys.has(`storage_item/${STORAGE_KEYS.PRIVACY_STATE}`)).toBe(false);
     expect(keys.has(`storage_item/${STORAGE_KEYS.PRIVACY_SESSION}`)).toBe(false);
     expect(keys.has(`storage_item/${STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS}`)).toBe(false);
     expect(keys.has('preference/display')).toBe(false);

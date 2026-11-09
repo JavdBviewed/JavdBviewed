@@ -244,10 +244,10 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
   chromeStorage(
     'storage.privacyState',
     STORAGE_KEYS.PRIVACY_STATE,
-    'account',
-    { backup: true, restore: true, restoreMode: 'replace' },
-    { full: true, incremental: true, entityType: 'storage_item', allowDelete: true },
-    '隐私配置是用户资产；当前允许进入用户自建 Cloud。',
+    'runtime',
+    { backup: false, restore: false, restoreMode: 'skip' },
+    { full: false, incremental: false },
+    '隐私运行态使用本机密钥；用户隐私配置由settings保存。',
     { sensitive: true },
   ),
   chromeStorage(

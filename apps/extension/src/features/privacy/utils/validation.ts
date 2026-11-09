@@ -189,7 +189,7 @@ export class SessionValidator {
      * 验证会话是否有效
      */
     static isSessionValid(sessionInfo: any, timeoutMinutes: number): boolean {
-        if (!sessionInfo || typeof sessionInfo.startTime !== 'number') {
+        if (!sessionInfo || sessionInfo.isValid !== true || typeof sessionInfo.startTime !== 'number' || !Number.isFinite(sessionInfo.startTime)) {
             return false;
         }
 
@@ -197,7 +197,7 @@ export class SessionValidator {
         const sessionAge = now - sessionInfo.startTime;
         const maxAge = timeoutMinutes * 60 * 1000;
 
-        return sessionAge < maxAge;
+        return sessionAge >= 0 && sessionAge < maxAge;
     }
 
     /**
@@ -215,7 +215,7 @@ export class SessionValidator {
      * 计算会话剩余时间
      */
     static getSessionRemainingTime(sessionInfo: any, timeoutMinutes: number): number {
-        if (!sessionInfo || typeof sessionInfo.startTime !== 'number') {
+        if (!sessionInfo || sessionInfo.isValid !== true || typeof sessionInfo.startTime !== 'number' || !Number.isFinite(sessionInfo.startTime)) {
             return 0;
         }
 
