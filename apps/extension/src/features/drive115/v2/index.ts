@@ -1213,46 +1213,17 @@ class Drive115V2Service {
       const url = `${base}/open/offline/get_task_list?page=${page}`;
       await addLogV2({ timestamp: Date.now(), level: 'debug', message: `开始获取云下载任务列表（v2），页码：${page}` });
 
-      // 优先通过后台代理
-      let json: Drive115V2TaskListResponse | undefined;
-      try {
-        if (typeof chrome !== 'undefined' && chrome.runtime?.id && typeof chrome.runtime.sendMessage === 'function') {
-          const bgResp: any = await new Promise((resolve) => {
-            try {
-              chrome.runtime.sendMessage(
-                { type: 'drive115.get_task_list_v2', payload: { accessToken: token, page, baseUrl: base } },
-                (resp) => resolve(resp)
-              );
-            } catch { resolve(undefined); }
-          });
-          if (bgResp && typeof bgResp.success === 'boolean') {
-            if (!bgResp.success) {
-              await addLogV2({ timestamp: Date.now(), level: 'warn', message: `后台任务列表请求失败：${bgResp.message || '未知'}` });
-            } else {
-              json = (bgResp.raw || {}) as Drive115V2TaskListResponse;
-            }
-          }
-        }
-      } catch {}
-
-      // 回退：直接在前端发起 fetch
-      if (!json) {
-        const res = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json'
-          }
-        });
-
-        if (!res.ok) {
-          const msg = `获取任务列表网络错误: ${res.status} ${res.statusText}`;
-          await addLogV2({ timestamp: Date.now(), level: 'warn', message: msg });
-          return { success: false, message: msg };
-        }
-
-        json = await res.json().catch(() => ({} as Drive115V2TaskListResponse));
+      // 仅Dashboard调用此接口；后台未注册列表代理，直接读取以免产生空消息端口。
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+      });
+      if (!res.ok) {
+        const msg = `获取任务列表网络错误: ${res.status} ${res.statusText}`;
+        await addLogV2({ timestamp: Date.now(), level: 'warn', message: msg });
+        return { success: false, message: msg };
       }
+      const json: Drive115V2TaskListResponse = await res.json().catch(() => ({}));
 
       const ok = typeof json?.state === 'boolean' ? json.state : true;
       if (!ok) {

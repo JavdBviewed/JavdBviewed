@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ list: vi.fn() }));
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+const mocks = vi.hoisted(() => ({ list: vi.fn(), token: vi.fn() }));
 vi.mock('../../features/drive115/v2', () => ({ getDrive115V2Service: () => ({
-  getValidAccessToken: async () => ({ success: true, accessToken: 'synthetic-token' }), getTaskList: mocks.list,
+  getValidAccessToken: mocks.token, getTaskList: mocks.list,
 }) }));
-vi.mock('../../utils/storage', () => ({ getSettings: async () => ({}), saveSettings: vi.fn() }));
+vi.mock('../../utils/storage', () => ({ getSettings: async () => ({ drive115: { v2AccessToken: 'stale-token' } }), saveSettings: vi.fn() }));
 vi.mock('../components/drive115FolderPicker', () => ({ openDrive115FolderPicker: vi.fn() }));
 import { Drive115TasksManager } from './drive115Tasks';
+beforeEach(() => { mocks.token.mockResolvedValue({ success: true, accessToken: 'synthetic-token' }); });
 afterEach(() => { document.body.innerHTML = ''; vi.clearAllMocks(); });
 it('loads again after rapid category switching and ignores an old failed response', async () => {
   document.body.innerHTML = '<div id="tab-drive115-tasks"><div id="drive115TasksContainer"></div><div id="drive115TasksStatsContainer"></div><div id="drive115TasksPaginationContainer"></div></div>';
@@ -33,4 +34,13 @@ it('retries an error without a global manager or inline handler', async () => {
   expect(retry?.getAttribute('onclick')).toBeNull();
   retry?.click();
   await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
+});
+
+it('stops at failed authorization instead of submitting a stale saved token', async () => {
+  document.body.innerHTML = '<div id="drive115TasksContainer"></div>';
+  mocks.token.mockResolvedValue({ success: false, message: 'refresh_token 无效，请重新授权' });
+  const manager = new Drive115TasksManager({ manageLifecycle: false });
+  await manager.activate();
+  expect(mocks.list).not.toHaveBeenCalled();
+  expect(document.body.textContent).toContain('请重新授权');
 });

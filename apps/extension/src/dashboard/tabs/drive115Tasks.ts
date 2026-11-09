@@ -136,16 +136,7 @@ export class Drive115TasksManager {
         return ret.accessToken;
       }
 
-      // 兜底：直接读取设置中已填写的 access_token（即使没有 expiresAt/refresh_token）
-      try {
-        const settings = await getSettings();
-        const fallback = (settings as any)?.drive115?.v2AccessToken;
-        const token = (fallback || '').toString().trim();
-        if (token) {
-          return token;
-        }
-      } catch {}
-
+      // token服务已处理有效或缺失过期时间的手填token；失败后不可绕过其判据。
       const msg = (ret as any)?.message || '请先在设置中配置115网盘授权信息';
       explain(msg);
       return null;
