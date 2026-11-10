@@ -1,3 +1,4 @@
+import { hasCatalogPresence, projectWatchedKeys } from '../../../features/media/watchProjection';
 /**
  * @file mediaStateFilterModel.ts
  * @description records 媒体库状态筛选（10-24-records-filter-media-states）：
@@ -5,9 +6,9 @@
  *
  * 口径与站点列表 hideInMediaLibrary / hideRealWatched 同源（只消费不改）：
  * - inLibrary   = Emby/JF 同步索引命中（∩ 已配置启用服务器）∨ 115 网盘索引命中 ∨ Cloud 本地文件索引命中；
- * - realWatched = Emby/JF 命中且 computeWatchState === 'watched'（115 无观看态，不计）。
+ * - realWatched = 可靠持久播放证据与当前播放摘要的合并，尊重来源撤销围栏。
  * 候选顺序为 videoCode 优先、id 兜底；截断/无效 videoCode 不遮蔽完整 id。
- * 每条记录采用首个命中候选，避免把不同候选的状态合并。两者均无法归一为番号时不命中。
+ * 每条记录采用首个命中候选，避免把不同候选的状态合并；media: 记录可按准确 catalog 身份命中。
  *
  * 人工钉住（10-27-records-derived-state-pin）：record.mediaStateOverrides 逐维三态
  * （true=钉住强制命中 / false=强制关 / 缺=未钉住）；override 优先于派生判定，
@@ -52,6 +53,7 @@ export interface BuildMediaStateHitMapInput {
   /** STATE.settings.emby.mediaServers 原样透传（谓词内部按 enabled!==false + url 归一）。 */
   servers: unknown;
   localState?: LocalMediaLibraryIndex | null;
+  watchEvidence?: unknown;
 }
 
 /**
@@ -73,6 +75,7 @@ export function buildMediaStateHitMap(input: BuildMediaStateHitMapInput): Map<st
   const map = new Map<string, MediaStateHit>();
   const records = Array.isArray(input.records) ? input.records : [];
 
+  const watched = projectWatchedKeys(input.embyIndex, input.servers, input.watchEvidence);
   const localCodes = buildLocalMediaCodeSet(input.localState);
   for (const record of records) {
     if (!record || typeof record !== 'object') continue;
@@ -84,8 +87,8 @@ export function buildMediaStateHitMap(input: BuildMediaStateHitMapInput): Map<st
     for (const code of candidates) {
       const embyHit = computeEmbyHidingHit(input.embyIndex, code, input.servers);
       const candidateHit: MediaStateHit = {
-        inLibrary: embyHit.inLibrary || hasDrive115Hit(input.drive115State, code) || hasLocalMediaHit(localCodes, code),
-        realWatched: embyHit.realWatched,
+        inLibrary: hasCatalogPresence(input.embyIndex, code, input.servers) || embyHit.inLibrary || hasDrive115Hit(input.drive115State, code) || hasLocalMediaHit(localCodes, code),
+        realWatched: watched.has(code.toUpperCase()),
       };
       if (!candidateHit.inLibrary && !candidateHit.realWatched) continue;
       hit = candidateHit;

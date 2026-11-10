@@ -65,6 +65,7 @@ export function setContentRecord(record: VideoRecord): void {
         id: record.id,
         status: record.status,
         isFavorite: record.isFavorite === true,
+        ...(record.mediaStateOverrides ? { mediaStateOverrides: record.mediaStateOverrides } : {}),
     });
 }
 

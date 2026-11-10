@@ -4,6 +4,8 @@
  * @module features/media
  */
 
+import { hasWatchedEvidence, mergeWatchEvidenceStates, normalizeWatchEvidence } from './watchHistory';
+
 export type MediaWatchEvidenceSource = 'drive115' | 'emby' | 'jellyfin' | 'manual';
 
 export type MediaWatchEvidence = {
@@ -13,6 +15,10 @@ export type MediaWatchEvidence = {
   percent: number;
   watched: boolean;
   lastPlayedAt: number;
+  /** 明确标未看的来源围栏；普通扫描false不生成。 */
+  revokedAt?: number;
+  /** 无确切播放时间时保留观察时间，不伪造播放时间。 */
+  observedAt?: number;
   pickCode?: string;
   fileId?: string;
   fileName?: string;
@@ -70,8 +76,7 @@ export async function loadWatchEvidenceMap(): Promise<MediaWatchEvidenceMap> {
 
 export async function loadWatchEvidenceState(): Promise<MediaWatchEvidenceStateV2> {
   const raw = await chromeLocalGet<unknown>(MEDIA_WATCH_EVIDENCE_STORAGE_KEY, EMPTY_STATE);
-  if (isWatchEvidenceStateV2(raw)) return normalizeState(raw);
-  return migrateLegacyEvidenceMap(raw);
+  return normalizeWatchEvidence(raw);
 }
 
 /**
@@ -118,7 +123,7 @@ export function watchEvidenceToPlaybackProgress(
     positionSeconds,
     durationSeconds,
     percent,
-    completed: evidence.watched === true || percent >= LOCAL_WATCHED_PERCENT_THRESHOLD,
+    completed: hasWatchedEvidence(evidence),
     lastPlayedAt: Number(evidence.lastPlayedAt) || 0,
     updatedAt: Number(evidence.lastPlayedAt) || 0,
     pickCode: evidence.pickCode,
@@ -162,6 +167,7 @@ export async function reportWatchProgress(input: {
   }
   percent = Math.max(0, Math.min(100, percent));
 
+  return withWatchEvidenceLock(async () => {
   const state = await loadWatchEvidenceState();
   const bucket = state.titles[key] || { copies: {} };
   const resolvedCopyId = String(input.copyId || '').trim();
@@ -184,6 +190,7 @@ export async function reportWatchProgress(input: {
   const nextDurationSec = maxDefined(prevDuration, incomingDuration);
 
   const next: MediaWatchEvidence = {
+    ...(prev?.revokedAt ? { revokedAt: prev.revokedAt } : {}),
     source: input.source,
     sourceItemId: input.sourceItemId || input.pickCode || input.fileId || prev?.sourceItemId,
     percent: nextPercent,
@@ -202,36 +209,7 @@ export async function reportWatchProgress(input: {
     : { ...bucket, legacy: next };
   await chromeLocalSet(MEDIA_WATCH_EVIDENCE_STORAGE_KEY, state);
   return next;
-}
-
-function isWatchEvidenceStateV2(value: unknown): value is MediaWatchEvidenceStateV2 {
-  if (!value || typeof value !== 'object') return false;
-  const input = value as Partial<MediaWatchEvidenceStateV2>;
-  return input.version === 2 && Boolean(input.titles) && typeof input.titles === 'object';
-}
-
-function normalizeState(state: MediaWatchEvidenceStateV2): MediaWatchEvidenceStateV2 {
-  const titles: MediaWatchEvidenceStateV2['titles'] = {};
-  for (const [rawCode, rawBucket] of Object.entries(state.titles || {})) {
-    const code = normalizeCodeKey(rawCode);
-    if (!code || !rawBucket || typeof rawBucket !== 'object') continue;
-    titles[code] = {
-      ...(rawBucket.legacy ? { legacy: rawBucket.legacy } : {}),
-      copies: { ...(rawBucket.copies || {}) },
-    };
-  }
-  return { version: 2, titles };
-}
-
-function migrateLegacyEvidenceMap(value: unknown): MediaWatchEvidenceStateV2 {
-  if (!value || typeof value !== 'object') return { version: 2, titles: {} };
-  const titles: MediaWatchEvidenceStateV2['titles'] = {};
-  for (const [rawCode, evidence] of Object.entries(value as MediaWatchEvidenceMap)) {
-    const code = normalizeCodeKey(rawCode);
-    if (!code || !evidence || typeof evidence !== 'object') continue;
-    titles[code] = { legacy: evidence, copies: {} };
-  }
-  return { version: 2, titles };
+  });
 }
 
 function aggregateEvidence(
@@ -241,7 +219,7 @@ function aggregateEvidence(
   const all = [...(legacy ? [legacy] : []), ...copies];
   if (!all.length) return null;
   return all.reduce((best, current) => {
-    if (current.watched !== best.watched) return current.watched ? current : best;
+    if (hasWatchedEvidence(current) !== hasWatchedEvidence(best)) return hasWatchedEvidence(current) ? current : best;
     if (current.percent !== best.percent) return current.percent > best.percent ? current : best;
     return current.lastPlayedAt > best.lastPlayedAt ? current : best;
   });
@@ -322,4 +300,32 @@ function maxDefined(a: number | undefined, b: number | undefined): number | unde
 
 function normalizeCodeKey(code: string): string {
   return String(code || '').trim().toUpperCase();
+}
+
+let evidenceTail: Promise<unknown> = Promise.resolve();
+/** 所有扩展上下文共享Web Locks；测试/旧环境回落本模块串行链。 */
+export async function withWatchEvidenceLock<T>(run: () => Promise<T>): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.locks) return await navigator.locks.request('javdb:media-watch-evidence', run);
+  const next = evidenceTail.then(run, run); evidenceTail = next.catch(() => {}); return next;
+}
+export async function mergePersistedWatchEvidence(incoming: unknown, beforeWrite?: (state: MediaWatchEvidenceStateV2) => void): Promise<MediaWatchEvidenceStateV2> {
+  return withWatchEvidenceLock(async () => {
+    const current = await loadWatchEvidenceState(); const next = mergeWatchEvidenceStates(current, incoming);
+    if (JSON.stringify(next) !== JSON.stringify(current)) { beforeWrite?.(next); await chromeLocalSet(MEDIA_WATCH_EVIDENCE_STORAGE_KEY, next); }
+    return next;
+  });
+}
+export async function revokeWatchEvidence(code: string, copyId: string, source: MediaWatchEvidenceSource, sourceItemId: string, at = Date.now()): Promise<void> {
+  await withWatchEvidenceLock(async () => {
+    const state = await loadWatchEvidenceState(); const bucket = state.titles[normalizeCodeKey(code)] ??= { copies: {} };
+    const reset = (previous?: MediaWatchEvidence): MediaWatchEvidence => ({ ...previous, source, sourceItemId, copyId, watched: false, percent: 0, positionSec: 0, lastPlayedAt: previous?.lastPlayedAt || 0, revokedAt: Math.max(at, previous?.revokedAt || 0) });
+    bucket.copies[copyId] = reset(bucket.copies[copyId]);
+    const matching = Object.values(bucket.copies).filter(fact => fact.source === source && fact.sourceItemId === sourceItemId);
+    const legacy = bucket.legacy;
+    if (legacy?.source === source && legacy.sourceItemId === sourceItemId
+      && (legacy.copyId === copyId || (!legacy.copyId && matching.length === 1))) {
+      bucket.legacy = reset(legacy);
+    }
+    await chromeLocalSet(MEDIA_WATCH_EVIDENCE_STORAGE_KEY, state);
+  });
 }

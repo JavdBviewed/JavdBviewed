@@ -29,13 +29,16 @@ export interface RecordsDataBackfill {
   ensureLoaded: () => Promise<void>;
   /** 回填是否已完成（no-op 或成功覆写）。 */
   isLoaded: () => boolean;
+  invalidate: () => void;
 }
 
 export function createRecordsDataBackfill(deps: RecordsDataBackfillDeps): RecordsDataBackfill {
   let done = false;
+  let revision = 0;
   let inflight: Promise<void> | null = null;
 
   const run = async (): Promise<void> => {
+    const readingRevision = revision;
     let count: number;
     try {
       count = await deps.dbViewedCount();
@@ -54,6 +57,7 @@ export function createRecordsDataBackfill(deps: RecordsDataBackfillDeps): Record
       // 防御：count 与查询之间新增 → 按 total 二读一次
       page = await deps.dbViewedQueryAll(page.total);
     }
+    if (readingRevision !== revision) return;
     deps.setRecords(page.items);
     done = true;
   };
@@ -61,7 +65,10 @@ export function createRecordsDataBackfill(deps: RecordsDataBackfillDeps): Record
   const ensureLoaded = (): Promise<void> => {
     if (done) return Promise.resolve();
     if (inflight) return inflight;
-    inflight = run()
+    inflight = (async () => {
+      let readingRevision: number;
+      do { readingRevision = revision; await run(); } while (readingRevision !== revision);
+    })()
       .catch((error: unknown) => {
         // 查询失败 → 吞错（本次进入照常渲染），不置完成位，下次进入可重试
         deps.onError?.(error);
@@ -75,5 +82,6 @@ export function createRecordsDataBackfill(deps: RecordsDataBackfillDeps): Record
   return {
     ensureLoaded,
     isLoaded: () => done,
+    invalidate: () => { revision += 1; done = false; },
   };
 }

@@ -1,3 +1,5 @@
+import { evidenceFromDeletionHistory, evidenceFromLibrary, mergeWatchEvidenceStates } from '../media/watchHistory';
+import { mergePersistedWatchEvidence } from '../media/mediaWatchEvidence';
 import { STORAGE_KEYS } from '../../utils/config';
 import { getValue, setValue } from '../../utils/storage';
 import type { EmbyLibraryIndexEntry, EmbyLibraryState } from '../embyLibrary/types';
@@ -53,6 +55,8 @@ export async function loadMediaDeletionHistory(): Promise<MediaDeletionHistorySt
 }
 
 export async function saveMediaDeletionHistory(state: MediaDeletionHistoryState): Promise<void> {
+  const previous = await getValue(STORAGE_KEYS.MEDIA_DELETION_HISTORY, EMPTY_MEDIA_DELETION_HISTORY);
+  await mergePersistedWatchEvidence(mergeWatchEvidenceStates(evidenceFromDeletionHistory(previous), evidenceFromDeletionHistory(state)));
   await setValue(STORAGE_KEYS.MEDIA_DELETION_HISTORY, state);
 }
 
@@ -172,6 +176,8 @@ export async function executeQueuedCleanupCopy(input: {
   ]);
   const copy = cleanup.items[input.titleId]?.copies[input.copyId];
   if (!copy) return { ok: false, message: '待清理副本不存在或已移除', cleanup };
+  // Preserve facts before an irreversible provider deletion, including deletion failure/retry.
+  await mergePersistedWatchEvidence(evidenceFromDeletionHistory({ records: { retained: { code: input.titleId, copies: [copy] } } }));
   const result = await input.deleteCopy(copy);
   const next = markCleanupCopyResult({
     cleanup,
@@ -209,6 +215,7 @@ export async function clearInvalidSourceCopies(input: {
   const now = Date.now();
   const entries: Record<string, EmbyLibraryIndexEntry[]> = { ...(libraryState.entries || {}) };
   const items = { ...state.items };
+  const catalog = { ...libraryState.catalog };
   let clearedCount = 0;
   let removedEntryCount = 0;
   let skippedCount = 0;
@@ -246,6 +253,12 @@ export async function clearInvalidSourceCopies(input: {
       }
     }
 
+    for (const [id, entry] of Object.entries(catalog)) {
+      if (getEntryServerIndexKey(entry) === serverKey && (!copy.itemId || entry.itemId === copy.itemId)) {
+        delete catalog[id];
+        libraryChanged = true;
+      }
+    }
     items[target.titleId] = {
       ...item,
       updatedAt: now,
@@ -265,9 +278,10 @@ export async function clearInvalidSourceCopies(input: {
 
   if (clearedCount > 0 || libraryChanged) {
     const next: MediaCleanupState = { ...state, items, updatedAt: now };
+    await mergePersistedWatchEvidence(evidenceFromLibrary(libraryState));
     await Promise.all([
       saveMediaCleanupState(next),
-      ...(libraryChanged ? [setValue(STORAGE_KEYS.EMBY_LIBRARY_STATE, { ...libraryState, entries })] : []),
+      ...(libraryChanged ? [setValue(STORAGE_KEYS.EMBY_LIBRARY_STATE, { ...libraryState, ...(libraryState.catalog ? { catalog } : {}), entries })] : []),
     ]);
   }
   return { clearedCount, removedEntryCount, skippedCount };

@@ -55,7 +55,7 @@ export function buildRecordsItemTimeDisplay(record: VideoRecord): RecordsItemTim
 }
 
 export function buildRecordsItemVideoIdHtml(record: VideoRecord, escapeHtml = defaultEscapeHtml): string {
-  const id = escapeHtml(record.id);
+  const id = escapeHtml(record.id.startsWith('media:') ? (record.videoCode || '未识别番号') : record.id);
   const url = String(record.javdbUrl || '').trim();
   if (url && url !== '#') {
     return `<a href="${escapeHtml(url)}" target="_blank" class="video-id-link">${id}</a>`;

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../media/mediaWatchEvidence', () => ({
+  revokeWatchEvidence: vi.fn(async () => {}),
   reportWatchProgress: vi.fn(async () => ({
     source: 'emby',
     percent: 50,
@@ -29,7 +30,7 @@ import {
   handleEmbyLibrarySync,
   handleEmbyUserLogin,
 } from './handlers';
-import { reportWatchProgress } from '../../media/mediaWatchEvidence';
+import { reportWatchProgress, revokeWatchEvidence } from '../../media/mediaWatchEvidence';
 import { enqueueCompletedPlayback } from '../../mediaCleanup/mediaCleanupStorage';
 import type { EmbyLibraryState, EmbyMediaServer } from '../types';
 
@@ -1514,7 +1515,7 @@ describe('emby library background handlers', () => {
       expect('cleanupAdded' in resp).toBe(false);
     });
 
-    it('取消标记：零行为变化（不写证据、不入队、本地索引照常更新）', async () => {
+    it('取消标记：持久化来源撤销、不入队并更新索引', async () => {
       const sendResponse = vi.fn();
       const fetchImpl = createFetchMock(async () => new Response('{}', { status: 200 }));
       const deps = makeAc4Deps(fetchImpl, ac4State);
@@ -1530,6 +1531,7 @@ describe('emby library background handlers', () => {
         expect.objectContaining({ method: 'DELETE' }),
       );
       expect(reportWatchProgress).not.toHaveBeenCalled();
+      expect(revokeWatchEvidence).toHaveBeenCalled();
       expect(enqueueCompletedPlayback).not.toHaveBeenCalled();
       expect(deps.saveState).toHaveBeenCalledTimes(1);
       const resp = sendResponse.mock.calls[0]?.[0] as Record<string, unknown>;

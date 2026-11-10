@@ -810,6 +810,28 @@ export async function viewedPut(record: VideoRecord): Promise<ViewedPutResult> {
   return { success: true };
 }
 
+/** 扫描只补缺，在同一事务内检查ID/番号（含回收站），不覆盖个人字段。 */
+export async function viewedAddMissingMediaRecords(records: VideoRecord[]): Promise<number> {
+  if (!records.length) return 0;
+  const db = await initDB(); const tx = db.transaction(['viewedRecords', 'viewedByTag', 'viewedByList'], 'readwrite');
+  const store = tx.objectStore('viewedRecords'); const written: VideoRecord[] = [];
+  try {
+    const existing = await store.getAll() as VideoRecord[];
+    const ids = new Set(existing.map(r => r.id));
+    const codes = new Set(existing.flatMap(r => [r.videoCode, !r.id.startsWith('media:') ? r.id : undefined]).filter(Boolean).map(v => String(v).trim().toUpperCase()));
+    for (const record of records) {
+      const code = String(record.videoCode || '').trim().toUpperCase();
+      if (ids.has(record.id) || (code && codes.has(code))) continue;
+      const normalized = normalizeViewedRecord(record) as VideoRecord;
+      await store.add(normalized); await syncViewedSecondaryIndexes(tx.objectStore('viewedByTag'), tx.objectStore('viewedByList'), undefined, normalized);
+      ids.add(record.id); if (code) codes.add(code); written.push(normalized);
+    }
+    await tx.done;
+  } catch (error) { try { tx.abort(); } catch {} try { await tx.done; } catch {} throw error; }
+  if (written.length) scheduleEnqueue(() => enqueueVideoChanges(written));
+  return written.length;
+}
+
 export interface BulkPutCloudOptions {
   /** 远端同步回写（applyRemote）路径专用：跳过 cloud pending 入队，避免拉取回声重推 */
   skipCloudEnqueue?: boolean;

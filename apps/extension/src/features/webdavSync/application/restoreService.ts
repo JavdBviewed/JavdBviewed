@@ -1,3 +1,4 @@
+import { mergePersistedWatchEvidence } from '../../media/mediaWatchEvidence';
 /**
  * @file restoreService.ts
  * @description restoreService
@@ -648,6 +649,8 @@ async function restoreRegisteredStorageAll(importData: any, summary: any): Promi
 
     if (key === CLOUD_SETTINGS_STORAGE_KEY) {
       await setValue(key, await mergeCloudSettingsForRestore(value));
+    } else if (key === STORAGE_KEYS.MEDIA_WATCH_EVIDENCE) {
+      await mergePersistedWatchEvidence(value);
     } else if (policy.webdav.restoreMode === 'merge') {
       const localValue = await getValueSafe(key, undefined);
       await setValue(key, mergeMediaCleanupStorageValue(key, localValue, value));

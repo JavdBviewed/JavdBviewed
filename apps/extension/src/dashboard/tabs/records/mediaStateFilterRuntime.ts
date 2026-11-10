@@ -1,3 +1,4 @@
+import { evidenceFromDeletionHistory, mergeWatchEvidenceStates } from '../../../features/media/watchHistory';
 /**
  * @file mediaStateFilterRuntime.ts
  * @description records 媒体库状态筛选运行时（10-24）：dashboard 侧只读消费
@@ -22,6 +23,7 @@ export interface CreateMediaStateFilterRuntimeOptions {
   getRealWatchedActive: () => boolean;
   /** 索引版本变更且重算完成（chip 激活时）→ 重滤。 */
   onIndicesChanged: () => void;
+  onLibrarySnapshotChanged?: () => void;
   logWarning?: (message: string, error?: unknown) => void;
 }
 
@@ -57,6 +59,7 @@ export function createMediaStateFilterRuntime(
   let embyIndex: EmbyLibraryIndex | null = null;
   let drive115State: Drive115LibraryIndexState | null = null;
   let localState: LocalMediaLibraryIndex | null = null;
+  let watchEvidence: unknown;
   let loaded = false;
   let loading: Promise<void> | null = null;
   let cacheKey: string | null = null;
@@ -102,7 +105,7 @@ export function createMediaStateFilterRuntime(
   };
 
   const keyFor = (): string => (
-    `${embyIndex?.updatedAt ?? 0}:${drive115State?.updatedAt ?? 0}:${localState?.updatedAt ?? 0}:${serversFingerprint()}:${overridesFingerprint()}`
+    `${options.getRecords().map(r => r.id).join(",")}:${indexRevision}:${embyIndex?.updatedAt ?? 0}:${drive115State?.updatedAt ?? 0}:${localState?.updatedAt ?? 0}:${serversFingerprint()}:${overridesFingerprint()}`
   );
 
   const recompute = (key: string): void => {
@@ -111,6 +114,7 @@ export function createMediaStateFilterRuntime(
       embyIndex,
       drive115State,
       localState,
+      watchEvidence,
       servers: readServers(),
     });
     cacheKey = key;
@@ -125,10 +129,16 @@ export function createMediaStateFilterRuntime(
     const firstLoad = !loaded;
     const hadLocalHits = firstLoad && localState !== null && Boolean(hits?.size);
     try {
-      embyIndex = await readEmbyIndex();
-      drive115State = await loadDrive115LibraryState();
-      const storedLocal = await chrome.storage.local.get(STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE);
+      const [nextEmby, nextDrive, storedLocal, storedWatch] = await Promise.all([
+        readEmbyIndex(), loadDrive115LibraryState(),
+        chrome.storage.local.get(STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE),
+        chrome.storage.local.get([STORAGE_KEYS.MEDIA_WATCH_EVIDENCE, STORAGE_KEYS.MEDIA_DELETION_HISTORY]),
+      ]);
+      if (disposed || readRevision !== indexRevision) return;
+      embyIndex = nextEmby;
+      drive115State = nextDrive;
       localState = parseLocalMediaLibraryIndex(storedLocal[STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE]);
+      watchEvidence = mergeWatchEvidenceStates(storedWatch[STORAGE_KEYS.MEDIA_WATCH_EVIDENCE], evidenceFromDeletionHistory(storedWatch[STORAGE_KEYS.MEDIA_DELETION_HISTORY]));
     } catch (error) {
       logWarning('[Records] 媒体库索引读取失败，媒体库状态筛选按零命中处理', error);
       return;
@@ -143,7 +153,7 @@ export function createMediaStateFilterRuntime(
     // 本地来源退役后即使筛选未激活也要移除已有入库标记；人工pin重算沿用原回调语义。
     // 双次渲染语义（M1 报备 3）：首次加载或版本变更且（chip 激活 或 存在派生命中）→ 触发回调对齐列表
     // （10-24 state-dict：未激活且有命中时由接线侧补一次渲染，供派生 chip 上卡）。
-    if ((firstLoad || versionChanged) && (anyActive() || hadLocalHits || (hits !== null && hits.size > 0))) {
+    if ((firstLoad || versionChanged) && (indexRevision > 0 || anyActive() || hadLocalHits || (hits !== null && hits.size > 0))) {
       options.onIndicesChanged();
     }
   };
@@ -174,8 +184,11 @@ export function createMediaStateFilterRuntime(
     const touched =
       Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.EMBY_LIBRARY_STATE) ||
       Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.DRIVE115_LIBRARY_STATE) ||
-      Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE);
+      Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE) ||
+      Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.MEDIA_WATCH_EVIDENCE) ||
+      Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.MEDIA_DELETION_HISTORY);
     if (!touched) return;
+    if (Object.prototype.hasOwnProperty.call(changes, STORAGE_KEYS.EMBY_LIBRARY_STATE)) options.onLibrarySnapshotChanged?.();
     indexRevision += 1;
     // 先失效再读新值，保证 onChanged 不被「缓存仍有效」短路。
     loaded = false;

@@ -1,3 +1,6 @@
+import { catalogFromLibrary, buildMediaCatalog, mergeMediaCatalog, type MediaCatalog } from '../domain/mediaCatalog';
+import { preserveMediaScan } from '../../media/mediaScanPersistence';
+import { revokeWatchEvidence } from '../../media/mediaWatchEvidence';
 /**
  * @file handlers.ts
  * @description handlers
@@ -51,6 +54,7 @@ export interface EmbyLibraryHandlerDeps {
   getState: () => Promise<EmbyLibraryState>;
   saveState: (state: EmbyLibraryState) => Promise<void>;
   queueIndexReport?: typeof queueLocalIndexReport;
+  preserveScan?: typeof preserveMediaScan;
   reconcileIndexSources?: typeof reconcileLocalIndexSources;
   fetchImpl: typeof fetch;
   now: () => number;
@@ -114,6 +118,7 @@ function defaultDeps(): EmbyLibraryHandlerDeps {
     now: () => Date.now(),
     processCleanupSync: processPersistedEmbySyncCleanup,
     queueIndexReport: queueLocalIndexReport,
+    preserveScan: preserveMediaScan,
     reconcileIndexSources: reconcileLocalIndexSources,
   };
 }
@@ -609,6 +614,7 @@ export async function handleEmbyLibrarySync(
     }
 
     const indexes = [];
+    const scannedCatalog: MediaCatalog = {};
     const localReports: Array<Parameters<typeof queueLocalIndexReport>[0]> = [];
     const serverResults: EmbyLibraryServerResult[] = [];
     const successfulServerIds = new Set<string>();
@@ -633,6 +639,7 @@ export async function handleEmbyLibrarySync(
         let complete = true;
         const items = await fetchMoviesForServer(server, deps, undefined, manualSignal, () => { complete = false; });
         const { index, diagnostics } = buildLibraryIndexWithDiagnostics(server, items, now);
+        Object.assign(scannedCatalog, await buildMediaCatalog(server, items, now));
         indexes.push(index);
         localReports.push({ kind: 'emby', sourceId: normalizeServerUrl(server.url), entries: localEmbyReportEntries(index), complete });
         successfulServerIds.add(server.id);
@@ -708,6 +715,7 @@ export async function handleEmbyLibrarySync(
       libraryScopes,
       ...merged,
       entries: finalEntries,
+      catalog: wipeEntries ? {} : mergeMediaCatalog(previousState.catalog, scannedCatalog, new Set(servers.filter(s => completeServerIds.has(s.id)).map(getServerIndexKey)), new Set(allEnabledServers.map(getServerIndexKey))),
       updatedAt: nextUpdatedAt,
       serverResults,
     };
@@ -738,6 +746,7 @@ export async function handleEmbyLibrarySync(
     // 既不写回持久化状态（保留最后快照），也不更新清理账本。
     const persistState = !(settings?.emby?.libraryEnabled === false && !wipeEntries);
     if (persistState) {
+      await deps.preserveScan?.(previousState, nextState);
       await deps.saveState(nextState);
       if (!wipeEntries) {
         for (const report of localReports) {
@@ -904,6 +913,10 @@ export async function handleEmbyLibraryCheckCodes(
       entries: nextEntries,
       updatedAt: previousState.updatedAt || 0,
     };
+    const catalog = Object.fromEntries(Object.entries(previousState.catalog || {}).filter(([, entry]) => !entry.code || !codes.includes(entry.code)));
+    Object.assign(catalog, await catalogFromLibrary({ entries: Object.fromEntries(codes.map(code => [code, nextEntries[code] || []])), updatedAt: now }));
+    nextState.catalog = catalog;
+    await deps.preserveScan?.(previousState, nextState);
     await deps.saveState(nextState);
     sendResponse({ success: true, checked: codes.length, matches, state: nextState });
   } catch (error) {
@@ -1008,12 +1021,14 @@ export async function handleEmbyLibrarySetPlayed(
       entry: EmbyLibraryIndexEntry;
       evidence: Promise<MediaWatchEvidence | undefined>;
     }> = [];
-    for (const [code, entries] of Object.entries(state.entries || {})) {
-      nextEntries[code] = entries.map((entry) => {
+    const revocations: Promise<void>[] = [];
+    const updateEntry = (code: string, entry: EmbyLibraryIndexEntry): EmbyLibraryIndexEntry => {
         const sameItem = entry.itemId === itemId
+          && entry.serverType === server.type
           && normalizeServerUrl(entry.serverUrl) === serverUrl;
         if (!sameItem) return entry;
         updated = true;
+        if (!played) revocations.push(revokeWatchEvidence(code, `${entry.serverType}:${normalizeServerUrl(entry.serverUrl)}:${entry.itemId}`, entry.serverType, entry.itemId, now));
         if (played) {
           const durationSec = ticksToSeconds(entry.userData?.runtimeTicks);
           evidenceWrites.push({
@@ -1040,13 +1055,15 @@ export async function handleEmbyLibrarySetPlayed(
           },
           updatedAt: now,
         };
-      });
-    }
-
+    };
+    for (const [code, entries] of Object.entries(state.entries || {})) nextEntries[code] = entries.map(entry => updateEntry(code, entry));
+    const catalog = Object.fromEntries(Object.entries(state.catalog || {}).map(([id, entry]) => [id, { ...updateEntry(id, entry), ...(entry.code ? { code: entry.code } : {}) }]));
+    await Promise.all(revocations);
     if (updated) {
       await deps.saveState({
         ...state,
         entries: nextEntries,
+        ...(state.catalog ? { catalog } : {}),
         updatedAt: state.updatedAt || now,
       });
     }
@@ -1060,6 +1077,7 @@ export async function handleEmbyLibrarySetPlayed(
         const evidence = evidenceResults[i];
         if (!evidence || evidence.watched !== true) continue;
         const { code, entry } = evidenceWrites[i];
+        if (code.startsWith('media:')) continue;
         cleanupAttempted = true;
         try {
           const result = await enqueueCompletedPlayback({
@@ -1329,9 +1347,9 @@ export async function handleEmbyLibraryReportProgress(
         ? Math.round(durationSeconds * TICKS_PER_SECOND)
         : 0);
 
-    for (const [code, entries] of Object.entries(state.entries || {})) {
-      nextEntries[code] = entries.map((entry) => {
+    const updateEntry = (code: string, entry: EmbyLibraryIndexEntry): EmbyLibraryIndexEntry => {
         const sameItem = entry.itemId === itemId
+          && entry.serverType === server.type
           && normalizeServerUrl(entry.serverUrl) === serverUrl;
         if (!sameItem) return entry;
         updated = true;
@@ -1362,12 +1380,14 @@ export async function handleEmbyLibraryReportProgress(
           },
           updatedAt: now,
         };
-      });
-    }
+    };
+    for (const [code, entries] of Object.entries(state.entries || {})) nextEntries[code] = entries.map(entry => updateEntry(code, entry));
+    const catalog = Object.fromEntries(Object.entries(state.catalog || {}).map(([id, entry]) => [id, { ...updateEntry(id, entry), ...(entry.code ? { code: entry.code } : {}) }]));
     if (updated) {
       await deps.saveState({
         ...state,
         entries: nextEntries,
+        ...(state.catalog ? { catalog } : {}),
         updatedAt: state.updatedAt || now,
       });
     }

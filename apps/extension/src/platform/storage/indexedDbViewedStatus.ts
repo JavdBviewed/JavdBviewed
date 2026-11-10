@@ -20,7 +20,7 @@ export async function viewedStatusGetMany(
     for (const id of ids) {
       const record = await db.get('viewedRecords', id) as VideoRecord | undefined;
       if (record && !record.deletedAt) {
-        result.push({ id: record.id, status: record.status, isFavorite: record.isFavorite === true });
+        result.push({ id: record.id, status: record.status, isFavorite: record.isFavorite === true, ...(record.mediaStateOverrides ? { mediaStateOverrides: record.mediaStateOverrides } : {}) });
       }
     }
   }
@@ -47,13 +47,20 @@ export async function viewedStatusGetManyFolded(
     if (!foldedToKey.has(folded)) foldedToKey.set(folded, key); // 双键冲突取首（getAllKeys 顺序）
   }
 
+  // Media imports have exact source IDs; expose their manual dimensions by a unique code alias.
+  const mediaByCode = new Map<string, VideoRecord | null>();
+  for (const key of keys.filter(key => String(key).startsWith('media:'))) {
+    const record = await db.get('viewedRecords', key) as VideoRecord | undefined;
+    const code = record?.videoCode?.trim().toLowerCase();
+    if (!code || record?.deletedAt) continue;
+    mediaByCode.set(code, mediaByCode.has(code) ? null : record!);
+  }
   const result: ViewedStatusSummary[] = [];
   for (const id of ids) {
     const canonical = foldedToKey.get(id.toLowerCase());
-    if (!canonical) continue;
-    const record = await db.get('viewedRecords', canonical) as VideoRecord | undefined;
+    const record = canonical ? await db.get('viewedRecords', canonical) as VideoRecord | undefined : mediaByCode.get(id.toLowerCase());
     if (record && !record.deletedAt) {
-      result.push({ id, status: record.status, isFavorite: record.isFavorite === true });
+      result.push({ id, status: record.status, isFavorite: record.isFavorite === true, ...(record.mediaStateOverrides ? { mediaStateOverrides: record.mediaStateOverrides } : {}) });
     }
   }
   return result;

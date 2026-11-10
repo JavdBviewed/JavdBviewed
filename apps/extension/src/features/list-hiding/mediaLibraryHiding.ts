@@ -1,24 +1,26 @@
+import { projectWatchedKeys } from '../media/watchProjection';
+import { evidenceFromDeletionHistory, mergeWatchEvidenceStates } from '../media/watchHistory';
 /**
  * @file mediaLibraryHiding.ts
  * @description 媒体库隐藏来源标记（display.hideInMediaLibrary / display.hideRealWatched，
  * 09-30-media-library-hide-filter）
  * @module features/list-hiding
  *
- * 判定面与列表卡徽章共用同一数据源（不新增数据链路）：
+ * 当前入库状态与列表卡徽章共用索引；真实已看另消费持久观看历史：
  * - Emby/Jellyfin 同步索引（STATE.embyLibraryState，bootstrap 载入；
  *   EMBY_LIBRARY_STATE_UPDATED 消息触发 processVisibleItems({force:true}) 全量重标）；
- * - 115 网盘扫描索引（storage 异步读）。
+ * - 115 网盘扫描索引、观看证据和可靠删除历史（storage 批量异步读）。
  *
  * 同步侧（Emby/JF）在 itemProcessor.processItem 同步段直接调用 markMediaLibraryHiding；
  * 115 异步侧复用 drive115/content/libraryStatusBadges.ts 的
  * 模块级单飞缓存 + 已渲染卡片注册表 + storage.onChanged 失效模式：
  * resolve 后打标记 + recomputeListHiding，不阻塞首屏；索引变化时重算已渲染卡片。
  *
- * 零命中零误隐：索引为空 / 从未同步 / 无已配置启用服务器 → 两个来源均不打标记。
+ * 当前索引为空不会误报入库；有可靠播放历史时仍可标记真实已看。
  * 页面豁免与状态来源一致：搜索页、状态聚合页（想看/已看列表）不打标记。
  */
 import { STORAGE_KEYS } from '../../utils/config';
-import { STATE } from '../contentState';
+import { STATE, getContentRecord } from '../contentState';
 import { findConfiguredLibraryMatches } from '../embyLibrary/domain/configuredMatches';
 import { computeWatchState } from '../embyLibrary/domain/watchState';
 import type { EmbyLibraryIndex } from '../embyLibrary/types';
@@ -74,10 +76,13 @@ export function markMediaLibraryHiding(item: HTMLElement, videoId: string, setti
   if (isMediaLibraryHidingExempt()) return;
 
   const hit = computeEmbyHidingHit(STATE.embyLibraryState, videoId, (settings as any)?.emby?.mediaServers);
-  if (!hit.inLibrary) return;
-
-  setHidingSource(item, 'mediaLibrary', true);
-  if (hit.realWatched) setHidingSource(item, 'realWatched', true);
+  const pinned = getContentRecord(videoId)?.mediaStateOverrides;
+  setHidingSource(item, 'mediaLibrary', pinned?.inLibrary ?? hit.inLibrary);
+  setHidingSource(item, 'realWatched', pinned?.realWatched ?? hit.realWatched);
+  pruneDisconnectedItems();
+  registeredItems.set(item, videoId);
+  attachStorageListener();
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) void refreshRegisteredMediaLibraryHiding();
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +113,7 @@ function get115LibraryState(): Promise<Drive115LibraryIndexState> {
 const registeredItems = new Map<HTMLElement, string>();
 let refreshInFlight: Promise<void> | null = null;
 let storageListenerAttached = false;
+let refreshRevision = 0;
 
 /** 清理已从 DOM 移除的卡片注册，避免注册表随翻页无限增长 */
 function pruneDisconnectedItems(): void {
@@ -135,7 +141,7 @@ export function markDrive115LibraryHiding(
       registeredItems.delete(item);
       return;
     }
-    if (!hasDrive115Hit(state, videoId)) return;
+    if (!hasDrive115Hit(state, videoId) || getContentRecord(videoId)?.mediaStateOverrides?.inLibrary === false) return;
     setHidingSource(item, 'mediaLibrary', true);
     recomputeListHiding(item, readListHidingEnablement(STATE.settings));
   };
@@ -164,10 +170,22 @@ export function refreshRegisteredMediaLibraryHiding(): Promise<void> {
   cached115State = null;
   pending115State = null;
   refreshInFlight = (async () => {
+    let readRevision: number;
+    do {
+    readRevision = refreshRevision;
     try {
       pruneDisconnectedItems();
       if (!registeredItems.size) return;
-      const state = await get115LibraryState();
+      const [state, stored] = await Promise.all([
+        get115LibraryState(),
+        typeof chrome === 'undefined' || !chrome.storage?.local
+          ? Promise.resolve({} as Record<string, unknown>)
+          : chrome.storage.local.get([STORAGE_KEYS.MEDIA_WATCH_EVIDENCE, STORAGE_KEYS.MEDIA_DELETION_HISTORY, STORAGE_KEYS.EMBY_LIBRARY_STATE]),
+      ]);
+      if (readRevision !== refreshRevision) { cached115State = null; pending115State = null; continue; }
+      const index = (stored[STORAGE_KEYS.EMBY_LIBRARY_STATE] as EmbyLibraryIndex | undefined) ?? STATE.embyLibraryState;
+      const evidence = mergeWatchEvidenceStates(stored[STORAGE_KEYS.MEDIA_WATCH_EVIDENCE], evidenceFromDeletionHistory(stored[STORAGE_KEYS.MEDIA_DELETION_HISTORY]));
+      const watched = projectWatchedKeys(index, (STATE.settings as any)?.emby?.mediaServers, evidence);
       if (isMediaLibraryHidingExempt()) return;
       for (const [item, videoId] of [...registeredItems]) {
         if (!item.isConnected) {
@@ -175,18 +193,20 @@ export function refreshRegisteredMediaLibraryHiding(): Promise<void> {
           continue;
         }
         const embyHit = computeEmbyHidingHit(
-          STATE.embyLibraryState,
+          index,
           videoId,
           (STATE.settings as any)?.emby?.mediaServers,
         );
-        setHidingSource(item, 'mediaLibrary', hasDrive115Hit(state, videoId) || embyHit.inLibrary);
-        setHidingSource(item, 'realWatched', embyHit.realWatched);
+        const pinned = getContentRecord(videoId)?.mediaStateOverrides;
+        setHidingSource(item, 'mediaLibrary', pinned?.inLibrary ?? (hasDrive115Hit(state, videoId) || embyHit.inLibrary));
+        setHidingSource(item, 'realWatched', pinned?.realWatched ?? watched.has(videoId.toUpperCase()));
         recomputeListHiding(item, readListHidingEnablement(STATE.settings));
       }
     } catch (error) {
       // 重算失败保留现有显隐，等待下一次变化再试
       console.warn('[mediaLibraryHiding] 媒体库状态变化后重算隐藏失败:', error);
     }
+    } while (readRevision !== refreshRevision);
   })();
   void refreshInFlight.finally(() => {
     refreshInFlight = null;
@@ -204,7 +224,10 @@ function attachStorageListener(): void {
     areaName: string,
   ): void => {
     if (areaName !== 'local') return;
-    if (!changes[STORAGE_KEYS.DRIVE115_LIBRARY_STATE]) return;
+    if (![STORAGE_KEYS.DRIVE115_LIBRARY_STATE, STORAGE_KEYS.EMBY_LIBRARY_STATE, STORAGE_KEYS.MEDIA_WATCH_EVIDENCE, STORAGE_KEYS.MEDIA_DELETION_HISTORY].some(key => changes[key])) return;
+    refreshRevision += 1;
+    cached115State = null;
+    pending115State = null;
     void refreshRegisteredMediaLibraryHiding();
   };
 

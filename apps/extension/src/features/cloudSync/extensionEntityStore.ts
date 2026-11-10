@@ -1,3 +1,6 @@
+import { mergePersistedWatchEvidence } from '../media/mediaWatchEvidence';
+import { evidenceFromLibrary, mergeWatchEvidenceStates } from '../media/watchHistory';
+import type { EmbyLibraryState } from '../embyLibrary/types';
 /**
  * @file extensionEntityStore.ts
  * @description 将本地 IDB / chrome.storage 用户资产映射为 SyncEntity，并写回
@@ -622,8 +625,22 @@ async function applyOne(entity: SyncEntity): Promise<void> {
         await setValue(key, merged);
         return;
       }
+      if (key === STORAGE_KEYS.MEDIA_WATCH_EVIDENCE) {
+        await mergePersistedWatchEvidence(value, merged => markCloudStorageWrite(key, merged));
+        return;
+      }
       if (key === STORAGE_KEYS.EMBY_LIBRARY_STATE) {
+        const previous = await getValue<EmbyLibraryState>(key, { entries: {}, updatedAt: 0 });
         const hydrated = hydrateLocalIndexImages(value, await getSettings());
+        const next = hydrated as EmbyLibraryState;
+        if (next?.entries && typeof next.entries === 'object') {
+          // Keep exact unidentified local items; recognized items follow the current aggregate.
+          if (previous.catalog) {
+            const live = new Set(Object.values(next.entries).flat().map(e => `${e.serverType}:${e.serverUrl}:${e.itemId}`));
+            next.catalog = Object.fromEntries(Object.entries(previous.catalog).filter(([, e]) => !e.code || live.has(`${e.serverType}:${e.serverUrl}:${e.itemId}`)));
+          }
+          await mergePersistedWatchEvidence(mergeWatchEvidenceStates(evidenceFromLibrary(previous), evidenceFromLibrary(next)), merged => markCloudStorageWrite(STORAGE_KEYS.MEDIA_WATCH_EVIDENCE, merged));
+        }
         // The echo guard must match the authenticated value actually written locally.
         markCloudStorageWrite(key, hydrated);
         await setValue(key, hydrated);

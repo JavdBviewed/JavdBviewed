@@ -9,6 +9,9 @@ const store: Record<string, unknown> = {};
 
 import {
   getWatchEvidence,
+  mergePersistedWatchEvidence,
+  revokeWatchEvidence,
+  loadWatchEvidenceState,
   loadMediaPlaybackProgressList,
   reportWatchProgress,
 } from './mediaWatchEvidence';
@@ -130,6 +133,37 @@ describe('mediaWatchEvidence', () => {
       completed: false,
       fileName: 'D115-2.mp4',
     });
+  });
+
+  it('serializes concurrent playback and incoming restores without losing either copy', async () => {
+    await Promise.all([
+      reportWatchProgress({ code: 'ABC-1', copyId: 'a', source: 'emby', percent: 95 }),
+      reportWatchProgress({ code: 'ABC-1', copyId: 'b', source: 'jellyfin', percent: 91 }),
+      mergePersistedWatchEvidence({ version: 2, titles: { 'DEF-2': { copies: { c: { source: 'drive115', watched: true, percent: 100, lastPlayedAt: 10 } } } } }),
+    ]);
+    const state = await loadWatchEvidenceState();
+    expect(Object.keys(state.titles['ABC-1'].copies)).toEqual(['a', 'b']);
+    expect(state.titles['DEF-2'].copies.c.watched).toBe(true);
+  });
+
+  it('keeps a source cancellation through repeated old restores and accepts later playback', async () => {
+    const fact = { source: 'emby', sourceItemId: '1', watched: true, percent: 100, lastPlayedAt: 100 };
+    const old = { version: 2, titles: { 'ABC-1': { copies: { a: fact } } } };
+    await mergePersistedWatchEvidence(old);
+    await revokeWatchEvidence('ABC-1', 'a', 'emby', '1', 200);
+    await Promise.all([mergePersistedWatchEvidence(old), mergePersistedWatchEvidence(old)]);
+    expect((await getWatchEvidence('ABC-1', 'a'))?.watched).toBe(false);
+    await reportWatchProgress({ code: 'ABC-1', copyId: 'a', source: 'emby', sourceItemId: '1', percent: 95 });
+    expect((await getWatchEvidence('ABC-1', 'a'))?.watched).toBe(true);
+    expect((await getWatchEvidence('ABC-1', 'a'))?.revokedAt).toBe(200);
+  });
+
+  it('does not publish merged memory on a failed storage write', async () => {
+    await reportWatchProgress({ code: 'ABC-1', source: 'emby', percent: 95 });
+    const before = JSON.stringify(store);
+    vi.spyOn(chrome.storage.local, 'set').mockImplementation(() => { throw new Error('quota'); });
+    await expect(revokeWatchEvidence('ABC-1', 'a', 'emby', '1')).rejects.toThrow('quota');
+    expect(JSON.stringify(store)).toBe(before);
   });
 
 });

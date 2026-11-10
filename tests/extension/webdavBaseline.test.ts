@@ -351,7 +351,7 @@ describe('WebDAV backup and restore baseline', () => {
         },
       },
       [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
-      [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
+      [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { source: 'emby', watched: false, percent: 80, lastPlayedAt: 10 } },
       [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
       [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: { version: 1, items: {}, observedWatchedCopyIds: [], updatedAt: 10 },
       [STORAGE_KEYS.MEDIA_DELETION_HISTORY]: { version: 1, records: {}, updatedAt: 10 },
@@ -384,7 +384,7 @@ describe('WebDAV backup and restore baseline', () => {
         },
       },
       [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
-      [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
+      [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { source: 'emby', watched: false, percent: 80, lastPlayedAt: 10 } },
       [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
       [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: { version: 1, items: {}, observedWatchedCopyIds: [], updatedAt: 10 },
       [STORAGE_KEYS.MEDIA_DELETION_HISTORY]: { version: 1, records: {}, updatedAt: 10 },
@@ -1279,7 +1279,7 @@ describe('WebDAV backup and restore baseline', () => {
           [STORAGE_KEYS.PRIVACY_SESSION]: 'foreign-device-session',
           privacy_encryption_key: 'foreign-device-key',
           [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
-          [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
+          [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { source: 'emby', watched: false, percent: 80, lastPlayedAt: 10 } },
           [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
           [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: {
             version: 1,
@@ -1327,7 +1327,7 @@ describe('WebDAV backup and restore baseline', () => {
     expect(result.success).toBe(true);
     expect(getChromeStorageSnapshot()).toMatchObject({
       [STORAGE_KEYS.EMBY_LIBRARY_STATE]: { entries: { 'AAA-001': [{ itemId: 'movie-1' }] } },
-      [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { 'AAA-001': { progress: 80 } },
+      [STORAGE_KEYS.MEDIA_WATCH_EVIDENCE]: { version: 2, titles: { 'AAA-001': { legacy: { source: 'emby', watched: false, percent: 80, lastPlayedAt: 10 }, copies: {} } } },
       [STORAGE_KEYS.MEDIA_115_CLEANUP_LIST]: { items: ['AAA-001'] },
       [STORAGE_KEYS.MEDIA_CLEANUP_STATE]: {
         items: { LOCAL: expect.any(Object), REMOTE: expect.any(Object) },

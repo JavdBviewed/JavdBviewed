@@ -1,3 +1,7 @@
+import { evidenceFromLibrary } from '../media/watchHistory';
+import { mergePersistedWatchEvidence } from '../media/mediaWatchEvidence';
+import { mergeMediaCatalog } from './domain/mediaCatalog';
+import { getConfiguredServerKeys } from './domain/configuredMatches';
 /**
  * @file libraryIndexReconcile.ts
  * @description 资料库索引对账（storage 级）：emby 设置保存成功 / 云 pull-apply
@@ -55,10 +59,13 @@ export async function reconcileEmbyLibraryIndexAfterSettingsChange(input: {
     const syncSuggested =
       isEmbyServerConfigChanged(input.prevSettings, input.nextSettings)
       && isLibraryFeatureEnabled(nextSettings?.emby);
-    if (removedEntryCount <= 0) {
+    const catalog = mergeMediaCatalog(state.catalog, {}, new Set(), getConfiguredServerKeys(servers));
+    const catalogChanged = Object.keys(catalog).length !== Object.keys(state.catalog || {}).length;
+    if (removedEntryCount <= 0 && !catalogChanged) {
       return { changed: false, removedEntryCount: 0, syncSuggested };
     }
-    await setValue(STORAGE_KEYS.EMBY_LIBRARY_STATE, { ...state, entries: nextEntries });
+    await mergePersistedWatchEvidence(evidenceFromLibrary(state));
+    await setValue(STORAGE_KEYS.EMBY_LIBRARY_STATE, { ...state, ...(state.catalog ? { catalog } : {}), entries: nextEntries });
     return { changed: true, removedEntryCount, syncSuggested };
   } catch (error) {
     mediaLog.warn('资料库索引对账跳过（fail-open）', { error: String(error) });

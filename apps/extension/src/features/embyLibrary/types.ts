@@ -237,6 +237,8 @@ export interface EmbyLibraryIndexEntry {
 
 /** 媒体库索引 —— 所有视频到 Emby/Jellyfin 的映射 */
 export interface EmbyLibraryIndex {
+  /** 本机扫描的完整条目目录，未识别番号仍保留准确来源身份；不作为番号报告上传。 */
+  catalog?: import('./domain/mediaCatalog').MediaCatalog;
   entries: Record<string, EmbyLibraryIndexEntry[]>;   // key 为番号
   updatedAt: number;
 }

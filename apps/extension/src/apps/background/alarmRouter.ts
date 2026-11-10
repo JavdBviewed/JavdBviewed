@@ -53,6 +53,9 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 export function initializeBackgroundAlarmWiring(): void {
   syncInsightsMonthlyAlarmFromSettings();
   syncEmbyLibrarySyncAlarmFromCurrentSettings().catch(() => {});
+  void import('../../features/media/mediaScanPersistence').then(({ backfillMediaScan }) => backfillMediaScan()).catch(() => {
+    console.warn('[Media] 观看历史和资料回补未完成，将在下次扫描时重试');
+  });
   ensureDrive115MediaLibraryResumeAlarm().catch(() => {});
   registerNewWorksStartupInitializer();
   registerRecycleBinCleanupAlarm();

@@ -1,3 +1,4 @@
+import { hasWatchedEvidence } from '../media/watchHistory';
 import type { EmbyLibraryIndexEntry, EmbyLibraryState } from '../embyLibrary/types';
 import { normalizeServerKey, normalizeServerUrl } from '../embyLibrary/domain/libraryIndex';
 import { normalizeVideoCodeCandidate } from '../../shared/utils/videoCodeExtractor';
@@ -43,6 +44,7 @@ export type CleanupWatchEvidenceState = {
 type CleanupWatchEvidence = {
   percent?: number;
   watched?: boolean;
+  revokedAt?: number;
   lastPlayedAt?: number;
   copyId?: string;
   fileId?: string;
@@ -123,7 +125,8 @@ export function applyCleanupWatchEvidence(
       ...title,
       copies: title.copies.map((copy) => {
         const evidence = bucket?.copies?.[copy.copyId] || bucket?.legacy;
-        const watched = evidence?.watched === true || Number(evidence?.percent || 0) >= 90;
+        const watched = hasWatchedEvidence(evidence);
+        if (evidence?.revokedAt && !watched) return { ...copy, watchedAt: undefined };
         if (!watched) return copy;
         return {
           ...copy,
@@ -167,8 +170,8 @@ export function buildEmbyCleanupSnapshots(
       fileName: entry.path?.split(/[\\/]/).pop(),
       folderPath: entry.path,
       coverImageUrl: entry.imageUrls?.Thumb || entry.coverImageUrl,
-      watchedAt: entry.userData?.played
-        ? (entry.userData.lastPlayedAt || entry.updatedAt)
+      watchedAt: hasWatchedEvidence({ watched: entry.userData?.played, percent: entry.userData?.percent })
+        ? (entry.userData?.lastPlayedAt || entry.updatedAt)
         : undefined,
       lastFoundAt: entry.updatedAt,
     });

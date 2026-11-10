@@ -560,6 +560,7 @@ export function initRecordsTab(): void {
 
     mediaStateFilterRuntime = createMediaStateFilterRuntime({
         getRecords: () => STATE.records,
+        onLibrarySnapshotChanged: () => recordsDataBackfill.invalidate(),
         // 10-08：触发源换绑 select（runtime 契约零改，派生在线接层）
         getInLibraryActive: () => parseMediaStateSelectValue(filterSelect?.value).inLibraryFilterActive,
         getRealWatchedActive: () => parseMediaStateSelectValue(filterSelect?.value).realWatchedFilterActive,

@@ -233,6 +233,7 @@ export interface ViewedStatusSummary {
   id: string;
   status: VideoStatus;
   isFavorite?: boolean;
+  mediaStateOverrides?: VideoRecord['mediaStateOverrides'];
 }
 
 /** 旧版视频记录格式（兼容迁移用） */
