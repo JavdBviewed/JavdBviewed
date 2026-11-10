@@ -71,7 +71,7 @@ export class MediaMetadataTaskService {
     return this.change(batches => {
       if (this.inFlight.has(id)) throw new Error('本批次正在同步，请等待当前影片处理完成');
       const batch = this.find(batches, id);
-      if (batch.status === 'cancelled') throw new Error('本批次已取消');
+      // A skipped batch keeps its members and results; this explicit confirmation grants a new run.
       const todo = batch.items.filter(i => ['pending', 'running', 'failed'].includes(i.status));
       if (!todo.length) throw new Error('没有可同步的影片；未识别番号的影片需要先补充番号');
       for (const item of todo) { item.status = 'pending'; delete item.error; }

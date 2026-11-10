@@ -5,7 +5,7 @@ import { requireAuthIfRestricted } from '../../../features/privacy';
 import { MEDIA_METADATA_TASKS_KEY, type MediaMetadataBatch, type MediaMetadataItemStatus } from '../../../features/media/mediaMetadataTasks';
 
 type Reply = { success: boolean; batches?: MediaMetadataBatch[]; batch?: MediaMetadataBatch; error?: string };
-const statuses: Record<MediaMetadataBatch['status'], string> = { pending: '待确认', running: '同步中 / 可继续', paused: '已暂停', completed: '本批处理结束', cancelled: '已取消' };
+const statuses: Record<MediaMetadataBatch['status'], string> = { pending: '待确认', running: '同步中 / 可继续', paused: '已暂停', completed: '本批处理结束', cancelled: '已跳过' };
 const itemStatuses: Record<MediaMetadataItemStatus, string> = { pending: '等待同步', running: '读取源站', done: '已补全', failed: '失败', unidentified: '未识别番号' };
 async function command(action: string, batchId?: string, runId?: string): Promise<Reply> {
   const result = await sendRuntimeMessage<Reply>({ type: `MEDIA_METADATA:${action}`, batchId, runId });
@@ -78,7 +78,7 @@ export function MediaMetadataBatches() {
       <Button variant="ghost" size="sm" onClick={() => void load()}>刷新任务</Button>
     </div>
     <p className="my-2 text-sm text-[var(--color-fg-muted)]">媒体索引补录的影片已标记为“已观看”，播放记录单独决定“真实已看”。确认后按番号从 JavDB 补全标题、封面、演员等资料。</p>
-    <p className="mb-2 text-sm text-[var(--color-fg-muted)]">可以稍后再处理。暂停或关闭页面后，当前影片处理完即停止；再次打开可继续。</p>
+    <p className="mb-2 text-sm text-[var(--color-fg-muted)]">可以稍后再处理。暂停或关闭页面后，当前影片处理完即停止；再次打开可继续。选择暂不同步的历史批次仍会保留，可随时重新确认，已补全的影片不会重复处理。</p>
     {error ? <p role="alert">{error}</p> : null}
     {!batches.length ? <p className="text-sm">暂无待补全的媒体影片。扫描发现新影片后会在这里生成批次。</p> : null}
     <div className="space-y-3">{[...batches].reverse().map(batch => <BatchCard key={batch.id} batch={batch} busy={busy}
@@ -96,9 +96,9 @@ function BatchCard({ batch, busy, onRun, onPause, onDismiss }: { batch: MediaMet
     <div className="flex flex-wrap justify-between gap-2"><strong>媒体资料批次 · {new Date(batch.createdAt).toLocaleString()}</strong><span>{statuses[batch.status]}</span></div>
     <p className="my-2 text-sm" aria-live="polite">共 {batch.items.length} 部 · 已补全 {count('done')} · 失败 {retry} · 未识别番号 {count('unidentified')}</p>
     <div className="my-2 flex flex-wrap gap-2">
-      {!cancelled && todo > 0 && busy !== batch.id ? <Button disabled={busy !== null} onClick={onRun}>{batch.status === 'pending' ? '确认同步源站资料' : batch.status === 'completed' ? '重试失败项' : '继续同步'}</Button> : null}
+      {todo > 0 && busy !== batch.id ? <Button disabled={busy !== null} onClick={onRun}>{cancelled ? '重新确认同步' : batch.status === 'pending' ? '确认同步源站资料' : batch.status === 'completed' ? '重试失败项' : '继续同步'}</Button> : null}
       {!cancelled && (busy === batch.id || batch.status === 'running') ? <Button variant="secondary" onClick={onPause}>暂停（完成当前项）</Button> : null}
-      {batch.status === 'pending' ? <Button variant="ghost" disabled={busy === batch.id} onClick={onDismiss}>本批不需要同步</Button> : null}
+      {batch.status === 'pending' ? <Button variant="ghost" disabled={busy === batch.id} onClick={onDismiss}>本批暂不同步</Button> : null}
     </div>
     <details><summary className="cursor-pointer text-sm">查看影片与处理结果</summary>
       <ul className="mt-2 space-y-2">{batch.items.slice(page * 25, (page + 1) * 25).map(item => <li key={item.recordId} className="break-words text-sm">

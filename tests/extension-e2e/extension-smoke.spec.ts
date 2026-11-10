@@ -579,7 +579,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
     }
   });
 
-  test('uses configured media source channels and the 480px secret editor', async ({}, testInfo) => {
+  test('uses configured media source channels and saves the secret editor only on confirmation', async ({}, testInfo) => {
     const harnessOptions = resolveTestHarnessOptions(testInfo.outputPath('profile'));
     const context = await launchExtensionContext(harnessOptions, {
       headless: false,
@@ -702,8 +702,8 @@ test.describe('JavdBviewed extension browser smoke', () => {
       const dialog = page.locator('#embyEditModal [role="dialog"]');
       await expect(dialog).toBeVisible();
       const dialogBox = await dialog.boundingBox();
-      // 媒体服务器弹窗统一 480px（!max-w-[30rem]），不再是 96rem 宽壳
-      expect(Math.abs((dialogBox?.width || 0) - 480)).toBeLessThanOrEqual(2);
+      // 选库弹窗按现有40rem设计，仍限制为窄于页面的可读表单。
+      expect(Math.abs((dialogBox?.width || 0) - 640)).toBeLessThanOrEqual(2);
       const apiKeyInput = dialog.locator('input[id$="-api-key"]');
       await expect(apiKeyInput).toHaveAttribute('type', 'password');
       await dialog.getByRole('button', { name: '显示API Key' }).click();
@@ -716,6 +716,13 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await dialog.getByRole('button', { name: '显示密码' }).click();
       await expect(passwordInput).toHaveAttribute('type', 'text');
       await passwordInput.fill('e2e-password-updated');
+      const savedPassword = await page.evaluate(async () => {
+        const state = await chrome.storage.local.get('settings');
+        return state.settings?.emby?.mediaServers?.find((server: {id?: string}) => server.id === 'e2e-emby')?.password;
+      });
+      expect(savedPassword).toBe('e2e-password');
+      await dialog.getByRole('button', { name: '保存修改', exact: true }).click();
+      await expect(dialog).toBeHidden();
       await expect.poll(async () => page.evaluate(async () => {
         const state = await chrome.storage.local.get('settings');
         const settings = state.settings as {
@@ -723,7 +730,6 @@ test.describe('JavdBviewed extension browser smoke', () => {
         } | undefined;
         return settings?.emby?.mediaServers?.find((server) => server.id === 'e2e-emby')?.password;
       })).toBe('e2e-password-updated');
-      await page.getByRole('button', { name: '关闭' }).click();
       await page.reload({ waitUntil: 'domcontentloaded' });
       await summary.getByRole('button', { name: '编辑' }).click();
       await expect(dialog.locator('input[id$="-password"]')).toHaveValue('e2e-password-updated');
@@ -739,10 +745,10 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await expect(summary).toBeVisible();
       await summary.getByRole('button', { name: '编辑' }).click();
       await expect(dialog.locator('input[id$="-password"]')).toHaveValue(
-        'e2e-password-before-route-switch',
+        'e2e-password-updated',
       );
 
-      await dialog.getByRole('button', { name: '删除', exact: true }).click();
+      await dialog.getByRole('button', { name: '删除服务器', exact: true }).click();
       const deleteDialog = page.locator('#embyDeleteModal [role="dialog"]');
       await expect(deleteDialog).toBeVisible();
       await expect(deleteDialog).toContainText('主服务器');
@@ -750,8 +756,7 @@ test.describe('JavdBviewed extension browser smoke', () => {
       await expect(deleteDialog).toContainText('不会删除本地媒体索引');
       await deleteDialog.getByRole('button', { name: '取消', exact: true }).click();
       await expect(deleteDialog).toBeHidden();
-      await expect(dialog).toBeVisible();
-      await page.getByRole('button', { name: '关闭' }).click();
+      await expect(dialog).toBeHidden();
       await expect(summary).toBeVisible();
 
       const removableSummary = page.locator('.emby-media-server-summary').filter({ hasText: '停用服务器' });

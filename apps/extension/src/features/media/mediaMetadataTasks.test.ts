@@ -57,6 +57,32 @@ describe('media metadata confirmation batches', () => {
     await expect(f.service.step(b.id, resumed.runId!)).rejects.toThrow();
     expect(await f.service.discover()).toHaveLength(1);
   });
+  it('reconfirms a skipped historical batch after restart without repeating completed items', async () => {
+    const f = fixture(); const [batch] = await f.service.discover(); const oldRun = await f.service.confirm(batch.id);
+    await f.service.step(batch.id, oldRun.runId!);
+    await f.service.dismiss(batch.id);
+    const restarted = new MediaMetadataTaskService(f.deps);
+    expect((await restarted.discover())[0].status).toBe('cancelled');
+    await expect(restarted.step(batch.id, oldRun.runId!)).rejects.toThrow();
+    expect(f.refresh.mock.calls).toEqual([['media:a']]);
+    const retry = await restarted.confirm(batch.id);
+    expect(retry.id).toBe(batch.id); expect(retry.runId).not.toBe(oldRun.runId);
+    await expect(restarted.step(batch.id, oldRun.runId!)).rejects.toThrow();
+    expect((await restarted.step(batch.id, retry.runId!)).items.map(i => i.status)).toEqual(['done', 'done', 'unidentified']);
+    expect(f.refresh.mock.calls).toEqual([['media:a'], ['media:b']]);
+    expect(await restarted.discover()).toHaveLength(1);
+  });
+  it('does not reactivate a skipped batch while its admitted item is finishing', async () => {
+    const f = fixture(); const [batch] = await f.service.discover(); const run = await f.service.confirm(batch.id);
+    let release!: () => void; f.refresh.mockImplementationOnce(() => new Promise<void>(r => { release = r; }));
+    const step = f.service.step(batch.id, run.runId!); await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    await f.service.dismiss(batch.id);
+    await expect(f.service.confirm(batch.id)).rejects.toThrow('当前影片');
+    release(); expect((await step).status).toBe('cancelled');
+    const retry = await f.service.confirm(batch.id);
+    await f.service.step(batch.id, retry.runId!);
+    expect(f.refresh.mock.calls).toEqual([['media:a'], ['media:b']]);
+  });
   it('blocks duplicate in-flight work and recovers a lost running response only on explicit resume', async () => {
     const f = fixture(); const [b] = await f.service.discover(); const run = await f.service.confirm(b.id);
     let release!: () => void; f.refresh.mockImplementationOnce(() => new Promise<void>(r => { release = r; }));

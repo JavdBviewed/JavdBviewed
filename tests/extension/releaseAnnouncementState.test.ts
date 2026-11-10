@@ -125,6 +125,7 @@ describe('release announcement state', () => {
 
   it('ships user-facing release notes for recent versions', () => {
     expect(RELEASE_NOTES.map(note => note.version)).toEqual([
+      '2.1.5',
       '2.1.4',
       '2.1.3',
       '2.1.2',
@@ -143,6 +144,9 @@ describe('release announcement state', () => {
     ]);
     const highlightsFor = (version: string) => RELEASE_NOTES.find(note => note.version === version)?.highlights;
 
+    expect(highlightsFor('2.1.5')).toHaveLength(7);
+    expect(highlightsFor('2.1.5')).toContain('媒体影片资料支持批次确认补全，跳过的历史批次可重新同步。');
+    expect(highlightsFor('2.1.5')?.every(item => item.length >= 12 && item.length <= 42)).toBe(true);
     expect(highlightsFor('2.1.4')).toHaveLength(7);
     expect(highlightsFor('2.1.4')).toEqual(expect.arrayContaining([
       '跨线路登录支持提示与手动同步，无需退出后重新登录。',

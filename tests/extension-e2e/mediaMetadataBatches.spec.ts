@@ -113,12 +113,21 @@ test('media scan creates one consent batch and enriches the same records without
     expect((await scan()).success).toBe(true); await expect(panel.locator('[data-metadata-batch]')).toHaveCount(2);
     expect(await worker.evaluate(() => (globalThis as any).__metadataFixture.requests.length)).toBe(requests.length);
     await page.reload(); await expect(panel.locator('[data-metadata-batch]')).toHaveCount(2);
-    await panel.getByRole('button', { name: '本批不需要同步' }).click();
+    await panel.getByRole('button', { name: '本批暂不同步' }).click();
+    await page.reload();
+    await expect(panel).toContainText('已跳过');
+    expect(await worker.evaluate(() => (globalThis as any).__metadataFixture.requests.length)).toBe(requests.length);
+    await panel.getByRole('button', { name: '重新确认同步' }).click();
+    await expect(panel.getByRole('button', { name: '重新确认同步' })).toHaveCount(0);
+    await expect.poll(async () => (await readRecords(page)).find(r => r.videoCode === 'GHI-789')?.javdbUrl).toBe('https://javdb.com/v/GHI789');
+    const restoredRequests = await worker.evaluate(() => (globalThis as any).__metadataFixture.requests as string[]);
+    expect(restoredRequests.filter(r => r.includes('q=GHI-789'))).toHaveLength(1);
+    expect(restoredRequests.filter(r => r.includes('q=ABC-123'))).toHaveLength(1);
     const later = (await readRecords(page)).find(r => r.videoCode === 'GHI-789');
     const single = await page.evaluate(async recordId => chrome.runtime.sendMessage({ type: 'refresh-record', videoId: recordId }), later.id);
     expect(single.success).toBe(true); expect(single.record.id).toBe(later.id); expect(single.record.status).toBe('viewed');
     await page.goto(extensionPageUrl(id, 'dashboard/dashboard.html#tab-sync'));
-    await expect(page.locator('#media-metadata-sync-tasks')).toContainText('已取消');
-    await testInfo.attach('metadata-result.json', { body: JSON.stringify({ records: 4, firstBatchItems: 3, metadataSuccess: 2, unidentified: 1, sourceBeforeConsent: 0, onlyGet: true, metadataWriteFailureKeepsRecordAndRetry: true, realWatched: 1, inLibraryBeforeLater: 3, concurrentFieldsPreserved: true, singleRefreshSameId: true, laterBatchRequiresConsent: true }), contentType: 'application/json' });
+    await expect(page.locator('#media-metadata-sync-tasks')).toContainText('本批处理结束');
+    await testInfo.attach('metadata-result.json', { body: JSON.stringify({ records: 4, firstBatchItems: 3, metadataSuccess: 2, unidentified: 1, sourceBeforeConsent: 0, onlyGet: true, metadataWriteFailureKeepsRecordAndRetry: true, realWatched: 1, inLibraryBeforeLater: 3, concurrentFieldsPreserved: true, singleRefreshSameId: true, laterBatchRequiresConsent: true, skippedBatchResumesAfterReload: true, completedItemsNotRepeated: true }), contentType: 'application/json' });
   } finally { await context?.close(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });

@@ -33,12 +33,15 @@ it('shows one pending parent batch and requires a click before fetching metadata
  expect(refresh).toHaveBeenCalledTimes(1); expect(host.textContent).toContain('已补全 1'); expect(host.textContent).toContain('无番号影片');
  expect(message.mock.calls.some(([m]) => m.type === 'MEDIA_METADATA:CONFIRM')).toBe(true);
 });
-it('dismisses a pending batch without a site request and does not recreate it on remount', async () => {
+it('keeps skipped batches after remount and only resumes on explicit reconfirmation', async () => {
  await act(async () => root.render(createElement(MediaMetadataBatches)));
- await act(async () => button('不需要').click());
- expect(refresh).not.toHaveBeenCalled(); expect(host.textContent).toContain('已取消');
+ await act(async () => button('本批').click());
+ expect(refresh).not.toHaveBeenCalled(); expect(host.textContent).toContain('已跳过');
  await act(async () => { root.unmount(); root = createRoot(host); root.render(createElement(MediaMetadataBatches)); });
- expect(host.textContent).toContain('已取消'); expect(button('确认同步')).toBeUndefined();
+ expect(host.textContent).toContain('已跳过'); expect(refresh).not.toHaveBeenCalled();
+ expect(button('重新确认同步')).toBeDefined();
+ await act(async () => button('重新确认同步').click());
+ expect(refresh).toHaveBeenCalledTimes(1); expect(host.textContent).toContain('已补全 1');
 });
 it('shows failure and an explicit retry action, without counting it as completed metadata', async () => {
  refresh.mockRejectedValueOnce(new Error('未找到准确番号'));
