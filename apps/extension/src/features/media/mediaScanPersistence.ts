@@ -1,4 +1,5 @@
 /** @file mediaScanPersistence.ts @description 发布可重建索引前保留资料及观看事实 @module features/media */
+import { mediaMetadataTasks } from './mediaMetadataRuntime';
 import type { EmbyLibraryState } from '../embyLibrary/types';
 import { catalogFromLibrary, catalogRecords } from '../embyLibrary/domain/mediaCatalog';
 import { viewedAddMissingMediaRecords } from '../../platform/storage/indexedDb';
@@ -10,6 +11,7 @@ export async function preserveMediaScan(previous: EmbyLibraryState, next: EmbyLi
   await mergePersistedWatchEvidence(facts);
   const catalog = { ...await catalogFromLibrary(previous), ...await catalogFromLibrary(next) };
   await viewedAddMissingMediaRecords(catalogRecords(catalog, Date.now()));
+  await mediaMetadataTasks.discover();
 }
 
 /** Upgrade existing evidence/records on worker startup; rerunning is additive and idempotent. */

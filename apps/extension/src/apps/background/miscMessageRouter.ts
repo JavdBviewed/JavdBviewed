@@ -6,6 +6,7 @@
 ﻿// src/apps/background/miscMessageRouter.ts
 // 抽离杂项 handlers 与消息路由
 
+import { handleMediaMetadataMessage } from '../../features/media/mediaMetadataRuntime';
 import { refreshRecordById } from '../../features/records/refresh';
 import { logsAdd as idbLogsAdd, logsQuery as idbLogsQuery } from '../../platform/storage/indexedDb';
 import { handleNewWorksRuntimeMessage } from '../../features/newWorks/backgroundMessages';
@@ -100,6 +101,10 @@ export function registerMiscRouter(): void {
       if (!message || typeof message !== 'object') return false;
       if (typeof message.type === 'string' && message.type.startsWith('JAVDB_CROSSLINE_PAGE:')) {
         void handleCrosslinePromptMessage(message, sender).then(sendResponse);
+        return true;
+      }
+      if (typeof message.type === 'string' && message.type.startsWith('MEDIA_METADATA:')) {
+        void handleMediaMetadataMessage(message, sender).then(sendResponse);
         return true;
       }
       switch (message.type) {

@@ -47,5 +47,5 @@ export function mergeMediaCatalog(previous: MediaCatalog = {}, incoming: MediaCa
   return { ...next, ...incoming };
 }
 export function catalogRecords(catalog: MediaCatalog, now: number): VideoRecord[] {
-  return Object.entries(catalog).map(([id, entry]) => ({ id, title: entry.itemName, status: 'untracked', ...(entry.code ? { videoCode: entry.code } : {}), createdAt: now, updatedAt: now }));
+  return Object.entries(catalog).map(([id, entry]) => ({ id, title: entry.itemName, status: 'viewed', ...(entry.code ? { videoCode: entry.code } : {}), createdAt: now, updatedAt: now }));
 }

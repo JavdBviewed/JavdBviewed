@@ -47,6 +47,7 @@ import {
   type EmbySettingsFormState,
 } from './embySettingsModel';
 
+import { MediaMetadataBatches } from '../../../components/MediaMetadataBatches';
 import { MediaServerCreateDialog, MediaServerEditDialog } from './MediaServerDialogs';
 export { MediaServerCreateDialog, MediaServerEditDialog } from './MediaServerDialogs';
 
@@ -547,6 +548,7 @@ export function EmbySettingsPage() {
             ) : null}
 
             <LibrarySyncStatusPanel status={syncStatus} />
+            <MediaMetadataBatches />
 
             <div className="mx-2 mb-2 rounded-[var(--radius-2)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
               <SettingField

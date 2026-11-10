@@ -3,6 +3,7 @@
  * @description recordRefresh
  * @module features/records
  */
+import { refreshMediaRecordById } from './mediaRecordRefresh';
 import { viewedPut as idbViewedPut } from '../../../../platform/storage/indexedDb';
 import type { VideoRecord } from '../../../../types';
 import { STORAGE_KEYS } from '../../../../utils/config';
@@ -23,7 +24,7 @@ async function persistRecordToIndexedDb(record: VideoRecord): Promise<void> {
 }
 
 export async function refreshRecordById(videoId: string): Promise<VideoRecord> {
-  if (videoId.startsWith('media:')) throw new Error('这条资料来自媒体服务器，请重新扫描媒体库更新；尚未关联站点资料。');
+  if (videoId.startsWith('media:')) return refreshMediaRecordById(videoId);
   log(`[refreshRecordById] Function called with videoId: ${videoId}`);
   log(`[refreshRecordById] Starting refresh for: ${videoId}`);
 

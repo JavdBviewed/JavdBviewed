@@ -2,6 +2,7 @@
  * 数据同步模块主入口文件
  */
 
+import { mountMediaMetadataBatches, unmountMediaMetadataBatches } from '../../apps/dashboard/components/mountMediaMetadataBatches';
 import { logAsync } from '../logger';
 import { log } from '../../utils/logController';
 import { showMessage } from '../ui/toast';
@@ -39,6 +40,7 @@ export async function initDataSyncSection(): Promise<void> {
         // 初始化UI
         const ui = SyncUI.getInstance();
         await ui.init();
+        mountMediaMetadataBatches();
 
         // 绑定同步事件
         bindSyncEvents();
@@ -389,6 +391,7 @@ export async function checkSyncAvailability(): Promise<{
  * 清理资源
  */
 function cleanup(): void {
+    unmountMediaMetadataBatches();
     try {
         // 移除事件监听器
         document.removeEventListener('sync-requested', handleSyncRequest as EventListener);

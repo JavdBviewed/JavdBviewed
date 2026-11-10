@@ -61,7 +61,7 @@ test('media scan ingests records, preserves 99 watched after 58 removals, and fe
     expect(baseline).toHaveLength(100);
     expect(baseline.find(r => r.id === seed.id)).toEqual(seed);
     expect(baseline.filter(r => r.id.startsWith('media:'))).toHaveLength(98);
-    expect(baseline.filter(r => r.id.startsWith('media:')).every(r => r.status === 'untracked' && !r.javdbUrl)).toBe(true);
+    expect(baseline.filter(r => r.id.startsWith('media:')).every(r => r.status === 'viewed' && !r.javdbUrl)).toBe(true);
     await scan();
     expect(await readRecords(page)).toEqual(baseline);
 
@@ -105,7 +105,7 @@ test('media scan ingests records, preserves 99 watched after 58 removals, and fe
     expect(requests.some(r => r.endsWith('/Items/unknown/UserData'))).toBe(true);
     const refresh = await page.evaluate(async mediaId => chrome.runtime.sendMessage({ type: 'refresh-record', videoId: mediaId }), unknown.id);
     expect(refresh.success).toBe(false);
-    expect(refresh.error).toContain('媒体服务器');
+    expect(refresh.error).toContain('尚未识别番号');
 
     items = [];
     await scan();
