@@ -188,12 +188,54 @@ describe('mergeDrive115SessionForPull · issue #58 token 组级时间戳 LWW', (
     expect(out.theme).toBe('dark');
   });
 
-  it('local 组非空 + incoming 组非空且戳新 → 组外会话键（v2AuthMode 等）仍走键级保护', () => {
-    const local = { drive115: { v2AccessToken: 'AT-a', v2RefreshToken: 'RT-a', v2AuthMode: 'openlist_scan', v2AccessTokenStatus: 'expired', [STAMP]: 100 } };
-    const incoming = { drive115: { v2AccessToken: 'AT-b', v2RefreshToken: 'RT-b', v2AuthMode: 'self_app', [STAMP]: 200 } };
+  it('incoming 组戳新 → flag 键随 incoming 组整体迁移（issue #58 残留：local 旧 flag 不得残留）；组外 v2AuthMode 仍键级 LWW', () => {
+    const local = {
+      drive115: {
+        v2AccessToken: 'AT-a', v2RefreshToken: 'RT-a', v2AuthMode: 'openlist_scan',
+        v2AccessTokenStatus: 'expired', v2RefreshTokenStatus: 'invalid',
+        v2RefreshTokenLastError: 'refresh_token 检验失败（防篡改）', v2RefreshTokenLastErrorCode: 40140120,
+        [STAMP]: 100,
+      },
+    };
+    const incoming = {
+      drive115: {
+        v2AccessToken: 'AT-b', v2RefreshToken: 'RT-b', v2AuthMode: 'self_app',
+        v2AccessTokenStatus: 'valid', v2RefreshTokenStatus: 'valid',
+        [STAMP]: 200,
+      },
+    };
     const out = mergeDrive115SessionForPull(local, incoming) as Record<string, any>;
+    expect(out.drive115.v2AccessToken).toBe('AT-b');
     expect(out.drive115.v2AuthMode).toBe('self_app');
-    expect(out.drive115.v2AccessTokenStatus).toBe('expired'); // 键级保护：local 非空 + incoming 缺 → 保 local
+    // flag 随胜方组原子迁移：valid 整体落库，local 的 invalid/错误字段不得残留
+    expect(out.drive115.v2RefreshTokenStatus).toBe('valid');
+    expect(out.drive115.v2AccessTokenStatus).toBe('valid');
+    expect(out.drive115.v2RefreshTokenLastError).toBeUndefined();
+    expect(out.drive115.v2RefreshTokenLastErrorCode).toBeUndefined();
+  });
+
+  it('local 组戳新 → local 组 flag 整体保留，incoming 旧 flag 不得落（sticky invalid 不再翻回新组）', () => {
+    const local = {
+      drive115: {
+        v2AccessToken: 'AT-new', v2RefreshToken: 'RT-new',
+        v2RefreshTokenStatus: 'valid', v2AccessTokenStatus: 'valid',
+        [STAMP]: 200,
+      },
+    };
+    const incoming = {
+      drive115: {
+        v2AccessToken: 'AT-stale', v2RefreshToken: 'RT-stale',
+        v2RefreshTokenStatus: 'invalid',
+        v2RefreshTokenLastError: 'refresh_token 检验失败（防篡改）', v2RefreshTokenLastErrorCode: 40140120,
+        [STAMP]: 100,
+      },
+    };
+    const out = mergeDrive115SessionForPull(local, incoming) as Record<string, any>;
+    expect(out.drive115.v2AccessToken).toBe('AT-new');
+    expect(out.drive115.v2RefreshTokenStatus).toBe('valid');
+    expect(out.drive115.v2AccessTokenStatus).toBe('valid');
+    expect(out.drive115.v2RefreshTokenLastError).toBeUndefined();
+    expect(out.drive115.v2RefreshTokenLastErrorCode).toBeUndefined();
   });
 
   it('戳为非 number（脏数据）→ 按无戳处理，走 incoming 组', () => {

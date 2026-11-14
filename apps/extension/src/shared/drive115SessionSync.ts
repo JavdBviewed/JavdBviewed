@@ -12,12 +12,17 @@
  * 较新 in-place 变更」同根，按同一先例修复：
  *
  * 本模块是 settings 分支同步的合并层（纯函数，不改协议面 revision/LWW 信封）：
- * - token 三件套（v2AccessToken/v2RefreshToken/v2TokenExpiresAt）= 一个原子组，
- *   按 v2RefreshTokenIssuedAtSec 组级 LWW（与 emby 条目级 updatedAt LWW 同口径，
+ * - token 组 = 三件套（v2AccessToken/v2RefreshToken/v2TokenExpiresAt）+ 6 个
+ *   状态/错误 flag 键（DRIVE115_TOKEN_GROUP_FLAG_KEYS），按
+ *   v2RefreshTokenIssuedAtSec 组级 LWW（与 emby 条目级 updatedAt LWW 同口径，
  *   服务端 merge_settings.go mergeDrive115Objects 语义逐字对齐）：
  *   local 戳 > incoming 戳 → local 整组胜；incoming 组非空 → incoming 整组胜
- *   （戳更新/平手/双无戳）；incoming 组全空 → 清除不传播，local 组非空则整组保留；
- * - 组外会话键（v2AuthMode/状态/最近刷新时间）保留 10-13 键级保护：
+ *   （戳更新/平手/双无戳）；incoming 组全空 → 清除不传播，local 组非空则整组保留。
+ *   flag 键必须随胜方组原子迁移（issue #58 残留修复）：云端旧 token 组失效后
+ *   留下的 sticky invalid/40140120 flag 若组外逐键 LWW，会在每个同步周期被新组
+ *   设备 pull 回来，覆盖 valid flag 并让 refreshToken/getValidAccessToken
+ *   短路拒刷（UI 恒显「refresh_token 无效」）；
+ * - 组外会话键（v2AuthMode/v2LastTokenRefreshAtSec）保留 10-13 键级保护：
  *   local 非空 + incoming 空/缺 → 保 local；
  * - 键族边界不变：v2ClientId 等非会话配置键不保护，随整 blob LWW（G3-ii 裁决保留）；
  * - A 端清除不传播到 B = known-limitation（服务端 token 失效收敛）；
@@ -41,14 +46,27 @@ export const DRIVE115_SESSION_KEYS = [
 /** token 三件套组（issue #58）：必须作为整体组同步，不得逐键分裂。 */
 export const DRIVE115_TOKEN_GROUP_KEYS = ['v2AccessToken', 'v2RefreshToken', 'v2TokenExpiresAt'] as const;
 
+/**
+ * 状态/错误 flag 键（issue #58 残留修复，与 Cloud 服务端 drive115TokenGroupFlagKeys 逐字对齐）：
+ * 随胜方组由 applyTokenGroup 原子迁移，不得组外逐键 LWW。flag 留在组外时，云端旧
+ * token 组的 sticky invalid/40140120 flag 会在每个同步周期被新组设备 pull 回来，
+ * 覆盖 valid flag 并让 refreshToken/getValidAccessToken 短路拒刷。
+ */
+export const DRIVE115_TOKEN_GROUP_FLAG_KEYS = [
+  'v2RefreshTokenStatus',
+  'v2RefreshTokenLastError',
+  'v2RefreshTokenLastErrorCode',
+  'v2AccessTokenStatus',
+  'v2AccessTokenLastError',
+  'v2AccessTokenLastErrorCode',
+] as const;
+
 /** 组共享时间戳键：每次 token 写入路径（扫码/手动粘贴/自动刷新）都会写入。 */
 export const DRIVE115_TOKEN_GROUP_STAMP_KEY = 'v2RefreshTokenIssuedAtSec';
 
-/** 组外保留旧键级保护的会话键。 */
+/** 组外保留旧键级保护的会话键（flag 键已随组迁移，移出保护列表）。 */
 export const DRIVE115_PROTECTED_SESSION_KEYS = [
   'v2AuthMode',
-  'v2RefreshTokenStatus',
-  'v2AccessTokenStatus',
   'v2LastTokenRefreshAtSec',
 ] as const;
 
@@ -80,9 +98,9 @@ function tokenGroupPresent(record: AnyRecord | null): boolean {
   return DRIVE115_TOKEN_GROUP_KEYS.some((key) => isSessionValuePresent(record[key]));
 }
 
-/** 把 src 的 token 三件套 + 时间戳键原子写入 out（src 缺键则从 out 删除，防组内键跨侧混杂）。 */
+/** 把 src 的 token 组（三件套 + 状态/错误 flag 键 + 时间戳键）原子写入 out（src 缺键则从 out 删除，防组内键跨侧混杂）。 */
 function applyTokenGroup(out: AnyRecord, src: AnyRecord): void {
-  const keys = [...DRIVE115_TOKEN_GROUP_KEYS, DRIVE115_TOKEN_GROUP_STAMP_KEY] as const;
+  const keys = [...DRIVE115_TOKEN_GROUP_KEYS, ...DRIVE115_TOKEN_GROUP_FLAG_KEYS, DRIVE115_TOKEN_GROUP_STAMP_KEY] as const;
   for (const key of keys) {
     if (Object.prototype.hasOwnProperty.call(src, key)) {
       out[key] = src[key];
@@ -106,9 +124,10 @@ function isSameRecord(a: AnyRecord, b: AnyRecord | null): boolean {
 /**
  * pull 应用层合并（与 mergeEmbyMediaServersForPull 并列，settings 分支串联）：
  *
- * - token 三件套按 v2RefreshTokenIssuedAtSec 组级 LWW（issue #58；语义与
- *   Cloud 服务端 mergeDrive115Objects 逐字对齐）；
- * - 组外会话键：local 非空 + incoming 空/缺 → 保 local（10-13 键级保护不变）；
+ * - token 组（三件套 + 状态/错误 flag 键）按 v2RefreshTokenIssuedAtSec 组级 LWW
+ *   （issue #58；语义与 Cloud 服务端 mergeDrive115Objects 逐字对齐）；
+ * - 组外会话键（v2AuthMode/v2LastTokenRefreshAtSec）：local 非空 + incoming 空/缺
+ *   → 保 local（10-13 键级保护不变）；
  * - 未触发任何保护时原样返回 incoming（同引用零漂移快路径）；
  * - 纯函数：不改 local/incoming 输入。
  */
