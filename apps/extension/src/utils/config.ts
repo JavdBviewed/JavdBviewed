@@ -70,6 +70,8 @@ export const STORAGE_KEYS = {
     // Cloud 本地文件聚合与首次补拉标记（只读索引 / 本机标记）
     LOCAL_MEDIA_LIBRARY_STATE: 'local_media_library_state',
     CLOUD_LOCAL_MEDIA_INDEX_MIGRATION: 'cloud_local_media_index_migration_v1',
+    // 补拉游标回拨一次性标记：云端从未有过本地媒体索引的账号不能每轮回拨（2026-11-17 P0 全量重下回归）
+    CLOUD_LOCAL_MEDIA_INDEX_REPLAY_ARMED: 'cloud_local_media_index_replay_armed_v1',
     // 115 片库索引进行中进度快照（dashboard 实时展示）
     DRIVE115_LIBRARY_INDEX_PROGRESS: 'drive115_library_index_progress',
     // 115 片库扫描恢复点（不含授权信息）

@@ -5,6 +5,7 @@ import { CLOUD_CURSORS_STORAGE_KEY } from './chromeCursorStore';
 import { markCloudStorageWrite } from './storageChangeGate';
 
 export const LOCAL_MEDIA_INDEX_MIGRATION_KEY = STORAGE_KEYS.CLOUD_LOCAL_MEDIA_INDEX_MIGRATION;
+export const LOCAL_MEDIA_INDEX_REPLAY_ARMED_KEY = STORAGE_KEYS.CLOUD_LOCAL_MEDIA_INDEX_REPLAY_ARMED;
 
 // 这里的写成功决定是否停止补拉；必须检查lastError，不能使用吞掉写失败的旧封装。
 function readStorage(keys: string[]): Promise<Record<string, unknown>> {
@@ -50,14 +51,24 @@ export async function removeLocalMediaIndex(): Promise<void> {
   });
 }
 
-/** 每轮同步调用一次；未成功应用索引时下一轮可重试，不在同轮自动循环。 */
+/**
+ * 每轮同步调用一次；回拨自标记，至多触发一次全量补拉。
+ * 云端从未有过 local_media_library_state 的账号补拉永不会成功，若每轮都回拨
+ * storage_item 游标会导致每 5min 全量重下（2026-11-17 P0）。回拨与 armed 标记
+ * 同一次写入落盘；若该轮会话失败游标仍为 0，下轮请求天然走全量自愈，无需再回拨。
+ */
 export async function prepareLocalMediaIndexReplay(): Promise<void> {
   const values = await readStorage([
-    STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE, LOCAL_MEDIA_INDEX_MIGRATION_KEY, CLOUD_CURSORS_STORAGE_KEY,
+    STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE, LOCAL_MEDIA_INDEX_MIGRATION_KEY,
+    LOCAL_MEDIA_INDEX_REPLAY_ARMED_KEY, CLOUD_CURSORS_STORAGE_KEY,
   ]);
   if (values[LOCAL_MEDIA_INDEX_MIGRATION_KEY] === true
     || parseLocalMediaLibraryIndex(values[STORAGE_KEYS.LOCAL_MEDIA_LIBRARY_STATE])) return;
+  if (values[LOCAL_MEDIA_INDEX_REPLAY_ARMED_KEY] === true) return;
   const raw = values[CLOUD_CURSORS_STORAGE_KEY];
   const cursors = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  await writeStorage({ [CLOUD_CURSORS_STORAGE_KEY]: { ...cursors, storage_item: 0 } });
+  await writeStorage({
+    [CLOUD_CURSORS_STORAGE_KEY]: { ...cursors, storage_item: 0 },
+    [LOCAL_MEDIA_INDEX_REPLAY_ARMED_KEY]: true,
+  });
 }

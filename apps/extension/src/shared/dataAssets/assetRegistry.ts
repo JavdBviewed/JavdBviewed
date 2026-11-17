@@ -347,6 +347,14 @@ export const DATA_ASSET_REGISTRY: readonly DataAssetPolicy[] = [
     '本机本地媒体索引首次补拉完成标记，不参与跨端同步。',
   ),
   chromeStorage(
+    'storage.localMediaIndexReplayArmed',
+    STORAGE_KEYS.CLOUD_LOCAL_MEDIA_INDEX_REPLAY_ARMED,
+    'local-only',
+    { backup: false, restore: false, restoreMode: 'skip' },
+    { full: false, incremental: false },
+    '本机补拉游标回拨一次性标记，保证全量补拉至多发生一次，不参与跨端同步。',
+  ),
+  chromeStorage(
     'storage.drive115LibraryIndexProgress',
     STORAGE_KEYS.DRIVE115_LIBRARY_INDEX_PROGRESS,
     'runtime',

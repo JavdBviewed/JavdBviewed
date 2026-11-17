@@ -227,18 +227,25 @@ describe('upgrade replay through the real adapter, engine and persisted cursors'
     await expect(runCloudSyncNow()).rejects.toThrow('network unavailable');
     expect(mocks.session).toHaveBeenCalledTimes(1);
     expect(storage[DONE]).toBeUndefined();
-    storage[CURSORS] = { storage_item: 90, video: 41 };
+    // 会话失败不回写游标（引擎先 apply 后 set），下一轮天然从 0 全量重试，无需二次回拨
+    expect(storage[CURSORS]).toMatchObject({ storage_item: 0 });
     mocks.session.mockResolvedValue(response([remote(index([]))]));
     await runCloudSyncNow();
     expect(mocks.session.mock.calls.map(([request]) => request.cursors.storage_item)).toEqual([0, 0]);
     expect(storage[DONE]).toBe(true);
   });
 
-  it('retries next round when no index was returned even though the server advanced the cursor', async () => {
+  it('keeps the advanced cursor when no index was returned instead of looping full replays', async () => {
     await runCloudSyncNow();
     expect(storage[DONE]).toBeUndefined();
     await runCloudSyncNow();
-    expect(mocks.session.mock.calls.map(([request]) => request.cursors.storage_item)).toEqual([0, 0]);
+    // 一次性回拨后游标停在水位，不再全量重下（2026-11-17 P0）
+    expect(mocks.session.mock.calls.map(([request]) => request.cursors.storage_item)).toEqual([0, 100]);
+    // 索引晚进云时以新序列增量到达并照常应用
+    mocks.session.mockResolvedValue(response([remote(index([]))]));
+    await runCloudSyncNow();
+    expect(mocks.session.mock.calls.map(([request]) => request.cursors.storage_item)).toEqual([0, 100, 100]);
+    expect(storage[DONE]).toBe(true);
   });
 
   it('treats a malformed stored index as absent and retries after an application failure', async () => {
